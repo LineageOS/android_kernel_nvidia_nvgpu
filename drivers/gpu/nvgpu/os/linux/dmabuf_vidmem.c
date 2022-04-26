@@ -20,8 +20,9 @@
 #include <linux/dma-buf.h>
 #include <uapi/linux/nvgpu.h>
 
-#ifdef CONFIG_NVGPU_USE_TEGRA_ALLOC_FD
-#include <linux/platform/tegra/tegra_fd.h>
+#ifdef CONFIG_NVGPU_IGNORE_PROCESS_FD_LIMIT
+#include <linux/fdtable.h>
+#include <linux/fs.h>
 #endif
 
 #include <nvgpu/dma.h>
@@ -193,8 +194,9 @@ int nvgpu_vidmem_export_linux(struct gk20a *g, size_t bytes)
 
 	buf->priv = priv;
 
-#ifdef CONFIG_NVGPU_USE_TEGRA_ALLOC_FD
-	fd = tegra_alloc_fd(current->files, 1024, O_RDWR | O_CLOEXEC);
+#ifdef CONFIG_NVGPU_IGNORE_PROCESS_FD_LIMIT
+	fd = __alloc_fd(current->files, 1024, sysctl_nr_open,
+			O_RDWR | O_CLOEXEC);
 #else
 	fd = get_unused_fd_flags(O_RDWR | O_CLOEXEC);
 #endif

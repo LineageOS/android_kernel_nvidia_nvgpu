@@ -146,11 +146,12 @@ ifeq ($(CONFIG_TRACING),y)
 #CONFIG_GK20A_TRACE_PRINTK := y
 endif
 
-# Use tegra_alloc_fd() for allocating dma_buf fds. This allocates
-# the fds above 1024 which exempts them from counting against process
-# fd limit.
-ifeq ($(CONFIG_NV_TEGRA_MC),y)
-CONFIG_NVGPU_USE_TEGRA_ALLOC_FD := y
+# Use __alloc_fd() to allocate the fds above 1024 for vidmem dmabufs
+# This exempts from counting against process fd limit.
+ifeq ($(CONFIG_NVGPU_DGPU),y)
+ifneq ($(findstring 5.10,$(NV_BUILD_KERNEL_OPTIONS)),)
+CONFIG_NVGPU_IGNORE_PROCESS_FD_LIMIT := y
+endif
 endif
 
 CONFIG_TEGRA_NVLINK := n
