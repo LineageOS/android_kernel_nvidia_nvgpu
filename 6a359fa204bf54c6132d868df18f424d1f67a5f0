@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "b7125841_81ea2aff",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 27741
+      },
+      "writtenOn": "2022-05-02T21:41:49Z",
+      "side": 1,
+      "message": "verified on icosa--logspam is gone, no regressions as far as i can tell",
+      "revId": "6a359fa204bf54c6132d868df18f424d1f67a5f0",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
