@@ -119,8 +119,10 @@ endif
 
 CONFIG_NVGPU_NVMEM_FUSE := n
 
+ifneq ($(findstring 5.10,$(NV_BUILD_KERNEL_OPTIONS)),)
 CONFIG_NVGPU_NVMAP_NEXT := y
 CONFIG_NVGPU_NVMEM_FUSE := y
+endif
 
 # Set CONFIG_NVGPU_IVM_BUILD for non-oot build
 ifneq ($(CONFIG_TEGRA_OOT_MODULE),m)
