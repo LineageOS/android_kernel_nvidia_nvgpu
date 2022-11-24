@@ -212,6 +212,8 @@ static int gp10b_tegra_probe(struct device *dev)
 		nvgpu_set_enabled(g, NVGPU_CAN_RAILGATE, false);
 	}
 
+	nvgpu_mutex_init(&platform->clks_lock);
+
 	ret = gp10b_tegra_get_clocks(dev);
 	if (ret != 0) {
 		return ret;
@@ -248,6 +250,7 @@ static int gp10b_tegra_remove(struct device *dev)
 #endif
 
 	nvgpu_mutex_destroy(&platform->clk_get_freq_lock);
+	nvgpu_mutex_destroy(&platform->clks_lock);
 
 	return 0;
 }
