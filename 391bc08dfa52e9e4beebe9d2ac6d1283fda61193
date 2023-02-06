@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "05cf61a5_9ec4913b",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 14048
+      },
+      "writtenOn": "2023-02-06T01:45:39Z",
+      "side": 1,
+      "message": "Upstream removed gp10b (tx2) support, this is needed to keep the reverted removal in sync with newer changes.",
+      "revId": "391bc08dfa52e9e4beebe9d2ac6d1283fda61193",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
