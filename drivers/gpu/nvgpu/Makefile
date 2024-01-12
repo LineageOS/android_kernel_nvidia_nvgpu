@@ -24,6 +24,10 @@ ccflags-y += -Werror
 ccflags-y += -Wno-error=cpp
 ifeq ($(VERSION),4)
 ccflags-y += -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
+ccflags-y += $(call cc-disable-warning, maybe-uninitialized)
+ccflags-y += $(call cc-disable-warning, unused-but-set-variable)
+ccflags-y += $(call cc-disable-warning, pointer-sign)
+ccflags-y += $(call cc-disable-warning, stringop-truncation)
 endif
 
 # Turn off when this is fixed upstream, if ever.
