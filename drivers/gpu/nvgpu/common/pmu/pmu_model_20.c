@@ -59,9 +59,10 @@ int nvgpu_pmu_wait_fw_driver_register_ready(struct gk20a *g)
 }
 
 int nvgpu_pmu_driver_register_send(struct gk20a *g,
-		enum  driver_register_type register_type)
+		enum  driver_register_type register_type, u32 client_mask)
 {
-	int err = 0;
+	int  err = 0;
+	bool send_rpc = true;
 
 	struct pmu_rpc_struct_driver_register_event rpc;
 
@@ -71,11 +72,14 @@ int nvgpu_pmu_driver_register_send(struct gk20a *g,
 	switch (register_type) {
 	case register_start:
 		rpc.registerEvent = NV_PMU_DRIVER_REGISTER_EVENT_REGISTER_START;
-		g->pmu->driver_register_ongoing = true;
+		g->pmu->driver_register_client_mask = client_mask;
 		break;
 	case register_complete:
 		rpc.registerEvent = NV_PMU_DRIVER_REGISTER_EVENT_REGISTER_COMPLETE;
-		g->pmu->driver_register_ongoing = false;
+		g->pmu->driver_register_client_mask &= ~client_mask;
+		if (g->pmu->driver_register_client_mask) {
+			send_rpc = false;
+		}
 		break;
 	case unregister_start:
 		rpc.registerEvent = NV_PMU_DRIVER_REGISTER_EVENT_UNREGISTER_START;
@@ -88,9 +92,14 @@ int nvgpu_pmu_driver_register_send(struct gk20a *g,
 		goto exit;
 	}
 
-	nvgpu_log_info(g, "Send driver_register rpc, type %d", register_type);
-
-	PMU_RPC_EXECUTE(err, g->pmu, CMDMGMT, DRIVER_REGISTER_EVENT, &rpc, 0);
+	if (send_rpc) {
+		nvgpu_log_info(g, "Send driver_register rpc, type %d, client_mask 0x%x",
+			register_type, g->pmu->driver_register_client_mask);
+		PMU_RPC_EXECUTE(err, g->pmu, CMDMGMT, DRIVER_REGISTER_EVENT, &rpc, 0);
+	} else {
+		nvgpu_log_info(g, "Skip driver_register rpc, type %d, client_mask 0x%x",
+			register_type, g->pmu->driver_register_client_mask);
+	}
 
 exit:
 	return err;

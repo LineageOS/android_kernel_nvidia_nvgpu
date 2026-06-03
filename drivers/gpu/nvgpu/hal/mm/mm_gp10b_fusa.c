@@ -77,7 +77,7 @@ void gp10b_mm_get_default_va_sizes(u64 *aperture_size,
 	 * The default userspace-visible GPU VA size.
 	 */
 	if (user_size != NULL) {
-		*user_size = BIT64(37);
+		*user_size = BIT64(39);
 	}
 
 	/*

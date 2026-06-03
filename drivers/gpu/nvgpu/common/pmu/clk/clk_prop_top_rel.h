@@ -9,19 +9,6 @@
 #include <nvgpu/boardobjgrp_e32.h>
 #include <common/pmu/boardobj/boardobj.h>
 
-#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX 32
-#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX  32
-
-struct ctrl_clk_prop_top_rel_table_rel_tuple {
-	u16 freqMHzSrc;
-	u16 freqMHzDst;
-};
-
-struct ctrl_clk_prop_top_rel_cpmu_rel_tuple {
-	u16 clkDomainIdxSrc;
-	u16 clkDomainIdxDst;
-};
-
 struct clk_prop_top_rel {
 	struct pmu_board_obj super;
 	u8 clkDomainIdxSrc;
@@ -29,21 +16,8 @@ struct clk_prop_top_rel {
 	bool bBiDirectional;
 };
 
-struct nvgpu_clk_prop_top_rels {
-	struct boardobjgrp_e255 super;
-	u8 tableRelTupleCount;
-	struct ctrl_clk_prop_top_rel_table_rel_tuple
-		tableRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX];
-	u8 cpmuRelTupleCount;
-	struct ctrl_clk_prop_top_rel_cpmu_rel_tuple
-		cpmuRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX];
-};
-
 struct clk_prop_top_rel_model_10 {
 	struct clk_prop_top_rel super;
-	// Todo: Do we need full model 10 struct: BOARDOBJ_IFACE_MODEL_10
-	// BOARDOBJ_IFACE_MODEL_10 model10;
-	s16 *offset;	// Todo: TBD update to model 10 IFACE with interface_virtual_table struct?
 };
 
 struct clk_prop_top_rel_1x {
@@ -60,6 +34,19 @@ struct clk_prop_top_rel_1x_volt {
 	struct clk_prop_top_rel_1x super;
 	u8 voltRailIdx;
 };
+
+struct nvgpu_clk_prop_top_rels {
+	struct boardobjgrp_e255 super;
+	u8 tableRelTupleCount;
+	struct ctrl_clk_prop_top_rel_table_rel_tuple
+		tableRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX];
+	u8 cpmuRelTupleCount;
+	struct ctrl_clk_prop_top_rel_cpmu_rel_tuple
+		cpmuRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX];
+};
+
+
+s32 get_gpc_to_sys_clk_freq_ratio_percent(struct gk20a *g, u32 *ratio);
 
 s32 clk_prop_top_rel_init_pmupstate(struct gk20a *g);
 void clk_prop_top_rel_free_pmupstate(struct gk20a *g);

@@ -28,7 +28,9 @@ bool gb10b_class_is_valid(u32 class_num)
 	case NVCEB7_VIDEO_ENCODER:
 	case NVCEFA_VIDEO_OFA:
 	case NVCEB0_VIDEO_DECODER:
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	case NVCED0_VIDEO_NVJPG:
+#endif
 		valid = true;
 		break;
 	default:
@@ -115,6 +117,7 @@ bool gb10b_class_is_valid_nvdec(u32 class_num)
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 bool gb10b_class_is_valid_nvjpg(u32 class_num)
 {
 	nvgpu_speculation_barrier();
@@ -125,11 +128,15 @@ bool gb10b_class_is_valid_nvjpg(u32 class_num)
 		return false;
 	}
 }
+#endif
 
 bool gb10b_class_is_valid_multimedia(u32 class_num)
 {
 	return gb10b_class_is_valid_nvenc(class_num) ||
 		gb10b_class_is_valid_ofa(class_num) ||
 		gb10b_class_is_valid_nvdec(class_num) ||
-		gb10b_class_is_valid_nvjpg(class_num);
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+		gb10b_class_is_valid_nvjpg(class_num) ||
+#endif
+		false;
 }

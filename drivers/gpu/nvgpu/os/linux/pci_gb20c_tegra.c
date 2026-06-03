@@ -96,6 +96,7 @@ struct gk20a_platform gb20c_pci_tegra_platform = {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
 	.has_syncpoints = true,
 #endif
+	.has_scheduling_domains = false,
 
 	/* ptimer src frequency in hz*/
 	.ptimer_src_freq = 31250000,
@@ -113,21 +114,33 @@ struct gk20a_platform gb20c_pci_tegra_platform = {
 	/* power management features */
 	/* Enable power management features: JIRA NVGPU-9261 */
 	/* Disable power features to support GPU_BRINGUP */
-	.can_slcg               = false,
-	.enable_slcg            = false,
-	.can_blcg               = false,
-	.enable_blcg            = false,
-	.can_elcg               = false,
-	.enable_elcg            = false,
-	.can_flcg               = false,
+	.can_slcg               = true,
+	.enable_slcg            = true,
+	.can_blcg               = true,
+	.enable_blcg            = true,
+	.can_elcg               = true,
+	.enable_elcg            = true,
+	.can_flcg               = true,
 	.enable_flcg            = false,
+	.enable_fgpg            = true,
 	.enable_gpcclk_flcg     = false,
+	.enable_nvdclk_flcg     = true,
 	.enable_perfmon         = false,
 
-	.enable_elpg            = false,
-	.enable_elpg_ms         = false,
 	.can_elpg_init          = true,
+	.enable_elpg            = true,
 	.enable_aelpg           = false,
+	.can_elpg_ms_init       = false,
+	.enable_elpg_ms         = false,
+	.can_gpc_rg_init        = true,
+	.enable_gpc_rg          = true,
+	.can_vid_elpg_init      = true,
+	.enable_nvdec_elpg      = true,
+	.enable_nvenc_elpg      = true,
+	.enable_ofa_elpg        = true,
+
+	/* Enable P-state support by setting NVGPU_PMU_PSTATE flag to true*/
+	.pstate                 = true,
 
 	/* TODO: power management callbacks */
 	.suspend = NULL,

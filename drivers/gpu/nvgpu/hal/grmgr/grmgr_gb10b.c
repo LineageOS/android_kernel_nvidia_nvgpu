@@ -295,7 +295,6 @@ int gb10b_grmgr_setup_vpr(struct gk20a *g)
 	gb10b_fb_configure_vpr_mmu_mig(g, swizzid_checks, gfx_swizzid);
 	return 0;
 }
-#endif
 
 int gb10b_grmgr_setup_ltc_partition(struct gk20a *g, u32 syspipe_id)
 {
@@ -329,11 +328,13 @@ int gb10b_grmgr_setup_ltc_partition(struct gk20a *g, u32 syspipe_id)
 
 	return ret;
 }
+#endif
 
 void gb10b_grmgr_setup_fbp_id_mapping(struct gk20a *g, struct nvgpu_gpu_instance *gpu_instance)
 {
 	u32 fbp_en_mask = gpu_instance->fbp_en_mask;
 	u32 i, j = 0;
+	u64 bit = 0UL;
 
 	if (!nvgpu_grmgr_is_mig_type_gpu_instance(gpu_instance)) {
 		for (i = 0; i < gpu_instance->num_fbp; i++) {
@@ -349,11 +350,11 @@ void gb10b_grmgr_setup_fbp_id_mapping(struct gk20a *g, struct nvgpu_gpu_instance
 	 * Memory partition is supported on gb10b. As per memory partition across
 	 * MIG, setup mapping of fbp logical id to local id.
 	 */
-	for_each_set_bit(i, (const unsigned long *)&fbp_en_mask, sizeof(fbp_en_mask) * 8) {
-		gpu_instance->fbp_mappings[j] = nvgpu_fbp_get_fbp_logical_index(g->fbp, i);
+	for_each_set_bit(bit, (const unsigned long *)&fbp_en_mask, sizeof(fbp_en_mask) * 8) {
+		gpu_instance->fbp_mappings[j] = nvgpu_fbp_get_fbp_logical_index(g->fbp, (u32)bit);
 		nvgpu_log(g, gpu_dbg_info, "gpu_instance_id %u: fbp_mapping: "
 				"local[%u] -> logical[%u] -> physical[%u]",
-			gpu_instance->gpu_instance_id, j, gpu_instance->fbp_mappings[j], i);
+			gpu_instance->gpu_instance_id, j, gpu_instance->fbp_mappings[j], (u32)bit);
 		j = nvgpu_safe_add_u32(j, 1);
 	}
 }

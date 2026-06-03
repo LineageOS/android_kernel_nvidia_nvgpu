@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -43,6 +43,8 @@
 
 #define func_full_phys_offset_v()                                  (0x00b80000U)
 #define func_doorbell_r()                                          (0x00030090U)
+#define func_time_0_r()                                            (0x00030080U)
+#define func_time_1_r()                                            (0x00030084U)
 #define func_cfg0_r()                                              (0x00030000U)
 #define func_priv_cpu_intr_top_en_set_r(i)\
 		(nvgpu_safe_add_u32(0x00001608U, nvgpu_safe_mult_u32((i), 4U)))

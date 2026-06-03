@@ -13,7 +13,7 @@ struct gk20a;
 bool gb10b_lrc_pri_is_lrcc_addr(struct gk20a *g, u32 addr);
 bool gb10b_lrc_pri_is_lrcs_addr(struct gk20a *g, u32 addr);
 bool gb10b_lrc_pri_is_lrcs_lrccs_addr(struct gk20a *g, u32 addr);
-void gb10b_lrc_split_lrc_broadcast_addr(struct gk20a *g, u32 addr,
+s32 gb10b_lrc_split_lrc_broadcast_addr(struct gk20a *g, u32 addr,
 					u32 *priv_addr_table,
 					u32 *priv_addr_table_index);
 void gb10b_lrc_split_lrcc_broadcast_addr(struct gk20a *g, u32 addr,

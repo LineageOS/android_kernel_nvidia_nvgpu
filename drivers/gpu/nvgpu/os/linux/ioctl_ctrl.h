@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef __NVGPU_IOCTL_CTRL_H__
 #define __NVGPU_IOCTL_CTRL_H__
 
@@ -64,11 +65,9 @@ struct nvgpu_tsg *nvgpu_gpu_open_tsg_with_share_token(struct gk20a *g,
 				 u64 token);
 void nvgpu_gpu_encode_share_token(struct gk20a *g,
 				  u64 source_device_instance_id,
-				  u64 token, size_t share_token_sz,
-				  u8 *share_token);
+				  u64 token, u8 *share_token);
 void nvgpu_gpu_decode_share_token(struct gk20a *g,
 				  u8 *share_token,
-				  size_t share_token_sz,
 				  u64 *source_device_instance_id, u64 *token);
 #endif
 

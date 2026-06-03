@@ -36,6 +36,7 @@ int nvgpu_ce_execute_ops(struct gk20a *g,
 	struct nvgpu_gpfifo_entry gpfifo;
 	struct nvgpu_channel_fence fence = {0U, 0U};
 	struct nvgpu_fence_type *ce_cmd_buf_fence_out = NULL;
+	u32 offset_size = 0U;
 
 	if (!ce_app->initialised || ce_app->app_state != NVGPU_CE_ACTIVE) {
 		goto end;
@@ -99,8 +100,19 @@ int nvgpu_ce_execute_ops(struct gk20a *g,
 		}
 	}
 
-	cmd_buf_gpu_va = (ce_ctx->cmd_buf_mem.gpu_va +
-			(u64)(cmd_buf_read_offset * sizeof(u32)));
+	if (!nvgpu_safe_mult_u32_return(cmd_buf_read_offset, sizeof(u32),
+			 &offset_size)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		ret = -EOVERFLOW;
+		goto noop;
+	}
+
+	if (!nvgpu_safe_add_u64_return(ce_ctx->cmd_buf_mem.gpu_va, (u64)offset_size,
+			 &cmd_buf_gpu_va)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		ret = -EOVERFLOW;
+		goto noop;
+	}
 
 	dma_copy_class = g->ops.get_litter_value(g, GPU_LIT_DMA_COPY_CLASS);
 	method_size = nvgpu_ce_prepare_submit(dst_paddr,

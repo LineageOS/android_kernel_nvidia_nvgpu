@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef __NVGPU_IOCTL_H__
 #define __NVGPU_IOCTL_H__
 
@@ -67,6 +68,9 @@ void gk20a_power_node_deinit(struct device *dev);
 unsigned int nvgpu_allocate_cdev_minor(struct gk20a *g);
 struct gk20a *nvgpu_get_gk20a_from_cdev(struct nvgpu_cdev *cdev);
 u32 nvgpu_get_gpu_instance_id_from_cdev(struct gk20a *g, struct nvgpu_cdev *cdev);
+u32 nvgpu_engine_id_to_dev_type(u32 engine_id);
+u32 nvgpu_fifo_engine_to_upi_engine_id(u32 fifo_engine_type);
+u32 nvgpu_uapi_engine_id_to_fifo_engine(u32 uapi_engine_id);
 
 int nvgpu_create_device(
 	struct device *dev, int devno,

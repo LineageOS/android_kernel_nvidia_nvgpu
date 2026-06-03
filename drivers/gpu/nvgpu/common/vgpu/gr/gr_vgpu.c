@@ -1,49 +1,27 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 // SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-#include <nvgpu/kmem.h>
-#include <nvgpu/bug.h>
-#include <nvgpu/dma.h>
-#include <nvgpu/error_notifier.h>
-#include <nvgpu/dma.h>
-#include <nvgpu/debugger.h>
-#include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/vgpu.h>
-#include <nvgpu/gk20a.h>
-#include <nvgpu/channel.h>
-#include <nvgpu/tsg.h>
 #include <nvgpu/string.h>
-#include <nvgpu/grmgr.h>
-#include <nvgpu/gr/global_ctx.h>
-#include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/config.h>
-#include <nvgpu/gr/gr_intr.h>
 #include <nvgpu/gr/gr_falcon.h>
 #ifdef CONFIG_NVGPU_GRAPHICS
 #include <nvgpu/gr/zbc.h>
 #include <nvgpu/gr/zcull.h>
 #endif
 #include <nvgpu/gr/fecs_trace.h>
-#include <nvgpu/gr/hwpm_map.h>
 #include <nvgpu/gr/obj_ctx.h>
-#include <nvgpu/cyclestats_snapshot.h>
-#include <nvgpu/power_features/pg.h>
 #include <nvgpu/gr/gr_instances.h>
 
-#include <nvgpu/tsg_subctx.h>
 
 #include "gr_vgpu.h"
-#include "ctx_vgpu.h"
-#include "subctx_vgpu.h"
 
 #include "common/vgpu/perf/cyclestats_snapshot_vgpu.h"
-#include "common/vgpu/ivc/comm_vgpu.h"
 
 #include "common/gr/gr_config_priv.h"
 #include "common/gr/gr_falcon_priv.h"
 #include "common/gr/gr_intr_priv.h"
-#include "common/gr/ctx_priv.h"
 #ifdef CONFIG_NVGPU_GRAPHICS
 #include "common/gr/zcull_priv.h"
 #endif
@@ -147,99 +125,6 @@ int vgpu_gr_alloc_global_ctx_buffers(struct gk20a *g)
 		NVGPU_GR_GLOBAL_CTX_FECS_TRACE_BUFFER, size);
 #endif
 	return 0;
-}
-
-int vgpu_gr_alloc_obj_ctx(struct nvgpu_channel  *c, u32 class_num, u32 flags)
-{
-	struct gk20a *g = c->g;
-	struct nvgpu_gr_ctx *gr_ctx = NULL;
-	struct nvgpu_tsg *tsg = NULL;
-	struct tegra_vgpu_cmd_msg msg = {};
-	struct tegra_vgpu_alloc_obj_ctx_params *p = &msg.params.alloc_obj_ctx;
-	struct nvgpu_gr_ctx_mappings *mappings = NULL;
-	int err = 0;
-
-	nvgpu_log_fn(g, " ");
-
-	/* an address space needs to have been bound at this point.*/
-	if (!nvgpu_channel_as_bound(c)) {
-		nvgpu_err(g, "not bound to address space at time"
-			   " of grctx allocation");
-		return -EINVAL;
-	}
-
-	if (!g->ops.gpu_class.is_valid(class_num)) {
-		nvgpu_err(g, "invalid obj class 0x%x", class_num);
-		return -EINVAL;
-	}
-	c->obj_class = class_num;
-
-	tsg = nvgpu_tsg_from_ch(c);
-	if (tsg == NULL) {
-		return -EINVAL;
-	}
-
-#ifdef CONFIG_NVGPU_GFXP
-	if (g->ops.gpu_class.is_valid_gfx(class_num) &&
-		nvgpu_gr_ctx_desc_force_preemption_gfxp(g->gr->gr_ctx_desc)) {
-		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP;
-	}
-#endif
-#ifdef CONFIG_NVGPU_CILP
-	if (g->ops.gpu_class.is_valid_compute(class_num) &&
-		nvgpu_gr_ctx_desc_force_preemption_cilp(g->gr->gr_ctx_desc)) {
-		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP;
-	}
-#endif
-
-	gr_ctx = tsg->gr_ctx;
-
-	nvgpu_mutex_acquire(&tsg->ctx_init_lock);
-
-	/*
-	 * gr_subctx and mappings are allocated/setup here just to track the
-	 * VM references. When a new mapping is created VM reference is taken.
-	 * It will be dropped when the last channel in the subcontext is
-	 * released.
-	 */
-	err = nvgpu_tsg_subctx_alloc_gr_subctx(g, c);
-	if (err != 0) {
-		nvgpu_err(g, "failed to alloc gr subctx");
-		nvgpu_mutex_release(&tsg->ctx_init_lock);
-		return err;
-	}
-
-	mappings = nvgpu_gr_ctx_alloc_or_get_mappings(g, tsg, c);
-	if (mappings == NULL) {
-		nvgpu_err(g, "fail to allocate/get ctx mappings struct");
-		nvgpu_mutex_release(&tsg->ctx_init_lock);
-		return -ENOMEM;
-	}
-
-	nvgpu_mutex_release(&tsg->ctx_init_lock);
-
-	msg.cmd = TEGRA_VGPU_CMD_ALLOC_OBJ_CTX;
-	msg.handle = vgpu_get_handle(g);
-
-	p->ch_handle = c->virt_ctx;
-	p->class_num = class_num;
-	p->flags = flags;
-
-#ifdef CONFIG_NVGPU_SM_DIVERSITY
-	p->sm_diversity_config = gr_ctx->sm_diversity_config;
-#else
-	p->sm_diversity_config = NVGPU_DEFAULT_SM_DIVERSITY_CONFIG;
-#endif
-
-	err = vgpu_comm_sendrecv(g, &msg);
-	err = err ? err : msg.ret;
-	if (err == 0) {
-		gr_ctx->tsgid = tsg->tsgid;
-		nvgpu_gr_ctx_mark_ctx_initialized(gr_ctx);
-	} else {
-		nvgpu_err(g, "alloc obj ctx failed err %d", err);
-	}
-	return err;
 }
 
 u32 vgpu_gr_config_get_gpc_rop_mask(struct gk20a *g,
@@ -468,24 +353,6 @@ static int vgpu_gr_init_gr_zcull(struct gk20a *g, struct nvgpu_gr *gr,
 	gr->zcull->zcull_ctxsw_image_size = size;
 
 	return 0;
-}
-int vgpu_gr_bind_ctxsw_zcull(struct gk20a *g, struct nvgpu_channel *c,
-			u64 zcull_va, u32 mode)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_zcull_bind_params *p = &msg.params.zcull_bind;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_BIND_ZCULL;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = c->virt_ctx;
-	p->zcull_va = zcull_va;
-	p->mode = mode;
-	err = vgpu_comm_sendrecv(g, &msg);
-
-	return (err || msg.ret) ? -ENOMEM : 0;
 }
 
 int vgpu_gr_get_zcull_info(struct gk20a *g,
@@ -812,234 +679,6 @@ int vgpu_gr_isr(struct gk20a *g, struct tegra_vgpu_gr_intr_info *info)
 	return 0;
 }
 
-int vgpu_gr_set_sm_debug_mode(struct gk20a *g,
-	struct nvgpu_channel *ch, u64 sms, bool enable)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_sm_debug_mode *p = &msg.params.sm_debug_mode;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_SET_SM_DEBUG_MODE;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	p->sms = sms;
-	p->enable = (u32)enable;
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-
-	return err ? err : msg.ret;
-}
-
-int vgpu_gr_update_smpc_ctxsw_mode(struct gk20a *g,
-	struct nvgpu_tsg *tsg, bool enable)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_set_ctxsw_mode *p = &msg.params.set_ctxsw_mode;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_SET_SMPC_CTXSW_MODE;
-	msg.handle = vgpu_get_handle(g);
-	p->tsg_id = tsg->tsgid;
-
-	if (enable) {
-		p->mode = TEGRA_VGPU_CTXSW_MODE_CTXSW;
-	} else {
-		p->mode = TEGRA_VGPU_CTXSW_MODE_NO_CTXSW;
-	}
-
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-
-	return err ? err : msg.ret;
-}
-
-int vgpu_gr_update_hwpm_ctxsw_mode(struct gk20a *g,
-	u32 gr_instance_id, struct nvgpu_tsg *tsg, u32 mode)
-{
-	struct nvgpu_gr_ctx *gr_ctx;
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_set_ctxsw_mode *p = &msg.params.set_ctxsw_mode;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	gr_ctx = tsg->gr_ctx;
-
-	if (mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_CTXSW) {
-		/*
-		 * send command to enable HWPM only once - otherwise server
-		 * will return an error due to using the same GPU VA twice.
-		 */
-
-		if (nvgpu_gr_ctx_get_pm_ctx_pm_mode(gr_ctx) ==
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_ctxsw()) {
-			return 0;
-		}
-		p->mode = TEGRA_VGPU_CTXSW_MODE_CTXSW;
-	} else if (mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_NO_CTXSW) {
-		if (nvgpu_gr_ctx_get_pm_ctx_pm_mode(gr_ctx) ==
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_no_ctxsw()) {
-			return 0;
-		}
-		p->mode = TEGRA_VGPU_CTXSW_MODE_NO_CTXSW;
-	} else if ((mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_STREAM_OUT_CTXSW) &&
-			g->ops.gr.ctxsw_prog.hw_get_pm_mode_stream_out_ctxsw()) {
-		if (nvgpu_gr_ctx_get_pm_ctx_pm_mode(gr_ctx) ==
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_stream_out_ctxsw()) {
-			return 0;
-		}
-		p->mode = TEGRA_VGPU_CTXSW_MODE_STREAM_OUT_CTXSW;
-	} else {
-		nvgpu_err(g, "invalid hwpm context switch mode");
-		return -EINVAL;
-	}
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_SET_HWPM_CTXSW_MODE;
-	msg.handle = vgpu_get_handle(g);
-	p->tsg_id = tsg->tsgid;
-
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-	err = err ? err : msg.ret;
-	if (!err) {
-		if (mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_CTXSW) {
-			nvgpu_gr_ctx_set_pm_ctx_pm_mode(gr_ctx,
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_ctxsw());
-		} else if (mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_NO_CTXSW) {
-			nvgpu_gr_ctx_set_pm_ctx_pm_mode(gr_ctx,
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_no_ctxsw());
-		} else {
-			nvgpu_gr_ctx_set_pm_ctx_pm_mode(gr_ctx,
-				g->ops.gr.ctxsw_prog.hw_get_pm_mode_stream_out_ctxsw());
-		}
-	}
-
-	return err;
-}
-
-int vgpu_gr_clear_sm_error_state(struct gk20a *g,
-		struct nvgpu_channel *ch, u32 sm_id)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_clear_sm_error_state *p =
-			&msg.params.clear_sm_error_state;
-	struct nvgpu_tsg *tsg;
-	int err;
-
-	tsg = nvgpu_tsg_from_ch(ch);
-	if (!tsg) {
-		return -EINVAL;
-	}
-
-	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
-	msg.cmd = TEGRA_VGPU_CMD_CLEAR_SM_ERROR_STATE;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	p->sm_id = sm_id;
-
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-
-	(void) memset(&tsg->sm_error_states[sm_id], 0,
-		sizeof(*tsg->sm_error_states));
-	nvgpu_mutex_release(&g->dbg_sessions_lock);
-
-	return err ? err : msg.ret;
-
-
-	return 0;
-}
-
-static int vgpu_gr_suspend_resume_contexts(struct gk20a *g,
-		struct dbg_session_gk20a *dbg_s,
-		int *ctx_resident_ch_fd, u32 cmd)
-{
-	struct dbg_session_channel_data *ch_data;
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_suspend_resume_contexts *p;
-	size_t n;
-	int channel_fd = -1;
-	int err = 0;
-	u16 *oob;
-	size_t oob_size;
-	int ivc;
-
-	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
-	nvgpu_mutex_acquire(&dbg_s->ch_list_lock);
-
-	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&oob, &oob_size);
-	if (ivc < 0) {
-		err = ivc;
-		goto done;
-	}
-
-	n = 0;
-	nvgpu_list_for_each_entry(ch_data, &dbg_s->ch_list,
-			dbg_session_channel_data, ch_entry) {
-		n++;
-	}
-
-	if (oob_size < n * sizeof(u16)) {
-		err = -ENOMEM;
-		goto done;
-	}
-
-	msg.cmd = cmd;
-	msg.handle = vgpu_get_handle(g);
-	p = &msg.params.suspend_contexts;
-	p->num_channels = n;
-	n = 0;
-	nvgpu_list_for_each_entry(ch_data, &dbg_s->ch_list,
-			dbg_session_channel_data, ch_entry) {
-		oob[n++] = (u16)ch_data->chid;
-	}
-
-	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
-	if (err || msg.ret) {
-		err = -ENOMEM;
-		goto done;
-	}
-
-	if (p->resident_chid != (u16)~0) {
-		nvgpu_list_for_each_entry(ch_data, &dbg_s->ch_list,
-				dbg_session_channel_data, ch_entry) {
-			if (ch_data->chid == p->resident_chid) {
-				channel_fd = ch_data->channel_fd;
-				break;
-			}
-		}
-	}
-
-done:
-	if (ivc >= 0) {
-		vgpu_comm_free_ivc(g, ivc);
-	}
-	nvgpu_mutex_release(&dbg_s->ch_list_lock);
-	nvgpu_mutex_release(&g->dbg_sessions_lock);
-	*ctx_resident_ch_fd = channel_fd;
-	return err;
-}
-
-int vgpu_gr_suspend_contexts(struct gk20a *g,
-		struct dbg_session_gk20a *dbg_s,
-		int *ctx_resident_ch_fd)
-{
-	return vgpu_gr_suspend_resume_contexts(g, dbg_s,
-			ctx_resident_ch_fd, TEGRA_VGPU_CMD_SUSPEND_CONTEXTS);
-}
-
-int vgpu_gr_resume_contexts(struct gk20a *g,
-		struct dbg_session_gk20a *dbg_s,
-		int *ctx_resident_ch_fd)
-{
-	return vgpu_gr_suspend_resume_contexts(g, dbg_s,
-			ctx_resident_ch_fd, TEGRA_VGPU_CMD_RESUME_CONTEXTS);
-}
-
 void vgpu_gr_handle_sm_esr_event(struct gk20a *g,
 			struct tegra_vgpu_sm_esr_info *info)
 {
@@ -1143,35 +782,6 @@ fail:
 	return err;
 }
 
-int vgpu_gr_update_pc_sampling(struct nvgpu_channel *ch, bool enable)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_update_pc_sampling *p =
-						&msg.params.update_pc_sampling;
-	struct gk20a *g;
-	int err = -EINVAL;
-
-	if (!ch->g) {
-		return err;
-	}
-	g = ch->g;
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_UPDATE_PC_SAMPLING;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	if (enable) {
-		p->mode = TEGRA_VGPU_ENABLE_SAMPLING;
-	} else {
-		p->mode = TEGRA_VGPU_DISABLE_SAMPLING;
-	}
-
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-
-	return err ? err : msg.ret;
-}
-
 void vgpu_gr_init_cyclestats(struct gk20a *g)
 {
 #if defined(CONFIG_NVGPU_CYCLESTATS)
@@ -1187,47 +797,6 @@ void vgpu_gr_init_cyclestats(struct gk20a *g)
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_CYCLE_STATS_SNAPSHOT,
 							snapshots_supported);
 #endif
-}
-
-int vgpu_gr_set_preemption_mode(struct nvgpu_channel *ch,
-		u32 graphics_preempt_mode, u32 compute_preempt_mode,
-		u32 gr_instance_id)
-{
-	struct nvgpu_gr_ctx *gr_ctx;
-	struct gk20a *g = ch->g;
-	struct nvgpu_tsg *tsg;
-	struct tegra_vgpu_cmd_msg msg = {};
-	struct tegra_vgpu_preemption_mode_params *p =
-			&msg.params.preemption_mode;
-	int err;
-
-	if (!ch->obj_class) {
-		return -EINVAL;
-	}
-
-	tsg = nvgpu_tsg_from_ch(ch);
-	if (!tsg) {
-		return -EINVAL;
-	}
-
-	gr_ctx = tsg->gr_ctx;
-
-	msg.cmd = TEGRA_VGPU_CMD_SET_PREEMPTION_MODE;
-	msg.handle = vgpu_get_handle(g);
-	p->ch_handle = ch->virt_ctx;
-	p->graphics_preempt_mode = graphics_preempt_mode;
-	p->compute_preempt_mode = compute_preempt_mode;
-	err = vgpu_comm_sendrecv(g, &msg);
-	err = err ? err : msg.ret;
-
-	if (!err) {
-		gr_ctx->graphics_preempt_mode = graphics_preempt_mode;
-		gr_ctx->compute_preempt_mode = compute_preempt_mode;
-	} else {
-		nvgpu_err(g, "set_ctxsw_preemption_mode failed");
-	}
-
-	return err;
 }
 
 u32 vgpu_gr_get_max_gpc_count(struct gk20a *g)
@@ -1273,29 +842,6 @@ u64 vgpu_gr_gk20a_tpc_enabled_exceptions(struct gk20a *g)
 
 	tpc_exception_en = p->tpc_exception_en_sm_mask;
 	return tpc_exception_en;
-}
-
-int vgpu_gr_set_mmu_debug_mode(struct gk20a *g,
-		struct nvgpu_channel *ch, bool enable, bool enable_gcc)
-{
-	struct tegra_vgpu_cmd_msg msg = {};
-	struct tegra_vgpu_gr_set_mmu_debug_mode_params *p =
-				&msg.params.gr_set_mmu_debug_mode;
-	int err;
-
-	msg.cmd = TEGRA_VGPU_CMD_GR_SET_MMU_DEBUG_MODE;
-	msg.handle = vgpu_get_handle(g);
-	p->ch_handle = ch->virt_ctx;
-	p->enable = enable ? 1U : 0U;
-	p->enable_gcc = enable_gcc ? 1U : 0U;
-	err = vgpu_comm_sendrecv(g, &msg);
-	err = err != 0 ? err : msg.ret;
-	if (err != 0) {
-		nvgpu_err(g,
-			"gr set mmu debug mode failed err %d", err);
-	}
-
-	return err;
 }
 
 #endif

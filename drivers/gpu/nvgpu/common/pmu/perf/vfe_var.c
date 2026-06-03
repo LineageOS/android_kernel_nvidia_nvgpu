@@ -10,6 +10,7 @@
 #include <nvgpu/string.h>
 #include <nvgpu/pmu/perf.h>
 
+#include "../perf/perf.h"
 #include "ucode_perf_vfe_inf.h"
 #include "vfe_var.h"
 #include "vfe_equ.h"
@@ -33,6 +34,7 @@ union vfe_var_data{
 	struct vfe_var_single_caller_specified single_caller_specified;
 	//struct vfe_var_single_globally_specified single_globally_specified;
 	//struct vfe_var_single_sensed_power_channel single_sensed_power_channel;
+	u8 pad[480];
 };
 
 static int vfe_vars_pmudatainit(struct gk20a *g,
@@ -40,7 +42,13 @@ static int vfe_vars_pmudatainit(struct gk20a *g,
 				 struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
 {
 	int status = 0;
+	struct nvgpu_pmu_perf *perfpmu = g->pmu->perf_pmu;
+	struct nv_pmu_perf_vfe_var_boardobjgrp_set_header *vfe_var_boardobjgrp_set_header;
 
+	vfe_var_boardobjgrp_set_header =
+		(struct nv_pmu_perf_vfe_var_boardobjgrp_set_header *)pboardobjgrppmu;
+	vfe_var_boardobjgrp_set_header->polling_periodms =
+		perfpmu->polling_period_ms;
 	status = boardobjgrp_pmudatainit_e2048(g, pboardobjgrp, pboardobjgrppmu);
 	if (status != 0) {
 		nvgpu_err(g,
@@ -56,14 +64,14 @@ done:
 static int vfe_vars_pmudata_instget(struct gk20a *g,
 				struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 				struct nv_pmu_boardobj **pmu_obj,
-				u8 idx)
+				u16 idx)
 {
 	struct nv_pmu_perf_vfe_var_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_perf_vfe_var_boardobj_grp_set *)(void *)
 		pmuboardobjgrp;
 
 	/*check whether pmuboardobjgrp has a valid boardobj in index*/
-	if (idx >= CTRL_BOARDOBJGRP_E32_MAX_OBJECTS) {
+	if (idx >= 255U) {
 		return -EINVAL;
 	}
 
@@ -75,7 +83,7 @@ static int vfe_vars_pmudata_instget(struct gk20a *g,
 }
 
 static int vfe_vars_pmustatus_instget(struct gk20a *g, void *pboardobjgrppmu,
-	struct nv_pmu_boardobj_query **obj_pmu_status, u8 idx)
+	struct nv_pmu_boardobj_query **obj_pmu_status, u16 idx)
 {
 	struct nv_pmu_perf_vfe_var_boardobj_grp_get_status *pgrp_get_status =
 		(struct nv_pmu_perf_vfe_var_boardobj_grp_get_status *)
@@ -129,7 +137,7 @@ static int vfe_var_dependency_mask_build(struct gk20a *g,
 		struct vfe_vars *pvfe_vars)
 {
 	int status = 0;
-	u8 index_1 = 0, index_2 = 0;
+	u16 index_1 = 0, index_2 = 0;
 	struct vfe_var *tmp_vfe_var_1 = NULL, *tmp_vfe_var_2 = NULL;
 	struct pmu_board_obj *obj_tmp_1 = NULL, *obj_tmp_2 = NULL;
 	struct boardobjgrp *pboardobjgrp = &(pvfe_vars->super.super);
@@ -146,6 +154,7 @@ static int vfe_var_dependency_mask_build(struct gk20a *g,
 			return status;
 		}
 	}
+	index_1 = 0;
 	/* Initialize mask_dependent_vars */
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*,
 			obj_tmp_1, index_1) {
@@ -166,8 +175,9 @@ static int vfe_var_dependency_mask_build(struct gk20a *g,
 	return status;
 }
 static int dev_init_vfe_var_fuse20_id_convert_localid(struct gk20a *g,
-		u16 vbios_fuse_id, u16 *ctrl_fuse_id)
+		u16 vbios_fuse_id, u8 *ctrl_fuse_id)
 {
+	(void)g;
     switch (vbios_fuse_id)
     {
 	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO:
@@ -714,15 +724,15 @@ static int vfe_var_construct_super(struct gk20a *g,
 	pvfevar->b_is_dynamic_valid = false;
 	pvfevar->mask_depending_build = vfe_var_build_depending_mask_null;
 
-	status = boardobjgrpmask_e32_init(&pvfevar->mask_depending_vars, NULL);
+	status = boardobjgrpmask_e255_init(&pvfevar->mask_depending_vars, NULL);
 	if (status != 0) {
 		return -EINVAL;
 	}
-	status = boardobjgrpmask_e32_init(&pvfevar->mask_dependent_vars, NULL);
+	status = boardobjgrpmask_e255_init(&pvfevar->mask_dependent_vars, NULL);
 	if (status != 0) {
 		return -EINVAL;
 	}
-	status = boardobjgrpmask_e255_init(&pvfevar->mask_dependent_equs, NULL);
+	status = boardobjgrpmask_e2048_init(&pvfevar->mask_dependent_equs, NULL);
 	if (status != 0) {
 		return -EINVAL;
 	}
@@ -793,6 +803,9 @@ static int vfe_var_build_depending_mask_derived_product(struct gk20a *g,
 			(struct vfe_var_derived_product *)(void *)pvfe_var;
 	int status;
 	struct vfe_var *var0, *var1;
+	if (!nvgpu_boardobjmask_iszero(&pvfe_var->mask_depending_vars.super)) {
+		return 0;
+	}
 
 	var0 = (struct vfe_var *)(void *)BOARDOBJGRP_OBJ_GET_BY_IDX(
 			pboardobjgrp, pvar_dp->var_idx0);
@@ -884,6 +897,9 @@ static int vfe_var_build_depending_mask_derived_sum(struct gk20a *g,
 			(struct vfe_var_derived_sum *)(void *)pvfe_var;
 	int status;
 	struct vfe_var *var0, *var1;
+	if (!nvgpu_boardobjmask_iszero(&pvfe_var->mask_depending_vars.super)) {
+		return 0;
+	}
 
 	var0 = (struct vfe_var *)BOARDOBJGRP_OBJ_GET_BY_IDX(
 			pboardobjgrp, pvar_dsum->var_idx0);
@@ -991,6 +1007,10 @@ static int vfe_var_build_depending_mask_single(struct gk20a *g,
 {
 	(void)g;
 	(void)pboardobjgrp;
+	if (!nvgpu_boardobjmask_iszero(&pvfe_var->mask_depending_vars.super)) {
+		return 0;
+	}
+
 	return nvgpu_boardobjgrpmask_bit_set(
 			&pvfe_var->mask_depending_vars.super,
 			pvfe_var->super.idx);
@@ -1088,11 +1108,11 @@ static int vfe_var_construct_single_caller_specified(struct gk20a *g,
 			(struct vfe_var_single_caller_specified *)pargs;
 	int status = 0;
 
-	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_VAR_TYPE_SINGLE_FREQUENCY) {
+	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_VAR_TYPE_SINGLE_CALLER_SPECIFIED) {
 		return -EINVAL;
 	}
 
-	obj_tmp->type_mask |= (u32)BIT(CTRL_PERF_VFE_VAR_TYPE_SINGLE_FREQUENCY);
+	obj_tmp->type_mask |= (u32)BIT(CTRL_PERF_VFE_VAR_TYPE_SINGLE_CALLER_SPECIFIED);
 	status = vfe_var_construct_single(g, obj, size, pargs);
 	if (status != 0) {
 		return -EINVAL;
@@ -1173,7 +1193,7 @@ static int vfe_var_pmudatainit_single_sensed_fuse_base(struct gk20a *g,
 	pmu_var_fuse_base->override_info       = pvfe_var_fuse_base->override_info;
 	pmu_var_fuse_base->fuse_val_default     = pvfe_var_fuse_base->fuse_val_default;
 	pmu_var_fuse_base->b_fuse_value_signed   = pvfe_var_fuse_base->b_fuse_value_signed;
-	pmu_var_fuse_base->fuse_version            = pvfe_var_fuse_base->fuse_version;
+	pmu_var_fuse_base->fuse_ver_info = pvfe_var_fuse_base->fuse_ver_info;
 	pmu_var_fuse_base->hw_correction_scale  = pvfe_var_fuse_base->hw_correction_scale;
 	pmu_var_fuse_base->hw_correction_offset = pvfe_var_fuse_base->hw_correction_offset;
 	return status;
@@ -1322,7 +1342,7 @@ static int vfe_var_construct_single_sensed_fuse_base(struct gk20a *g, struct pmu
 	p_temp_vfe_var_base_fuse = (struct vfe_var_single_sensed_fuse_base *)obj_tmp;
 	p_vfe_var_base->fuse_val_default     = p_temp_vfe_var_base_fuse->fuse_val_default;
 	p_vfe_var_base->b_fuse_value_signed   = p_temp_vfe_var_base_fuse->b_fuse_value_signed;
-	p_vfe_var_base->fuse_version            = p_temp_vfe_var_base_fuse->fuse_version;
+	p_vfe_var_base->fuse_ver_info = p_temp_vfe_var_base_fuse->fuse_ver_info;
 	p_vfe_var_base->hw_correction_scale  = p_temp_vfe_var_base_fuse->hw_correction_scale;
 	p_vfe_var_base->hw_correction_offset = p_temp_vfe_var_base_fuse->hw_correction_offset;
 	p_vfe_var_base->b_version_check_done  = 0;
@@ -1338,6 +1358,7 @@ static int vfe_var_construct_single_sensed_fuse_20(struct gk20a *g, struct pmu_b
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	int status = 0;
 	struct vfe_var_single_sensed_fuse_20 *pvfevar;
+	struct vfe_var_single_sensed_fuse_20 *tempvfevar;
 
 	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20) {
 		return -EINVAL;
@@ -1349,10 +1370,13 @@ static int vfe_var_construct_single_sensed_fuse_20(struct gk20a *g, struct pmu_b
 		return -EINVAL;
 	}
 
+	tempvfevar = (struct vfe_var_single_sensed_fuse_20 *)obj_tmp;
 	pvfevar = (struct vfe_var_single_sensed_fuse_20 *)(void *)(*obj);
 	pvfevar->super.super.super.super.super.pmudatainit =
 		vfe_var_pmudatainit_single_sensed_fuse_20;
 
+	pvfevar->fuse_id    = tempvfevar->fuse_id;
+	pvfevar->fuse_id_ver = tempvfevar->fuse_id_ver;
 	return status;
 
 }
@@ -1417,6 +1441,7 @@ static int vfe_var_construct_single_sensed_temp(struct gk20a *g,
 		 ptmpvar->temp_hysteresis_positive;
 	pvfevar->temp_hysteresis_negative =
 		 ptmpvar->temp_hysteresis_negative;
+	pvfevar->b_use_snapped_value = ptmpvar->b_use_snapped_value;
 	pvfevar->temp_default =
 		 ptmpvar->temp_default;
 	pvfevar->super.super.super.b_is_dynamic = false;
@@ -1628,7 +1653,7 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	u8 var_type;
 	u32 szfmt, val;
 	bool done = false;
-	u32 hdrszfmt = 0;
+	struct nvgpu_pmu_perf *perfpmu = g->pmu->perf_pmu;
 	u8 clk_domain_idx_available =
 		VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE_NO;
 
@@ -1647,37 +1672,42 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	}
 
 	nvgpu_memcpy((u8 *)&vfevars_tbl_header, vfevars_tbl_ptr,
-			VBIOS_VFE_3X_HEADER_SIZE_0E);
-	if (vfevars_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_0E) {
-		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_0E;
-		nvgpu_memcpy((u8 *)&vfevars_tbl_header, (u8 *)vfevars_tbl_ptr, hdrszfmt);
+			VBIOS_VFE_3X_HEADER_SIZE_13);
+	if (vfevars_tbl_header.header_size >= VBIOS_VFE_3X_HEADER_SIZE_13) {
+		nvgpu_memcpy((u8 *)&vfevars_tbl_header, (u8 *)vfevars_tbl_ptr,
+			sizeof(struct vbios_vfe_3x_header_struct));
 	} else {
-		nvgpu_err(g, "Invalid VFE Table Header size\n");
+		nvgpu_err(g, "Invalid VFE Table Header size: %d",
+			vfevars_tbl_header.header_size);
 		status = -EINVAL;
 		goto done;
 	}
 
-	if (vfevars_tbl_header.vfe_var_entry_size ==
+	if (vfevars_tbl_header.vfe_var_entry_size >=
 			VBIOS_VFE_3X_VAR_ENTRY_SIZE_1D) {
 		szfmt = VBIOS_VFE_3X_VAR_ENTRY_SIZE_1D;
 	} else {
-		nvgpu_err(g, "Invalid VFE VAR Entry size\n");
+		nvgpu_err(g, "Invalid VFE VAR Entry size: %d",
+			vfevars_tbl_header.vfe_var_entry_size);
 		status = -EINVAL;
 		goto done;
 	}
-	vfevars_tbl_params_entry_ptr = vfevars_tbl_ptr + hdrszfmt +
+	vfevars_tbl_params_entry_ptr = vfevars_tbl_ptr + vfevars_tbl_header.header_size +
 		(vfevars_tbl_header.vfe_var_entry_size * vfevars_tbl_header.vfe_var_entry_count) +
 			(vfevars_tbl_header.vfe_equ_entry_size * ((vfevars_tbl_header.vfe_equ_entry_count) |
 				  (vfevars_tbl_header.vfe_equ_entry_count_hi8bytes << 8U)));
 	status = dev_init_copy_param_entries(g, (u8 *)vfevars_tbl_params_entry_ptr,
 						&vfevars_tbl_header);
 	if (status != 0) {
+		nvgpu_err(g, "VFE copy param entries failed");
 		status = -EINVAL;
 		goto done;
 	}
 
 	/* Read table entries*/
-	vfevars_tbl_entry_ptr = vfevars_tbl_ptr + hdrszfmt;
+	vfevars_tbl_entry_ptr = vfevars_tbl_ptr + vfevars_tbl_header.header_size;
+	perfpmu->polling_period_ms = vfevars_tbl_header.polling_periodms;
+
 	for (index = 0;
 		 index < vfevars_tbl_header.vfe_var_entry_count;
 		 index++) {
@@ -1723,14 +1753,18 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 			pvar_data->single_sensed_temp.therm_channel_index =
 				BIOS_GET_FIELD(u8, var.param0,
 				VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_TH_CH_IDX);
-			val = BIOS_GET_FIELD(u32, var.param0,
+			val = BIOS_GET_FIELD(int, var.param0,
 				  VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_POS) << 5U;
 			pvar_data->single_sensed_temp.temp_hysteresis_positive =
 				(int)val;
-			val = BIOS_GET_FIELD(u32, var.param0,
+			val = BIOS_GET_FIELD(int, var.param0,
 				  VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_NEG) << 5U;
 			pvar_data->single_sensed_temp.temp_hysteresis_negative =
 				(int)val;
+			val = BIOS_GET_FIELD(bool, var.param0,
+				VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_USE_SNAPPED_VAL);
+			pvar_data->single_sensed_temp.b_use_snapped_value = val;
+
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE:
@@ -1769,7 +1803,7 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 
 			dev_init_vfe_var_fuse20_id_convert_localid(g, vbios_fuse_id,
 					&pvar_data->single_sensed_fuse_20.fuse_id);
-			vbios_fuse_id = var.param0 & 0xFF00;
+			vbios_fuse_id = (var.param0 & 0xFF00) >> 8U;
 			dev_init_vfe_var_fuse20_id_convert_localid(g, vbios_fuse_id,
 					&pvar_data->single_sensed_fuse_20.fuse_id_ver);
 
@@ -1801,6 +1835,8 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 					var.param1, pvar_data->single_sensed_fuse_20.super.b_fuse_value_signed);
 			pvar_data->single_sensed_fuse_20.super.hw_correction_scale  = (u32)var.param2;
 			pvar_data->single_sensed_fuse_20.super.hw_correction_offset = var.param3;
+			/*NEED Fix , regkey in RM is disabling this */
+			pvar_data->single_sensed_fuse_20.super.fuse_ver_info.b_ver_check = true;
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_PRODUCT:
@@ -1876,7 +1912,7 @@ static int vfe_var_boardobj_grp_get_status(struct gk20a *g)
 	struct nv_pmu_boardobj_query *pboardobjpmustatus = NULL;
 	struct vfe_var_single_sensed_fuse *single_sensed_fuse = NULL;
 	int status;
-	u8 index;
+	u16 index;
 
 	pboardobjgrp = &g->pmu->perf_pmu->vfe_varobjs.super.super;
 	pboardobjgrpmask = &g->pmu->perf_pmu->vfe_varobjs.super.mask.super;
@@ -1923,6 +1959,15 @@ int perf_vfe_var_sw_setup(struct gk20a *g)
 	int status;
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct vfe_vars *pvfevarobjs;
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->perf_pmu->vfe_varobjs.super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "perf vfe_var boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing perf vfe_var boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e255(g,
 			&g->pmu->perf_pmu->vfe_varobjs.super);
@@ -1997,7 +2042,7 @@ int nvgpu_pmu_perf_vfe_get_s_param(struct gk20a *g, u64 *s_param)
 	struct boardobjgrp *pboardobjgrp;
 	struct pmu_board_obj *obj = NULL;
 	struct vfe_var_single_sensed_fuse *single_sensed_fuse = NULL;
-	u8 index;
+	u16 index;
 	int status;
 
 	status = vfe_var_boardobj_grp_get_status(g);

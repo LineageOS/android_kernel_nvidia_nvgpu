@@ -22,6 +22,7 @@
 #include <linux/dma-buf-map.h>
 #endif
 
+#include <nvgpu/nvgpu_sgt.h>
 #include <nvgpu/comptags.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/enabled.h>
@@ -97,7 +98,8 @@ static void nvgpu_dma_buf_release(struct dma_buf *dmabuf)
 	 * be scrubbed before the buffer is freed.  The scrub dma operation use
 	 * the gpa of the buffer that is being released. When on raw mode, for
 	 * the compressible buffers that is mapped to gpu, the priv->st will
-	 * have an independent dma mapping for the buffer.
+	 * have an independent dma mapping via a dedicated CBC attachment created
+	 * in gk20a_dmabuf_map_private().
 	 */
 	if (priv->st != NULL) {
 		int err;
@@ -256,15 +258,10 @@ void gk20a_mm_delete_priv(struct gk20a_dmabuf_priv *priv)
 	}
 
 	if (priv->st) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
-		dma_unmap_sgtable(dev_from_gk20a(g), priv->st,
-				  DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-#else
-		dma_unmap_sg_attrs(dev_from_gk20a(g), priv->st->sgl, priv->st->orig_nents,
-				   DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-#endif
-		sg_free_table(priv->st);
-		nvgpu_kfree(g, priv->st);
+		dma_buf_unmap_attachment(priv->cbc_attach, priv->st, DMA_BIDIRECTIONAL);
+		dma_buf_detach(dmabuf, priv->cbc_attach);
+		priv->st = NULL;
+		priv->cbc_attach = NULL;
 	}
 
 	nvgpu_kfree(g, priv);
@@ -376,16 +373,22 @@ out:
 }
 
 /*
- * Copy sgl and create independent mapping for the backing pages to use with cbc
- * scrub when dma buffer is released.
+ * Create independent DMA-BUF attachment and mapping for CBC scrubbing.
+ *
+ * This creates a separate attachment to the DMA-BUF that persists until
+ * buffer release, allowing us to scrub the CBC backing storage after the
+ * GPU has finished using the buffer.
+ *
+ * This approach:
+ * - Follows DMA-BUF API correctly (no page structure access)
+ * - Works with CONFIG_DMABUF_DEBUG (no mangling issues)
  */
 int gk20a_dmabuf_map_private(struct dma_buf *dmabuf, struct gk20a *g, struct sg_table *pages)
 {
-	struct sg_table *st;
 	struct gk20a_dmabuf_priv *priv;
 	struct device *dev = dev_from_gk20a(g);
-	struct scatterlist *src, *dst;
-	unsigned int i;
+	struct dma_buf_attachment *cbc_attach;
+	struct sg_table *cbc_sgt;
 	int ret;
 
 	priv = gk20a_dma_buf_get_drvdata(dmabuf, dev);
@@ -397,46 +400,37 @@ int gk20a_dmabuf_map_private(struct dma_buf *dmabuf, struct gk20a *g, struct sg_
 	if (priv->st != NULL)
 		return 0;
 
-	st = nvgpu_kzalloc(g, sizeof(struct sg_table));
-	if (st == NULL)
-		return -ENOMEM;
-
-	ret = sg_alloc_table(st, pages->orig_nents, GFP_KERNEL);
-	if (ret) {
-		goto err_free;
+	cbc_attach = dma_buf_attach(dmabuf, dev);
+	if (IS_ERR(cbc_attach)) {
+		ret = PTR_ERR(cbc_attach);
+		nvgpu_err(g, "Failed to create CBC attachment: %d", ret);
+		return ret;
 	}
 
-	src = pages->sgl;
-	dst = st->sgl;
-
-	for (i = 0; i < pages->orig_nents; i++) {
-		sg_set_page(dst, sg_page(src), src->length, 0);
-		dst = sg_next(dst);
-		src = sg_next(src);
+	cbc_sgt = dma_buf_map_attachment(cbc_attach, DMA_BIDIRECTIONAL);
+	if (IS_ERR(cbc_sgt)) {
+		ret = PTR_ERR(cbc_sgt);
+		nvgpu_err(g, "Failed to map CBC attachment: %d", ret);
+		dma_buf_detach(dmabuf, cbc_attach);
+		return ret;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
-	ret = dma_map_sgtable(dev, st,
-			      DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-#else
-	ret =  dma_map_sg_attrs(dev, st->sgl, st->orig_nents,
-				DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-#endif
+
+	/* Perform TLB flush if needed */
 	if (nvgpu_iommuable(g) &&
 			nvgpu_is_enabled(g, NVGPU_MM_SUPPORT_NONPASID_ATS)) {
 		ret = g->ops.fb.tlb_flush(g);
+		if (ret) {
+			nvgpu_err(g, "TLB flush failed: %d", ret);
+			dma_buf_unmap_attachment(cbc_attach, cbc_sgt, DMA_BIDIRECTIONAL);
+			dma_buf_detach(dmabuf, cbc_attach);
+			return ret;
+		}
 	}
-	if (ret)
-		goto err_free_sg;
 
-	priv->st = st;
+	priv->cbc_attach = cbc_attach;
+	priv->st = cbc_sgt;
 
 	return 0;
-
-err_free_sg:
-	sg_free_table(st);
-err_free:
-	nvgpu_kfree(g, st);
-	return ret;
 }
 #endif
 
@@ -481,5 +475,35 @@ void gk20a_dmabuf_vunmap(struct dma_buf *dmabuf, void *addr)
 #else
 	/* Linux v5.10 and earlier kernels */
 	dma_buf_vunmap(dmabuf, addr);
+#endif
+}
+
+int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt)
+{
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+	struct nvgpu_sgt *nvgpu_sgt = NULL;
+	int err = 0;
+
+	nvgpu_sgt = nvgpu_linux_sgt_create(g, sgt);
+	if (!nvgpu_sgt) {
+		nvgpu_err(g,
+				"Failed nvgpu_linux_sgt_create[%d]", err);
+		return -ENOMEM;
+	}
+
+	err = nvgpu_scrub_cbc_mem_nvgpu_sgt(g, nvgpu_sgt);
+	if (err != 0) {
+		nvgpu_err(g,
+			  "Failed nvgpu_scrub_cbc_mem_nvgpu_sgt[%d]", err);
+	}
+
+	nvgpu_sgt_free(g, nvgpu_sgt);
+
+	return err;
+#else
+	(void)sgt;
+	(void)g;
+	/* scrub is not supported */
+	return -ENOSYS;
 #endif
 }

@@ -187,6 +187,17 @@
 #define CG_ENGINE_ID_ELCG_LCE3		9U
 
 /*
+ * GB20C-specific engine IDs - used for GB20C
+ * These have different values compared to legacy chips above
+ */
+#define CG_ENGINE_ID_ELCG_GRAPHICS0_GB20C	0U
+#define CG_ENGINE_ID_ELCG_LCE0_GB20C		1U
+#define CG_ENGINE_ID_ELCG_LCE1_GB20C		2U
+#define CG_ENGINE_ID_ELCG_NVDEC0_GB20C		3U
+#define CG_ENGINE_ID_ELCG_NVENC0_GB20C		4U
+#define CG_ENGINE_ID_ELCG_OFA0_GB20C		6U
+
+/*
  * Sub feature id for ELCG supported engines
  * This ID will be used for ELCG entry_count/residency
  */
@@ -218,6 +229,13 @@
  * then we can enable nvdclk flcg
  */
 #define CG_ELCG_MM_ENGINE_ENABLED_MASK	0x206606U
+
+/*
+ * GB20C-specific ELCG engine masks - used via PMU ops structure
+ * for chip-specific compatibility without touching legacy masks
+ */
+#define CG_ELCG_ALL_ENGINE_ENABLED_MASK_GB20C	0x200203U
+#define CG_ELCG_MM_ENGINE_ENABLED_MASK_GB20C	0x200202U
 
 /**
  * ELCG Monitor Mode IDs for sending RPC to PMU
@@ -669,4 +687,6 @@ void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
 int nvgpu_cg_flcg_set_nvdclk_flcg_enabled(struct gk20a *g, bool enable);
 int nvgpu_cg_set_sysclk_slowdown_enabled(struct gk20a *g, bool enable);
 u32 nvgpu_cg_get_sysclk_slowdown_entry_count(struct gk20a *g);
+u32 nvgpu_cg_get_elcg_all_engine_mask(struct gk20a *g);
+u32 nvgpu_cg_get_elcg_mm_engine_mask(struct gk20a *g);
 #endif /*NVGPU_POWER_FEATURES_CG_H*/

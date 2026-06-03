@@ -20,6 +20,9 @@ struct nvgpu_ofa {
 
 	/** Memory to store ucode contents locally. */
 	struct nvgpu_mem ofa_mem_desc;
+
+	/** Memory for trace buffer */
+	struct nvgpu_mem trace_buf_mem[OFA_INST_MAX];
 };
 
 struct gk20a;

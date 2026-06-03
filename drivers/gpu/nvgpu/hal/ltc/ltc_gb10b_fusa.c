@@ -35,7 +35,10 @@ void gb10b_ltc_init_fs_state(struct gk20a *g)
 	nvgpu_log_info(g, "cacheline_size %u", g->ltc->cacheline_size);
 }
 
-#ifndef CONFIG_NVGPU_NON_FUSA
+/* This should be enabled for safety build only, currently not working
+ * instead of removing the code change the compile flag condition to preserve
+ */
+#if defined(CONFIG_NVGPU_NON_FUSA) && !defined(CONFIG_NVGPU_GB10B)
 void gb10b_set_default_l2_max_ways_evict_last(struct gk20a *g,
 		struct nvgpu_gr_ctx *gr_ctx)
 {

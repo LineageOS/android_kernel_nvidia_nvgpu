@@ -7,7 +7,6 @@
 #include <nvgpu/nvgpu_mem.h>
 #include <nvgpu/firmware.h>
 #include <nvgpu/falcon.h>
-#include <nvgpu/nvenc.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/soc.h>
 #include <nvgpu/io.h>
@@ -19,6 +18,9 @@
 #include <nvgpu/device.h>
 #include <nvgpu/runlist.h>
 #include "multimedia_priv.h"
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+#include "multimedia_trace_priv.h"
+#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_multimedia.h>
@@ -107,6 +109,8 @@ int nvgpu_multimedia_setup_ctx(struct nvgpu_channel *ch, u32 class_num, u32 flag
 	tsg->eng_ctx[multimedia_id] = nvgpu_kzalloc(g, sizeof(struct nvgpu_multimedia_ctx));
 
 	tsg->eng_ctx[multimedia_id]->tsgid = tsg->tsgid;
+	tsg->eng_ctx[multimedia_id]->vm = ch->vm;
+	tsg->eng_ctx[multimedia_id]->id = multimedia_id;
 
 	ctx_mem = &tsg->eng_ctx[multimedia_id]->ctx_mem;
 	err = nvgpu_dma_alloc_sys(g, MULTIMEDIA_CTX_BUF_SIZE, ctx_mem);
@@ -128,6 +132,16 @@ int nvgpu_multimedia_setup_ctx(struct nvgpu_channel *ch, u32 class_num, u32 flag
 	/* Clear the context memory */
 	nvgpu_memset(g, ctx_mem, 0U, 0U, MULTIMEDIA_CTX_BUF_SIZE);
 
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	err = nvgpu_multimedia_trace_ctx_init(ch, ctx_mem,
+			nvgpu_multimedia_get_dev(g, multimedia_id),
+			&tsg->eng_ctx[multimedia_id]->trace_gpu_va);
+	if (err != 0) {
+		nvgpu_err(g, "failed to initialize trace ctx for engine %d", multimedia_id);
+		goto unmap_ctx_mem;
+	}
+#endif
+
 	/* Set the context pointer in the inst block */
 	g->ops.ramin.set_gr_ptr(g, &ch->inst_block, ctx_mem->gpu_va);
 
@@ -137,6 +151,10 @@ int nvgpu_multimedia_setup_ctx(struct nvgpu_channel *ch, u32 class_num, u32 flag
 	/* Engine ctx setup is fine. Return 0 */
 	goto enable_tsg;
 
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+unmap_ctx_mem:
+	nvgpu_gmmu_unmap(ch->vm, ctx_mem);
+#endif
 free_ctx_mem:
 	nvgpu_dma_free(g, ctx_mem);
 
@@ -162,6 +180,12 @@ void nvgpu_multimedia_free_ctx(struct gk20a *g, struct nvgpu_multimedia_ctx *eng
 		ctx_mem = &eng_ctx->ctx_mem;
 		tsg = nvgpu_tsg_get_from_id(g, eng_ctx->tsgid);
 
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+		nvgpu_multimedia_unmap_trace_buf(g, eng_ctx->vm,
+				nvgpu_multimedia_get_dev(g, eng_ctx->id),
+				eng_ctx->trace_gpu_va);
+#endif
+
 		nvgpu_mutex_acquire(&tsg->eng_ctx_lock);
 		if (nvgpu_mem_is_valid(ctx_mem)) {
 			nvgpu_dma_free(g, ctx_mem);
@@ -182,6 +206,12 @@ void nvgpu_multimedia_free_all_ctx(struct nvgpu_tsg *tsg)
 	for (eng = NVGPU_MULTIMEDIA_ENGINE_NVENC; eng < NVGPU_MULTIMEDIA_ENGINE_MAX; eng++) {
 		eng_ctx = tsg->eng_ctx[eng];
 		if (eng_ctx != NULL) {
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+			nvgpu_multimedia_unmap_trace_buf(g, eng_ctx->vm,
+					nvgpu_multimedia_get_dev(g, eng),
+					eng_ctx->trace_gpu_va);
+#endif
+
 			if (nvgpu_mem_is_valid(&eng_ctx->ctx_mem)) {
 				nvgpu_dma_free(g, &eng_ctx->ctx_mem);
 			}
@@ -357,11 +387,24 @@ const char *nvgpu_multimedia_get_eng_name(u32 multimedia_id)
 	return str;
 }
 
+u32 nvgpu_multimedia_get_id_from_dev(u32 dev_type, u32 instance)
+{
+	for (u32 i = 0; i < NVGPU_MULTIMEDIA_ENGINE_MAX; i++) {
+		if ((multimedia_engine_info[i].dev_type == dev_type) &&
+			(multimedia_engine_info[i].instance == instance)) {
+			return i;
+		}
+	}
+
+	return NVGPU_MULTIMEDIA_ENGINE_MAX;
+}
+
 s32 nvgpu_multimedia_sw_init(struct gk20a *g)
 {
 	s32 err = 0;
 
-	if (nvgpu_device_count(g, NVGPU_DEVTYPE_NVENC) != 0U) {
+	if ((nvgpu_device_count(g, NVGPU_DEVTYPE_NVENC) != 0U) &&
+		(g->ops.nvenc.init != NULL)) {
 		nvgpu_log(g, gpu_dbg_mme, "nvenc sw init");
 		err = g->ops.nvenc.init(g);
 		if (err != 0) {
@@ -370,7 +413,8 @@ s32 nvgpu_multimedia_sw_init(struct gk20a *g)
 		}
 	}
 
-	if (nvgpu_device_count(g, NVGPU_DEVTYPE_OFA) != 0U) {
+	if ((nvgpu_device_count(g, NVGPU_DEVTYPE_OFA) != 0U) &&
+		(g->ops.ofa.init != NULL)) {
 		nvgpu_log(g, gpu_dbg_mme, "ofa sw init");
 		err = g->ops.ofa.init(g);
 		if (err != 0) {
@@ -379,7 +423,8 @@ s32 nvgpu_multimedia_sw_init(struct gk20a *g)
 		}
 	}
 
-	if (nvgpu_device_count(g, NVGPU_DEVTYPE_NVDEC) != 0U) {
+	if ((nvgpu_device_count(g, NVGPU_DEVTYPE_NVDEC) != 0U) &&
+		(g->ops.nvdec.init != NULL)) {
 		nvgpu_log(g, gpu_dbg_mme, "nvdec sw init");
 		err = g->ops.nvdec.init(g);
 		if (err != 0) {
@@ -388,7 +433,8 @@ s32 nvgpu_multimedia_sw_init(struct gk20a *g)
 		}
 	}
 
-	if (nvgpu_device_count(g, NVGPU_DEVTYPE_NVJPG) != 0U) {
+	if ((nvgpu_device_count(g, NVGPU_DEVTYPE_NVJPG) != 0U) &&
+		(g->ops.nvjpg.init != NULL)) {
 		nvgpu_log(g, gpu_dbg_mme, "nvjpg sw init");
 		err = g->ops.nvjpg.init(g);
 		if (err != 0) {
@@ -405,39 +451,47 @@ s32 nvgpu_multimedia_bootstrap(struct gk20a *g)
 	const struct nvgpu_device *dev;
 	s32 err = 0;
 
-	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVENC) {
-		nvgpu_log(g, gpu_dbg_mme, "booting nvenc%d", dev->inst_id);
-		err = g->ops.nvenc.bootstrap(g, dev->inst_id);
-		if (err != 0) {
-			nvgpu_err(g, "failed to boot nvenc%d", dev->inst_id);
-			return err;
+	if (g->ops.nvenc.bootstrap != NULL) {
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVENC) {
+			nvgpu_log(g, gpu_dbg_mme, "booting nvenc%d", dev->inst_id);
+			err = g->ops.nvenc.bootstrap(g, dev->inst_id);
+			if (err != 0) {
+				nvgpu_err(g, "failed to boot nvenc%d", dev->inst_id);
+				return err;
+			}
 		}
 	}
 
-	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_OFA) {
-		nvgpu_log(g, gpu_dbg_mme, "booting ofa%d", dev->inst_id);
-		err = g->ops.ofa.bootstrap(g, dev->inst_id);
-		if (err != 0) {
-			nvgpu_err(g, "failed to boot ofa%d", dev->inst_id);
-			return err;
+	if (g->ops.ofa.bootstrap != NULL) {
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_OFA) {
+			nvgpu_log(g, gpu_dbg_mme, "booting ofa%d", dev->inst_id);
+			err = g->ops.ofa.bootstrap(g, dev->inst_id);
+			if (err != 0) {
+				nvgpu_err(g, "failed to boot ofa%d", dev->inst_id);
+				return err;
+			}
 		}
 	}
 
-	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVDEC) {
-		nvgpu_log(g, gpu_dbg_mme, "booting nvdec%d", dev->inst_id);
-		err = g->ops.nvdec.bootstrap(g, dev->inst_id);
-		if (err != 0) {
-			nvgpu_err(g, "failed to boot nvdec%d", dev->inst_id);
-			return err;
+	if (g->ops.nvdec.bootstrap != NULL) {
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVDEC) {
+			nvgpu_log(g, gpu_dbg_mme, "booting nvdec%d", dev->inst_id);
+			err = g->ops.nvdec.bootstrap(g, dev->inst_id);
+			if (err != 0) {
+				nvgpu_err(g, "failed to boot nvdec%d", dev->inst_id);
+				return err;
+			}
 		}
 	}
 
-	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVJPG) {
-		nvgpu_log(g, gpu_dbg_mme, "booting nvjpg%d", dev->inst_id);
-		err = g->ops.nvjpg.bootstrap(g, dev->inst_id);
-		if (err != 0) {
-			nvgpu_err(g, "failed to boot nvjpg%d", dev->inst_id);
-			return err;
+	if (g->ops.nvjpg.bootstrap != NULL) {
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_NVJPG) {
+			nvgpu_log(g, gpu_dbg_mme, "booting nvjpg%d", dev->inst_id);
+			err = g->ops.nvjpg.bootstrap(g, dev->inst_id);
+			if (err != 0) {
+				nvgpu_err(g, "failed to boot nvjpg%d", dev->inst_id);
+				return err;
+			}
 		}
 	}
 
@@ -447,19 +501,19 @@ s32 nvgpu_multimedia_bootstrap(struct gk20a *g)
 void nvgpu_multimedia_deinit(struct gk20a *g)
 {
 
-	if (g->nvenc != NULL) {
+	if ((g->nvenc != NULL) && (g->ops.nvenc.deinit != NULL)) {
 		(void)g->ops.nvenc.deinit(g);
 	}
 
-	if (g->ofa != NULL) {
+	if ((g->ofa != NULL) && (g->ops.ofa.deinit != NULL)) {
 		(void)g->ops.ofa.deinit(g);
 	}
 
-	if (g->nvdec != NULL) {
+	if ((g->nvdec != NULL) && (g->ops.nvdec.deinit != NULL)) {
 		(void)g->ops.nvdec.deinit(g);
 	}
 
-	if (g->nvjpg != NULL) {
+	if ((g->nvjpg != NULL) && (g->ops.nvjpg.deinit != NULL)) {
 		(void)g->ops.nvjpg.deinit(g);
 	}
 }
@@ -475,9 +529,11 @@ bool nvgpu_get_multimedia_fw_names(struct gk20a *g, u32 dev_type,
 	(void) image_fw_name;
 
 	switch (ver) {
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+
+	case NVGPU_GPUID_GB10B:
 		switch (dev_type) {
 		case NVGPU_DEVTYPE_NVENC:
 			*desc_fw_name = GB10B_NVENC_UCODE_DESC;
@@ -504,7 +560,6 @@ bool nvgpu_get_multimedia_fw_names(struct gk20a *g, u32 dev_type,
 			break;
 		}
 		break;
-#endif
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 	case NVGPU_GPUID_GB20C:
 	case NVGPU_GPUID_GB20C_NEXT:

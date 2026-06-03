@@ -1,5 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+/*
+ * SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_REGOPS_ALLOWLIST_H
@@ -24,6 +25,7 @@ enum nvgpu_pm_resource_hwpm_register_type {
 	NVGPU_HWPM_REGISTER_TYPE_HES,
 	NVGPU_HWPM_REGISTER_TYPE_HWPM_MM,
 	NVGPU_HWPM_REGISTER_TYPE_TEST,
+	NVGPU_HWPM_REGISTER_TYPE_CCU_PROF,
 	NVGPU_HWPM_REGISTER_TYPE_COUNT,
 };
 

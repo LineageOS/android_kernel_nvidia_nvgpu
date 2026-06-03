@@ -20,6 +20,7 @@
 #include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/grmgr.h>
 #include <nvgpu/power_features/pg.h>
+#include <hal/gr/gr/gr_gk20a.h>
 
 static int nvgpu_profiler_build_regops_allowlist(struct nvgpu_profiler_object *prof);
 static void nvgpu_profiler_destroy_regops_allowlist(struct nvgpu_profiler_object *prof);
@@ -159,7 +160,6 @@ int nvgpu_profiler_pm_resource_reserve(struct nvgpu_profiler_object *prof,
 	enum nvgpu_profiler_pm_reservation_scope scope = prof->scope;
 	u32 reservation_id = prof->prof_handle;
 	int err;
-	bool is_ctx_switched = true;
 
 	nvgpu_log(g, gpu_dbg_prof,
 		"Request reservation for profiler handle %u, resource %u, scope %u",
@@ -186,74 +186,6 @@ int nvgpu_profiler_pm_resource_reserve(struct nvgpu_profiler_object *prof,
 	}
 
 	prof->reserved[pm_resource] = true;
-	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC) {
-		if (prof->ctxsw[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_SMPC] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-		} else {
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_SMPC] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-		}
-	}
-
-	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY) {
-		if (prof->ctxsw[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_CAU] =
-				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-
-			// Refer Bug 4719304
-			// PMA registers are not part of context buffer offset
-			// map yet. They are to be executed as device level
-			// regops till then irrespective of context switch mode.
-			if (g->ops.regops.is_hwpm_pma_reg_context_switched != NULL) {
-				is_ctx_switched =
-					g->ops.regops.is_hwpm_pma_reg_context_switched();
-				if (!is_ctx_switched) {
-					prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
-						NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-					prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
-						NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-				}
-			}
-		} else {
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_CAU] =
-				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-		}
-		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_MM] =
-			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-	}
-
-	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM) {
-		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_CHANNEL] =
-			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-	}
-
-	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_PC_SAMPLER) {
-		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_PC_SAMPLER] =
-			NVGPU_DBG_REG_OP_TYPE_GR_CTX;
-	}
-
-	/* ctxsw support does not exist for hes right now */
-	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES) {
-		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HES] =
-			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
-	}
 
 	nvgpu_log(g, gpu_dbg_prof,
 		"Granted reservation for profiler handle %u, resource %u, scope %u",
@@ -311,12 +243,29 @@ int nvgpu_profiler_pm_resource_release(struct nvgpu_profiler_object *prof,
 	return 0;
 }
 
-static bool nvgpu_profiler_is_context_resource(
-			struct nvgpu_profiler_object *prof,
-			enum nvgpu_profiler_pm_resource_type pm_resource)
+bool nvgpu_profiler_is_context_resource(struct nvgpu_profiler_object *prof,
+				       enum nvgpu_profiler_pm_resource_type pm_resource)
 {
 	return (prof->scope != NVGPU_PROFILER_PM_RESERVATION_SCOPE_DEVICE) ||
 		prof->ctxsw[pm_resource];
+}
+
+int nvgpu_profiler_unbind_ccuprof(struct gk20a *g,
+	u32 gr_instance_id, bool is_ctxsw, u32 reservation_id)
+{
+	int ret = 0;
+
+	if (!is_ctxsw) {
+		if (g->ops.perf.disable_ccuprof != NULL) {
+			ret = g->ops.perf.disable_ccuprof(g, gr_instance_id, is_ctxsw,
+				reservation_id);
+			if (ret != 0) {
+				nvgpu_err(g, "CCU prof perfmon disable failed - %d", ret);
+			}
+		}
+	}
+
+	return ret;
 }
 
 int nvgpu_profiler_bind_smpc(struct gk20a *g,
@@ -420,12 +369,11 @@ int nvgpu_profiler_bind_hwpm(struct gk20a *g, u32 gr_instance_id,
 
 	if (!is_ctxsw) {
 		if (g->ops.perf.reset_hwpm_pmm_registers != NULL) {
-			g->ops.perf.reset_hwpm_pmm_registers(g, gr_instance_id);
+			g->ops.perf.reset_hwpm_pmm_registers(g, gr_instance_id, tsg, true);
 		}
-		g->ops.perf.init_hwpm_pmm_register(g, gr_instance_id);
+		g->ops.perf.init_hwpm_pmm_register(g, gr_instance_id, tsg, true);
 	} else {
-		err = g->ops.gr.update_hwpm_ctxsw_mode(
-				g, gr_instance_id, tsg, mode);
+		err = g->ops.gr.update_hwpm_ctxsw_mode(g, gr_instance_id, tsg, mode);
 	}
 
 	return err;
@@ -475,8 +423,13 @@ int nvgpu_profiler_quiesce_hwpm_streamout_resident(struct gk20a *g,
 	/* Enable streamout */
 	g->ops.perf.pma_stream_enable(g, pma_channel_id, true);
 
-	/* Disable all perfmons */
-	g->ops.perf.disable_all_perfmons(g, gr_instance_id);
+	/* Disable all perfmons
+	 * Since context is resident, passing NULL and true as args
+	 */
+	err = g->ops.perf.disable_all_perfmons(g, gr_instance_id, NULL, true);
+	if (err != 0) {
+		goto fail;
+	}
 
 	/* Wait for routers to idle/quiescent */
 	err = g->ops.perf.wait_for_idle_pmm_routers(g, gr_instance_id, pma_channel_id);
@@ -575,7 +528,7 @@ static int nvgpu_profiler_quiesce_hwpm_streamout_ctx(struct gk20a *g,
 			err = nvgpu_perfbuf_update_get_put(g, pma_channel_id, 0U,
 					&bytes_available,
 					pma_bytes_available_buffer_cpuva, true,
-					NULL, NULL);
+					NULL, NULL, tsg, ctx_resident);
 			if (err != 0) {
 				nvgpu_err(g, "Failed to quiesce resident HWPM streamout");
 			}
@@ -611,11 +564,14 @@ static int nvgpu_profiler_quiesce_hwpm_streamout(struct gk20a *g,
 		ret = nvgpu_profiler_quiesce_hwpm_streamout_resident(g,
 						gr_instance_id, pma_channel_id);
 		if (ret == 0) {
-			/* wait for all the inflight records from fb-hub to stream out */
+			/* wait for all the inflight records from fb-hub to stream out.
+			 * is_ctx_resident is set to true because ctxsw is not enabld in this
+			 * path of driver.
+			 */
 			return nvgpu_perfbuf_update_get_put(g, pma_channel_id,
 					0U, &bytes_available,
 					pma_bytes_available_buffer_cpuva, true,
-					NULL, NULL);
+					NULL, NULL, tsg, true);
 		}
 	} else {
 		ret = nvgpu_profiler_quiesce_hwpm_streamout_ctx(g,
@@ -633,7 +589,9 @@ int nvgpu_profiler_bind_pma_streamout(struct gk20a *g,
 		u64 pma_buffer_va,
 		u32 pma_buffer_size,
 		u64 pma_bytes_available_buffer_va,
-		u32 reservation_id)
+		u32 reservation_id,
+		struct nvgpu_tsg *tsg,
+		bool is_ctx_resident)
 {
 	int err;
 
@@ -641,15 +599,33 @@ int nvgpu_profiler_bind_pma_streamout(struct gk20a *g,
 	(void)reservation_id;
 
 	err = g->ops.perfbuf.perfbuf_enable(g, pma_channel_id, pma_buffer_va,
-					    pma_buffer_size);
-	if (err) {
+					    pma_buffer_size, tsg, is_ctx_resident);
+	if (err != 0) {
 		return err;
 	}
 
-	g->ops.perf.bind_mem_bytes_buffer_addr(g, pma_channel_id,
-					       pma_bytes_available_buffer_va);
+	err = g->ops.perf.bind_mem_bytes_buffer_addr(g, pma_channel_id,
+			pma_bytes_available_buffer_va, tsg, is_ctx_resident);
+	if (err != 0) {
+		return err;
+	}
 
-	return 0;
+	/*
+	 * Enable NV_PERF_PMA_CHANNEL_CONFIG_SECURE_SKIP_IDLE_BETWEEN_XACTION
+	 * to insert an idle cycle between PMA back to back transactions.
+	 * Without this extra idle cycle, PMA buffer will be corrupted when
+	 * reaching full. See bug 5096061, comment #17
+	 */
+	if (g->ops.perf.pma_stream_preparation != NULL) {
+		err = g->ops.perf.pma_stream_preparation(g, pma_channel_id, true,
+				tsg, is_ctx_resident);
+		if (err != 0) {
+			nvgpu_err(g,
+			"Prog. to handle PMA buffer corruption due to overflow failed - %d", err);
+		}
+	}
+
+	return err;
 }
 
 int nvgpu_profiler_unbind_pma_streamout(struct gk20a *g,
@@ -658,7 +634,8 @@ int nvgpu_profiler_unbind_pma_streamout(struct gk20a *g,
 		bool is_ctxsw,
 		struct nvgpu_tsg *tsg,
 		void *pma_bytes_available_buffer_cpuva,
-		u32 reservation_id)
+		u32 reservation_id,
+		bool is_ctx_resident)
 {
 	int err;
 	(void)reservation_id;
@@ -671,9 +648,21 @@ int nvgpu_profiler_unbind_pma_streamout(struct gk20a *g,
 		return err;
 	}
 
-	g->ops.perf.bind_mem_bytes_buffer_addr(g, pma_channel_id, 0ULL);
+	if (g->ops.perf.pma_stream_preparation != NULL) {
+		err = g->ops.perf.pma_stream_preparation(g, pma_channel_id, false,
+			tsg, is_ctx_resident);
+		if (err != 0) {
+			nvgpu_err(g,
+			"Prog. to handle corruption due to PMA buffer overflow failed - %d", err);
+			return err;
+		}
+	}
 
-	err = g->ops.perfbuf.perfbuf_disable(g, pma_channel_id);
+	g->ops.perf.bind_mem_bytes_buffer_addr(g, pma_channel_id, 0ULL,
+			tsg, is_ctx_resident);
+
+	err = g->ops.perfbuf.perfbuf_disable(g, pma_channel_id, tsg,
+				is_ctx_resident);
 	if (err) {
 		return err;
 	}
@@ -686,20 +675,22 @@ int nvgpu_profiler_unbind_pma_streamout(struct gk20a *g,
 }
 
 int nvgpu_profiler_set_secure_config_hwpm(struct gk20a *g,  u32 gr_instance_id,
-					  u32 pma_channel_id, bool enable)
+					 u32 pma_channel_id, bool enable, bool is_ctx_resident,
+					 struct nvgpu_tsg *tsg)
 {
 	int err;
 
 	if (g->ops.perf.set_secure_config_for_hwpm_dg != NULL) {
 		err = g->ops.perf.set_secure_config_for_hwpm_dg(g,
-				gr_instance_id, pma_channel_id, enable);
+							gr_instance_id, pma_channel_id, enable,
+							is_ctx_resident, tsg);
 		if (err != 0) {
 			if (enable) {
 				nvgpu_err(g,
-					"set_secure_config_for_hwpm_dg failed for channel: 0x%x",
-										pma_channel_id);
+					"set_secure_config_for_hwpm_dg failed for channel: 0x%x", pma_channel_id);
 				(void)g->ops.perf.set_secure_config_for_hwpm_dg(g,
-						gr_instance_id, pma_channel_id, false);
+								gr_instance_id, pma_channel_id, false, is_ctx_resident,
+								tsg);
 			}
 			return err;
 		}
@@ -709,19 +700,22 @@ int nvgpu_profiler_set_secure_config_hwpm(struct gk20a *g,  u32 gr_instance_id,
 }
 
 int nvgpu_profiler_set_secure_config_cau(struct gk20a *g, u32 gr_instance_id,
-					 u32 pma_channel_id, bool enable)
+					u32 pma_channel_id, bool enable,
+					bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	int err;
 
 	if (g->ops.perf.set_secure_config_for_cau != NULL) {
 		err =  nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
 				g->ops.perf.set_secure_config_for_cau(g, gr_instance_id,
-							pma_channel_id, enable));
+								pma_channel_id, enable,
+								is_ctx_resident, tsg));
 		if (err != 0) {
 			if (enable)
 				nvgpu_gr_exec_for_instance(g, gr_instance_id,
-						g->ops.perf.set_secure_config_for_cau(g,
-					gr_instance_id, pma_channel_id, false));
+					g->ops.perf.set_secure_config_for_cau(g,
+						gr_instance_id, pma_channel_id, false,
+						is_ctx_resident, tsg));
 			return err;
 		}
 	}
@@ -730,18 +724,21 @@ int nvgpu_profiler_set_secure_config_cau(struct gk20a *g, u32 gr_instance_id,
 }
 
 int nvgpu_profiler_set_secure_config_ccuprof(struct gk20a *g, u32 gr_instance_id,
-					     u32 pma_channel_id, bool enable)
+					    u32 pma_channel_id, bool enable,
+					    bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	int err;
 
 	if (g->ops.perf.set_secure_config_for_ccu_prof != NULL) {
 		err = g->ops.perf.set_secure_config_for_ccu_prof(g,
-				gr_instance_id, pma_channel_id, enable);
+						gr_instance_id, pma_channel_id, enable,
+						is_ctx_resident, tsg);
 		if (err != 0) {
 			if (enable)
 				(void)g->ops.perf.set_secure_config_for_ccu_prof(g,
-						gr_instance_id,
-						pma_channel_id, false);
+								gr_instance_id,
+								pma_channel_id, false,
+								is_ctx_resident, tsg);
 			return err;
 		}
 	}
@@ -750,17 +747,20 @@ int nvgpu_profiler_set_secure_config_ccuprof(struct gk20a *g, u32 gr_instance_id
 }
 
 int nvgpu_profiler_set_secure_config_cwd_hem(struct gk20a *g, u32 gr_instance_id,
-						u32 pma_channel_id, bool enable)
+					    u32 pma_channel_id, bool enable,
+					    bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	int err;
 
 	if (g->ops.perf.set_secure_config_for_cwd_hem != NULL) {
 		err = g->ops.perf.set_secure_config_for_cwd_hem(g, gr_instance_id,
-								pma_channel_id, enable);
+								pma_channel_id, enable,
+								is_ctx_resident, tsg);
 		if (err != 0) {
 			if (enable)
 				(void)g->ops.perf.set_secure_config_for_cwd_hem(g, gr_instance_id,
-									pma_channel_id, false);
+									pma_channel_id, false,
+									is_ctx_resident, tsg);
 			return err;
 		}
 	}
@@ -768,29 +768,51 @@ int nvgpu_profiler_set_secure_config_cwd_hem(struct gk20a *g, u32 gr_instance_id
 	return 0;
 }
 
-static void nvgpu_profiler_configure_hs_credits(struct gk20a *g, u32 gr_instance_id,
-				struct nvgpu_pma_stream_hs_credits *hs_credits, bool reset)
+static int nvgpu_profiler_configure_hs_credits(struct gk20a *g, u32 gr_instance_id,
+					      struct nvgpu_pma_stream_hs_credits *hs_credits,
+					      bool reset, bool is_ctx_resident,
+					      struct nvgpu_tsg *tsg)
 {
 	u32 i;
+	int ret;
 
 	nvgpu_assert(hs_credits->initialized == true);
 	nvgpu_assert(g->ops.profiler.set_hs_credit_per_chiplet != NULL);
 
 	for (i = 0U; i < hs_credits->gpc_credit_pool_sz; i++) {
-		g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
-				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC,
-				i, reset ? 0U : hs_credits->gpc_credit_pool[i]);
+		ret = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+						hs_credits->pma_channel_id,
+						NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC,
+						i, reset ? 0U : hs_credits->gpc_credit_pool[i],
+						is_ctx_resident, tsg);
+		if (ret != 0) {
+			nvgpu_err(g, "Setting GPC HS credit failed - %d", ret);
+			goto label;
+		}
 	}
 
 	for (i = 0U; i < hs_credits->fbp_credit_pool_sz; i++) {
-		g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
-				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP,
-				i, reset ? 0U : hs_credits->fbp_credit_pool[i]);
+		ret = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+						hs_credits->pma_channel_id,
+						NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP,
+						i, reset ? 0U : hs_credits->fbp_credit_pool[i],
+						is_ctx_resident, tsg);
+		if (ret != 0) {
+			nvgpu_err(g, "Setting FBP HS credit failed - %d", ret);
+			goto label;
+		}
 	}
 
-	g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
-				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS,
-				i, reset ? 0U : hs_credits->sys_credit_pool);
+	ret = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+						hs_credits->pma_channel_id,
+						NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS,
+						i, reset ? 0U : hs_credits->sys_credit_pool,
+						is_ctx_resident, tsg);
+	if (ret != 0) {
+		nvgpu_err(g, "Setting SYS HS credit failed - %d", ret);
+	}
+label:
+	return ret;
 }
 
 bool nvgpu_profiler_hs_credit_allocation_supported(struct gk20a *g)
@@ -807,9 +829,11 @@ bool nvgpu_profiler_hs_credit_allocation_supported(struct gk20a *g)
 }
 
 static void nvgpu_profiler_free_hs_credits(struct gk20a *g, u32 gr_instance_id,
-					struct nvgpu_profiler_object *prof)
+					  struct nvgpu_profiler_object *prof,
+					  bool is_ctx_resident)
 {
 	struct nvgpu_pma_stream_hs_credits *hs_credits;
+	struct nvgpu_tsg *tsg = prof->tsg;
 
 	if (!nvgpu_profiler_hs_credit_allocation_supported(g)) {
 		return;
@@ -820,7 +844,8 @@ static void nvgpu_profiler_free_hs_credits(struct gk20a *g, u32 gr_instance_id,
 		return;
 	}
 
-	nvgpu_profiler_configure_hs_credits(g, gr_instance_id, hs_credits, true);
+	nvgpu_profiler_configure_hs_credits(g, gr_instance_id, hs_credits, true,
+					   is_ctx_resident, tsg);
 
 	hs_credits->initialized = false;
 
@@ -837,12 +862,14 @@ static void nvgpu_profiler_free_hs_credits(struct gk20a *g, u32 gr_instance_id,
 }
 
 static int nvgpu_profiler_init_hs_credits(struct gk20a *g, u32 gr_instance_id,
-				struct nvgpu_profiler_object *prof)
+					 struct nvgpu_profiler_object *prof,
+					 bool is_ctx_resident)
 {
 	u32 gpu_instance_id = nvgpu_grmgr_get_gpu_instance_id(g, gr_instance_id);
 	struct nvgpu_gpu_instance *gpu_instance = &g->mig.gpu_instance[gpu_instance_id];
 	struct nvgpu_pma_stream_hs_credits *hs_credits;
 	u32 num_gpcs, num_fbps, credits_per_chiplet, i;
+	struct nvgpu_tsg *tsg = prof->tsg;
 	int err;
 
 	if (!nvgpu_profiler_hs_credit_allocation_supported(g)) {
@@ -916,7 +943,8 @@ static int nvgpu_profiler_init_hs_credits(struct gk20a *g, u32 gr_instance_id,
 	hs_credits->sys_max_credits = hs_credits->sys_credit_pool;
 	hs_credits->initialized = true;
 
-	nvgpu_profiler_configure_hs_credits(g, gr_instance_id, hs_credits, false);
+	nvgpu_profiler_configure_hs_credits(g, gr_instance_id, hs_credits, false,
+					   is_ctx_resident, tsg);
 
 	return 0;
 
@@ -935,7 +963,8 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 	bool is_ctxsw, pma_stream = false;
 	u32 reservation_id = prof->prof_handle;
 	int err;
-	u32 gr_instance_id;
+	u32 gr_instance_id, i;
+	bool is_ctx_resident;
 
 	nvgpu_log(g, gpu_dbg_prof,
 		"Request to bind PM resources with profiler handle %u",
@@ -980,7 +1009,7 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 			nvgpu_err(g,
 				"failed to bind HWPM with profiler handle %u",
 				prof->prof_handle);
-			goto fail;
+			goto fail_unbind;
 		}
 
 		nvgpu_log(g, gpu_dbg_prof,
@@ -996,7 +1025,7 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 		if (err) {
 			nvgpu_err(g, "failed to bind SMPC with profiler handle %u",
 				prof->prof_handle);
-			goto fail;
+			goto fail_unbind;
 		}
 
 		nvgpu_log(g, gpu_dbg_prof,
@@ -1017,22 +1046,42 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 			prof->prof_handle);
 	}
 
+	err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, prof, is_ctxsw, &is_ctx_resident);
+	if (err != 0) {
+		goto fail_unbind;
+	}
+
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES] &&
 			prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
 		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
 				NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES);
 
 		if (g->ops.perf.reset_pm_trigger_masks != NULL) {
-			g->ops.perf.reset_pm_trigger_masks(g,
+			err = g->ops.perf.reset_pm_trigger_masks(g,
 				prof->pma_channel_id, gr_instance_id,
-				reservation_id);
+				reservation_id, prof->tsg, is_ctx_resident);
+			if (err != 0) {
+				nvgpu_err(g, "PM trigger mask reset failed");
+				goto fail_pm;
+			}
 		}
-		g->ops.profiler.bind_hes_cwd(g, gr_instance_id, reservation_id,
-				prof->pma_channel_id);
+		err = g->ops.profiler.bind_hes_cwd(g, gr_instance_id, reservation_id,
+						  prof->pma_channel_id, is_ctx_resident,
+						  prof->tsg);
+		if (err != 0) {
+			nvgpu_err(g, "Resetting HES registers failed");
+			goto fail_pm;
+		}
 
-		if (g->ops.perf.enable_hes_event_trigger != NULL)
-			g->ops.perf.enable_hes_event_trigger(g, gr_instance_id,
-					prof->pma_channel_id);
+		if (g->ops.perf.enable_hes_event_trigger != NULL) {
+			err = g->ops.perf.enable_hes_event_trigger(g, gr_instance_id,
+					prof->pma_channel_id, prof->tsg,
+					is_ctx_resident);
+			if (err != 0) {
+				nvgpu_err(g, "HES event trigger prog failed");
+				goto fail_pm;
+			}
+		}
 
 		nvgpu_log(g, gpu_dbg_prof,
 			"HES CWD bound with profiler handle %u",
@@ -1044,14 +1093,23 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 			(prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) ||
 			(prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF])) {
 			if (g->ops.perf.reset_pm_trigger_masks != NULL) {
-				g->ops.perf.reset_pm_trigger_masks(g,
+				err = g->ops.perf.reset_pm_trigger_masks(g,
 					prof->pma_channel_id, gr_instance_id,
-					reservation_id);
+					reservation_id, prof->tsg, is_ctx_resident);
+				if (err != 0) {
+					nvgpu_err(g, "PM trigger mask reset failed");
+					goto fail_pm;
+				}
 			}
 			if (g->ops.perf.enable_pm_trigger != NULL) {
-				g->ops.perf.enable_pm_trigger(g,
+				err = g->ops.perf.enable_pm_trigger(g,
 					gr_instance_id, prof->pma_channel_id,
-					reservation_id);
+					reservation_id, prof->tsg,
+					is_ctx_resident);
+				if (err != 0) {
+					nvgpu_err(g, "PM trigger prog failed");
+					goto fail_pm;
+				}
 			}
 		}
 
@@ -1061,60 +1119,69 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 				prof->pma_buffer_va,
 				prof->pma_buffer_size,
 				prof->pma_bytes_available_buffer_va,
-				reservation_id);
+				reservation_id,
+				prof->tsg,
+				is_ctx_resident);
 		if (err != 0) {
 			nvgpu_err(g,
 				"failed to bind pma streamout with profiler handle %u",
 				prof->prof_handle);
-			goto fail;
+			goto fail_pm;
 		}
 
 		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
 			err = nvgpu_profiler_set_secure_config_hwpm(g, gr_instance_id,
-								    prof->pma_channel_id, true);
+							prof->pma_channel_id, true, is_ctx_resident,
+							prof->tsg);
 			if (err != 0) {
 				nvgpu_err(g, "set_secure_config_hwpm failed. %d", err);
-				goto fail;
+				goto fail_pm;
 			}
 		}
 
 		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
 			err = nvgpu_profiler_set_secure_config_cau(g, gr_instance_id,
-							prof->pma_channel_id, true);
+								  prof->pma_channel_id, true,
+								  is_ctx_resident, prof->tsg);
 			if (err != 0) {
 				nvgpu_err(g, "set_secure_config_cau failed. %d", err);
-				goto fail;
+				goto fail_pm;
 			}
 		}
 
 		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES]) {
 			err = nvgpu_profiler_set_secure_config_cwd_hem(g, gr_instance_id,
-								prof->pma_channel_id, true);
+								      prof->pma_channel_id, true,
+								      is_ctx_resident, prof->tsg);
 			if (err != 0) {
 				nvgpu_err(g, "set_secure_config_cwd_hem failed. %d", err);
-				goto fail;
+				goto fail_pm;
 			}
 		}
 
 		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
-			err = nvgpu_profiler_set_secure_config_ccuprof(g,
-					gr_instance_id,
-					prof->pma_channel_id,
-					true);
+			err = nvgpu_profiler_set_secure_config_ccuprof(g, gr_instance_id,
+							prof->pma_channel_id, true,
+							is_ctx_resident, prof->tsg);
 			if (err != 0) {
-				nvgpu_err(g,
-					"set_secure_config_ccuprof failed. %d",
-					err);
-				goto fail;
+				nvgpu_err(g, "set_secure_config_ccuprof failed. %d", err);
+				goto fail_pm;
 			}
 		}
 
-		if (g->ops.perf.enable_pma_trigger != NULL)
-			g->ops.perf.enable_pma_trigger(g, prof->pma_channel_id);
+		if (g->ops.perf.enable_pma_trigger != NULL) {
+			err = g->ops.perf.enable_pma_trigger(g, prof->pma_channel_id,
+					prof->tsg, is_ctx_resident);
+			if (err != 0) {
+				nvgpu_err(g, "PMA trigger failed ");
+				goto fail_pm;
+			}
+		}
 
-		err = nvgpu_profiler_init_hs_credits(g, gr_instance_id,  prof);
+
+		err = nvgpu_profiler_init_hs_credits(g, gr_instance_id,  prof, is_ctx_resident);
 		if (err != 0) {
-			goto fail_unbind;
+			goto fail_pm;
 		}
 
 		nvgpu_log(g, gpu_dbg_prof,
@@ -1122,9 +1189,24 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 			prof->prof_handle);
 	}
 
+	if (g->ops.regops.init_reg_op_type_per_register_type != NULL) {
+		for (i = 0 ; i < NVGPU_PROFILER_PM_RESOURCE_TYPE_COUNT; i++) {
+			(void) g->ops.regops.init_reg_op_type_per_register_type(g, prof, i);
+		}
+	} else {
+		nvgpu_err(g, "init_reg_op_type_per_register_type is not implemented");
+		goto fail_pm;
+	}
+
 	err = nvgpu_profiler_build_regops_allowlist(prof);
 	if (err != 0) {
 		nvgpu_err(g, "failed to build allowlist");
+		goto fail_pm;
+	}
+
+	err = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw);
+	if (err != 0) {
+		nvgpu_assert(err == 0);
 		goto fail_unbind;
 	}
 
@@ -1133,17 +1215,11 @@ int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof)
 	gk20a_idle(g);
 	return 0;
 
+fail_pm:
+	nvgpu_assert(nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw) == 0);
 fail_unbind:
 	nvgpu_mutex_release(&prof->bind_lock);
 	nvgpu_profiler_unbind_pm_resources(prof);
-fail:
-	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
-		if (g->ops.perf.reset_pm_trigger_masks != NULL) {
-			g->ops.perf.reset_pm_trigger_masks(g,
-					prof->pma_channel_id, gr_instance_id,
-					reservation_id);
-		}
-	}
 	gk20a_idle(g);
 	return err;
 }
@@ -1155,6 +1231,7 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 	u32 reservation_id = prof->prof_handle;
 	int err;
 	u32 gr_instance_id;
+	bool is_ctx_resident;
 
 	nvgpu_mutex_acquire(&prof->bind_lock);
 
@@ -1172,86 +1249,9 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 		return err;
 	}
 
+	is_ctxsw = nvgpu_profiler_get_is_ctxsw(prof);
+
 	gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
-
-	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
-
-		nvgpu_profiler_free_hs_credits(g, gr_instance_id, prof);
-
-		if (g->ops.perf.reset_pm_trigger_masks != NULL) {
-			g->ops.perf.reset_pm_trigger_masks(g,
-					prof->pma_channel_id, gr_instance_id,
-					reservation_id);
-		}
-		/* Assuming pma stream will be enabled only with one resource */
-		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
-			is_ctxsw = nvgpu_profiler_is_context_resource(prof,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
-		} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
-			is_ctxsw = nvgpu_profiler_is_context_resource(prof,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC);
-		} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
-			is_ctxsw = nvgpu_profiler_is_context_resource(prof,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF);
-		} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES] &&
-			prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
-			is_ctxsw = nvgpu_profiler_is_context_resource(prof,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES);
-		}
-
-		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
-			err = nvgpu_profiler_set_secure_config_hwpm(g, gr_instance_id,
-							prof->pma_channel_id, false);
-			if (err != 0) {
-				nvgpu_err(g, "set_secure_config_hwpm failed. %d", err);
-				goto fail;
-			}
-		}
-
-		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
-			err = nvgpu_profiler_set_secure_config_cau(g, gr_instance_id,
-							prof->pma_channel_id, false);
-			if (err != 0) {
-				nvgpu_err(g, "set_secure_config_cau failed. %d", err);
-				goto fail;
-			}
-		}
-
-		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
-			err = nvgpu_profiler_set_secure_config_ccuprof(g, gr_instance_id,
-								prof->pma_channel_id, false);
-			if (err != 0) {
-				nvgpu_err(g, "set_secure_config_ccu_prof failed. %d", err);
-				goto fail;
-			}
-		}
-
-		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES]) {
-			err = nvgpu_profiler_set_secure_config_cwd_hem(g, gr_instance_id,
-								prof->pma_channel_id, false);
-			if (err != 0) {
-				nvgpu_err(g, "set_secure_config_cwd_hem failed. %d", err);
-				goto fail;
-			}
-		}
-
-		err = g->ops.profiler.unbind_pma_streamout(g,
-			gr_instance_id, prof->pma_channel_id,
-			is_ctxsw,
-			prof->tsg,
-			prof->pma_bytes_available_buffer_cpuva,
-			reservation_id);
-		if (err) {
-			nvgpu_err(g,
-				"failed to unbind PMA streamout from profiler handle %u",
-				prof->prof_handle);
-			goto fail;
-		}
-
-		nvgpu_log(g, gpu_dbg_prof,
-			"PMA streamout unbound from profiler handle %u",
-			prof->prof_handle);
-	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
 		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
@@ -1262,7 +1262,7 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 			nvgpu_err(g,
 				"failed to unbind HWPM from profiler handle %u",
 				prof->prof_handle);
-			goto fail;
+			goto fail_force_unbind;
 		}
 
 		nvgpu_log(g, gpu_dbg_prof,
@@ -1279,7 +1279,7 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 			nvgpu_err(g,
 				"failed to unbind SMPC from profiler handle %u",
 				prof->prof_handle);
-			goto fail;
+			goto fail_force_unbind;
 		}
 
 		nvgpu_log(g, gpu_dbg_prof,
@@ -1290,11 +1290,12 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
 				NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF);
 		if (g->ops.profiler.unbind_ccuprof != NULL) {
-			err = g->ops.profiler.unbind_ccuprof(g, gr_instance_id, is_ctxsw);
+			err = g->ops.profiler.unbind_ccuprof(g, gr_instance_id,
+				is_ctxsw, reservation_id);
 			if (err) {
 				nvgpu_err(g, "failed to unbind CCU prof with profiler handle %u",
 					prof->prof_handle);
-				goto fail;
+				goto fail_force_unbind;
 			}
 		}
 
@@ -1319,7 +1320,7 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 				nvgpu_err(g,
 					"failed to unbind HES CWD from profiler handle %u",
 					prof->prof_handle);
-				goto fail;
+				goto fail_force_unbind;
 			}
 		}
 
@@ -1328,11 +1329,102 @@ int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof)
 			prof->prof_handle);
 	}
 
-fail:
-	nvgpu_profiler_destroy_regops_allowlist(prof);
+	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, prof, is_ctxsw,
+								&is_ctx_resident);
+		if (err != 0) {
+			nvgpu_mutex_release(&prof->bind_lock);
+			return err;
+		}
+
+		err = g->ops.profiler.unbind_pma_streamout(g,
+			gr_instance_id, prof->pma_channel_id,
+			is_ctxsw,
+			prof->tsg,
+			prof->pma_bytes_available_buffer_cpuva,
+			reservation_id, is_ctx_resident);
+		if (err) {
+			nvgpu_err(g,
+				"failed to unbind PMA streamout from profiler handle %u",
+				prof->prof_handle);
+			goto fail_resume_ctxsw;
+		}
+
+		if (g->ops.perf.reset_pm_trigger_masks != NULL) {
+			err = g->ops.perf.reset_pm_trigger_masks(g,
+					prof->pma_channel_id, gr_instance_id,
+					reservation_id, prof->tsg, is_ctx_resident);
+			if (err != 0) {
+				nvgpu_err(g, "Resetting PM trigger mask failed - %d", err);
+				goto fail_resume_ctxsw;
+			}
+		}
+
+		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
+			err = nvgpu_profiler_set_secure_config_hwpm(g, gr_instance_id,
+						prof->pma_channel_id, false, is_ctx_resident,
+						prof->tsg);
+			if (err != 0) {
+				nvgpu_err(g, "set_secure_config_hwpm failed. %d", err);
+				goto fail_resume_ctxsw;
+			}
+		}
+
+		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
+			err = nvgpu_profiler_set_secure_config_cau(g, gr_instance_id,
+								  prof->pma_channel_id, false,
+								  is_ctx_resident, prof->tsg);
+			if (err != 0) {
+				nvgpu_err(g, "set_secure_config_cau failed. %d", err);
+				goto fail_resume_ctxsw;
+			}
+		}
+
+		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
+			err = nvgpu_profiler_set_secure_config_ccuprof(g, gr_instance_id,
+								      prof->pma_channel_id, false,
+								      is_ctx_resident, prof->tsg);
+			if (err != 0) {
+				nvgpu_err(g, "set_secure_config_ccu_prof failed. %d", err);
+				goto fail_resume_ctxsw;
+			}
+		}
+
+		if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES]) {
+			err = nvgpu_profiler_set_secure_config_cwd_hem(g, gr_instance_id,
+								      prof->pma_channel_id, false,
+								      is_ctx_resident, prof->tsg);
+			if (err != 0) {
+				nvgpu_err(g, "set_secure_config_cwd_hem failed. %d", err);
+				goto fail_resume_ctxsw;
+			}
+		}
+
+		nvgpu_profiler_free_hs_credits(g, gr_instance_id, prof, is_ctx_resident);
+
+		err = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw);
+		if (err != 0) {
+			nvgpu_assert(err == 0);
+			goto fail_force_unbind;
+		}
+		nvgpu_log(g, gpu_dbg_prof,
+			"PMA streamout unbound from profiler handle %u",
+			prof->prof_handle);
+	}
+
+
+
+fail_resume_ctxsw:
+	(void)nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw);
+fail_force_unbind:
+	/* TODO: We need to force the trigger stop and retry for the unbind
+	 * to release the resource for the next reservation.
+	 */
 	prof->bound = false;
+	nvgpu_profiler_destroy_regops_allowlist(prof);
 	nvgpu_mutex_release(&prof->bind_lock);
 	gk20a_idle(g);
+
 	return err;
 }
 
@@ -1396,33 +1488,63 @@ static int map_cmp(const void *a, const void *b)
 
 static u32 get_pm_resource_register_range_map_entry_count(struct nvgpu_profiler_object *prof)
 {
+	const struct nvgpu_pm_resource_register_range *range;
 	struct gk20a *g = prof->g;
 	u32 count = 0U;
 	u32 range_count;
+	void *temp;
 
 	/* Account for TYPE_TEST entries added in add_test_range_to_map() */
 	count += 2U;
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
-		g->ops.regops.get_smpc_register_ranges(&range_count);
+		if (g->ops.regops.get_smpc_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_smpc_user_access_register_ranges(g, prof,
+						&range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_smpc_register_ranges(&range_count);
+		}
+		count += range_count;
+
+		if (g->ops.regops.get_cau_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_cau_user_access_register_ranges(g,
+					prof, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_cau_register_ranges(&range_count);
+		}
 		count += range_count;
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
-		g->ops.regops.get_hwpm_perfmon_register_ranges(&range_count);
+		if (g->ops.regops.get_hwpm_perfmon_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_perfmon_user_access_register_ranges(g,
+					prof, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_perfmon_register_ranges(&range_count);
+		}
 		count += range_count;
 
-		g->ops.regops.get_hwpm_router_register_ranges(&range_count);
-		count += range_count;
-
-		g->ops.regops.get_hwpm_pma_trigger_register_ranges(&range_count);
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g,
+					prof, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
 		count += range_count;
 
 		g->ops.regops.get_hwpm_perfmux_register_ranges(&range_count);
 		count += range_count;
 
-		if (g->ops.regops.get_cau_register_ranges != NULL) {
-			g->ops.regops.get_cau_register_ranges(&range_count);
+		if (g->ops.regops.get_sys_misc_device_register_ranges != NULL) {
+			range = g->ops.regops.get_sys_misc_device_register_ranges(&range_count);
 			count += range_count;
 		}
 
@@ -1433,7 +1555,24 @@ static u32 get_pm_resource_register_range_map_entry_count(struct nvgpu_profiler_
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
-		g->ops.regops.get_hwpm_pma_channel_register_ranges(&range_count);
+		if (g->ops.regops.get_pma_channel_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_pma_channel_user_access_register_ranges(g,
+					&range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_pma_channel_register_ranges(&range_count);
+		}
+		count += range_count;
+
+		if (g->ops.regops.get_pma_trigger_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_pma_trigger_user_access_register_ranges(g,
+					&range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_pma_trigger_register_ranges(&range_count);
+		}
 		count += range_count;
 	}
 
@@ -1443,11 +1582,59 @@ static u32 get_pm_resource_register_range_map_entry_count(struct nvgpu_profiler_
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES]) {
-		if (g->ops.regops.get_hes_register_ranges != NULL) {
+		if (g->ops.regops.get_hes_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hes_user_access_register_ranges(g, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else if (g->ops.regops.get_hes_register_ranges != NULL) {
 			g->ops.regops.get_hes_register_ranges(&range_count);
+		} else {
+			nvgpu_assert(0);
+			range_count = 0;
+		}
+		count += range_count;
+
+		if (g->ops.regops.get_hep_register_ranges != NULL) {
+			g->ops.regops.get_hep_register_ranges(&range_count);
 			count += range_count;
 		}
+
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g,
+					prof, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
+		count += range_count;
 	}
+
+	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
+		if (g->ops.regops.get_ccuprof_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_ccuprof_user_access_register_ranges(g, prof,
+					&range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+		count += range_count;
+
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g,
+					prof, &range_count);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else {
+			g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
+		count += range_count;
+	}
+
+	if (g->ops.regops.allowlist_misc_register_ranges != NULL) {
+		g->ops.regops.allowlist_misc_register_ranges(g, prof, NULL, NULL, &range_count);
+		count += range_count;
+	}
+
 
 	return count;
 }
@@ -1499,6 +1686,8 @@ static int nvgpu_profiler_build_regops_allowlist(struct nvgpu_profiler_object *p
 	u32 range_count;
 	struct gk20a *g = prof->g;
 	u32 i;
+	bool free_range = false;
+	void *temp;
 
 	map_count = get_pm_resource_register_range_map_entry_count(prof);
 	if (map_count == 0U) {
@@ -1514,32 +1703,71 @@ static int nvgpu_profiler_build_regops_allowlist(struct nvgpu_profiler_object *p
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
-		range = g->ops.regops.get_smpc_register_ranges(&range_count);
+		if (g->ops.regops.get_smpc_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_smpc_user_access_register_ranges(g,
+					prof, &range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_smpc_register_ranges(&range_count);
+		}
 		add_range_to_map(range, range_count, map, &map_index,
 			NVGPU_HWPM_REGISTER_TYPE_SMPC);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+
+		if (g->ops.regops.get_cau_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_cau_user_access_register_ranges(g,
+							prof, &range_count);
+			add_range_to_map(range, range_count, map, &map_index,
+					NVGPU_HWPM_REGISTER_TYPE_CAU);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else if (g->ops.regops.get_cau_register_ranges != NULL) {
+			range = g->ops.regops.get_cau_register_ranges(&range_count);
+			add_range_to_map(range, range_count, map, &map_index,
+					NVGPU_HWPM_REGISTER_TYPE_CAU);
+		}
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
-		range = g->ops.regops.get_hwpm_perfmon_register_ranges(&range_count);
+		if (g->ops.regops.get_hwpm_perfmon_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_perfmon_user_access_register_ranges(g,
+				prof, &range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_perfmon_register_ranges(&range_count);
+		}
 		add_range_to_map(range, range_count, map, &map_index,
 			NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
 
-		range = g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g, prof,
+										&range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
 		add_range_to_map(range, range_count, map, &map_index,
 			NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER);
-
-		range = g->ops.regops.get_hwpm_pma_trigger_register_ranges(&range_count);
-		add_range_to_map(range, range_count, map, &map_index,
-			NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
 
 		range = g->ops.regops.get_hwpm_perfmux_register_ranges(&range_count);
 		add_range_to_map(range, range_count, map, &map_index,
 			NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX);
 
-		if (g->ops.regops.get_cau_register_ranges != NULL) {
-			range = g->ops.regops.get_cau_register_ranges(&range_count);
+		if (g->ops.regops.get_sys_misc_device_register_ranges != NULL) {
+			range = g->ops.regops.get_sys_misc_device_register_ranges(&range_count);
 			add_range_to_map(range, range_count, map, &map_index,
-				NVGPU_HWPM_REGISTER_TYPE_CAU);
+					NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX);
 		}
 
 		if (g->ops.regops.get_hwpm_mm_register_ranges != NULL) {
@@ -1550,9 +1778,32 @@ static int nvgpu_profiler_build_regops_allowlist(struct nvgpu_profiler_object *p
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
-		range = g->ops.regops.get_hwpm_pma_channel_register_ranges(&range_count);
+		if (g->ops.regops.get_pma_channel_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_pma_channel_user_access_register_ranges(g,
+										&range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_pma_channel_register_ranges(&range_count);
+		}
 		add_range_to_map(range, range_count, map, &map_index,
 			NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_CHANNEL);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+
+		if (g->ops.regops.get_pma_trigger_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_pma_trigger_user_access_register_ranges(g, &range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_pma_trigger_register_ranges(&range_count);
+		}
+		add_range_to_map(range, range_count, map, &map_index,
+			NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PC_SAMPLER]) {
@@ -1562,11 +1813,67 @@ static int nvgpu_profiler_build_regops_allowlist(struct nvgpu_profiler_object *p
 	}
 
 	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES]) {
-		if (g->ops.regops.get_hes_register_ranges != NULL) {
+		if (g->ops.regops.get_hes_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hes_user_access_register_ranges(g, &range_count);
+			add_range_to_map(range, range_count, map, &map_index,
+				NVGPU_HWPM_REGISTER_TYPE_HES);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		} else if (g->ops.regops.get_hes_register_ranges != NULL) {
 			range = g->ops.regops.get_hes_register_ranges(&range_count);
 			add_range_to_map(range, range_count, map, &map_index,
-			NVGPU_HWPM_REGISTER_TYPE_HES);
+				NVGPU_HWPM_REGISTER_TYPE_HES);
 		}
+
+		if (g->ops.regops.get_hep_register_ranges != NULL) {
+			range = g->ops.regops.get_hep_register_ranges(&range_count);
+			add_range_to_map(range, range_count, map, &map_index,
+				NVGPU_HWPM_REGISTER_TYPE_HES);
+		}
+
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g, prof,
+										&range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
+		add_range_to_map(range, range_count, map, &map_index,
+			NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+	}
+
+	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
+		if (g->ops.regops.get_ccuprof_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_ccuprof_user_access_register_ranges(g, prof,
+										&range_count);
+			add_range_to_map(range, range_count, map, &map_index,
+				NVGPU_HWPM_REGISTER_TYPE_CCU_PROF);
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+
+		if (g->ops.regops.get_hwpm_router_user_access_register_ranges != NULL) {
+			range = g->ops.regops.get_hwpm_router_user_access_register_ranges(g, prof,
+										&range_count);
+			free_range = true;
+		} else {
+			range = g->ops.regops.get_hwpm_router_register_ranges(&range_count);
+		}
+		add_range_to_map(range, range_count, map, &map_index,
+			NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER);
+		if (free_range) {
+			temp = (void *)range;
+			nvgpu_kfree(g, temp);
+		}
+	}
+
+	if (g->ops.regops.allowlist_misc_register_ranges != NULL) {
+		g->ops.regops.allowlist_misc_register_ranges(g, prof, map,
+							    &map_index, &range_count);
 	}
 
 	add_test_range_to_map(g, map, &map_index, NVGPU_HWPM_REGISTER_TYPE_TEST);
@@ -1734,12 +2041,81 @@ void nvgpu_profiler_hs_stream_quiesce(struct gk20a *g)
 }
 #endif /* CONFIG_NVGPU_NON_FUSA */
 
-void nvgpu_profiler_bind_hes_cwd(struct gk20a *g, u32 gr_instance_id,
-		u32 reservation_id, u32 pma_channel_id)
+int nvgpu_profiler_bind_hes_cwd(struct gk20a *g, u32 gr_instance_id,
+			       u32 reservation_id, u32 pma_channel_id,
+			       bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
+	int ret = 0;
+
 	(void) reservation_id;
 	(void) pma_channel_id;
+
 	if (g->ops.perf.reset_cwd_hem_registers != NULL) {
-		g->ops.perf.reset_cwd_hem_registers(g, gr_instance_id);
+		ret = g->ops.perf.reset_cwd_hem_registers(g, gr_instance_id,
+							 is_ctx_resident, tsg);
+		if (ret != 0) {
+			nvgpu_err(g, "CWD hem register reset failed - %d", ret);
+		}
 	}
+
+	return ret;
+}
+
+bool nvgpu_profiler_get_is_ctxsw(struct nvgpu_profiler_object *prof)
+{
+	bool is_ctxsw = false;
+
+	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
+		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+	} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
+		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC);
+	} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF]) {
+		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF);
+	} else if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES] &&
+		prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		is_ctxsw = nvgpu_profiler_is_context_resource(prof,
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES);
+	}
+
+	return is_ctxsw;
+}
+
+int
+nvgpu_profiler_extended_b2cc_disable_ctxsw(struct gk20a *g,
+					  struct nvgpu_profiler_object *prof,
+					  bool is_ctxsw, bool *is_ctx_resident)
+{
+	int err = 0;
+
+	if ((g->ops.perf.supports_extended_b2cc != NULL) && (prof->tsg != NULL) && is_ctxsw) {
+		err = g->ops.perf.supports_extended_b2cc(g, prof->tsg, is_ctx_resident);
+		if (err != 0) {
+			nvgpu_err(g, "Failed to stop gr ctxsw -- fatal");
+			return err;
+		}
+	} else {
+		*is_ctx_resident = true;
+	}
+
+	return 0;
+}
+
+int nvgpu_profiler_extended_b2cc_enable_ctxsw(struct gk20a *g,
+					     struct nvgpu_profiler_object *prof,
+					     bool is_ctxsw)
+{
+	int err;
+
+	if ((g->ops.perf.supports_extended_b2cc != NULL) && (prof->tsg != NULL) && is_ctxsw) {
+		err = nvgpu_gr_enable_ctxsw(g);
+		if (err != 0) {
+			nvgpu_err(g, "Unable to restart ctxsw! - %d", err);
+			return err;
+		}
+	}
+
+	return 0;
 }

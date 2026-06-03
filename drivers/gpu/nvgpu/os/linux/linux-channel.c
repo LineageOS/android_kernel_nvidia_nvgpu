@@ -67,9 +67,6 @@ u32 nvgpu_submit_gpfifo_user_flags_to_common_flags(u32 user_flags)
 	if (user_flags & NVGPU_SUBMIT_GPFIFO_FLAGS_SUPPRESS_WFI)
 		flags |= NVGPU_SUBMIT_FLAGS_SUPPRESS_WFI;
 
-	if (user_flags & NVGPU_SUBMIT_GPFIFO_FLAGS_SKIP_BUFFER_REFCOUNTING)
-		flags |= NVGPU_SUBMIT_FLAGS_SKIP_BUFFER_REFCOUNTING;
-
 	return flags;
 }
 

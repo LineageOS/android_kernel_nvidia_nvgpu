@@ -95,6 +95,14 @@ struct nvgpu_multimedia_ctx {
 	/** Context buffer initialised? */
 	bool ctx_initialized;
 
+	/** Multimedia engine id */
+	u32 id;
+
+	/** GPU virtual address space to which ctx buffers are mapped */
+	struct vm_gk20a *vm;
+
+	/** Multimedia trace buffer gpu_va */
+	u64 trace_gpu_va;
 };
 
 int nvgpu_multimedia_setup_ctx(struct nvgpu_channel *ch, u32 class_num, u32 flags);
@@ -102,6 +110,7 @@ void nvgpu_multimedia_free_ctx(struct gk20a *g, struct nvgpu_multimedia_ctx *eng
 void nvgpu_multimedia_free_all_ctx(struct nvgpu_tsg *tsg);
 const struct nvgpu_device *nvgpu_multimedia_get_dev(struct gk20a *g, u32 multimedia_id);
 const char *nvgpu_multimedia_get_eng_name(u32 multimedia_id);
+u32 nvgpu_multimedia_get_id_from_dev(u32 dev_type, u32 instance);
 s32 nvgpu_multimedia_sw_init(struct gk20a *g);
 s32 nvgpu_multimedia_bootstrap(struct gk20a *g);
 void nvgpu_multimedia_deinit(struct gk20a *g);

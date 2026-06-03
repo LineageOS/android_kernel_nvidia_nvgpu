@@ -55,7 +55,7 @@ void gp10b_gr_intr_handle_class_error(struct gk20a *g, u32 chid,
 	}
 }
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 static int gp10b_gr_intr_clear_cilp_preempt_pending(struct gk20a *g,
 					       u32 tsgid)
 {
@@ -96,17 +96,17 @@ static int gp10b_gr_intr_get_cilp_preempt_pending_tsgid(struct gk20a *g,
 
 	return ret;
 }
-#endif /* CONFIG_NVGPU_CILP */
+#endif
 
 int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 				struct nvgpu_channel *ch_ptr,
 				struct nvgpu_gr_isr_data *isr_data)
 {
-#ifdef CONFIG_NVGPU_CILP
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 	u32 tsgid = NVGPU_INVALID_TSG_ID;
 	int ret = 0;
 	struct nvgpu_fecs_host_intr_status *fecs_host_intr;
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
 #endif
 	u32 gr_fecs_intr = isr_data->fecs_intr;
 
@@ -116,8 +116,7 @@ int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 		return 0;
 	}
 
-
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 	fecs_host_intr = &isr_data->fecs_host_intr_status;
 	/*
 	 * INTR1 (bit 1 of the HOST_INT_STATUS_CTXSW_INTR)
@@ -157,13 +156,11 @@ int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 			goto clean_up;
 		}
 
-#ifdef CONFIG_NVGPU_DEBUGGER
 		g->ops.gr.intr.handle_cilp_save_completed(g, gr->cilp_preempt_pending_gfid, tsgid);
-#endif
 	}
 
 clean_up:
-#endif /* CONFIG_NVGPU_CILP */
+#endif
 
 	/* handle any remaining interrupts */
 	return nvgpu_gr_intr_handle_fecs_error(g, ch_ptr, isr_data);

@@ -9,8 +9,9 @@
 
 #include "perf_vf.h"
 
-void vf_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
-			u32 gr_instance_id, u32 reservation_id)
+int vf_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
+		u32 gr_instance_id, u32 reservation_id,
+		struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	struct tegra_vgpu_cmd_msg msg;
 	struct tegra_vgpu_vf_reset_pm_trigger_mask *p =
@@ -26,11 +27,12 @@ void vf_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
 	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 
-	return ;
+	return err;
 }
 
-void vf_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id,
-			u32 pma_channel_id, u32 reservation_id)
+int vf_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id,
+		u32 pma_channel_id, u32 reservation_id,
+		struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	struct tegra_vgpu_cmd_msg msg;
 	struct tegra_vgpu_vf_enable_pm_trigger *p =
@@ -47,7 +49,7 @@ void vf_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id,
 	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 
-	return ;
+	return err;
 }
 
 static int vf_perf_init_inst_block_mgmt(struct gk20a *g, u32 pma_channel_id,

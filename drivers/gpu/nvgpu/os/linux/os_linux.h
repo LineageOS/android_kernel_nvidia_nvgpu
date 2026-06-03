@@ -113,7 +113,10 @@ struct nvgpu_os_linux {
 
 	struct dentry *debugfs_dump_ctxsw_stats;
 	struct dentry *debugfs_gsp;
+	struct dentry *debugfs_gsp_vm_sched;
 	struct dentry *debugfs_multimedia;
+
+	struct gsp_vm_sched_debugfs_ctx *gsp_vm_sched_debugfs_ptr;
 #endif
 	struct dev_ext_attribute *ecc_attrs;
 

@@ -91,7 +91,8 @@ static int gsp_queue_init(struct gk20a *g,
  * @brief Frees a GSP queue based on the provided queue ID.
  *
  * The steps performed by the function are as follows:
- * -# Check if the queue at the given ID is NULL. If it is, log an error and return early.
+ * -# Check if the queue at the given ID is NULL. If it is, log a debug message
+ *    and return early.
  * -# Call nvgpu_engine_mem_queue_free() to free the memory queue at the given ID.
  *
  * @param [in] g       The GPU structure.
@@ -103,7 +104,7 @@ static void gsp_queue_free(struct gk20a *g,
 {
 
 	if (queues[id] == NULL) {
-		nvgpu_err(g, " queues[id] is NULL");
+		nvgpu_log(g, gpu_dbg_info, " queues[id] is NULL");
 		return;
 	}
 

@@ -140,26 +140,32 @@ int nvgpu_ecc_counter_init_per_lts(struct gk20a *g,
 			 * Store stats name as below:
 			 * ltc<ltc_value>_lts<lts_value>_<name_string>
 			 */
-			(void)strcpy(stats[ltc][lts].name, "ltc");
+			(void)snprintf(stats[ltc][lts].name,
+					sizeof(stats[ltc][lts].name), "%s", "ltc");
 			(void)nvgpu_strnadd_u32(ltc_str, ltc,
 							sizeof(ltc_str), 10U);
-			(void)strncat(stats[ltc][lts].name, ltc_str,
+			(void)snprintf(stats[ltc][lts].name + strlen(stats[ltc][lts].name),
 						NVGPU_ECC_STAT_NAME_MAX_SIZE -
-						strlen(stats[ltc][lts].name));
-			(void)strncat(stats[ltc][lts].name, "_lts",
+						strlen(stats[ltc][lts].name),
+						"%s", ltc_str);
+			(void)snprintf(stats[ltc][lts].name + strlen(stats[ltc][lts].name),
 						NVGPU_ECC_STAT_NAME_MAX_SIZE -
-						strlen(stats[ltc][lts].name));
+						strlen(stats[ltc][lts].name),
+						"%s", "_lts");
 			(void)nvgpu_strnadd_u32(lts_str, lts,
 							sizeof(lts_str), 10U);
-			(void)strncat(stats[ltc][lts].name, lts_str,
+			(void)snprintf(stats[ltc][lts].name + strlen(stats[ltc][lts].name),
 						NVGPU_ECC_STAT_NAME_MAX_SIZE -
-						strlen(stats[ltc][lts].name));
-			(void)strncat(stats[ltc][lts].name, "_",
+						strlen(stats[ltc][lts].name),
+						"%s", lts_str);
+			(void)snprintf(stats[ltc][lts].name + strlen(stats[ltc][lts].name),
 						NVGPU_ECC_STAT_NAME_MAX_SIZE -
-						strlen(stats[ltc][lts].name));
-			(void)strncat(stats[ltc][lts].name, name,
+						strlen(stats[ltc][lts].name),
+						"%s", "_");
+			(void)snprintf(stats[ltc][lts].name + strlen(stats[ltc][lts].name),
 						NVGPU_ECC_STAT_NAME_MAX_SIZE -
-						strlen(stats[ltc][lts].name));
+						strlen(stats[ltc][lts].name),
+						"%s", name);
 
 			nvgpu_ecc_stat_add(g, &stats[ltc][lts]);
 		}

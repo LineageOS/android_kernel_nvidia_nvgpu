@@ -37,7 +37,9 @@ static u32 gb10b_ce_lce_intr_mask(void)
 
 static void gb10b_ce_intr_stall_handler(struct gk20a *g, u64 cookie)
 {
+#ifdef CONFIG_NVGPU_POWER_PG
 	int err = 0;
+#endif
 	u32 inst_id = nvgpu_safe_cast_u64_to_u32(cookie);
 	const struct nvgpu_device *dev = nvgpu_device_get(g,
 			NVGPU_DEVTYPE_LCE, inst_id);

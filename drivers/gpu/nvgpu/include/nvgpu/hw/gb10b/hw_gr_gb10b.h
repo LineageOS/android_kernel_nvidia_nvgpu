@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -637,6 +637,7 @@
 #define gr_fecs_method_push_adr_smpc_global_mode_stop_v()          (0x0000006aU)
 #define gr_fecs_method_push_adr_set_smc_lts_mask_index_v()         (0x0000002eU)
 #define gr_fecs_method_push_adr_assign_smc_lts_mask_v()            (0x0000002fU)
+#define gr_fecs_method_push_adr_push_adr_context_reset_v()         (0x00000006U)
 #define gr_fecs_host_int_status_r()                                (0x00409c18U)
 #define gr_fecs_host_int_status_fault_during_ctxsw_f(v) ((U32(v) & 0x1U) << 16U)
 #define gr_fecs_host_int_status_umimp_firmware_method_f(v)\
@@ -1136,6 +1137,8 @@
 #define gr_gpcs_tpcs_tpccs_hww_esr_mask_poisoned_read_enable_f()          (0x2U)
 #define gr_gpc0_tpc0_sm0_dbgr_control0_r()                         (0x00505704U)
 #define gr_gpc0_tpc0_sm0_dbgr_control0_debugger_mode_m()       (U32(0x1U) << 0U)
+#define gr_gpc0_tpc0_sm0_dbgr_control0_debugger_mode_v(r)   (((r) >> 0U) & 0x1U)
+#define gr_gpc0_tpc0_sm0_dbgr_control0_debugger_mode_on_v()        (0x00000001U)
 #define gr_gpc0_tpc0_sm0_dbgr_control0_debugger_mode_on_f()               (0x1U)
 #define gr_gpc0_tpc0_sm0_dbgr_control0_debugger_mode_off_f()              (0x0U)
 #define gr_gpc0_tpc0_sm0_dbgr_control0_stop_trigger_m()       (U32(0x1U) << 31U)

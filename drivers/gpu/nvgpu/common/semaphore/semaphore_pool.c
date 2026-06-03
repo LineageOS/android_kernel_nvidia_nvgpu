@@ -21,6 +21,7 @@ int nvgpu_semaphore_pool_alloc(struct nvgpu_semaphore_sea *sea,
 			       struct nvgpu_semaphore_pool **pool)
 {
 	struct nvgpu_semaphore_pool *p;
+	struct gk20a *g = sea->gk20a;
 	unsigned long page_idx;
 	int ret;
 
@@ -34,7 +35,7 @@ int nvgpu_semaphore_pool_alloc(struct nvgpu_semaphore_sea *sea,
 	nvgpu_mutex_init(&p->pool_lock);
 
 	ret = semaphore_bitmap_alloc(sea->pools_alloced,
-				       SEMAPHORE_POOL_COUNT);
+				     g->ops.channel.count(g));
 	if (ret < 0) {
 		goto fail;
 	}

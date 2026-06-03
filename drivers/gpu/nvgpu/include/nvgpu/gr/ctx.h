@@ -409,8 +409,9 @@ u32 nvgpu_gr_ctx_get_compute_preemption_mode(struct nvgpu_gr_ctx *gr_ctx);
  *
  * The function supports NVGPU_PREEMTION_MODE_GRAPHICS_WFI graphics
  * preemption mode and NVGPU_PREEMTION_MODE_COMPUTE_WFI,
- * NVGPU_PREEMTION_MODE_COMPUTE_CTA compute preemption modes as
- * valid preemption modes. Any other preemption mode is invalid.
+ * NVGPU_PREEMTION_MODE_COMPUTE_CTA and NVGPU_PREEMTION_MODE_COMPUTE_CILP
+ * compute preemption modes as valid preemption modes.
+ * Any other preemption mode is invalid.
  *
  * Requesting both CILP compute and GFxP graphics preemption modes at
  * the same time is not allowed.
@@ -667,10 +668,10 @@ void nvgpu_gr_ctx_mark_ctx_initialized(struct nvgpu_gr_ctx *gr_ctx);
  */
 bool nvgpu_gr_ctx_get_ctx_initialized(struct nvgpu_gr_ctx *gr_ctx);
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
 bool nvgpu_gr_ctx_desc_force_preemption_cilp(
 		struct nvgpu_gr_ctx_desc *gr_ctx_desc);
-#endif /* CONFIG_NVGPU_CILP */
+#endif
 
 #ifdef CONFIG_NVGPU_GFXP
 void nvgpu_gr_ctx_set_preemption_buffer_va(struct gk20a *g,

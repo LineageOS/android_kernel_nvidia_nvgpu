@@ -291,15 +291,18 @@ void nvgpu_worker_init_name(struct nvgpu_worker *worker,
 	/* Terminate thread name with NULL character */
 	worker->thread_name[0] = '\0';
 
-	(void) strncat(worker->thread_name, worker_name, num_free_chars);
+	(void) snprintf(worker->thread_name + strlen(worker->thread_name),
+					num_free_chars, "%s", worker_name);
 
 	num_free_chars = nvgpu_safe_sub_u64(worker_name_size, strlen(worker->thread_name));
 
-	(void) strncat(worker->thread_name, "_", num_free_chars);
+	(void) snprintf(worker->thread_name + strlen(worker->thread_name),
+					num_free_chars, "%s", "_");
 
 	num_free_chars = nvgpu_safe_sub_u64(worker_name_size, strlen(worker->thread_name));
 
-	(void) strncat(worker->thread_name, gpu_name, num_free_chars);
+	(void) snprintf(worker->thread_name + strlen(worker->thread_name),
+					num_free_chars, "%s", gpu_name);
 }
 
 static void nvgpu_worker_init_common(struct gk20a *g,

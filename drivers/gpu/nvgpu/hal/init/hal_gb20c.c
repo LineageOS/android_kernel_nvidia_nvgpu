@@ -134,7 +134,12 @@
 #include "hal/ptimer/ptimer_ga10b.h"
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/regops_gb10b.h"
+#include "hal/regops/regops_gb20c.h"
+#include "hal/regops/user_access_map_gb20c.h"
 #include "hal/regops/allowlist_gb10b.h"
+#include "hal/regops/allowlist_gb20c.h"
+#include "hal/regops/allowlist_auto_generated_gb10b.h"
+#include "hal/regops/allowlist_auto_generated_gb20c.h"
 #endif
 #ifdef CONFIG_NVGPU_RECOVERY
 #include "hal/rc/rc_gv11b.h"
@@ -182,6 +187,7 @@
 #include "hal/fifo/tsg_ga10b.h"
 #include "hal/fifo/tsg_gv11b.h"
 #include "hal/fifo/tsg_gb10b.h"
+#include "hal/fifo/tsg_gb20c.h"
 #include "hal/fifo/userd_gk20a.h"
 #include "hal/fifo/userd_gv11b.h"
 #include "hal/fifo/userd_ga10b.h"
@@ -243,7 +249,9 @@
 #include "hal/gr/intr/gr_intr_gb20c.h"
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/gr/hwpm_map/hwpm_map_gv100.h"
+#include "hal/gr/hwpm_map/hwpm_map_ga10b.h"
 #include "hal/gr/hwpm_map/hwpm_map_gb10b.h"
+#include "hal/gr/hwpm_map/hwpm_map_gb20c.h"
 #endif
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gm20b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gp10b.h"
@@ -270,6 +278,7 @@
 #include "hal/pmu/pmu_gv11b.h"
 #include "hal/pmu/pmu_ga10b.h"
 #include "hal/pmu/pmu_gb10b.h"
+#include "hal/pmu/pmu_gb20c.h"
 #include "hal/gsp/gsp_ga10b.h"
 #include "hal/gsp/gsp_gb10b.h"
 #include "hal/gsp/gsp_gb20c.h"
@@ -352,7 +361,7 @@
 #include "hal/grmgr/grmgr_ga10b.h"
 #include "hal/grmgr/grmgr_gb10b.h"
 #include "hal/grmgr/grmgr_gb20c.h"
-#include "hal/power_features/cg/gb10b_gating_reglist.h"
+#include "hal/power_features/cg/gb20c_gating_reglist.h"
 #include "hal/cic/mon/cic_ga10b.h"
 #include "hal/cic/mon/cic_gb10b.h"
 #include "hal/xtl_ep/xtl_ep_gb10b.h"
@@ -402,12 +411,9 @@ static const struct gops_func gb20c_ops_func = {
 	.get_full_phys_offset = ga10b_func_get_full_phys_offset,
 };
 
-#ifdef CONFIG_NVGPU_DGPU
 static const struct gops_bios gb20c_ops_bios = {
-	/* This is specific to dGPU. Disable it for iGPU. */
-	.bios_sw_init = NULL,
+	.bios_sw_init = nvgpu_bios_sw_init,
 };
-#endif
 
 static const struct gops_ecc gb20c_ops_ecc = {
 	.ecc_init_support = nvgpu_ecc_init_support,
@@ -700,6 +706,11 @@ static const struct gops_gr_hwpm_map gb20c_ops_gr_hwpm_map = {
 	.add_ctxsw_buffer_gpc_perf_entries_to_map = gb10b_hwpm_map_add_gpc_perf_entries_to_map,
 	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gb10b_hwpm_map_add_pm_ucgpc_entries_to_map,
 	.add_ctxsw_buffer_lrcc_entries_to_map = gb10b_hwpm_map_add_lrcc_entries_to_map,
+	.add_reg_in_fecs_to_map = gb20c_hwpm_map_add_reg_in_fecs_to_map,
+	.add_reg_in_gpccs_to_map = ga10b_hwpm_map_add_reg_in_gpccs_to_map,
+	.add_hes_reg_to_map = gb20c_hwpm_map_add_hes_reg_to_map,
+	.add_padding_for_dtdtpc_support = gb20c_hwpm_map_add_padding_for_dtdtpc_support,
+	.get_cpc_info = gb20c_hwpm_map_get_cpc_info,
 };
 #endif
 
@@ -722,7 +733,7 @@ static const struct gops_gr_init gb20c_ops_gr_init = {
 	.fifo_access = gm20b_gr_init_fifo_access,
 	.set_sm_l1tag_surface_collector = gb10b_gr_init_set_sm_l1tag_surface_collector,
 #ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
-	.get_access_map = gb10b_gr_init_get_access_map,
+	.get_access_map = gb20c_gr_init_get_access_map,
 #endif
 	.get_sm_id_size = gb10b_gr_init_get_sm_id_size,
 	.sm_id_config_early = nvgpu_gr_init_sm_id_early_config,
@@ -1010,6 +1021,7 @@ static const struct gops_gr gb20c_ops_gr = {
 	.pre_process_sm_exception = gr_gv11b_pre_process_sm_exception,
 	.set_bes_crop_debug3 = NULL,
 	.set_bes_crop_debug4 = gb10b_gr_set_gpcs_rops_crop_debug4,
+	.set_tex_in_dbg = gb10b_gr_intr_set_tex_in_dbg,
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gb10b_gr_get_egpc_base,
@@ -1062,7 +1074,7 @@ static const struct gops_ofa gb20c_ops_ofa = {
 	.halt_engine = gb10b_ofa_halt_engine,
 	.reset_eng = gb10b_ofa_reset_engine,
 	.get_intr_ctrl_msg = gb10b_ofa_get_intr_ctrl_msg,
-	.set_ecc_intr = gb10b_ofa_set_ecc_intr,
+	.set_ecc_intr = NULL,
 	.enable_irq = gb10b_ofa_enable_irq,
 	.ofa_isr = gb10b_ofa_isr,
 	.init = nvgpu_ofa_sw_init,
@@ -1233,54 +1245,56 @@ static const struct gops_fb gb20c_ops_fb = {
 };
 
 static const struct gops_cg gb20c_ops_cg = {
-	.slcg_bus_load_gating_prod = gb10b_slcg_bus_load_gating_prod,
-	.slcg_ce2_load_gating_prod = gb10b_slcg_ce2_load_gating_prod,
-	.slcg_chiplet_load_gating_prod = gb10b_slcg_chiplet_load_gating_prod,
-	.slcg_fb_load_gating_prod = gb10b_slcg_fb_load_gating_prod,
+	.slcg_bus_load_gating_prod = gb20c_slcg_bus_load_gating_prod,
+	.slcg_ce2_load_gating_prod = gb20c_slcg_ce2_load_gating_prod,
+	.slcg_chiplet_load_gating_prod = gb20c_slcg_chiplet_load_gating_prod,
+	.slcg_fb_load_gating_prod = gb20c_slcg_fb_load_gating_prod,
 	.slcg_fifo_load_gating_prod = NULL,
-	.slcg_runlist_load_gating_prod = gb10b_slcg_runlist_load_gating_prod,
-	.slcg_gr_load_gating_prod = gb10b_slcg_gr_load_gating_prod,
-	.slcg_ltc_load_gating_prod = gb10b_slcg_ltc_load_gating_prod,
-	.slcg_perf_load_gating_prod = gb10b_slcg_perf_load_gating_prod,
-	.slcg_priring_load_gating_prod = gb10b_slcg_priring_load_gating_prod,
+	.slcg_runlist_load_gating_prod = gb20c_slcg_runlist_load_gating_prod,
+	.slcg_gr_load_gating_prod = gb20c_slcg_gr_load_gating_prod,
+	.slcg_ltc_load_gating_prod = gb20c_slcg_ltc_load_gating_prod,
+	.slcg_perf_load_gating_prod = gb20c_slcg_perf_load_gating_prod,
+	.slcg_priring_load_gating_prod = gb20c_slcg_priring_load_gating_prod,
 	.slcg_rs_ctrl_fbp_load_gating_prod =
-				gb10b_slcg_rs_ctrl_fbp_load_gating_prod,
+				gb20c_slcg_rs_ctrl_fbp_load_gating_prod,
 	.slcg_rs_ctrl_gpc_load_gating_prod =
-				gb10b_slcg_rs_ctrl_gpc_load_gating_prod,
+				gb20c_slcg_rs_ctrl_gpc_load_gating_prod,
 	.slcg_rs_ctrl_sys_load_gating_prod =
-				gb10b_slcg_rs_ctrl_sys_load_gating_prod,
-	.slcg_rs_fbp_load_gating_prod = gb10b_slcg_rs_fbp_load_gating_prod,
-	.slcg_rs_gpc_load_gating_prod = gb10b_slcg_rs_gpc_load_gating_prod,
-	.slcg_rs_sys_load_gating_prod = gb10b_slcg_rs_sys_load_gating_prod,
-	.slcg_pmu_load_gating_prod = gb10b_slcg_pmu_load_gating_prod,
+				gb20c_slcg_rs_ctrl_sys_load_gating_prod,
+	.slcg_rs_fbp_load_gating_prod = gb20c_slcg_rs_fbp_load_gating_prod,
+	.slcg_rs_gpc_load_gating_prod = gb20c_slcg_rs_gpc_load_gating_prod,
+	.slcg_rs_sys_load_gating_prod = gb20c_slcg_rs_sys_load_gating_prod,
+	.slcg_pmu_load_gating_prod = gb20c_slcg_pmu_load_gating_prod,
 	.slcg_therm_load_gating_prod = NULL,
-	.slcg_xbar_load_gating_prod = gb10b_slcg_xbar_load_gating_prod,
-	.slcg_hshub_load_gating_prod = gb10b_slcg_hshub_load_gating_prod,
-	.slcg_timer_load_gating_prod = gb10b_slcg_timer_load_gating_prod,
-	.slcg_ctrl_load_gating_prod = gb10b_slcg_ctrl_load_gating_prod,
-	.slcg_gsp_load_gating_prod = gb10b_slcg_gsp_load_gating_prod,
-	.slcg_xal_ep_load_gating_prod = gb10b_slcg_xal_ep_load_gating_prod,
-	.slcg_nvenc_load_gating_prod = gb10b_slcg_nvenc_load_gating_prod,
-	.slcg_ofa_load_gating_prod = gb10b_slcg_ofa_load_gating_prod,
-	.slcg_nvdec_load_gating_prod = gb10b_slcg_nvdec_load_gating_prod,
-	.slcg_nvjpg_load_gating_prod = gb10b_slcg_nvjpg_load_gating_prod,
-	.blcg_bus_load_gating_prod = gb10b_blcg_bus_load_gating_prod,
-	.blcg_ce_load_gating_prod = gb10b_blcg_ce_load_gating_prod,
-	.blcg_fb_load_gating_prod = gb10b_blcg_fb_load_gating_prod,
+	.slcg_xbar_load_gating_prod = gb20c_slcg_xbar_load_gating_prod,
+	.slcg_hshub_load_gating_prod = NULL,
+	.slcg_fbhub_load_gating_prod = gb20c_slcg_fbhub_load_gating_prod,
+	.slcg_timer_load_gating_prod = gb20c_slcg_timer_load_gating_prod,
+	.slcg_ctrl_load_gating_prod = gb20c_slcg_ctrl_load_gating_prod,
+	.slcg_gsp_load_gating_prod = gb20c_slcg_gsp_load_gating_prod,
+	.slcg_xal_ep_load_gating_prod = gb20c_slcg_xal_ep_load_gating_prod,
+	.slcg_nvenc_load_gating_prod = gb20c_slcg_nvenc_load_gating_prod,
+	.slcg_ofa_load_gating_prod = gb20c_slcg_ofa_load_gating_prod,
+	.slcg_nvdec_load_gating_prod = gb20c_slcg_nvdec_load_gating_prod,
+	.slcg_nvjpg_load_gating_prod = NULL,
+	.blcg_bus_load_gating_prod = gb20c_blcg_bus_load_gating_prod,
+	.blcg_ce_load_gating_prod = gb20c_blcg_ce_load_gating_prod,
+	.blcg_fb_load_gating_prod = gb20c_blcg_fb_load_gating_prod,
 	.blcg_fifo_load_gating_prod = NULL,
-	.blcg_runlist_load_gating_prod = gb10b_blcg_runlist_load_gating_prod,
-	.blcg_gr_load_gating_prod = gb10b_blcg_gr_load_gating_prod,
-	.blcg_ltc_load_gating_prod = gb10b_blcg_ltc_load_gating_prod,
-	.blcg_pmu_load_gating_prod = gb10b_blcg_pmu_load_gating_prod,
-	.blcg_xbar_load_gating_prod = gb10b_blcg_xbar_load_gating_prod,
-	.blcg_hshub_load_gating_prod = gb10b_blcg_hshub_load_gating_prod,
-	.blcg_xal_ep_load_gating_prod = gb10b_blcg_xal_ep_load_gating_prod,
-	.blcg_ctrl_load_gating_prod = gb10b_blcg_ctrl_load_gating_prod,
-	.blcg_nvenc_load_gating_prod = gb10b_blcg_nvenc_load_gating_prod,
-	.blcg_ofa_load_gating_prod = gb10b_blcg_ofa_load_gating_prod,
-	.blcg_nvdec_load_gating_prod = gb10b_blcg_nvdec_load_gating_prod,
-	.blcg_nvjpg_load_gating_prod = gb10b_blcg_nvjpg_load_gating_prod,
-	.elcg_ce_load_gating_prod = gb10b_elcg_ce_load_gating_prod,
+	.blcg_runlist_load_gating_prod = gb20c_blcg_runlist_load_gating_prod,
+	.blcg_gr_load_gating_prod = gb20c_blcg_gr_load_gating_prod,
+	.blcg_ltc_load_gating_prod = gb20c_blcg_ltc_load_gating_prod,
+	.blcg_pmu_load_gating_prod = gb20c_blcg_pmu_load_gating_prod,
+	.blcg_xbar_load_gating_prod = gb20c_blcg_xbar_load_gating_prod,
+	.blcg_hshub_load_gating_prod = NULL,
+	.blcg_fbhub_load_gating_prod = gb20c_blcg_fbhub_load_gating_prod,
+	.blcg_xal_ep_load_gating_prod = gb20c_blcg_xal_ep_load_gating_prod,
+	.blcg_ctrl_load_gating_prod = gb20c_blcg_ctrl_load_gating_prod,
+	.blcg_nvenc_load_gating_prod = gb20c_blcg_nvenc_load_gating_prod,
+	.blcg_ofa_load_gating_prod = gb20c_blcg_ofa_load_gating_prod,
+	.blcg_nvdec_load_gating_prod = gb20c_blcg_nvdec_load_gating_prod,
+	.blcg_nvjpg_load_gating_prod = NULL,
+	.elcg_ce_load_gating_prod = gb20c_elcg_ce_load_gating_prod,
 };
 
 static const struct gops_fifo gb20c_ops_fifo = {
@@ -1542,7 +1556,7 @@ static const struct gops_tsg gb20c_ops_tsg = {
 	.init_eng_method_buffers = gv11b_tsg_init_eng_method_buffers,
 	.deinit_eng_method_buffers = gv11b_tsg_deinit_eng_method_buffers,
 	.bind_channel = NULL,
-	.bind_channel_eng_method_buffers = gb10b_tsg_bind_channel_eng_method_buffers,
+	.bind_channel_eng_method_buffers = gb20c_tsg_bind_channel_eng_method_buffers,
 	.unbind_channel = NULL,
 	.unbind_channel_check_hw_state = nvgpu_tsg_unbind_channel_hw_state_check,
 	.unbind_channel_check_hw_next = ga10b_tsg_unbind_channel_check_hw_next,
@@ -1695,9 +1709,6 @@ static const struct gops_pmu gb20c_ops_pmu = {
 		 */
 	/* Basic init ops */
 	.pmu_early_init = nvgpu_pmu_early_init,
-#ifdef CONFIG_NVGPU_POWER_PG
-	.pmu_restore_golden_img_state = nvgpu_pmu_restore_golden_img_state,
-#endif
 	.is_pmu_supported = ga10b_is_pmu_supported,
 	.falcon_base_addr = gb10b_pmu_falcon_base_addr,
 	.falcon2_base_addr = gb10b_pmu_falcon2_base_addr,
@@ -1795,9 +1806,14 @@ static const struct gops_pmu gb20c_ops_pmu = {
 	.pmu_init_blcg_mode = gb10b_pmu_init_blcg_mode,
 #endif
 	.pmu_elcg_init_idle_filters = gb10b_pmu_elcg_init_idle_filters,
-
+	.pmu_elcg_sub_feature_id_to_engine_id =
+			gb20c_pmu_elcg_sub_feature_id_to_engine_id,
+	.pmu_elcg_all_engine_mask = gb20c_pmu_elcg_all_engine_mask,
+	.pmu_elcg_mm_engine_mask = gb20c_pmu_elcg_mm_engine_mask,
+	.pmu_fgpg_all_engine_mask = gb20c_pmu_fgpg_get_all_engine_mask,
 #endif
 	.get_amap_extmem2_start = gb10b_get_amap_extmem2_start,
+	.is_perf_cf_supported = true,
 };
 
 #ifdef CONFIG_NVGPU_CLK_ARB
@@ -1817,39 +1833,87 @@ static const struct gops_clk_arb gb20c_ops_clk_arb = {
 #ifdef CONFIG_NVGPU_DEBUGGER
 static const struct gops_regops gb20c_ops_regops = {
 	.exec_regops = exec_regops_gk20a,
-	.get_global_whitelist_ranges = gb10b_get_global_allowlist_ranges,
-	.get_global_whitelist_ranges_count = gb10b_get_global_allowlist_ranges_count,
-	.get_context_whitelist_ranges = gb10b_get_context_allowlist_ranges,
-	.get_context_whitelist_ranges_count = gb10b_get_context_allowlist_ranges_count,
-	.get_runcontrol_whitelist = gb10b_get_runcontrol_allowlist,
-	.get_runcontrol_whitelist_count = gb10b_get_runcontrol_allowlist_count,
-	.get_hwpm_router_register_stride = gb10b_get_hwpm_router_register_stride,
-	.get_hwpm_perfmon_register_stride = gb10b_get_hwpm_perfmon_register_stride,
-	.get_hwpm_pma_channel_register_stride = gb10b_get_hwpm_pma_channel_register_stride,
-	.get_hwpm_pma_trigger_register_stride = gb10b_get_hwpm_pma_trigger_register_stride,
-	.get_smpc_register_stride = gb10b_get_smpc_register_stride,
-	.get_cau_register_stride = gb10b_get_cau_register_stride,
+	.get_global_whitelist_ranges = gb20c_get_global_allowlist_ranges,
+	.get_global_whitelist_ranges_count = gb20c_get_global_allowlist_ranges_count,
+	.get_context_whitelist_ranges = gb20c_get_context_allowlist_ranges,
+	.get_context_whitelist_ranges_count = gb20c_get_context_allowlist_ranges_count,
+	.get_runcontrol_whitelist = gb20c_get_runcontrol_allowlist,
+	.get_runcontrol_whitelist_count = gb20c_get_runcontrol_allowlist_count,
+	.get_hwpm_router_register_stride = gb20c_get_hwpm_router_register_stride,
+	.get_hwpm_perfmon_register_stride = gb20c_get_hwpm_perfmon_register_stride,
+	.get_hwpm_pma_channel_register_stride = gb20c_get_hwpm_pma_channel_register_stride,
+	.get_hwpm_pma_trigger_register_stride = gb20c_get_hwpm_pma_trigger_register_stride,
+	.get_smpc_register_stride = gb20c_get_smpc_register_stride,
+	.get_cau_register_stride = gb20c_get_cau_register_stride,
 	.get_hwpm_perfmon_register_offset_allowlist =
-		gb10b_get_hwpm_perfmon_register_offset_allowlist,
+		gb20c_get_hwpm_perfmon_register_offset_allowlist,
 	.get_hwpm_router_register_offset_allowlist =
-		gb10b_get_hwpm_router_register_offset_allowlist,
+		gb20c_get_hwpm_router_register_offset_allowlist,
 	.get_hwpm_pma_channel_register_offset_allowlist =
-		gb10b_get_hwpm_pma_channel_register_offset_allowlist,
+		gb20c_get_hwpm_pma_channel_register_offset_allowlist,
 	.get_hwpm_pma_trigger_register_offset_allowlist =
-		gb10b_get_hwpm_pma_trigger_register_offset_allowlist,
-	.get_smpc_register_offset_allowlist = gb10b_get_smpc_register_offset_allowlist,
-	.get_cau_register_offset_allowlist = gb10b_get_cau_register_offset_allowlist,
-	.get_hwpm_perfmon_register_ranges = gb10b_get_hwpm_perfmon_register_ranges,
-	.get_hwpm_router_register_ranges = gb10b_get_hwpm_router_register_ranges,
-	.get_hwpm_pma_channel_register_ranges = gb10b_get_hwpm_pma_channel_register_ranges,
-	.get_hwpm_pc_sampler_register_ranges = gb10b_get_hwpm_pc_sampler_register_ranges,
-	.get_hwpm_pma_trigger_register_ranges = gb10b_get_hwpm_pma_trigger_register_ranges,
-	.get_smpc_register_ranges = gb10b_get_smpc_register_ranges,
-	.get_cau_register_ranges = gb10b_get_cau_register_ranges,
-	.get_hwpm_perfmux_register_ranges = gb10b_get_hwpm_perfmux_register_ranges,
-	.get_hes_register_ranges = gb10b_get_hes_register_ranges,
-	.get_hwpm_mm_register_ranges = gb10b_get_hwpm_mm_register_ranges,
-	.is_hwpm_pma_reg_context_switched = gb10b_is_hwpm_pma_reg_context_switched,
+		gb20c_get_hwpm_pma_trigger_register_offset_allowlist,
+	.get_smpc_register_offset_allowlist = gb20c_get_smpc_register_offset_allowlist,
+	.get_cau_register_offset_allowlist = gb20c_get_cau_register_offset_allowlist,
+	.get_hes_register_offset_allowlist = gb20c_get_hes_register_offset_allowlist,
+	.get_ccuprof_register_offset_allowlist = gb20c_get_ccuprof_register_offset_allowlist,
+	.get_hwpm_pma_channel_register_ranges = gb20c_get_hwpm_pma_channel_register_ranges,
+	.get_hwpm_pc_sampler_register_ranges = gb20c_get_hwpm_pc_sampler_register_ranges,
+	.get_hwpm_pma_trigger_register_ranges = gb20c_get_hwpm_pma_trigger_register_ranges,
+	.get_smpc_register_ranges = gb20c_get_smpc_register_ranges,
+	.get_cau_register_ranges = gb20c_get_cau_register_ranges,
+	.get_hwpm_perfmux_register_ranges = gb20c_get_hwpm_perfmux_register_ranges,
+	.get_sys_misc_device_register_ranges = gb20c_get_sys_misc_device_register_ranges,
+	.get_hes_register_ranges = gb20c_get_hes_register_ranges,
+	.get_hep_register_ranges = gb20c_get_hep_register_ranges,
+	.get_hwpm_mm_register_ranges = gb20c_get_hwpm_mm_register_ranges,
+	.get_hwpm_perfmon_gpc_reg_base = gb20c_get_hwpm_perfmon_gpc_reg_base,
+	.get_hwpm_perfmon_fbp_reg_base = gb20c_get_hwpm_perfmon_fbp_reg_base,
+	.get_hwpm_perfmon_sys_reg_base = gb20c_get_hwpm_perfmon_sys_reg_base,
+	.get_hwpm_perfmon_gpc_reg_stride = gb20c_get_hwpm_perfmon_gpc_reg_stride,
+	.get_hwpm_router_gpc_reg_base = gb20c_get_hwpm_router_gpc_reg_base,
+	.get_hwpm_router_fbp_reg_base = gb20c_get_hwpm_router_fbp_reg_base,
+	.get_hwpm_router_sys_reg_base = gb20c_get_hwpm_router_sys_reg_base,
+	.get_hwpm_router_gpc_reg_stride = gb20c_get_hwpm_router_gpc_reg_stride,
+	.get_hwpm_pma_trigger_reg_base = gb20c_get_hwpm_pma_trigger_reg_base,
+	.get_hwpm_pmasys_command_slice_stride = gb20c_get_hwpm_pmasys_command_slice_stride,
+	.get_hwpm_gpc0_tpc0_cau_base = gb20c_get_hwpm_gpc0_tpc0_cau_base,
+	.get_hwpm_tpc_cau_range_stride = gb20c_get_hwpm_tpc_cau_range_stride,
+	.get_hwpm_pma_channel_cblock_reg_stride = gb20c_get_hwpm_pma_channel_cblock_reg_stride,
+	.get_hwpm_pma_channel_reg_base = gb20c_get_hwpm_pma_channel_reg_base,
+	.get_hwpm_hem_sys0_base = gb20c_get_hwpm_hem_sys0_base,
+	.get_hwpm_hem_sys0_stride = gb20c_get_hwpm_hem_sys0_stride,
+	.get_hwpm_perf_pmasys_reg_base = gb20c_get_hwpm_perf_pmasys_reg_base,
+	.get_hwpm_perf_ccuprof_units_per_gpc = gb20c_get_hwpm_perf_ccuprof_units_per_gpc,
+	.get_hwpm_perf_ccuprof_units_per_fbp = gb20c_get_hwpm_perf_ccuprof_units_per_fbp,
+	.get_hwpm_perf_ccuprof_gpc0_reg_base = gb20c_get_hwpm_perf_ccuprof_gpc0_reg_base,
+	.get_hwpm_perf_ccuprof_gpcs_reg_base = gb20c_get_hwpm_perf_ccuprof_gpcs_reg_base,
+	.get_hwpm_perf_ccuprof_fbp0_reg_base = gb20c_get_hwpm_perf_ccuprof_fbp0_reg_base,
+	.get_hwpm_perf_ccuprof_fbps_reg_base = gb20c_get_hwpm_perf_ccuprof_fbps_reg_base,
+	.get_hwpm_perf_ccuprof_gpc_reg_stride = gb20c_get_hwpm_perf_ccuprof_gpc_reg_stride,
+	.get_hwpm_perf_ccuprof_fbp_reg_stride = gb20c_get_hwpm_perf_ccuprof_fbp_reg_stride,
+	.get_hwpm_perf_ccuprof_unit_reg_stride = gb20c_get_hwpm_perf_ccuprof_unit_reg_stride,
+	.get_hwpm_gpc0_tpc0_mpc_ccuprof_ulcmux_cntl0 =
+						gb20c_get_hwpm_gpc0_tpc0_mpc_ccuprof_ulcmux_cntl0,
+	.get_hwpm_ltc0_lts0_ccuprof_ulcmux_cntl0 = gb20c_get_hwpm_ltc0_lts0_ccuprof_ulcmux_cntl0,
+	.init_reg_op_type_per_register_type = gb20c_init_reg_op_type_per_register_type,
+	.get_hwpm_perfmon_user_access_register_ranges =
+		gb10b_get_hwpm_perfmon_bitvector_register_ranges,
+	.get_hwpm_router_user_access_register_ranges =
+		gb10b_get_hwpm_router_bitvector_register_ranges,
+	.get_pma_channel_user_access_register_ranges =
+		gb10b_get_hwpm_pma_channel_bitvector_register_ranges,
+	.get_pma_trigger_user_access_register_ranges =
+		gb10b_get_hwpm_pma_trigger_bitvector_register_ranges,
+	.get_smpc_user_access_register_ranges =
+		gb10b_get_hwpm_smpc_bitvector_register_ranges,
+	.get_cau_user_access_register_ranges =
+		gb10b_get_hwpm_cau_bitvector_register_ranges,
+	.get_hes_user_access_register_ranges =
+		gb10b_get_hwpm_hes_bitvector_register_ranges,
+	.get_ccuprof_user_access_register_ranges =
+		gb20c_get_hwpm_ccuprof_bitvector_register_ranges,
+	.allowlist_misc_register_ranges = gb20c_allowlist_misc_register_ranges,
 };
 #endif
 
@@ -1889,13 +1953,13 @@ static const struct gops_perf gb20c_ops_perf = {
 	.membuf_reset_streaming = gb10b_perf_membuf_reset_streaming,
 	.get_membuf_pending_bytes = gb10b_perf_get_membuf_pending_bytes,
 	.set_membuf_handled_bytes = gb10b_perf_set_membuf_handled_bytes,
-	.get_membuf_overflow_status = gb10b_perf_get_membuf_overflow_status,
+	.get_membuf_overflow_status = gb20c_perf_get_membuf_overflow_status,
 	.get_pmmsys_per_chiplet_offset = gb10b_perf_get_pmmsys_per_chiplet_offset,
 	.get_pmmgpc_per_chiplet_offset = gb10b_perf_get_pmmgpc_per_chiplet_offset,
 	.get_pmmfbp_per_chiplet_offset = gb10b_perf_get_pmmfbp_per_chiplet_offset,
 	.get_pmmgpcrouter_per_chiplet_offset = gb10b_perf_get_pmmgpcrouter_per_chiplet_offset,
-	.get_pmmfbprouter_per_chiplet_offset = gb10b_perf_get_pmmfbprouter_per_chiplet_offset,
-	.update_get_put = gb10b_perf_update_get_put,
+	.get_pmmfbprouter_per_chiplet_offset = gb20c_perf_get_pmmfbprouter_per_chiplet_offset,
+	.update_get_put = gb20c_perf_update_get_put,
 	.get_hwpm_fbp_perfmon_regs_base = ga10b_get_hwpm_fbp_perfmon_regs_base,
 	.get_hwpm_gpc_perfmon_regs_base = ga10b_get_hwpm_gpc_perfmon_regs_base,
 	.get_hwpm_sys_perfmon_regs = gb10b_perf_get_hwpm_sys_perfmon_regs,
@@ -1923,11 +1987,12 @@ static const struct gops_perf gb20c_ops_perf = {
 	.update_cau_dg_map_status_mask = gb10b_update_cau_dg_map_status_mask,
 	.get_pma_cblock_instance_count = gb20c_perf_get_cblock_instance_count,
 	.get_pma_channel_count = gb10b_perf_get_pma_channel_count,
+	.get_ctx_switched_pma_channel_count = gb20c_perf_get_ctx_switched_pma_channel_count,
 	.get_pma_channels_per_cblock = gb10b_perf_get_pma_channels_per_cblock,
-	.reset_pm_trigger_masks = gb10b_perf_reset_pm_trigger_masks,
-	.enable_pm_trigger = gb10b_perf_enable_pm_trigger,
-	.enable_hes_event_trigger = gb10b_perf_enable_hes_event_trigger,
-	.enable_pma_trigger = gb10b_perf_enable_pma_trigger,
+	.reset_pm_trigger_masks = gb20c_perf_reset_pm_trigger_masks,
+	.enable_pm_trigger = gb20c_perf_enable_pm_trigger,
+	.enable_hes_event_trigger = gb20c_perf_enable_hes_event_trigger,
+	.enable_pma_trigger = gb20c_perf_enable_pma_trigger,
 	.get_hwpm_fbp_fbpgs_ltcs_base_addr = gb20c_perf_get_hwpm_fbp_fbpgs_ltcs_base_addr,
 	.get_hwpm_gpcgs_gpctpca_base_addr = gb10b_perf_get_hwpm_gpcgs_gpctpca_base_addr,
 	.get_hwpm_gpcgs_gpctpcb_base_addr = gb10b_perf_get_hwpm_gpcgs_gpctpcb_base_addr,
@@ -1938,8 +2003,8 @@ static const struct gops_perf gb20c_ops_perf = {
 	.set_pmm_register_for_chiplet_range = gb10b_perf_set_pmm_register_for_chiplet_range,
 	.alloc_mem_for_sys_partition_dg_map = gb10b_perf_alloc_mem_for_sys_partition_dg_map,
 	.program_sys_pmm_secure_config = gb10b_perf_program_sys_pmm_secure_config,
-	.get_tpc_perfmon_range = gb10b_perf_get_tpc_perfmon_range,
-	.get_max_num_gpc_perfmons = gb10b_perf_get_max_num_gpc_perfmons,
+	.get_tpc_perfmon_range = gb20c_perf_get_tpc_perfmon_range,
+	.get_max_num_gpc_perfmons = gb20c_perf_get_max_num_gpc_perfmons,
 	.get_gpc_perfmon_stride = gb10b_perf_get_gpc_perfmon_stride,
 	.get_gpc_tpc_start_dg_idx = gb20c_perf_get_gpc_tpc_start_dg_idx,
 	.get_gpc_tpc_end_dg_idx = gb20c_perf_get_gpc_tpc_end_dg_idx,
@@ -1947,6 +2012,17 @@ static const struct gops_perf gb20c_ops_perf = {
 	.get_num_cwd_hems = gb20c_perf_get_num_cwd_hems,
 	.update_sys_hem_cwd_dg_map_mask = gb20c_perf_update_sys_hem_cwd_dg_map_mask,
 	.get_gpc_tpc0_cau0_dg_idx = gb20c_perf_get_gpc_tpc0_cau0_dg_idx,
+	.get_sysrouter_channel_stride = gb20c_perf_get_sysrouter_channel_stride,
+	.get_pmasys_channel_stride = gb20c_perf_get_pmasys_channel_stride,
+	.get_pmasys_cmdslice_stride = gb20c_perf_get_pmasys_cmdslice_stride,
+	.get_pmasys_fwd_channel_stride = gb20c_perf_get_pmasys_fwd_channel_stride,
+	.get_sys_perfmon_idx_range = gb20c_perf_get_sys_perfmon_range,
+	.get_sys_perfmon_stride = gb20c_perf_get_sys_perfmon_stride,
+	.supports_extended_b2cc = gb20c_perf_supports_extended_b2cc,
+	.write_hwpm_register = gb20c_perf_write_hwpm_register,
+	.read_hwpm_register = gb20c_perf_read_hwpm_register,
+	.disable_ccuprof = gb20c_perf_disable_ccuprof,
+	.pma_stream_preparation = gb10b_perf_pma_stream_preparation,
 };
 #endif
 
@@ -1976,6 +2052,7 @@ static const struct gops_profiler gb20c_ops_profiler = {
 	.unbind_pma_streamout = nvgpu_profiler_unbind_pma_streamout,
 	.bind_smpc = nvgpu_profiler_bind_smpc,
 	.unbind_smpc = nvgpu_profiler_unbind_smpc,
+	.unbind_ccuprof = nvgpu_profiler_unbind_ccuprof,
 	.bind_hes_cwd = nvgpu_profiler_bind_hes_cwd,
 	.get_hs_credit_per_gpc_chiplet = gb10b_perf_get_hs_credit_per_gpc_chiplet,
 	.get_hs_credit_per_fbp_chiplet = gb10b_perf_get_hs_credit_per_fbp_chiplet,
@@ -2001,7 +2078,7 @@ static const struct gops_bus gb20c_ops_bus = {
 
 static const struct gops_ptimer gb20c_ops_ptimer = {
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
-	.read_ptimer = gk20a_read_ptimer,
+	.read_ptimer = ga10b_func_read_ptimer,
 	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
 #endif
 #ifdef CONFIG_NVGPU_PROFILER
@@ -2234,9 +2311,7 @@ int gb20c_init_hal(struct gk20a *g)
 
 	gops->acr = gb20c_ops_acr;
 	gops->func = gb20c_ops_func;
-#ifdef CONFIG_NVGPU_DGPU
 	gops->bios = gb20c_ops_bios;
-#endif /* CONFIG_NVGPU_DGPU */
 	gops->ecc = gb20c_ops_ecc;
 	gops->ltc = gb20c_ops_ltc;
 	gops->ltc.intr = gb20c_ops_ltc_intr;
@@ -2560,7 +2635,7 @@ int gb20c_init_hal(struct gk20a *g)
 	 * TODO: NVGPU-9992
 	 * untill allow list is implemented, skip the allow_list verification at regops
 	 */
-	g->allow_all = true;
+	g->allow_all = false;
 
 	return 0;
 }

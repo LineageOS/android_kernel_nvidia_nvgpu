@@ -4,7 +4,11 @@
 
 #ifndef GSP_SCHEDULER_H
 #define GSP_SCHEDULER_H
-
+#if defined(__QNX__)
+#include <nvgpu/posix/types.h>
+#else
+#include <nvgpu/types.h>
+#endif /* __QNX__ */
 #define GSP_SCHED_DEBUG_BUFFER_QUEUE	3U
 #define GSP_SCHED_DMESG_BUFFER_SIZE		0x1000U
 

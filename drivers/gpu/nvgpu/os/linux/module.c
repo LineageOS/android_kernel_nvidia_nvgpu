@@ -57,6 +57,11 @@
 #include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/pmu/pmu_pstate.h>
+#include <nvgpu/pmu/perf.h>
+#ifdef CONFIG_NVGPU_LS_PMU
+#include <nvgpu/pmu/clk/clk.h>
+#endif
+
 #include <nvgpu/cyclestats_snapshot.h>
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/mc.h>
@@ -65,6 +70,7 @@
 #include <nvgpu/fb.h>
 #include <nvgpu/nvs.h>
 #include <nvgpu/power_features/cg.h>
+#include <nvgpu/channel_sync.h>
 
 #include "common/gr/gr_priv.h"
 #include "platform_gk20a.h"
@@ -82,6 +88,7 @@
 #include "os_linux.h"
 #include "os_ops.h"
 #include "fecs_trace_linux.h"
+#include "multimedia_trace_linux.h"
 #include "driver_common.h"
 #include "channel.h"
 #include "debug_ce.h"
@@ -91,6 +98,9 @@
 #ifdef CONFIG_NVGPU_GSP_SCHEDULER
 #include "nvgpu/gsp.h"
 #include "nvgpu/gsp_sched.h"
+#endif
+#ifdef CONFIG_NVGPU_GSP_SCHEDULER_VM
+#include "nvgpu/gsp_vm_scheduler.h"
 #endif
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 #include "nvgpu/gsp/gsp_test.h"
@@ -316,6 +326,7 @@ int nvgpu_finalize_poweron_linux(struct nvgpu_os_linux *l)
 {
 	struct gk20a *g = &l->g;
 	int err;
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 
 	if (l->init_done)
 		return 0;
@@ -330,6 +341,12 @@ int nvgpu_finalize_poweron_linux(struct nvgpu_os_linux *l)
 	err = gk20a_ctxsw_trace_init(g);
 	if (err != 0)
 		nvgpu_warn(g, "could not initialize ctxsw tracing");
+#endif
+
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	err = nvgpu_multimedia_trace_init(g);
+	if (err != 0)
+		nvgpu_warn(g, "could not initialize multimedia tracing");
 #endif
 
 	if (l->ops.clk.init_debugfs) {
@@ -382,6 +399,16 @@ int nvgpu_finalize_poweron_linux(struct nvgpu_os_linux *l)
 	if (!g->is_virtual)
 		nvgpu_ce_debugfs_init(g);
 #endif
+
+	if (IS_ENABLED(CONFIG_GK20A_DEVFREQ) && (ver == NVGPU_GPUID_GB20C)) {
+		nvgpu_log(g, gpu_dbg_clk, "Initializing DevFreq for %s", dev_name(l->dev));
+		if (!g->scale_profile)
+			gk20a_scale_init(l->dev);
+		else
+			nvgpu_log(g, gpu_dbg_clk, "DevFreq already initialized, skipping");
+	} else {
+		nvgpu_log(g, gpu_dbg_clk, "CONFIG_GK20A_DEVFREQ is disabled");
+	}
 
 	l->init_done = true;
 
@@ -569,10 +596,14 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 				if (err)
 					goto done;
 
+#ifdef CONFIG_TEGRA_GK20A_NVHOST
 				g->syncpt_unit_base[0] =  g->syncpt_unit_base_spa[0];
-				nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
-					   g->syncpt_unit_base[0], g->syncpt_unit_size,
-					    g->syncpt_size);
+				g->gpu_num_syncpts = nvgpu_channel_get_synpoints(g);
+
+				nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x number of syncpoints %x\n",
+						g->syncpt_unit_base[0], g->syncpt_unit_size,
+						g->syncpt_size, g->gpu_num_syncpts);
+#endif
 			} else {
 				nvgpu_err(g, " nvgpu fmodel is using frontdoor memory path");
 			}
@@ -612,7 +643,26 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 	if (err)
 		goto done;
 
-	/* Initialize linux specific flags */
+	/*
+	 * Restore clocks from saved clock state during resume scenarios (FLR, suspend/resume).
+	 * During first power-on, boot clocks are already set through the normal
+	 * initialization table in nvgpu_init_boot_clk_or_clk_arb().
+	 * We can distinguish first power-on from resume using poweron_time_ns:
+	 * - First power-on: poweron_time_ns == 0ULL
+	 * - Resume: poweron_time_ns != 0ULL (set after first power-on)
+	 */
+	#ifdef CONFIG_NVGPU_LS_PMU
+	if (l->poweron_time_ns != 0ULL && nvgpu_is_enabled(g, NVGPU_PMU_PSTATE)) {
+		err = nvgpu_pmu_clk_restore_saved_state(g);
+		if (err != 0) {
+			nvgpu_err(g, "failed to restore saved clock state during resume: %d", err);
+			/* Don't fail the entire resume for clock setting failure */
+		} else {
+			nvgpu_info(g, "saved clock state restored during resume");
+		}
+	}
+	#endif
+		/* Initialize linux specific flags */
 	gk20a_init_linux_characteristics(g);
 
 	/* Print out the NvGPU flags for debug purposes after all flags are set. */
@@ -822,17 +872,9 @@ static struct of_device_id tegra_gk20a_of_match[] = {
 #ifdef CONFIG_TEGRA_GK20A
 	{ .compatible = "nvidia,gv11b",
 		.data = &gv11b_tegra_platform },
-#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
-	{ .compatible = "nvidia,gv11b-vgpu",
-		.data = &gv11b_vgpu_tegra_platform},
-#endif
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NON_FUSA)
 	{ .compatible = "nvidia,ga10b",
 		.data = &ga10b_tegra_platform},
-#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
-	{ .compatible = "nvidia,ga10b-vgpu",
-		.data = &ga10b_vgpu_tegra_platform},
-#endif
 #endif
 #endif
 
@@ -1214,6 +1256,11 @@ void gk20a_remove_support(struct gk20a *g)
 #ifdef CONFIG_NVGPU_GSP_SCHEDULER
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GSP_SCHED)) {
 		nvgpu_gsp_sched_sw_deinit(g);
+	}
+#endif
+#ifdef CONFIG_NVGPU_GSP_SCHEDULER_VM
+	if (nvgpu_is_enabled(g, NVGPU_GSP_SCHEDULER_VM)) {
+		nvgpu_gsp_vm_sched_sw_deinit(g);
 	}
 #endif
 #ifndef CONFIG_NVGPU_DGPU
@@ -1778,6 +1825,26 @@ void nvgpu_start_gpu_idle_locked(struct gk20a *g)
 void nvgpu_start_gpu_idle(struct gk20a *g)
 {
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
+	int err;
+
+#ifdef CONFIG_NVGPU_LS_PMU
+	/*
+	 * Disable SYSLK slowdown and teardown PMU functionality early as
+	 * quiesce and shutdown sequence will not disable ELPG completely.
+	 */
+	if (g->sysclk_slowdown_enabled) {
+		nvgpu_cg_set_sysclk_slowdown_enabled(g, false);
+		// Enable CSD during Unrail-gate sequence
+		g->sysclk_slowdown_enabled = true;
+	}
+	/* disable elpg before gr or fifo suspend */
+	if (g->support_ls_pmu) {
+		if (g->ops.pmu.pmu_destroy != NULL) {
+			err = g->ops.pmu.pmu_destroy(g, g->pmu);
+			WARN(err, "pmu destroy failed during driver removal");
+		}
+	}
+#endif
 
 	down_write(&l->busy_lock);
 	nvgpu_start_gpu_idle_locked(g);
@@ -2157,6 +2224,10 @@ int nvgpu_remove(struct device *dev)
 
 #ifdef CONFIG_NVGPU_FECS_TRACE
 	gk20a_ctxsw_trace_cleanup(g);
+#endif
+
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	nvgpu_multimedia_trace_cleanup(g);
 #endif
 
 	gk20a_sched_ctrl_cleanup(g);

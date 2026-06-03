@@ -85,7 +85,7 @@ u32 nvgpu_str_join(char *dest, u32 dest_len, const char **src_str_list,
 	}
 
 	/* Copy first string */
-	(void) strncat(dest, src_str_list[0], dest_empty_len);
+	(void) snprintf(dest + strlen(dest), dest_empty_len, "%s", src_str_list[0]);
 
 	/*
 	 * Calculate available size in destination buffer

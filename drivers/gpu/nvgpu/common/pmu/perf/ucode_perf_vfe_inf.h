@@ -264,12 +264,16 @@ struct nv_pmu_vfe_var {
 	struct nv_pmu_boardobj super;
 	u32 out_range_min;
 	u32 out_range_max;
-	struct ctrl_boardobjgrp_mask_e32 mask_dependent_vars;
-	struct ctrl_boardobjgrp_mask_e255 mask_dependent_equs;
+	struct ctrl_boardobjgrp_mask_e255 mask_dependent_vars;
+	struct ctrl_boardobjgrp_mask_e2048 mask_dependent_equs;
 };
 
 struct nv_pmu_vfe_var_derived {
 	struct nv_pmu_vfe_var super;
+	/* pad here to get the model structure.
+	 * TODO Fix needed.
+	 */
+	u8 pad[1];
 };
 
 struct nv_pmu_vfe_var_derived_product {
@@ -286,6 +290,7 @@ struct nv_pmu_vfe_var_derived_sum {
 
 struct nv_pmu_vfe_var_single {
 	struct nv_pmu_vfe_var super;
+	u8 pad[4];
 	u8 override_type;
 	bool b_override_die_aware;
 	u32 override_value[2];
@@ -383,12 +388,8 @@ struct nv_pmu_vfe_var_single_sensed_fuse {
 struct nv_pmu_vfe_var_single_sensed_fuse_base {
 	struct nv_pmu_vfe_var_single_sensed super;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_override_info       override_info;
-	bool   b_fuse_value_signed;
-	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_integer;
-	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_hw_integer;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_default;
-	u8 fuse_version;
-	bool b_version_check_done;
+	bool   b_fuse_value_signed;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_ver_info fuse_ver_info;
 	u32 hw_correction_scale;
 	s32 hw_correction_offset;
@@ -396,8 +397,8 @@ struct nv_pmu_vfe_var_single_sensed_fuse_base {
 
 struct nv_pmu_vfe_var_single_sensed_fuse_20 {
 	struct nv_pmu_vfe_var_single_sensed_fuse_base super;
-	u16 fuse_id;
-	u16 fuse_id_ver;
+	u8 fuse_id;
+	u8 fuse_id_ver;
 };
 
 struct nv_pmu_vfe_var_single_sensed_temp {
@@ -405,6 +406,7 @@ struct nv_pmu_vfe_var_single_sensed_temp {
 	u8 therm_channel_index;
 	int temp_hysteresis_positive;
 	int temp_hysteresis_negative;
+	bool b_use_snapped_value;
 	int temp_default;
 };
 
@@ -413,7 +415,7 @@ struct nv_pmu_vfe_var_single_voltage {
 };
 
 struct nv_pmu_perf_vfe_var_boardobjgrp_set_header {
-	struct nv_pmu_boardobjgrp_e32 super;
+	struct nv_pmu_boardobjgrp_e255 super;
 	u8 polling_periodms;
 };
 
@@ -431,6 +433,7 @@ union nv_pmu_perf_vfe_var_boardobj_set_union {
 	struct nv_pmu_vfe_var_single_voltage var_single_voltage;
 	struct nv_pmu_vfe_var_single_caller_specified
 					var_single_caller_specified;
+	u8 pad[480];
 };
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(perf, vfe_var);
@@ -443,30 +446,68 @@ struct nv_pmu_perf_vfe_var_boardobj_grp_set_pack {
 struct nv_pmu_vfe_equ {
 	struct nv_pmu_boardobj super;
 	u8 var_idx;
-	u8 equ_idx_next;
+	u16 equ_idx_next;
 	u8 output_type;
 	u32 out_range_min;
 	u32 out_range_max;
 };
 
+union ctrl_perf_vfe_equ_compare_criteria {
+	u16 equidx;
+	u32 literalvalue;
+};
+
+
 struct nv_pmu_vfe_equ_compare {
 	struct nv_pmu_vfe_equ super;
+	/* Fix needed
+	 * TODO.
+	 */
+	u8 pad[4];
 	u8 func_id;
-	u8 equ_idx_true;
-	u8 equ_idx_false;
-	u32 criteria;
+	bool b_is_criteria_equ;
+	u16 equ_idx_true;
+	u16 equ_idx_false;
+	union ctrl_perf_vfe_equ_compare_criteria criteria;
 };
 
 struct nv_pmu_vfe_equ_minmax {
 	struct nv_pmu_vfe_equ super;
+	/*TODO
+	 * Fix needed.
+	 */
+	u8 pad[4];
 	bool b_max;
-	u8 equ_idx0;
-	u8 equ_idx1;
+	u16 equ_idx0;
+	u16 equ_idx1;
 };
 
 struct nv_pmu_vfe_equ_quadratic {
 	struct nv_pmu_vfe_equ super;
+	/* TODO
+	 * Fix needed.
+	 */
+	u8 pad[1];
 	u32 coeffs[CTRL_PERF_VFE_EQU_QUADRATIC_COEFF_COUNT];
+};
+
+struct ctrl_perf_vfe_param {
+	u8 param_type;
+	union {
+		u32 literal_value;
+		u8 var_idx;
+		u16 equ_idx;
+	} param;
+};
+
+struct nv_pmu_vfe_equ_quadratic_n {
+	struct nv_pmu_vfe_equ super;
+	/*Fix needed. */
+	u8 pad[4];
+	struct ctrl_perf_vfe_param args[3/*CTRL_PERF_VFE_EQU_QUADRATIC_N_10_ARG_COUNT*/];
+	u8 arg_count;
+	struct ctrl_perf_vfe_param coeffs[10/*CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT*/];
+	u8 coeff_count;
 };
 
 struct nv_pmu_vfe_equ_scalar {
@@ -475,7 +516,7 @@ struct nv_pmu_vfe_equ_scalar {
 };
 
 struct nv_pmu_perf_vfe_equ_boardobjgrp_set_header {
-	struct nv_pmu_boardobjgrp_e255 super;
+	struct nv_pmu_boardobjgrp_e2048 super;
 };
 
 union nv_pmu_perf_vfe_equ_boardobj_set_union {
@@ -485,7 +526,13 @@ union nv_pmu_perf_vfe_equ_boardobj_set_union {
 	struct nv_pmu_vfe_equ_minmax equ_minmax;
 	struct nv_pmu_vfe_equ_quadratic equ_quadratic;
 	struct nv_pmu_vfe_equ_scalar equ_scalar;
+	/*Fix needed to add proper fields in the above
+	 *strutures.
+	 */
+	u8 pad[144];
 };
+
+
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E2048(perf, vfe_equ);
 

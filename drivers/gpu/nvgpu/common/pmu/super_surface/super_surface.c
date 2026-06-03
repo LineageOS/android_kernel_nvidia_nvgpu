@@ -85,7 +85,7 @@ int nvgpu_pmu_ss_create_ssmd_lookup_table(struct gk20a *g,
 		return -ENOMEM;
 	}
 
-	for (idx = 0U; idx < NV_PMU_SUPER_SURFACE_MEMBER_DESCRIPTOR_COUNT;
+	for (idx = 0U; idx < NV_PMU_SUPER_SURFACE_MEMBER_MAX;
 		idx++) {
 		(void) memset(&ssmd, 0x0, ssmd_size);
 
@@ -95,76 +95,33 @@ int nvgpu_pmu_ss_create_ssmd_lookup_table(struct gk20a *g,
 		nvgpu_pmu_dbg(g, "ssmd: id-0x%x offset-0x%x size-%x rsvd-0x%x",
 			ssmd.id, ssmd.offset, ssmd.size, ssmd.rsvd);
 
-		/* Check member type from ID member & update respective table*/
-		if ((ssmd.id &
-			NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_TYPE_SET) != 0U) {
-			/*
-			 * clear member type from member ID as we create
-			 * different table for each type & use ID as index
-			 * during member info fetch.
-			 */
-			ssmd.id &= 0xFFFFU;
-			if (ssmd.id >= NV_PMU_SUPER_SURFACE_MEMBER_COUNT) {
+		/* Check member ID & update lookup table*/
+			if (ssmd.id >= NV_PMU_SUPER_SURFACE_MEMBER_DESCRIPTOR_COUNT) {
 				nvgpu_err(g, "incorrect ssmd id %d", ssmd.id);
 				nvgpu_err(g, "Failed to create SSMD table");
 				err = -EINVAL;
 				break;
 			}
 			/*use member ID as index for lookup table too*/
-			(void) memcpy(&ss->ssmd_set[ssmd.id], &ssmd,
+			(void) memcpy(&ss->ssmd[ssmd.id], &ssmd,
 				ssmd_size);
-		} else if ((ssmd.id &
-			NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_TYPE_GET_STATUS)
-			!= 0U) {
-			/*
-			 * clear member type from member ID as we create
-			 * different table for each type & use ID as index
-			 * during member info fetch.
-			 */
-			ssmd.id &= 0xFFFFU;
-			if (ssmd.id >= NV_PMU_SUPER_SURFACE_MEMBER_COUNT) {
-				nvgpu_err(g, "incorrect ssmd id %d", ssmd.id);
-				nvgpu_err(g, "failed to create SSMD table");
-				err = -EINVAL;
-				break;
-			}
-			/*use member ID as index for lookup table too*/
-			(void) memcpy(&ss->ssmd_get_status[ssmd.id], &ssmd,
-				ssmd_size);
-		} else {
-			continue;
-		}
 	}
 
 	return err;
 }
 
-u32 nvgpu_pmu_get_ss_member_set_offset(struct gk20a *g,
+u32 nvgpu_pmu_get_ss_member_offset(struct gk20a *g,
 	struct nvgpu_pmu *pmu, u32 member_id)
 {
 	(void)g;
-	return pmu->super_surface->ssmd_set[member_id].offset;
+	return pmu->super_surface->ssmd[member_id].offset;
 }
 
-u32 nvgpu_pmu_get_ss_member_set_size(struct gk20a *g,
+u32 nvgpu_pmu_get_ss_member_size(struct gk20a *g,
 	struct nvgpu_pmu *pmu, u32 member_id)
 {
 	(void)g;
-	return pmu->super_surface->ssmd_set[member_id].size;
-}
-
-u32 nvgpu_pmu_get_ss_member_get_status_offset(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id)
-{
-	(void)g;
-	return pmu->super_surface->ssmd_get_status[member_id].offset;
-}
-
-u32 nvgpu_pmu_get_ss_member_get_status_size(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id)
-{
-	(void)g;
-	return pmu->super_surface->ssmd_get_status[member_id].size;
+	return pmu->super_surface->ssmd[member_id].size;
 }
 
 u32 nvgpu_pmu_get_fbq_ptcb_ss_offset(struct gk20a *g,
@@ -174,8 +131,15 @@ u32 nvgpu_pmu_get_fbq_ptcb_ss_offset(struct gk20a *g,
 	(void)g;
 	(void)pmu;
 	(void)ss;
-	return (u32)offsetof(struct super_surface,
-			fbq.cmd_queues.queue[ptcb_index].element[queue_pos]);
+
+	if (pmu->is_pmu_ucode_model_20) {
+		return pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_CMD].offset +
+				(u32)offsetof(struct nv_pmu_fbq_cmd_queues,
+				queue[ptcb_index].element[queue_pos]);
+	} else {
+		return (u32)offsetof(struct super_surface,
+				fbq.cmd_queues.queue[ptcb_index].element[queue_pos]);
+	}
 }
 
 u32 nvgpu_pmu_get_ss_cmd_fbq_offset(struct gk20a *g,
@@ -184,8 +148,14 @@ u32 nvgpu_pmu_get_ss_cmd_fbq_offset(struct gk20a *g,
 	(void)g;
 	(void)pmu;
 	(void)ss;
-	return (u32)offsetof(struct super_surface,
-			fbq.cmd_queues.queue[id]);
+
+	if (pmu->is_pmu_ucode_model_20) {
+		return pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_CMD].offset +
+				(u32)offsetof(struct nv_pmu_fbq_cmd_queues, queue[id]);
+	} else {
+		return (u32)offsetof(struct super_surface,
+				fbq.cmd_queues.queue[id]);
+	}
 }
 
 u32 nvgpu_pmu_get_ss_msg_fbq_offset(struct gk20a *g,
@@ -194,8 +164,13 @@ u32 nvgpu_pmu_get_ss_msg_fbq_offset(struct gk20a *g,
 	(void)g;
 	(void)pmu;
 	(void)ss;
-	return (u32)offsetof(struct super_surface,
-			fbq.msg_queue);
+
+	if (pmu->is_pmu_ucode_model_20) {
+		return pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_MSG].offset;
+	} else {
+		return (u32)offsetof(struct super_surface,
+				fbq.msg_queue);
+	}
 }
 
 u32 nvgpu_pmu_get_ss_msg_fbq_element_offset(struct gk20a *g,
@@ -204,23 +179,41 @@ u32 nvgpu_pmu_get_ss_msg_fbq_element_offset(struct gk20a *g,
 	(void)g;
 	(void)pmu;
 	(void)ss;
-	return (u32)offsetof(struct super_surface,
-		fbq.msg_queue.element[idx]);
+	if (pmu->is_pmu_ucode_model_20) {
+		return pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_MSG].offset +
+			(u32)offsetof(struct nv_pmu_fbq_msg_queue, element[idx]);
+	} else {
+		return (u32)offsetof(struct super_surface,
+			fbq.msg_queue.element[idx]);
+	}
 }
 
 void nvgpu_pmu_ss_fbq_flush(struct gk20a *g, struct nvgpu_pmu *pmu)
 {
 	if (pmu->super_surface != NULL) {
-		if (nvgpu_mem_is_valid(nvgpu_pmu_super_surface_mem(g, pmu, pmu->super_surface))) {
-			nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
-					pmu, pmu->super_surface),
-					(u64)offsetof(struct super_surface, fbq.cmd_queues),
-					0x00, sizeof(struct nv_pmu_fbq_cmd_queues));
+		if (nvgpu_mem_is_valid(nvgpu_pmu_super_surface_mem(g,
+			pmu, pmu->super_surface))) {
+			if (pmu->is_pmu_ucode_model_20) {
+				nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
+				pmu, pmu->super_surface),
+				(u64)pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_CMD].offset,
+				0x00, sizeof(struct nv_pmu_fbq_cmd_queues));
 
-			nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
-					pmu, pmu->super_surface),
-					(u64)offsetof(struct super_surface, fbq.msg_queue),
-					0x00, sizeof(struct nv_pmu_fbq_msg_queue));
+				nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
+				pmu, pmu->super_surface),
+				(u64)pmu->super_surface->ssmd[NV_PMU_SUPER_SURFACE_MEMBER_FBQ_MSG].offset,
+				0x00, sizeof(struct nv_pmu_fbq_msg_queue));
+			} else {
+				nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
+						pmu, pmu->super_surface),
+						(u64)offsetof(struct super_surface, fbq.cmd_queues),
+						0x00, sizeof(struct nv_pmu_fbq_cmd_queues));
+
+				nvgpu_memset(g, nvgpu_pmu_super_surface_mem(g,
+						pmu, pmu->super_surface),
+						(u64)offsetof(struct super_surface, fbq.msg_queue),
+						0x00, sizeof(struct nv_pmu_fbq_msg_queue));
+			}
 		}
 	}
 }

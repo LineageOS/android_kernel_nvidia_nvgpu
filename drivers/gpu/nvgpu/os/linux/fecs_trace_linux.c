@@ -24,6 +24,9 @@
 #include "fecs_trace_linux.h"
 #include "ioctl.h"
 
+/* ctxsw trace dev index for VM/OS. Only one trace dev is supported per VM */
+#define CTXSW_TRACE_VM_DEV		0U
+
 /* Userland-facing FIFO (one global + eventually one per VM) */
 struct gk20a_ctxsw_dev {
 	struct gk20a *g;
@@ -40,7 +43,6 @@ struct gk20a_ctxsw_dev {
 
 	struct nvgpu_mutex write_lock;
 };
-
 
 struct gk20a_ctxsw_trace {
 	struct gk20a_ctxsw_dev devs[GK20A_CTXSW_TRACE_NUM_DEVS];
@@ -188,6 +190,7 @@ int nvgpu_gr_fecs_trace_ring_alloc(struct gk20a *g,
 		void **buf, size_t *size)
 {
 	struct nvgpu_ctxsw_ring_header *hdr;
+	u64 total_size = 0ULL;
 
 	*size = round_up(*size, NVGPU_CPU_PAGE_SIZE);
 	hdr = vmalloc_user(*size);
@@ -196,8 +199,13 @@ int nvgpu_gr_fecs_trace_ring_alloc(struct gk20a *g,
 
 	hdr->magic = NVGPU_CTXSW_RING_HEADER_MAGIC;
 	hdr->version = NVGPU_CTXSW_RING_HEADER_VERSION;
-	hdr->num_ents = (*size - sizeof(struct nvgpu_ctxsw_ring_header))
-		/ sizeof(struct nvgpu_gpu_ctxsw_trace_entry);
+	if (!nvgpu_safe_sub_u64_return(*size, sizeof(struct nvgpu_ctxsw_ring_header),
+			&total_size)) {
+		nvgpu_err(g, "total_size overflow");
+		return -EOVERFLOW;
+	}
+
+	hdr->num_ents = total_size / sizeof(struct nvgpu_gpu_ctxsw_trace_entry);
 	hdr->ent_size = sizeof(struct nvgpu_gpu_ctxsw_trace_entry);
 	hdr->drop_count = 0;
 	hdr->read_idx = 0;
@@ -210,7 +218,7 @@ int nvgpu_gr_fecs_trace_ring_alloc(struct gk20a *g,
 
 int nvgpu_gr_fecs_trace_ring_free(struct gk20a *g)
 {
-	struct gk20a_ctxsw_dev *dev = &g->ctxsw_trace->devs[0];
+	struct gk20a_ctxsw_dev *dev = &g->ctxsw_trace->devs[CTXSW_TRACE_VM_DEV];
 
 	nvgpu_vfree(g, dev->hdr);
 	return 0;
@@ -305,8 +313,6 @@ int gk20a_ctxsw_dev_open(struct inode *inode, struct file *filp)
 	int err;
 	size_t size;
 	u32 n;
-	/* only one VM for now */
-	const int vmid = 0;
 	struct nvgpu_cdev *cdev;
 
 	cdev = container_of(inode->i_cdev, struct nvgpu_cdev, cdev);
@@ -334,7 +340,7 @@ int gk20a_ctxsw_dev_open(struct inode *inode, struct file *filp)
 	}
 
 	/* Allow only one user for this device */
-	dev = &trace->devs[vmid];
+	dev = &trace->devs[CTXSW_TRACE_VM_DEV];
 	nvgpu_mutex_acquire(&dev->write_lock);
 	if (dev->hdr) {
 		err = -EBUSY;
@@ -507,7 +513,7 @@ static struct vm_operations_struct gk20a_ctxsw_dev_vma_ops = {
 void nvgpu_gr_fecs_trace_get_mmap_buffer_info(struct gk20a *g,
 				void **mmapaddr, size_t *mmapsize)
 {
-	*mmapaddr = g->ctxsw_trace->devs[0].hdr;
+	*mmapaddr = g->ctxsw_trace->devs[CTXSW_TRACE_VM_DEV].hdr;
 	*mmapsize = 0;
 }
 
@@ -644,10 +650,7 @@ int nvgpu_gr_fecs_trace_write_entry(struct gk20a *g,
 	if (!g->ctxsw_trace)
 		return 0;
 
-	if (unlikely(entry->vmid >= GK20A_CTXSW_TRACE_NUM_DEVS))
-		return -ENODEV;
-
-	dev = &g->ctxsw_trace->devs[entry->vmid];
+	dev = &g->ctxsw_trace->devs[CTXSW_TRACE_VM_DEV];
 	hdr = dev->hdr;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_ctxsw,
@@ -731,18 +734,25 @@ done:
 void nvgpu_gr_fecs_trace_wake_up(struct gk20a *g, int vmid)
 {
 	struct gk20a_ctxsw_dev *dev;
+	/*
+	 * vmid is not relavent here.
+	 * One ctxsw_dev for self VM has been added and
+	 * trace is supported from the same.
+	 */
+	(void) vmid;
 
 	if (!g->ctxsw_trace)
 		return;
 
-	dev = &g->ctxsw_trace->devs[vmid];
+	dev = &g->ctxsw_trace->devs[CTXSW_TRACE_VM_DEV];
 	nvgpu_cond_signal_interruptible(&dev->readout_wq);
 }
 
 void nvgpu_gr_fecs_trace_add_tsg_reset(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
+	int vmid = gk20a_get_vmid(g);
 	struct nvgpu_gpu_ctxsw_trace_entry entry = {
-		.vmid = 0,
+		.vmid = vmid,
 		.tag = NVGPU_CTXSW_TAG_ENGINE_RESET,
 		.context_id = 0,
 		.pid = tsg->tgid,
@@ -753,7 +763,7 @@ void nvgpu_gr_fecs_trace_add_tsg_reset(struct gk20a *g, struct nvgpu_tsg *tsg)
 
 	g->ops.ptimer.read_ptimer(g, &entry.timestamp);
 	nvgpu_gr_fecs_trace_write_entry(g, &entry);
-	nvgpu_gr_fecs_trace_wake_up(g, 0);
+	nvgpu_gr_fecs_trace_wake_up(g, vmid);
 
 #ifdef CONFIG_NVGPU_TRACE
 	trace_gk20a_channel_reset(~0, tsg->tsgid);

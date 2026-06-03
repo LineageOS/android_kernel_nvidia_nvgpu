@@ -59,5 +59,6 @@ int nvgpu_get_mock_reglist_gv11b(struct gk20a *g, u32 reg_space,
 			   struct nvgpu_mock_iospace *iospace);
 int nvgpu_get_mock_reglist_ga10b(struct gk20a *g, u32 reg_space,
 			   struct nvgpu_mock_iospace *iospace);
-
+int nvgpu_get_mock_reglist_gb10b(struct gk20a *g, u32 reg_idx,
+			   struct nvgpu_mock_iospace *iospace);
 #endif

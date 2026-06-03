@@ -108,7 +108,7 @@ static void gb10b_lrc_generate_lrcc_lrc_addr(struct gk20a *g, u32 addr,
  * API to generate unicast registers for broadcast registers of type
  * LRCC(N)_LRCS where N is figured out from the the input addr.
  */
-void gb10b_lrc_split_lrc_broadcast_addr(struct gk20a *g, u32 addr,
+s32 gb10b_lrc_split_lrc_broadcast_addr(struct gk20a *g, u32 addr,
 					u32 *priv_addr_table,
 					u32 *priv_addr_table_index)
 {
@@ -119,13 +119,17 @@ void gb10b_lrc_split_lrc_broadcast_addr(struct gk20a *g, u32 addr,
 
 	lrcc0_lrc_base = lrc_plrcc_base_v() + lrcc_stride;
 
-	lrcc_num = (addr - lrcc0_lrc_base)/lrcc_stride;
-
+	if (addr > lrcc0_lrc_base) {
+		lrcc_num = (addr - lrcc0_lrc_base)/lrcc_stride;
+	} else {
+		return -EINVAL;
+	}
 	nvgpu_log(g, gpu_dbg_gpu_dbg, "addr - 0x%x, lrcc_num - %u",
 			addr, lrcc_num);
 
 	gb10b_lrc_generate_lrcc_lrc_addr(g, addr, lrcc_num,
 			priv_addr_table, priv_addr_table_index);
+	return 0;
 }
 
 /**

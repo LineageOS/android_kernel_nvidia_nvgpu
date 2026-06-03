@@ -18,6 +18,7 @@
 #include <nvgpu/pmu/msg.h>
 #include <nvgpu/pmu/fw.h>
 #include <nvgpu/pmu/volt.h>
+#include <nvgpu/pmu/perf_cf.h>
 
 struct pmu_sequences;
 struct pmu_mutexes;
@@ -423,13 +424,15 @@ struct nvgpu_pmu {
 	bool isr_enabled;
 	struct nvgpu_mutex isr_mutex;
 	struct nvgpu_mutex ptcb_queue_mutex;
+	struct nvgpu_mutex get_status_lock;
 	struct nvgpu_falcon *flcn;
 	struct nvgpu_pmu_perfmon *pmu_perfmon;
 #ifdef CONFIG_NVGPU_LS_PMU
 	u64 ss_unmapped_members_size_add;
 	bool is_fbq_ptcb_enabled;
 	bool is_pmu_ucode_model_20;
-	bool driver_register_ongoing;
+	bool pmu_unit_rpc_pending[PMU_UNIT_END];
+	u32  driver_register_client_mask;
 	struct nvgpu_allocator dmem;
 	struct nvgpu_mem trace_buf;
 	struct pmu_sha1_gid gid_info;
@@ -447,6 +450,7 @@ struct nvgpu_pmu {
 	struct nvgpu_pmu_therm *therm_pmu;
 	struct nvgpu_pmu_volt *volt;
 	struct lpwr_mon_params lpwr_mon;
+	struct nvgpu_pmu_perf_cf *perf_cf;
 
 	void (*remove_support)(struct nvgpu_pmu *pmu);
 	void (*therm_rpc_handler)(struct gk20a *g, struct nvgpu_pmu *pmu,

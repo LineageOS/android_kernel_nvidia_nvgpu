@@ -26,7 +26,5 @@ void nvgpu_get_thread_name(char *dest)
 	char buf[TASK_COMM_LEN];
 
 	get_task_comm(buf, current);
-	strncpy(dest, buf, TASK_COMM_LEN);
-	/* Ensure buffer is null terminated */
-	dest[TASK_COMM_LEN-1] = '\0';
+	snprintf(dest, TASK_COMM_LEN, "%s", buf);
 }

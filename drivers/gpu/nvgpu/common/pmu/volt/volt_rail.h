@@ -7,6 +7,7 @@
 
 #include <nvgpu/boardobjgrp.h>
 #include <common/pmu/boardobj/boardobj.h>
+#include "volt.h"
 
 #define CTRL_PMGR_PWR_EQUATION_INDEX_INVALID	0xFFU
 
@@ -92,10 +93,21 @@ int volt_rail_volt_dev_register_3x(struct gk20a *g, struct voltage_rail_3x
 	*pvolt_rail, u8 volt_dev_idx, u8 operation_type);
 int volt_rail_devgrp_pmudata_instget_3x(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp, struct nv_pmu_boardobj
-	**pmu_obj, u8 idx);
+	**pmu_obj, u16 idx);
 int volt_rail_devgrp_pmu_hdr_data_init_3x(struct gk20a *g,
 	struct boardobjgrp *pboardobjgrp,
 	struct nv_pmu_boardobjgrp_super *pboardobjgrppmu,
 	struct boardobjgrpmask *mask);
-
+int volt_rail_devgrp_pmustatus_instget_3x(struct gk20a *g,
+	void *pboardobjgrppmu, struct nv_pmu_boardobj_query
+	**obj_pmu_status, u16 idx);
+int nvgpu_volt_rail_get_gpc_voltage(struct gk20a *g,
+	void *pboardobjgrppmu, u32 *gpc_voltage_uv);
+int nvgpu_volt_rail_get_gpm_voltage(struct gk20a *g,
+	void *pboardobjgrppmu, u32 *gpm_voltage_uv);
+int nvgpu_volt_rail_get_status(struct gk20a *g, void **pmu_status_buf);
+int nvgpu_volt_rail_get_limits(struct gk20a *g, u8 rail_idx,
+			       u32 *vmin_uv, u32 *vmax_uv);
+s32 nvgpu_volt_rail_set_gpc_limit(struct gk20a *g, s32 gpc_voltage_uv, u32 whichLimit);
+s32 nvgpu_volt_rail_set_gpm_limit(struct gk20a *g, s32 gpm_voltage_uv, u32 whichLimit);
 #endif /* NVGPU_VOLT_RAIL_H */

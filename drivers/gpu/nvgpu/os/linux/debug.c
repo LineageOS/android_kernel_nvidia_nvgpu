@@ -15,9 +15,13 @@
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 #include "debug_gsp.h"
 #endif
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+#include "debug_gsp_vm_sched.h"
+#endif
 #include "debug_multimedia.h"
 #include "debug_boot_time.h"
 #include "debug_c2c.h"
+#include "debug_clk_gb20c.h"
 #include "os_linux.h"
 #include "platform_gk20a.h"
 
@@ -26,11 +30,22 @@
 #include <nvgpu/power_features/pg.h>
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/tsg.h>
+#include <nvgpu/engines.h>
 
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+#include <linux/slab.h>
+#include <linux/ktime.h>
+#include <linux/delay.h>
 
 #include <nvgpu/debug.h>
+#include <nvgpu/io.h>
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+#include <nvgpu_next_nvhost.h>
+#endif
 
 unsigned int gk20a_debug_trace_cmdbuf;
 
@@ -309,10 +324,11 @@ static const struct file_operations railgate_transitions_fops = {
 
 static int gk20a_railgating_debugfs_init(struct gk20a *g)
 {
+	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 	struct dentry *d;
 
-	if (!g->is_virtual) {
+	if (platform->can_railgate_init) {
 		d = debugfs_create_file(
 			"railgate_residency", S_IRUGO|S_IWUSR, l->debugfs, g,
 						&railgate_residency_fops);
@@ -446,6 +462,110 @@ static int sysclk_slowdown_entry_count_open(struct inode *inode,
 
 static const struct file_operations sysclk_slowdown_entry_count_fops = {
 	.open		= sysclk_slowdown_entry_count_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvdec_engine_status_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 status;
+
+	status = nvgpu_engine_get_nvdec_engine_status(g);
+
+	seq_printf(s, "0x%x\n", status);
+
+	return 0;
+}
+
+static int nvdec_engine_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvdec_engine_status_show, inode->i_private);
+}
+
+static const struct file_operations nvdec_engine_status_fops = {
+	.open		= nvdec_engine_status_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvenc_engine_status_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 status;
+
+	status = nvgpu_engine_get_nvenc_engine_status(g);
+
+	seq_printf(s, "0x%x\n", status);
+
+	return 0;
+}
+
+static int nvenc_engine_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvenc_engine_status_show, inode->i_private);
+}
+
+static const struct file_operations nvenc_engine_status_fops = {
+	.open		= nvenc_engine_status_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+static int nvjpg_engine_status_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 status;
+
+	status = nvgpu_engine_get_nvjpg_engine_status(g);
+
+	seq_printf(s, "0x%x\n", status);
+
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+static int nvjpg_engine_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvjpg_engine_status_show, inode->i_private);
+}
+
+static const struct file_operations nvjpg_engine_status_fops = {
+	.open		= nvjpg_engine_status_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif
+
+static int ofa_engine_status_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 status;
+
+	status = nvgpu_engine_get_ofa_engine_status(g);
+
+	seq_printf(s, "0x%x\n", status);
+
+	return 0;
+}
+
+static int ofa_engine_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ofa_engine_status_show, inode->i_private);
+}
+
+static const struct file_operations ofa_engine_status_fops = {
+	.open		= ofa_engine_status_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
 	.release	= single_release,
@@ -590,19 +710,61 @@ static const struct file_operations disable_syncpts_fops = {
 	.write =	disable_syncpts_write,
 };
 
+static bool is_debug_clk_disabled(struct gk20a *g)
+{
+	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
+	bool bpmp_clk_chip_id = false;
+
+	// Disable clk debugfs interface for some Tegra SOCs
+	if (platform->platform_chip_id == TEGRA_234) {
+		bpmp_clk_chip_id = true;
+		goto out;
+	}
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	if ((platform->platform_chip_id == TEGRA_264) ||
+		(platform->platform_chip_id == TEGRA_264_VF)) {
+		bpmp_clk_chip_id = true;
+		goto out;
+	}
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+	bpmp_clk_chip_id = nvgpu_next_clocks_bpmp_managed(platform->platform_chip_id);
+#endif
+
+out:
+	return bpmp_clk_chip_id;
+}
+
 void gk20a_debug_init(struct gk20a *g, const char *debugfs_symlink)
 {
+	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 	struct device *dev = dev_from_gk20a(g);
+	char unique_debufs_symlink[MAX_DEBUGFS_STR_LEN] = {0};
+	bool bpmp_clk_chip_id = true;
 
 	l->debugfs = debugfs_create_dir(dev_name(dev), NULL);
 	if (!l->debugfs)
 		return;
 
-	if (debugfs_symlink)
-		l->debugfs_alias =
-			debugfs_create_symlink(debugfs_symlink,
-					NULL, dev_name(dev));
+	if (debugfs_symlink) {
+		if (g->numa_node_id == 1) {
+			(void)snprintf(unique_debufs_symlink,
+					sizeof(unique_debufs_symlink),
+					"%s_%d",
+					debugfs_symlink,
+					g->numa_node_id);
+			l->debugfs_alias =
+				debugfs_create_symlink(unique_debufs_symlink,
+						NULL, dev_name(dev));
+		} else {
+			l->debugfs_alias =
+				debugfs_create_symlink(debugfs_symlink,
+						NULL, dev_name(dev));
+		}
+	}
 
 	debugfs_create_file("status", S_IRUGO, l->debugfs,
 		dev, &gk20a_debug_fops);
@@ -668,18 +830,46 @@ void gk20a_debug_init(struct gk20a *g, const char *debugfs_symlink)
 
 	debugfs_create_bool("runlist_interleave", S_IRUGO|S_IWUSR, l->debugfs,
 			    &g->runlist_interleave);
+	if (!g->is_virtual) {
+		debugfs_create_file("elcg_residency", 0444, l->debugfs,
+			dev, &elcg_residency_fops);
 
-	debugfs_create_file("elcg_residency", S_IRUGO, l->debugfs,
-		dev, &elcg_residency_fops);
+		debugfs_create_file("elcg_entry_count", 0444, l->debugfs,
+			dev, &elcg_entry_count_fops);
 
-	debugfs_create_file("elcg_entry_count", S_IRUGO, l->debugfs,
-		dev, &elcg_entry_count_fops);
+		debugfs_create_file("lpwr_residency", 0444, l->debugfs,
+			dev, &lpwr_residency_fops);
+	}
 
-	debugfs_create_file("lpwr_residency", S_IRUGO, l->debugfs,
-		dev, &lpwr_residency_fops);
+	if (platform->can_elpg_init) {
+		debugfs_create_file("sysclk_slowdown_entry_count", S_IRUGO, l->debugfs,
+			dev, &sysclk_slowdown_entry_count_fops);
+	}
 
-	debugfs_create_file("sysclk_slowdown_entry_count", S_IRUGO, l->debugfs,
-		dev, &sysclk_slowdown_entry_count_fops);
+	bpmp_clk_chip_id = is_debug_clk_disabled(g);
+	// Disable the clock and PTO counter debugfs for some Tegra SOCs
+	// use "/sys/kernel/debug/clk/" for clock and PTO information on
+	// bpmp firmware supported Tegra SOCs
+	if (!bpmp_clk_chip_id) {
+		/* Initialize clock and PTO counter debugfs */
+		gk20a_debug_clk_init(g);
+	}
+
+	if (!g->is_virtual) {
+		debugfs_create_file("nvdec_engine_status", 0444, l->debugfs,
+			dev, &nvdec_engine_status_fops);
+
+		debugfs_create_file("nvenc_engine_status", 0444, l->debugfs,
+			dev, &nvenc_engine_status_fops);
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+		debugfs_create_file("nvjpg_engine_status", 0444, l->debugfs,
+			dev, &nvjpg_engine_status_fops);
+#endif
+	}
+
+	debugfs_create_file("ofa_engine_status", S_IRUGO, l->debugfs,
+		dev, &ofa_engine_status_fops);
 
 	gr_gk20a_debugfs_init(g);
 #ifndef CONFIG_NVGPU_EMB_LINUX_PROD_BUILD
@@ -706,6 +896,10 @@ void gk20a_debug_init(struct gk20a *g, const char *debugfs_symlink)
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 	nvgpu_gsp_debugfs_init(g);
 #endif
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+	nvgpu_gsp_vm_sched_debugfs_init(g);
+#endif
+
 	nvgpu_multimedia_debugfs_init(g);
 
 	nvgpu_boot_time_debugfs_init(g);
@@ -722,4 +916,8 @@ void gk20a_debug_deinit(struct gk20a *g)
 
 	debugfs_remove_recursive(l->debugfs);
 	debugfs_remove(l->debugfs_alias);
+
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+	nvgpu_gsp_vm_sched_debugfs_free(g);
+#endif
 }

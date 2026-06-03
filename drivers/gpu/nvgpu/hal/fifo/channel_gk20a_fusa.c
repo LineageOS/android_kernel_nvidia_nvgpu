@@ -85,8 +85,6 @@ void gk20a_channel_read_state(struct gk20a *g, u32 runlist_id, u32 chid,
 		(status_v == ccsr_channel_status_on_eng_pending_acquire_v());
 
 	/* Copy at the most NVGPU_CHANNEL_STATUS_STRING_LENGTH characters */
-	(void) strncpy(state->status_string, ccsr_chan_status_str[status_v],
-		NVGPU_CHANNEL_STATUS_STRING_LENGTH - 1U);
-
-	state->status_string[NVGPU_CHANNEL_STATUS_STRING_LENGTH - 1U] = '\0';
+	(void) snprintf(state->status_string, NVGPU_CHANNEL_STATUS_STRING_LENGTH,
+				"%s", ccsr_chan_status_str[status_v]);
 }

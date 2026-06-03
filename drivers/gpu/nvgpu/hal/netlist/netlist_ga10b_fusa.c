@@ -4,6 +4,7 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/string.h>
 #include <nvgpu/soc.h>
+#include <nvgpu/netlist.h>
 
 #include "netlist_ga10b.h"
 
@@ -17,9 +18,11 @@ static int ga10b_netlist_silicon_get_name(struct gk20a *g, int index, char *name
 #if defined(GA10B_NETLIST_DBG_IMAGE_FW_NAME) || defined(GA10B_NETLIST_PROD_IMAGE_FW_NAME)
 	case NETLIST_FINAL:
 		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			(void) strcpy(name, GA10B_NETLIST_DBG_IMAGE_FW_NAME);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s",
+								GA10B_NETLIST_DBG_IMAGE_FW_NAME);
 		} else {
-			(void) strcpy(name, GA10B_NETLIST_PROD_IMAGE_FW_NAME);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s",
+								GA10B_NETLIST_PROD_IMAGE_FW_NAME);
 		}
 		break;
 #else
@@ -27,36 +30,36 @@ static int ga10b_netlist_silicon_get_name(struct gk20a *g, int index, char *name
 #if defined(NVGPU_NETLIST_DBG_IMAGE_A) || defined(NVGPU_NETLIST_PROD_IMAGE_A)
 	case NETLIST_SLOT_A:
 		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			(void) strcpy(name, NVGPU_NETLIST_DBG_IMAGE_A);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_DBG_IMAGE_A);
 		} else {
-			(void) strcpy(name, NVGPU_NETLIST_PROD_IMAGE_A);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_PROD_IMAGE_A);
 		}
 		break;
 #endif
 #if defined(NVGPU_NETLIST_DBG_IMAGE_B) || defined(NVGPU_NETLIST_PROD_IMAGE_B)
 	case NETLIST_SLOT_B:
 		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			(void) strcpy(name, NVGPU_NETLIST_DBG_IMAGE_B);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_DBG_IMAGE_B);
 		} else {
-			(void) strcpy(name, NVGPU_NETLIST_PROD_IMAGE_B);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_PROD_IMAGE_B);
 		}
 		break;
 #endif
 #if defined(NVGPU_NETLIST_DBG_IMAGE_C) || defined(NVGPU_NETLIST_PROD_IMAGE_C)
 	case NETLIST_SLOT_C:
 		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			(void) strcpy(name, NVGPU_NETLIST_DBG_IMAGE_C);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_DBG_IMAGE_C);
 		} else {
-			(void) strcpy(name, NVGPU_NETLIST_PROD_IMAGE_C);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_PROD_IMAGE_C);
 		}
 		break;
 #endif
 #if defined(NVGPU_NETLIST_DBG_IMAGE_D) || defined(NVGPU_NETLIST_PROD_IMAGE_D)
 	case NETLIST_SLOT_D:
 		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			(void) strcpy(name, NVGPU_NETLIST_DBG_IMAGE_D);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_DBG_IMAGE_D);
 		} else {
-			(void) strcpy(name, NVGPU_NETLIST_PROD_IMAGE_D);
+			(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_PROD_IMAGE_D);
 		}
 		break;
 #endif
@@ -81,28 +84,28 @@ static int ga10b_netlist_sim_get_name(struct gk20a *g, int index, char *name)
 	switch (index) {
 #ifdef GA10B_NETLIST_IMAGE_FW_NAME
 	case NETLIST_FINAL:
-		(void) strcpy(name, GA10B_NETLIST_IMAGE_FW_NAME);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", GA10B_NETLIST_IMAGE_FW_NAME);
 		break;
 #else
 #ifdef CONFIG_NVGPU_NON_FUSA
 #ifdef NVGPU_NETLIST_IMAGE_A
 	case NETLIST_SLOT_A:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_A);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_A);
 		break;
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_B
 	case NETLIST_SLOT_B:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_B);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_B);
 		break;
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_C
 	case NETLIST_SLOT_C:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_C);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_C);
 		break;
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_D
 	case NETLIST_SLOT_D:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_D);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_D);
 		break;
 #endif
 #endif

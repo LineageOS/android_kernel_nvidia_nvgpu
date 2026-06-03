@@ -2,7 +2,6 @@
  * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
-
 #ifndef NVGPU_SEMAPHORE_PRIV_H
 #define NVGPU_SEMAPHORE_PRIV_H
 
@@ -21,11 +20,6 @@ struct gk20a;
  * pool size (one page) divided by this sema size.
  */
 #define SEMAPHORE_SIZE			16U
-/*
- * Max number of VMs that can be used is 512. This of course needs to be fixed
- * to be dynamic but still fast.
- */
-#define SEMAPHORE_POOL_COUNT		512U
 
 /*
  * A sea of semaphores pools. Each pool is owned by a single VM. Since multiple
@@ -57,11 +51,7 @@ struct nvgpu_semaphore_sea {
 	 */
 	struct nvgpu_mem sea_mem;
 
-	/*
-	 * Can't use a regular allocator here since the full range of pools are
-	 * not always allocated. Instead just use a bitmap.
-	 */
-	DECLARE_BITMAP(pools_alloced, SEMAPHORE_POOL_COUNT);
+	unsigned long *pools_alloced;
 
 	struct nvgpu_mutex sea_lock;		/* Lock alloc/free calls. */
 };

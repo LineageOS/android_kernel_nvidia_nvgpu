@@ -20,10 +20,27 @@ int vgpu_pm_reservation_init(struct gk20a *g)
 		return 0;
 	}
 
+	if ((g->num_sys_perfmon == 0U) &&
+	   (g->ops.perf.get_num_hwpm_perfmon != NULL)) {
+		g->ops.perf.get_num_hwpm_perfmon(g, &g->num_sys_perfmon,
+						&g->num_fbp_perfmon, &g->num_gpc_perfmon);
+		nvgpu_log(g, gpu_dbg_prof | gpu_dbg_gpu_dbg,
+			 "num_sys_perfmon[%u] num_fbp_perfmon[%u] num_gpc_perfmon[%u]",
+			 g->num_sys_perfmon, g->num_fbp_perfmon, g->num_gpc_perfmon);
+		nvgpu_assert((g->num_sys_perfmon != 0U) && (g->num_fbp_perfmon != 0U) &&
+			     (g->num_gpc_perfmon != 0U));
+	}
+
 	if (g->ops.perf.get_pma_channel_count != NULL)
 		g->num_pma_channels = g->ops.perf.get_pma_channel_count(g);
 	else
 		g->num_pma_channels = 1;
+
+	if (g->ops.perf.get_ctx_switched_pma_channel_count != NULL)
+		g->num_ctx_switched_pma_channels =
+			g->ops.perf.get_ctx_switched_pma_channel_count(g);
+	else
+		g->num_ctx_switched_pma_channels = 0;
 
 	if (g->ops.perf.get_pma_channels_per_cblock) {
 		g->channels_per_cblock =

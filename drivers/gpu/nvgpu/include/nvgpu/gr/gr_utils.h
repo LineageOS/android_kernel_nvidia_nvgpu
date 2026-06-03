@@ -105,7 +105,7 @@ struct nvgpu_gr_zbc *nvgpu_gr_get_zbc_ptr(struct gk20a *g);
 #endif
 int nvgpu_gr_get_dump_gr_hw_state_on_ctxsw_timeout(struct gk20a *g, bool *state);
 int nvgpu_gr_set_dump_gr_hw_state_on_ctxsw_timeout(struct gk20a *g, bool enable);
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 bool nvgpu_gr_get_cilp_preempt_pending(struct gk20a *g);
 void nvgpu_gr_set_cilp_preempt_pending(struct gk20a *g,
 	bool cilp_preempt_pending);

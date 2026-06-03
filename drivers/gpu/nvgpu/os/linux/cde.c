@@ -216,7 +216,11 @@ __must_hold(&l->cde_app->mutex)
 		return PTR_ERR(cde_ctx);
 
 	nvgpu_list_add(&cde_ctx->list, &cde_app->free_contexts);
-	cde_app->ctx_count++;
+
+	if (!nvgpu_safe_add_u32_return(cde_app->ctx_count, 1, &cde_app->ctx_count)) {
+		nvgpu_err(NULL, "cde_app->ctx_count overflow");
+		return -EOVERFLOW;
+	}
 	if (cde_app->ctx_count > cde_app->ctx_count_top)
 		cde_app->ctx_count_top = cde_app->ctx_count;
 
@@ -393,8 +397,10 @@ static int gk20a_cde_patch_params(struct gk20a_cde_ctx *cde_ctx)
 	struct nvgpu_mem *target_mem;
 	u32 *target_mem_ptr;
 	u64 new_data;
-	int user_id = 0, err;
+	int err;
+	u32 user_id = 0;
 	unsigned int i;
+	u32 count = 0U;
 
 	for (i = 0; i < cde_ctx->num_params; i++) {
 		struct gk20a_cde_hdr_param *param = cde_ctx->params + i;
@@ -407,9 +413,16 @@ static int gk20a_cde_patch_params(struct gk20a_cde_ctx *cde_ctx)
 			new_data = cbc->comptags_per_cacheline;
 			break;
 		case TYPE_PARAM_GPU_CONFIGURATION:
-			new_data = (u64)nvgpu_ltc_get_ltc_count(g) *
-					nvgpu_ltc_get_slices_per_ltc(g) *
-					nvgpu_ltc_get_cacheline_size(g);
+			if (!nvgpu_safe_mult_u32_return(nvgpu_ltc_get_slices_per_ltc(g),
+					nvgpu_ltc_get_cacheline_size(g), &count)) {
+				nvgpu_err(g, "ltc_count overflow");
+				return -EOVERFLOW;
+			}
+			if (!nvgpu_safe_mult_u64_return(count, nvgpu_ltc_get_ltc_count(g),
+					&new_data)) {
+				nvgpu_err(g, "new_data overflow");
+				return -EOVERFLOW;
+			}
 			break;
 		case TYPE_PARAM_FIRSTPAGEOFFSET:
 			new_data = cde_ctx->surf_param_offset;
@@ -451,8 +464,11 @@ static int gk20a_cde_patch_params(struct gk20a_cde_ctx *cde_ctx)
 			new_data = cde_ctx->scatterbuffer_size;
 			break;
 		default:
-			user_id = param->id - NUM_RESERVED_PARAMS;
-			if (user_id < 0 || user_id >= MAX_CDE_USER_PARAMS)
+			if (!nvgpu_safe_sub_u32_return(param->id, NUM_RESERVED_PARAMS, &user_id)) {
+				nvgpu_err(g, "new_data underflow");
+				return -EOVERFLOW;
+			}
+			if (user_id >= MAX_CDE_USER_PARAMS)
 				continue;
 			new_data = cde_ctx->user_param_values[user_id];
 		}
@@ -463,7 +479,10 @@ static int gk20a_cde_patch_params(struct gk20a_cde_ctx *cde_ctx)
 			  param->data_offset, param->type, param->shift,
 			  param->mask);
 
-		new_data += param->data_offset;
+		if (!nvgpu_safe_add_u64_return(new_data, param->data_offset, &new_data)) {
+			nvgpu_err(g, "new_data overflow");
+			return -EOVERFLOW;
+		}
 
 		err = gk20a_replace_data(cde_ctx, target_mem_ptr, param->type,
 					 param->shift, param->mask, new_data);
@@ -655,6 +674,7 @@ static int gk20a_init_cde_img(struct gk20a_cde_ctx *cde_ctx,
 	u32 min_size = 0;
 	int err = 0;
 	unsigned int i;
+	u32 count_of_elems = 0U;
 
 	min_size += 2 * sizeof(u32);
 	if (img->size < min_size) {
@@ -665,7 +685,15 @@ static int gk20a_init_cde_img(struct gk20a_cde_ctx *cde_ctx,
 	cde_app->firmware_version = data[0];
 	num_of_elems = data[1];
 
-	min_size += num_of_elems * sizeof(*elem);
+	if (!nvgpu_safe_mult_u32_return(num_of_elems, sizeof(*elem), &count_of_elems)) {
+		nvgpu_err(g, "count_of_elems overflow");
+		return -EOVERFLOW;
+	}
+	if (!nvgpu_safe_add_u32_return(min_size, count_of_elems, &min_size)) {
+		nvgpu_err(g, "min_size overflow");
+		return -EOVERFLOW;
+	}
+
 	if (img->size < min_size) {
 		nvgpu_warn(g, "cde: bad image");
 		return -EINVAL;
@@ -1062,19 +1090,35 @@ __releases(&l->cde_app->mutex)
 	   the region to be mapped */
 	big_page_mask = cde_ctx->vm->big_page_size - 1;
 	map_offset = compbits_byte_offset & ~big_page_mask;
-	map_size = compbits_scatter_buf->size - map_offset;
 
+	if (!nvgpu_safe_sub_u64_return(compbits_scatter_buf->size, map_offset, &map_size)) {
+		nvgpu_err(g, "map_size underflow");
+		err = -EOVERFLOW;
+		goto exit_idle;
+	}
 
 	/* compute compbit start offset from the beginning of the mapped
 	   area */
-	mapped_compbits_offset = compbits_byte_offset - map_offset;
+	if (!nvgpu_safe_sub_u64_return(compbits_byte_offset, map_offset, &mapped_compbits_offset)) {
+		nvgpu_err(g, "mapped_compbits_offset underflow");
+		err = -EOVERFLOW;
+		goto exit_idle;
+	}
 	if (scatterbuffer_byte_offset) {
 		compbits_size = scatterbuffer_byte_offset -
 				compbits_byte_offset;
-		mapped_scatterbuffer_offset = scatterbuffer_byte_offset -
-					      map_offset;
-		scatterbuffer_size = compbits_scatter_buf->size -
-				     scatterbuffer_byte_offset;
+		if (!nvgpu_safe_sub_u64_return(scatterbuffer_byte_offset, map_offset,
+				&mapped_scatterbuffer_offset)) {
+			nvgpu_err(g, "mapped_scatterbuffer_offset underflow");
+			err = -EOVERFLOW;
+			goto exit_idle;
+		}
+		if (!nvgpu_safe_sub_u64_return(compbits_scatter_buf->size, scatterbuffer_byte_offset,
+				&scatterbuffer_size)) {
+			nvgpu_err(g, "scatterbuffer_size underflow");
+			err = -EOVERFLOW;
+			goto exit_idle;
+		}
 	} else {
 		compbits_size = compbits_scatter_buf->size -
 				compbits_byte_offset;
@@ -1179,10 +1223,19 @@ __releases(&l->cde_app->mutex)
 	cde_ctx->surf_vaddr = map_vaddr;
 
 	/* store information about destination */
-	cde_ctx->compbit_vaddr = map_vaddr + mapped_compbits_offset;
+	if (!nvgpu_safe_add_u64_return(map_vaddr, mapped_compbits_offset, &cde_ctx->compbit_vaddr)) {
+		nvgpu_err(g, "cde_ctx->compbit_vaddr overflow");
+		err = -EOVERFLOW;
+		goto exit_unmap_surface;
+	}
 	cde_ctx->compbit_size = compbits_size;
 
-	cde_ctx->scatterbuffer_vaddr = map_vaddr + mapped_scatterbuffer_offset;
+	if (!nvgpu_safe_add_u64_return(map_vaddr, mapped_scatterbuffer_offset,
+			&cde_ctx->scatterbuffer_vaddr)) {
+		nvgpu_err(g, "cde_ctx->scatterbuffer_vaddr overflow");
+		err = -EOVERFLOW;
+		goto exit_unmap_surface;
+	}
 	cde_ctx->scatterbuffer_size = scatterbuffer_size;
 
 	/* remove existing argument data */
@@ -1191,10 +1244,15 @@ __releases(&l->cde_app->mutex)
 
 	/* read user space arguments for the conversion */
 	for (i = 0; i < num_params; i++) {
+		u32 id = 0U;
 		struct gk20a_cde_param *param = params + i;
-		int id = param->id - NUM_RESERVED_PARAMS;
+		if (!nvgpu_safe_sub_u32_return(param->id, NUM_RESERVED_PARAMS, &id)) {
+			nvgpu_err(g, "id underflow");
+			err = -EOVERFLOW;
+			goto exit_unmap_surface;
+		}
 
-		if (id < 0 || id >= MAX_CDE_USER_PARAMS) {
+		if (id >= MAX_CDE_USER_PARAMS) {
 			nvgpu_warn(g, "cde: unknown user parameter");
 			err = -EINVAL;
 			goto exit_unmap_surface;

@@ -36,9 +36,7 @@
 #include <nvgpu/grmgr.h>
 
 #include "gr_priv.h"
-#if !defined(CONFIG_NVGPU_NON_FUSA) || defined (CONFIG_NVGPU_DEBUGGER)
 #include "common/gr/obj_ctx_priv.h"
-#endif
 #include "gr_config_priv.h"
 
 static int gr_alloc_global_ctx_buffers(struct gk20a *g, struct nvgpu_gr *gr)
@@ -208,10 +206,8 @@ static void disable_gr_interrupts(struct gk20a *g)
 
 int nvgpu_gr_suspend(struct gk20a *g)
 {
-#ifndef CONFIG_NVGPU_NON_FUSA
 	struct nvgpu_gr_obj_ctx_golden_image *golden_image =
 		nvgpu_gr_get_golden_image_ptr(g);
-#endif
 	int ret = 0;
 
 	nvgpu_log_fn(g, " ");
@@ -232,9 +228,7 @@ int nvgpu_gr_suspend(struct gk20a *g)
 	nvgpu_gr_falcon_suspend(g, nvgpu_gr_get_falcon_ptr(g));
 
 	g->gr->initialized = false;
-#ifndef CONFIG_NVGPU_NON_FUSA
 	golden_image->ready = false;
-#endif
 	nvgpu_log_fn(g, "done");
 	return ret;
 }
@@ -845,8 +839,11 @@ int nvgpu_gr_reset(struct gk20a *g)
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
 	struct nvgpu_mutex *fecs_mutex =
 		nvgpu_gr_falcon_get_fecs_mutex(gr->falcon);
+	struct nvgpu_gr_obj_ctx_golden_image *golden_image =
+		nvgpu_gr_get_golden_image_ptr(g);
 
 	g->gr->initialized = false;
+	golden_image->ready = false;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr | gpu_dbg_rec, "Resetting GR%u HW",
 		nvgpu_gr_get_cur_instance_id(g));
@@ -916,6 +913,18 @@ int nvgpu_gr_reset(struct gk20a *g)
 	/* GR is inialized, signal possible waiters */
 	g->gr->initialized = true;
 	nvgpu_cond_signal(&gr->init_wq);
+
+	/*
+	 * After GR engine is reset, nvgpu has to reinitialize the golden context image
+	 * So that FECS sets up the hardware state correctly again.
+	 */
+	if (g->ops.gr.setup.init_golden_image != NULL) {
+		err = g->ops.gr.setup.init_golden_image(g);
+		if (err != 0) {
+			nvgpu_err(g, "Failed to init golden image, err=%d", err);
+			return err;
+		}
+	}
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "done");
 	return err;

@@ -166,7 +166,7 @@ enum nvgpu_cpu_timestamp_source {
 };
 
 int nvgpu_get_timestamps_zipper(struct gk20a *g,
-		enum nvgpu_cpu_timestamp_source cpu_timestamp_source,
+		u32 cpu_timestamp_source,
 		u32 count,
 		struct nvgpu_cpu_time_correlation_sample *samples);
 #endif /* CONFIG_NVGPU_IOCTL_NON_FUSA */

@@ -7,7 +7,6 @@
 #include <nvgpu/vgpu/vgpu_ivc.h>
 
 #include "intr_vgpu.h"
-#include "common/vgpu/gr/fecs_trace_vgpu.h"
 #include "common/vgpu/fifo/fifo_vgpu.h"
 #include "common/vgpu/fifo/fifo_vf.h"
 #include "common/vgpu/fifo/channel_vgpu.h"
@@ -46,11 +45,6 @@ int vgpu_intr_thread(void *dev_id)
 				vgpu_fifo_isr(g, &msg.info.fifo_intr);
 			}
 			break;
-#ifdef CONFIG_NVGPU_FECS_TRACE
-		case TEGRA_VGPU_EVENT_FECS_TRACE:
-			vgpu_fecs_trace_data_update(g);
-			break;
-#endif
 		case TEGRA_VGPU_EVENT_CHANNEL:
 			vgpu_tsg_handle_event(g, &msg.info.channel_event);
 			break;

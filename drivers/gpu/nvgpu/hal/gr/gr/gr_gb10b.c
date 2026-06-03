@@ -45,10 +45,12 @@
 
 #define ILLEGAL_ID	~U32(0U)
 
+#ifdef CONFIG_NVGPU_DEBUGGER
 u32 gb10b_gr_gpc0_ppc0_cbm_alpha_cb_size(void)
 {
 	return gr_gpc0_ppc0_cbm_alpha_cb_size_r();
 }
+#endif
 
 /**
  * These are NV_PGRAPH_GPC0_TPCS_CAU_* registers.
@@ -88,6 +90,7 @@ const u32 *gb10b_gr_get_hwpm_cau_init_data(u32 *count)
 	return hwpm_cau_init_data;
 }
 
+#ifdef CONFIG_NVGPU_DEBUGGER
 int gb10b_gr_init_cau(struct gk20a *g, u32 gr_instance_id)
 {
 	const u32 *data;
@@ -221,6 +224,7 @@ u32 gb10b_get_gpcs_tpcs_sm_l1tag_ctrl_reg(void)
 {
 	return gr_gpcs_tpcs_sm_l1tag_ctrl_r();
 }
+#endif
 
 static void gb10b_gr_dump_gr_per_sm_regs(struct gk20a *g,
 			struct nvgpu_debug_context *o,
@@ -535,6 +539,7 @@ int gb10b_gr_dump_gr_status_regs(struct gk20a *g,
 	return 0;
 }
 
+#ifdef CONFIG_NVGPU_DEBUGGER
 void gb10b_gr_set_circular_buffer_size(struct gk20a *g, u32 data)
 {
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
@@ -611,6 +616,7 @@ void gb10b_gr_set_circular_buffer_size(struct gk20a *g, u32 data)
 		}
 	}
 }
+#endif
 
 static void gb10b_gr_sm_dump_warp_bpt_pause_trap_mask_regs(struct gk20a *g,
 					u32 offset, bool timeout)
@@ -1014,8 +1020,11 @@ int gr_gb10b_create_priv_addr_table(struct gk20a *g, u32 addr,
 			g->ops.lrc.split_lrcc_broadcast_addr(g, addr,
 					priv_addr_table, &index);
 		} else if (broadcast_flags & PRI_BROADCAST_FLAGS_LRCS) {
-			g->ops.lrc.split_lrc_broadcast_addr(g, addr,
+			err = g->ops.lrc.split_lrc_broadcast_addr(g, addr,
 					priv_addr_table, &index);
+			if (err != 0) {
+				return err;
+			}
 		}
 		*num_registers = index;
 		return 0;

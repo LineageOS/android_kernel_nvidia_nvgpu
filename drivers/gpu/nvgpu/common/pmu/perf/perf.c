@@ -40,31 +40,66 @@ static int pmu_set_boot_clk_runcb_fn(void *arg)
 	return 0;
 }
 
-static int tu104_pmu_handle_perf_event(struct gk20a *g, void *pmumsg)
+static int pmu_perf_handle_event(struct gk20a *g, void *pmumsg)
 {
-	struct pmu_nvgpu_rpc_perf_event *msg =
-			(struct pmu_nvgpu_rpc_perf_event *)pmumsg;
+	struct pmu_nvgpu_rpc_struct *msg =
+			(struct pmu_nvgpu_rpc_struct *)pmumsg;
 	struct nvgpu_pmu_perf *perf_pmu = g->pmu->perf_pmu;
 	struct change_seq_pmu *change_pmu = &g->pmu->perf_pmu->changeseq_pmu;
-
+	int status = 0;
 	nvgpu_log_fn(g, " ");
-	switch (msg->rpc_hdr.function) {
+
+	if (msg->event_rpc.hdr.unit_id != PMU_UNIT_PERF) {
+		nvgpu_err(g, "invalid PERF Event unit id 0x%x", msg->event_rpc.hdr.unit_id);
+		status = -EINVAL;
+		goto out;
+	}
+
+	switch (msg->event_rpc.hdr.function) {
+	case NV_PMU_RPC_ID_PERF_DOMAIN_GROUP_LIMIT:
+		nvgpu_pmu_dbg(g, "PMU has configured a domain group limit event");
+		break;
 	case NV_PMU_RPC_ID_PERF_VFE_CALLBACK:
 		perf_pmu->vfe_init.state_change = true;
 		(void) nvgpu_cond_signal_interruptible(&perf_pmu->vfe_init.wq);
+		nvgpu_pmu_dbg(g, "VFE Callback");
+		break;
+	case NV_PMU_RPC_ID_PERF_VFE_CALLBACK_WITH_EQU_MONITOR_PAYLOAD:
+		nvgpu_pmu_dbg(g, "VFE Callback with Equ Monitor Payload");
 		break;
 	case NV_PMU_RPC_ID_PERF_SEQ_COMPLETION:
 		change_pmu->change_state = 1U;
-		nvgpu_log_info(g, "Change Seq Completed");
+		nvgpu_pmu_dbg(g, "Change Seq Completed");
 		break;
 	case NV_PMU_RPC_ID_PERF_PSTATES_INVALIDATE:
-		nvgpu_log_info(g, "Pstate Invalidated");
+		nvgpu_pmu_dbg(g, "Pstate Invalidated");
+		break;
+	case NV_PMU_RPC_ID_PERF_PSTATES_INVALIDATE_WITH_PSTATE_DATA_PAYLOAD:
+		nvgpu_pmu_dbg(g, "Pstate Invalidated with Pstate Data Payload");
+		break;
+	case NV_PMU_RPC_ID_PERF_PERF_LIMITS_GPU_BOOST_SYNC_CHANGE:
+		nvgpu_pmu_dbg(g, "Perf Limits GPU Boost Sync Change");
+		break;
+	case NV_PMU_RPC_ID_PERF_SCRIPT_EXECUTE:
+		nvgpu_pmu_dbg(g, "Perf Script Execute");
+		break;
+	case NV_PMU_RPC_ID_PERF_PERF_MODE_COMPLETION:
+		nvgpu_pmu_dbg(g, "Perf Mode Completion");
+		break;
+	case NV_PMU_RPC_ID_PERF_PERF_MODE_CONFIGS_EXECUTE:
+		nvgpu_pmu_dbg(g, "Perf Mode Configs Execute");
+		break;
+	case NV_PMU_RPC_ID_PERF__COUNT:
+		nvgpu_pmu_dbg(g, "Perf Count");
 		break;
 	default:
+		nvgpu_err(g, "Received unsupported PMU unit event %d", msg->event_rpc.hdr.function);
 		WARN_ON(true);
 		break;
 	}
-	return 0;
+
+out:
+	return status;
 }
 
 static int perf_pmu_init_vfe_perf_event(struct gk20a *g)
@@ -90,6 +125,23 @@ static int perf_pmu_init_vfe_perf_event(struct gk20a *g)
 
 }
 
+int nvgpu_pmu_perf_post_clk_domain_and_volt_rail_init(struct gk20a *g)
+{
+	struct nvgpu_pmu *pmu = g->pmu;
+	struct nv_pmu_rpc_struct_perf_post_clk_domain_and_volt_rail_init rpc;
+	int status = 0;
+
+	nvgpu_log_fn(g, " ");
+
+	(void) memset(&rpc, 0, sizeof(struct nv_pmu_rpc_struct_perf_post_clk_domain_and_volt_rail_init));
+	PMU_RPC_EXECUTE_CPB(status, pmu, PERF, POST_CLK_DOMAIN_AND_VOLT_RAIL_INIT, &rpc, 0);
+	if (status != 0) {
+		nvgpu_err(g, "Failed to execute RPC status=0x%x",
+			status);
+	}
+	return status;
+}
+
 int nvgpu_pmu_perf_load(struct gk20a *g)
 {
 	struct nvgpu_pmu *pmu = g->pmu;
@@ -102,7 +154,7 @@ int nvgpu_pmu_perf_load(struct gk20a *g)
 	}
 
 	/*register call back for future VFE updates*/
-	g->ops.pmu_perf.handle_pmu_perf_event = tu104_pmu_handle_perf_event;
+	g->ops.pmu_perf.handle_pmu_perf_event = pmu_perf_handle_event;
 
 	(void) memset(&rpc, 0, sizeof(struct nv_pmu_rpc_struct_perf_load));
 	rpc.b_load = true;
@@ -164,6 +216,7 @@ int nvgpu_pmu_perf_sw_setup(struct gk20a *g)
 		return err;
 	}
 
+/* Disable perf pstate and change seq and enable later
 	err = perf_pstate_sw_setup(g);
 	if (err != 0) {
 		return err;
@@ -173,6 +226,7 @@ int nvgpu_pmu_perf_sw_setup(struct gk20a *g)
 	if (err != 0) {
 		return err;
 	}
+*/
 
 	return 0;
 }
@@ -192,6 +246,7 @@ int nvgpu_pmu_perf_pmu_setup(struct gk20a *g)
 		return err;
 	}
 
+/* Disable perf pstate and change seq and enable later
 	err = perf_pstate_pmu_setup(g);
 	if (err != 0) {
 		return err;
@@ -201,7 +256,25 @@ int nvgpu_pmu_perf_pmu_setup(struct gk20a *g)
 	if (err != 0) {
 		return err;
 	}
+*/
 
 	return 0;
+}
+
+int nvgpu_pmu_perf_vfe_invalidate(struct gk20a *g)
+{
+	struct nvgpu_pmu *pmu = g->pmu;
+	int status = 0;
+	struct nv_pmu_rpc_struct_perf_vfe_invalidate rpc;
+
+	nvgpu_log_fn(g, " ");
+
+	(void) memset(&rpc, 0, sizeof(struct nv_pmu_rpc_struct_perf_vfe_invalidate));
+	PMU_RPC_EXECUTE_CPB(status, pmu, PERF, VFE_INVALIDATE, &rpc, 0);
+	if (status != 0) {
+		nvgpu_err(g, "Failed to execute RPC status=0x%x",
+			status);
+	}
+	return status;
 }
 

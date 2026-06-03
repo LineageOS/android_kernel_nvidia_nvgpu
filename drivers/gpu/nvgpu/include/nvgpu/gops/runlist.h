@@ -92,6 +92,10 @@ struct gops_runlist {
 	u32 (*get_tsg_max_timeslice)(void);
 	u32 (*get_runlist_id)(struct gk20a *g, u32 runlist_pri_base);
 	u32 (*get_runlist_aperture)(struct gk20a *g, struct nvgpu_mem *mem);
+	/**
+	 * This is only used by gpu server.
+	 */
+	u32 (*get_runlist_timeslice)(struct gk20a *g, u32 runlist_id, u32 gfid);
 	u32 (*get_engine_id_from_rleng_id)(struct gk20a *g,
 				u32 rleng_id, u32 runlist_pri_base);
 	u32 (*get_chram_bar0_offset)(struct gk20a *g, u32 runlist_pri_base);

@@ -35,6 +35,19 @@
  */
 #define PMU_ELPG_MS_STAT_OFF_ON_PENDING	4U
 
+/* gpc_rg is off */
+#define PMU_GPC_RG_STAT_OFF		0U
+/* gpc_rg is on */
+#define PMU_GPC_RG_STAT_ON		1U
+/* gpc_rg is off, ALLOW cmd has been sent, wait for ack */
+#define PMU_GPC_RG_STAT_ON_PENDING	2U
+/* gpc_rg is on, DISALLOW cmd has been sent, wait for ack */
+#define PMU_GPC_RG_STAT_OFF_PENDING	3U
+/* gpc_rg is off, caller has requested on, but ALLOW
+ * cmd hasn't been sent due to ENABLE_ALLOW delay
+ */
+#define PMU_GPC_RG_STAT_OFF_ON_PENDING	4U
+
 #define PMU_PGENG_GR_BUFFER_IDX_INIT	0U
 #define PMU_PGENG_GR_BUFFER_IDX_ZBC	1U
 #define PMU_PGENG_GR_BUFFER_IDX_FECS	2U

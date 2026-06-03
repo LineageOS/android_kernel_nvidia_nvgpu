@@ -817,6 +817,21 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 	payload.rpc.size_rpc = size_rpc;
 	payload.rpc.size_scratch = size_scratch;
 
+	if (PMU_PSTATE_RPC_UNIT_ID(rpc_header->unit_id)) {
+		pmu_wait_message_cond(pmu,
+			nvgpu_get_poll_timeout(g),
+			&pmu->pmu_unit_rpc_pending[rpc_header->unit_id], 0U);
+
+		if (pmu->pmu_unit_rpc_pending[rpc_header->unit_id]) {
+			nvgpu_err(g, "RPC unit %d is pending timeout",
+					rpc_header->unit_id);
+			status = -ETIMEDOUT;
+			nvgpu_kfree(g, rpc_payload);
+			goto exit;
+		}
+
+		pmu->pmu_unit_rpc_pending[rpc_header->unit_id] = true;
+	}
 	if (pmu->is_fbq_ptcb_enabled) {
 		/* RPC post using PTCB method */
 		status = nvgpu_pmu_cmd_post_ptcb(g, rpc_header, size_rpc,
@@ -827,6 +842,10 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 				rpc_payload);
 	}
 	if (status != 0) {
+
+		if (PMU_PSTATE_RPC_UNIT_ID(rpc_header->unit_id)) {
+			pmu->pmu_unit_rpc_pending[rpc_header->unit_id] = false;
+		}
 		nvgpu_err(g, "Failed to execute RPC status=0x%x, func=0x%x",
 				status, rpc_header->function);
 		/*

@@ -782,6 +782,7 @@ struct gops_gr_init {
 	/**
 	 * @brief Get supported preemption mode flags.
 	 *
+	 * @param g [in]                Pointer to GPU driver struct.
 	 * @param graphics_preemption_mode_flags [out]
 	 *				Pointer to unsigned int.
 	 * @param graphics_preemption_mode_flags [out]
@@ -789,7 +790,7 @@ struct gops_gr_init {
 	 * This function returns the supported preemption
 	 * graphics and compute mode flags.
 	 */
-	void (*get_supported__preemption_modes)(
+	void (*get_supported__preemption_modes)(struct gk20a *g,
 				u32 *graphics_preemption_mode_flags,
 				u32 *compute_preepmtion_mode_flags);
 
@@ -1089,6 +1090,25 @@ struct gops_gr_ctxsw_prog {
 					struct nvgpu_mem *ctx_mem);
 #endif
 #ifdef CONFIG_NVGPU_CILP
+	/**
+	 * @brief Sets the ccompute preemption mode to CILP of a context
+	 *
+	 * @param [in] g       Pointer to GPU driver structure.
+	 * @param [in] ctx_mem Pointer to context memory structure.
+	 *
+	 * This function performs the following steps:
+	 * -# Call ctxsw_prog_main_image_compute_preemption_options_o() to get the
+	 *    offset of the compute preemption options field in the context switch
+	 *    program main image.
+	 * -# Call ctxsw_prog_main_image_compute_preemption_options_control_cilp_f()
+	 *    to get the value corresponding to CILP mode for the compute preemption
+	 *    options control field.
+	 * -# Call nvgpu_mem_wr() to write the CILP mode value to the context memory
+	 *    at the computed offset, using the GPU driver structure and context
+	 *    memory structure passed as parameters.
+	 *
+	 * @return None (void).
+	 */
 	void (*set_compute_preemption_mode_cilp)(struct gk20a *g,
 					struct nvgpu_mem *ctx_mem);
 #endif
@@ -1227,6 +1247,22 @@ struct gops_gr_fecs_trace {
 			struct ctxsw_buf_offset_map_entry *map,
 			struct netlist_aiv_list *regs, u32 *count,
 			u32 *offset, u32 max_cnt, u32 num_lrc);
+		int (*add_reg_in_fecs_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			u32 *count, u32 *offset, u32 max_reg_count);
+		int (*add_reg_in_gpccs_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			u32 *count, u32 *offset, u32 max_reg_count,
+			struct nvgpu_gr_config *config);
+		int (*add_hes_reg_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			u32 *count, u32 *offset, u32 max_reg_count);
+		int (*add_padding_for_dtdtpc_support)(struct gk20a *g,
+			struct netlist_aiv_list *regs,
+			u32 *offset, u32 num_tpc);
+		void (*get_cpc_info)(struct gk20a *g, u32 *max_cpc_per_gpc,
+			u32 *num_gnics_per_cpc, const u32 **gnic_stride_array,
+			u32 *gnic_stride);
 	};
 #endif
 /** @endcond */
@@ -1325,6 +1361,7 @@ struct gops_gr {
 	void (*set_circular_buffer_size)(struct gk20a *g, u32 data);
 	void (*set_bes_crop_debug3)(struct gk20a *g, u32 data);
 	void (*set_bes_crop_debug4)(struct gk20a *g, u32 data);
+	void (*set_tex_in_dbg)(struct gk20a *g, u32 data);
 	void (*get_sm_dsm_perf_regs)(struct gk20a *g,
 				     u32 *num_sm_dsm_perf_regs,
 				     u32 **sm_dsm_perf_regs,

@@ -29,17 +29,17 @@ int nvgpu_ecc_counter_init_per_gr(struct gk20a *g,
 		 * Store stats name as below:
 		 * gr<gr_index>_<name_string>
 		 */
-		(void)strcpy(stats[i].name, "gr");
+		(void)snprintf(stats[i].name, sizeof(stats[i].name), "gr");
 		(void)nvgpu_strnadd_u32(gr_str, i, sizeof(gr_str), 10U);
-		(void)strncat(stats[i].name, gr_str,
+		(void)snprintf(stats[i].name + strlen(stats[i].name),
 					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
-		(void)strncat(stats[i].name, "_",
+					strlen(stats[i].name), "%s", gr_str);
+		(void)snprintf(stats[i].name + strlen(stats[i].name),
 					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
-		(void)strncat(stats[i].name, name,
+					strlen(stats[i].name), "%s", "_");
+		(void)snprintf(stats[i].name + strlen(stats[i].name),
 					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
+					strlen(stats[i].name), "%s", name);
 
 		nvgpu_ecc_stat_add(g, &stats[i]);
 	}
@@ -87,26 +87,27 @@ int nvgpu_ecc_counter_init_per_tpc(struct gk20a *g,
 			 * Store stats name as below:
 			 * gpc<gpc_value>_tpc<tpc_value>_<name_string>
 			 */
-			(void)strcpy(stats[gpc_phys_id][tpc_phys_id].name, "gpc");
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name,
+					sizeof(stats[gpc_phys_id][tpc_phys_id].name), "gpc");
 			(void)nvgpu_strnadd_u32(gpc_str, gpc_phys_id,
 							sizeof(gpc_str), 10U);
-			(void)strncat(stats[gpc_phys_id][tpc_phys_id].name, gpc_str,
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name + strlen(stats[gpc_phys_id][tpc_phys_id].name),
 						nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-						strlen(stats[gpc_phys_id][tpc_phys_id].name)));
-			(void)strncat(stats[gpc_phys_id][tpc_phys_id].name, "_tpc",
+						strlen(stats[gpc_phys_id][tpc_phys_id].name)), "%s", gpc_str);
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name + strlen(stats[gpc_phys_id][tpc_phys_id].name),
 						nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-						strlen(stats[gpc_phys_id][tpc_phys_id].name)));
+						strlen(stats[gpc_phys_id][tpc_phys_id].name)), "%s", "_tpc");
 			(void)nvgpu_strnadd_u32(tpc_str, tpc_phys_id,
 							sizeof(tpc_str), 10U);
-			(void)strncat(stats[gpc_phys_id][tpc_phys_id].name, tpc_str,
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name + strlen(stats[gpc_phys_id][tpc_phys_id].name),
 						nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-						strlen(stats[gpc_phys_id][tpc_phys_id].name)));
-			(void)strncat(stats[gpc_phys_id][tpc_phys_id].name, "_",
+						strlen(stats[gpc_phys_id][tpc_phys_id].name)), "%s", tpc_str);
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name + strlen(stats[gpc_phys_id][tpc_phys_id].name),
 						nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-						strlen(stats[gpc_phys_id][tpc_phys_id].name)));
-			(void)strncat(stats[gpc_phys_id][tpc_phys_id].name, name,
+						strlen(stats[gpc_phys_id][tpc_phys_id].name)), "%s", "_");
+			(void)snprintf(stats[gpc_phys_id][tpc_phys_id].name + strlen(stats[gpc_phys_id][tpc_phys_id].name),
 						nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-						strlen(stats[gpc_phys_id][tpc_phys_id].name)));
+						strlen(stats[gpc_phys_id][tpc_phys_id].name)), "%s", name);
 
 			nvgpu_ecc_stat_add(g, &stats[gpc_phys_id][tpc_phys_id]);
 		}
@@ -149,17 +150,21 @@ int nvgpu_ecc_counter_init_per_gpc(struct gk20a *g,
 		 * Store stats name as below:
 		 * gpc<gpc_value>_<name_string>
 		 */
-		(void)strcpy(stats[gpc_phys_id].name, "gpc");
+		(void)snprintf(stats[gpc_phys_id].name,
+				sizeof(stats[gpc_phys_id].name), "%s", "gpc");
 		(void)nvgpu_strnadd_u32(gpc_str, gpc_phys_id, sizeof(gpc_str), 10U);
-		(void)strncat(stats[gpc_phys_id].name, gpc_str,
+		(void)snprintf(stats[gpc_phys_id].name + strlen(stats[gpc_phys_id].name),
 					nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-					strlen(stats[gpc_phys_id].name)));
-		(void)strncat(stats[gpc_phys_id].name, "_",
+					strlen(stats[gpc_phys_id].name)),
+					"%s", gpc_str);
+		(void)snprintf(stats[gpc_phys_id].name + strlen(stats[gpc_phys_id].name),
 					nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-					strlen(stats[gpc_phys_id].name)));
-		(void)strncat(stats[gpc_phys_id].name, name,
+					strlen(stats[gpc_phys_id].name)),
+					"%s", "_");
+		(void)snprintf(stats[gpc_phys_id].name + strlen(stats[gpc_phys_id].name),
 					nvgpu_safe_sub_u64(NVGPU_ECC_STAT_NAME_MAX_SIZE,
-					strlen(stats[gpc_phys_id].name)));
+					strlen(stats[gpc_phys_id].name)),
+					"%s", name);
 
 		nvgpu_ecc_stat_add(g, &stats[gpc_phys_id]);
 	}

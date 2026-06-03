@@ -26,7 +26,7 @@ struct nvgpu_mem;
 	(FBQ_CMD_QUEUES_SIZE + FBQ_MSG_QUEUE_SIZE + SSMD_SIZE + SS_HDR_SIZE))
 
 /* SSMD */
-#define NV_PMU_SUPER_SURFACE_MEMBER_DESCRIPTOR_COUNT    32U
+#define NV_PMU_SUPER_SURFACE_MEMBER_DESCRIPTOR_COUNT    128U
 
 /*
  * Defines the structure of the @ nv_pmu_super_surface_member_descriptor::id
@@ -35,7 +35,7 @@ struct nvgpu_mem;
 #define NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_GROUP_INVALID      0xFFFFU
 #define NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_TYPE_SET           BIT(16)
 #define NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_TYPE_GET_STATUS    BIT(17)
-#define NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_RSVD               (0x00UL << 20U)
+#define NV_RM_PMU_SUPER_SURFACE_MEMBER_ID_RSVD               (0x00UL << 16U)
 
 struct super_surface_member_descriptor {
 	/* The member ID (@see NV_PMU_SUPER_SURFACE_MEMBER_ID_<xyz>). */
@@ -84,10 +84,7 @@ struct nvgpu_pmu_super_surface {
 	struct nvgpu_mem super_surface_buf;
 
 	struct super_surface_member_descriptor
-		ssmd_set[NV_PMU_SUPER_SURFACE_MEMBER_COUNT];
-
-	struct super_surface_member_descriptor
-		ssmd_get_status[NV_PMU_SUPER_SURFACE_MEMBER_COUNT];
+		ssmd[NV_PMU_SUPER_SURFACE_MEMBER_MAX];
 };
 
 #endif /* SUPER_SURFACE_PRIV_H */

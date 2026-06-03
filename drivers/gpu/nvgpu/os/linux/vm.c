@@ -137,7 +137,11 @@ int nvgpu_vm_find_buf(struct vm_gk20a *vm, u64 gpu_va,
 	}
 
 	*dmabuf = mapped_buffer->os_priv.dmabuf;
-	*offset = gpu_va - mapped_buffer->addr;
+	if (!nvgpu_safe_sub_u64_return(gpu_va, mapped_buffer->addr, offset)) {
+		nvgpu_err(g, "offset underflow");
+		nvgpu_mutex_release(&vm->update_gmmu_lock);
+		return -EOVERFLOW;
+	}
 
 	nvgpu_mutex_release(&vm->update_gmmu_lock);
 
@@ -553,8 +557,13 @@ int nvgpu_vm_mapping_modify(struct vm_gk20a *vm,
 		compression_page_size = g->ops.fb.compression_page_size(g);
 		nvgpu_assert(compression_page_size > 0ULL);
 
-		ctag_offset += (u32)(buffer_offset >>
-				     nvgpu_ilog2(compression_page_size));
+		if (!nvgpu_safe_add_u64_return(ctag_offset,
+				(u32)(buffer_offset >> nvgpu_ilog2(compression_page_size)),
+				&ctag_offset)) {
+			nvgpu_err(g, "ctag_offset overflow");
+			ret = -EOVERFLOW;
+			goto out;
+		}
 	}
 #endif
 

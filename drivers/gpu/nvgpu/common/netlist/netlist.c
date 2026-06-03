@@ -28,7 +28,6 @@
  * to get complete path like gm204/NETC_img.bin
  */
 
-#define MAX_NETLIST_NAME (sizeof("GAxxx/") + sizeof("prod_test_nsr/NET?_img_xxxxx_encrypted.bin"))
 struct nvgpu_gr;
 
 struct netlist_av *nvgpu_netlist_alloc_av_list(struct gk20a *g,
@@ -381,20 +380,24 @@ static bool nvgpu_netlist_handle_sw_bundles_region_id(struct gk20a *g,
 		err = nvgpu_netlist_alloc_load_av_list64(g,
 			src, size, &netlist_vars->sw_bundle64_init);
 		break;
-
-#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NETLIST_REGIONID_SW_NON_CTX_LOCAL_COMPUTE_LOAD:
-		nvgpu_log_info(g, "NETLIST_REGIONID_SW_NON_CTX_LOCAL_COMPUTE_LOAD");
-		err = nvgpu_netlist_alloc_load_av_list(g, src, size,
-			&netlist_vars->sw_non_ctx_local_compute_load);
+		if (g->disable_compute_netlist_region_load == true) {
+			handled = false;
+		} else {
+			nvgpu_log_info(g, "NETLIST_REGIONID_SW_NON_CTX_LOCAL_COMPUTE_LOAD");
+			err = nvgpu_netlist_alloc_load_av_list(g, src, size,
+				&netlist_vars->sw_non_ctx_local_compute_load);
+		}
 		break;
 	case NETLIST_REGIONID_SW_NON_CTX_GLOBAL_COMPUTE_LOAD:
-		nvgpu_log_info(g, "NETLIST_REGIONID_SW_NON_CTX_GLOBAL_COMPUTE_LOAD");
-		err = nvgpu_netlist_alloc_load_av_list(g, src, size,
-			&netlist_vars->sw_non_ctx_global_compute_load);
+		if (g->disable_compute_netlist_region_load == true) {
+			handled = false;
+		} else {
+			nvgpu_log_info(g, "NETLIST_REGIONID_SW_NON_CTX_GLOBAL_COMPUTE_LOAD");
+			err = nvgpu_netlist_alloc_load_av_list(g, src, size,
+				&netlist_vars->sw_non_ctx_global_compute_load);
+		}
 		break;
-#endif
-
 	default:
 		handled = false;
 		break;
@@ -514,6 +517,11 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 		err = nvgpu_netlist_alloc_load_aiv_list(g,
 			src, size, &netlist_vars->ctxsw_regs.pm_sys);
 		break;
+	case NETLIST_REGIONID_CTXREG_PM_SYSLTC:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PM_SYSLTC");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.pm_sysltc);
+		break;
 	case NETLIST_REGIONID_CTXREG_PM_GPC:
 		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PM_GPC");
 		err = nvgpu_netlist_alloc_load_aiv_list(g,
@@ -549,10 +557,25 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 		err = nvgpu_netlist_alloc_load_aiv_list(g,
 			src, size, &netlist_vars->ctxsw_regs.gpc_router);
 		break;
+	case NETLIST_REGIONID_NVPERF_GPC_ROUTER_USER_CHANNEL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_GPC_ROUTER_USER_CHANNEL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.gpc_router_user_channel);
+		break;
 	case NETLIST_REGIONID_CTXREG_PMLTC:
 		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PMLTC");
 		err = nvgpu_netlist_alloc_load_aiv_list(g,
 			src, size, &netlist_vars->ctxsw_regs.pm_ltc);
+		break;
+	case NETLIST_REGIONID_CTXREG_PMLTS:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PMLTS");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.pm_lts);
+		break;
+	case NETLIST_REGIONID_CTXREG_PMLRC:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PMLRC");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.pm_lrc);
 		break;
 	case NETLIST_REGIONID_CTXREG_PMFBPA:
 		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREG_PMFBPA");
@@ -563,6 +586,41 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_SYS_ROUTER");
 		err = nvgpu_netlist_alloc_load_aiv_list(g,
 			src, size, &netlist_vars->ctxsw_regs.perf_sys_router);
+		break;
+	case NETLIST_REGIONID_NVPERF_SYS_ROUTER_USER_CHANNEL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_SYS_ROUTER_USER_CHANNEL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_sys_router_user_channel);
+		break;
+	case NETLIST_REGIONID_NVPERF_FBP_ROUTER_USER_CHANNEL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_FBP_ROUTER_USER_CHANNEL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_fbp_router_user_channel);
+		break;
+	case NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_pma_user_channel);
+		break;
+	case NETLIST_REGIONID_NVPERF_PMA_CMDSLICE:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA_CMDSLICE");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_pma_cmdslice);
+		break;
+	case NETLIST_REGIONID_NVPERF_PMA_FWD_CHANNEL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA_FWD_CHANNEL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_pma_fwd_channel);
+		break;
+	case NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL_CONTROL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL_CONTROL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.per_pma_user_channel_control);
+		break;
+	case NETLIST_REGIONID_NVPERF_PMA_CMDSLICE_CONTROL:
+		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA_CMDSLICE_CONTROL");
+		err = nvgpu_netlist_alloc_load_aiv_list(g,
+			src, size, &netlist_vars->ctxsw_regs.perf_pma_cmdslice_control);
 		break;
 	case NETLIST_REGIONID_NVPERF_PMA:
 		nvgpu_log_info(g, "NETLIST_REGIONID_NVPERF_PMA");
@@ -646,6 +704,16 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREGPMLRCC");
 		err = nvgpu_netlist_alloc_load_aiv_list(g, src, size,
 			&netlist_vars->ctxsw_regs.pm_lrcc);
+		break;
+	case NETLIST_REGIONID_CTXREGPM_SYS_HEM:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREGPM_SYS_HEM");
+		err = nvgpu_netlist_alloc_load_aiv_list(g, src, size,
+			&netlist_vars->ctxsw_regs.pm_sys_hem);
+		break;
+	case NETLIST_REGIONID_CTXREGPM_SYS_HEP:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREGPM_SYS_HEP");
+		err = nvgpu_netlist_alloc_load_aiv_list(g, src, size,
+			&netlist_vars->ctxsw_regs.pm_sys_hep);
 		break;
 
 	default:
@@ -956,6 +1024,7 @@ clean_up:
 #endif
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.ppc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sysltc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_gpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_tpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ppc.l);
@@ -964,14 +1033,26 @@ clean_up:
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_gpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.fbp_router.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_router.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_router_user_channel.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ltc.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lts.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_fbpa.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_sys_router.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_sys_router_user_channel.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_fbp_router_user_channel.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_user_channel.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_cmdslice.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_fwd_channel.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.per_pma_user_channel_control.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_cmdslice_control.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_rop.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ucgpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.etpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrcc.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys_hem.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys_hep.l);
 #if defined(CONFIG_NVGPU_NON_FUSA)
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.sys_compute.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_compute.l);
@@ -1075,7 +1156,7 @@ void nvgpu_netlist_deinit_ctx_vars(struct gk20a *g)
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.zcull_gpc.l);
 #endif
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.ppc.l);
-	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sysltc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_gpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_tpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ppc.l);
@@ -1084,14 +1165,26 @@ void nvgpu_netlist_deinit_ctx_vars(struct gk20a *g)
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_gpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.fbp_router.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_router.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_router_user_channel.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ltc.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lts.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_fbpa.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_sys_router.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_sys_router_user_channel.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_fbp_router_user_channel.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_user_channel.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_cmdslice.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_fwd_channel.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.per_pma_user_channel_control.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma_cmdslice_control.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.perf_pma.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_rop.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ucgpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.etpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrcc.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys_hem.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_sys_hep.l);
 
 #if defined(CONFIG_NVGPU_NON_FUSA)
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.sys_compute.l);
@@ -1276,6 +1369,10 @@ struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_ctxsw_regs(struct gk20a *g)
 	return &g->netlist_vars->ctxsw_regs.pm_sys;
 }
 
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sysltc_ctxsw_regs(struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_sysltc;
+}
 struct netlist_aiv_list *nvgpu_netlist_get_pm_gpc_ctxsw_regs(struct gk20a *g)
 {
 	return &g->netlist_vars->ctxsw_regs.pm_gpc;
@@ -1318,6 +1415,12 @@ struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_ctxsw_regs(
 	return &g->netlist_vars->ctxsw_regs.gpc_router;
 }
 
+struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_user_channel_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.gpc_router_user_channel;
+}
+
 struct netlist_aiv_list *nvgpu_netlist_get_pm_ltc_ctxsw_regs(struct gk20a *g)
 {
 	return &g->netlist_vars->ctxsw_regs.pm_ltc;
@@ -1339,6 +1442,42 @@ struct netlist_aiv_list *nvgpu_netlist_get_perf_sys_router_ctxsw_regs(
 	return &g->netlist_vars->ctxsw_regs.perf_sys_router;
 }
 
+struct netlist_aiv_list *nvgpu_netlist_get_perf_sys_router_user_channel_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_sys_router_user_channel;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_perf_fbp_router_user_channel_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_fbp_router_user_channel;
+}
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_user_channel_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_pma_user_channel;
+}
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_cmdslice_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_pma_cmdslice;
+}
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_fwd_channel_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_pma_fwd_channel;
+}
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_user_channel_control_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.per_pma_user_channel_control;
+}
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_cmdslice_control_ctxsw_regs(
+							struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.perf_pma_cmdslice_control;
+}
 struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_ctxsw_regs(struct gk20a *g)
 {
 	return &g->netlist_vars->ctxsw_regs.perf_pma;
@@ -1386,6 +1525,28 @@ struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_control_ctxsw_regs(
 		struct gk20a *g)
 {
 	return &g->netlist_vars->ctxsw_regs.perf_pma_control;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lts_ctxsw_regs(
+		struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_lts;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lrc_ctxsw_regs(
+		struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_lrc;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_hem_ctxsw_regs(struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_sys_hem;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_hep_ctxsw_regs(struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_sys_hep;
 }
 
 u32 nvgpu_netlist_get_ppc_ctxsw_regs_count(struct gk20a *g)
@@ -1457,6 +1618,8 @@ void nvgpu_netlist_print_ctxsw_reg_info(struct gk20a *g)
 			nvgpu_netlist_get_zcull_gpc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_SYS_COUNT                  :%d",
 			nvgpu_netlist_get_pm_sys_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_SYSLTC_COUNT                  :%d",
+			nvgpu_netlist_get_pm_sysltc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_GPC_COUNT                  :%d",
 			nvgpu_netlist_get_pm_gpc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_TPC_COUNT                  :%d",
@@ -1471,6 +1634,20 @@ void nvgpu_netlist_print_ctxsw_reg_info(struct gk20a *g)
 			nvgpu_netlist_get_perf_sys_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_SYSROUTER_COUNT          :%d",
 			nvgpu_netlist_get_perf_sys_router_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_SYSROUTER_USER_CHANNEL_COUNT :%d",
+			nvgpu_netlist_get_perf_sys_router_user_channel_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_FBPROUTER_USER_CHANNEL_COUNT :%d",
+			nvgpu_netlist_get_perf_fbp_router_user_channel_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_USER_CHANNEL_COUNT :%d",
+			nvgpu_netlist_get_perf_pma_user_channel_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_CMDSLICE_COUNT :%d",
+			nvgpu_netlist_get_perf_pma_cmdslice_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_FWD_CHANNEL_COUNT :%d",
+			nvgpu_netlist_get_perf_pma_fwd_channel_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_USER_CHANNEL_CONTROL_COUNT :%d",
+			nvgpu_netlist_get_perf_pma_user_channel_control_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_CMDSLICE_CONTROL_COUNT :%d",
+			nvgpu_netlist_get_perf_pma_cmdslice_control_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_SYS_CONTROL_COUNT        :%d",
 			nvgpu_netlist_get_perf_sys_control_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_COUNT                :%d",
@@ -1483,10 +1660,16 @@ void nvgpu_netlist_print_ctxsw_reg_info(struct gk20a *g)
 			nvgpu_netlist_get_perf_gpc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_GPCROUTER_COUNT          :%d",
 			nvgpu_netlist_get_gpc_router_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_GPCROUTER_USER_CHANNEL_COUNT          :%d",
+			nvgpu_netlist_get_gpc_router_user_channel_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LTC_COUNT                  :%d",
 			nvgpu_netlist_get_pm_ltc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LRCC_COUNT                  :%d",
 			nvgpu_netlist_get_pm_lrcc_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LTS_COUNT                  :%d",
+			nvgpu_netlist_get_pm_lts_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LRC_COUNT                  :%d",
+			nvgpu_netlist_get_pm_lrc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_ROP_COUNT                  :%d",
 			nvgpu_netlist_get_pm_rop_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_UNICAST_GPC_COUNT          :%d",
@@ -1501,6 +1684,10 @@ void nvgpu_netlist_print_ctxsw_reg_info(struct gk20a *g)
 			nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PERF_PMA_CONTROL_COUNT        :%d",
 			nvgpu_netlist_get_perf_pma_control_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_SYS_HEM                 :%d",
+			nvgpu_netlist_get_pm_sys_hem_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_SYS_HEP                 :%d",
+			nvgpu_netlist_get_pm_sys_hep_ctxsw_regs(g)->count);
 #if defined(CONFIG_NVGPU_NON_FUSA)
 	nvgpu_log_info(g, "GRCTX_REG_LIST_SYS_(COMPUTE/GRAPICS)_COUNT   :%d %d",
 		nvgpu_netlist_get_sys_compute_ctxsw_regs(g)->count,

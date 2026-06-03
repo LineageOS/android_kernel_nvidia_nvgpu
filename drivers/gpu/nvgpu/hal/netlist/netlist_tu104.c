@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
+#include <nvgpu/netlist.h>
 
 #include "netlist_tu104.h"
 
@@ -12,8 +13,10 @@ int tu104_netlist_get_name(struct gk20a *g, int index, char *name)
 
 	switch (ver) {
 	case NVGPU_GPUID_TU104:
-		(void) strcpy(name, "tu104/");
-		(void) strcat(name, TU104_NETLIST_IMAGE_FW_NAME);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", "tu104/");
+		(void) snprintf(name + strlen(name),
+					nvgpu_safe_sub_u64(MAX_NETLIST_NAME, strlen(name)),
+					"%s", TU104_NETLIST_IMAGE_FW_NAME);
 		break;
 	default:
 		nvgpu_err(g, "no support for GPUID %x", ver);

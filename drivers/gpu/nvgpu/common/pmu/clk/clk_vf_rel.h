@@ -26,6 +26,7 @@ struct nvgpu_clk_vf_rels {
 	 */
 	u8 vf_entry_count_sec;
 };
+
 struct clk_vf_rel;
 struct client_clk_domain_prog;
 typedef s32 ClkVfRelVfFlatten(struct gk20a *g, struct clk_vf_rel *pVfRel, u8 clkDomainIdx);
@@ -58,7 +59,7 @@ struct clk_vf_rel_50 {
 };
 
 struct clk_vf_rel_4x_table {
-	s16 *offset;	// Todo: TBD update to interface_vertual_table struct? or keep flattened?
+	s16 *offset;
 	struct nv_pmu_clk_clk_vf_rel_table_secondary_entry
 		slaveEntries[NV2080_CTRL_CLK_CLK_VF_REL_TABLE_SECONDARY_ENTRIES_MAX];
 
@@ -102,6 +103,10 @@ struct clk_vf_rel_50_table {
 struct clk_vf_rel_50_table_freq {
 	struct clk_vf_rel_50_table super;
 };
+
+#define CLK_CLK_VF_REL_GET(pclk, idx)\
+		((struct clk_vf_rel *)(void *)BOARDOBJGRP_OBJ_GET_BY_IDX(\
+			&pclk->clk_vfrelobjs->super.super, (u16)(idx)))
 
 
 s32 clk_vf_rel_init_pmupstate(struct gk20a *g);

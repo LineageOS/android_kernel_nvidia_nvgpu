@@ -10,7 +10,7 @@
 #include <nvgpu/utils.h>
 
 int nvgpu_perfbuf_enable_locked(struct gk20a *g, u32 pma_channel_id, u64 offset,
-				u32 size)
+				u32 size, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	int err;
 
@@ -20,15 +20,26 @@ int nvgpu_perfbuf_enable_locked(struct gk20a *g, u32 pma_channel_id, u64 offset,
 		return err;
 	}
 
-	g->ops.perf.membuf_reset_streaming(g, pma_channel_id);
-	g->ops.perf.enable_membuf(g, pma_channel_id, size, offset);
+	err = g->ops.perf.membuf_reset_streaming(g, pma_channel_id, tsg,
+				is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Streaming reset failed with err - %d", err);
+		return err;
+	}
+	err = g->ops.perf.enable_membuf(g, pma_channel_id, size, offset, tsg,
+		is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Enabling perf buffer failed with err - %d", err);
+		return err;
+	}
 
 	gk20a_idle(g);
 
 	return 0;
 }
 
-int nvgpu_perfbuf_disable_locked(struct gk20a *g, u32 pma_channel_id)
+int nvgpu_perfbuf_disable_locked(struct gk20a *g, u32 pma_channel_id,
+				struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	int err = gk20a_busy(g);
 	if (err != 0) {
@@ -36,8 +47,17 @@ int nvgpu_perfbuf_disable_locked(struct gk20a *g, u32 pma_channel_id)
 		return err;
 	}
 
-	g->ops.perf.membuf_reset_streaming(g, pma_channel_id);
-	g->ops.perf.disable_membuf(g, pma_channel_id);
+	err = g->ops.perf.membuf_reset_streaming(g, pma_channel_id, tsg,
+						is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Streaming reset failed with err - %d", err);
+		return err;
+	}
+	err = g->ops.perf.disable_membuf(g, pma_channel_id, tsg, is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Disabling perf buffer failed with err - %d", err);
+		return err;
+	}
 
 	gk20a_idle(g);
 
@@ -242,42 +262,51 @@ void nvgpu_perfbuf_deinit_vm(struct gk20a *g, u32 pma_channel_id)
 }
 
 int nvgpu_perfbuf_update_get_put(struct gk20a *g, u32 pma_channel_id,
-				 u64 bytes_consumed, u64 *bytes_available,
-				 void *cpuva, bool wait, u64 *put_ptr,
-				 bool *overflowed)
+				u64 bytes_consumed, u64 *bytes_available,
+				void *cpuva, bool wait, u64 *put_ptr,
+				bool *overflowed, struct nvgpu_tsg *tsg,
+				bool is_ctx_resident)
 {
-	struct nvgpu_timeout timeout;
-	int err;
 	bool update_available_bytes = (bytes_available == NULL) ? false : true;
 	volatile u32 *available_bytes_va = (u32 *)cpuva;
+	u32 ctx_bytes_available = 0;
+	struct nvgpu_timeout timeout;
+	int err;
 
 	if (update_available_bytes && available_bytes_va != NULL) {
 		*available_bytes_va = 0xffffffff;
 	}
 
 	err = g->ops.perf.update_get_put(g, pma_channel_id, bytes_consumed,
-			update_available_bytes, put_ptr, overflowed);
+				update_available_bytes, put_ptr, overflowed, tsg,
+				is_ctx_resident, &ctx_bytes_available);
 	if (err != 0) {
 		return err;
 	}
 
 	if (update_available_bytes && wait && available_bytes_va != NULL) {
-		nvgpu_timeout_init_cpu_timer(g, &timeout, 10000);
+		if (is_ctx_resident == true) {
+			nvgpu_timeout_init_cpu_timer(g, &timeout, 10000);
 
-		do {
-			if (*available_bytes_va != 0xffffffff) {
-				break;
+			do {
+				if (*available_bytes_va != 0xffffffff) {
+					break;
+				}
+
+				nvgpu_msleep(10);
+			} while (nvgpu_timeout_expired(&timeout) == 0);
+
+			if (*available_bytes_va == 0xffffffff) {
+				nvgpu_err(g, "perfbuf update get put timed out");
+				return -ETIMEDOUT;
 			}
-
-			nvgpu_msleep(10);
-		} while (nvgpu_timeout_expired(&timeout) == 0);
-
-		if (*available_bytes_va == 0xffffffff) {
-			nvgpu_err(g, "perfbuf update get put timed out");
-			return -ETIMEDOUT;
+			*bytes_available = *available_bytes_va;
+		} else {
+			*available_bytes_va = ctx_bytes_available;
+			*bytes_available = *available_bytes_va;
+			nvgpu_log(g, gpu_dbg_prof,
+				"Ctx bytes available - 0x%llx", *bytes_available);
 		}
-
-		*bytes_available = *available_bytes_va;
 	}
 
 	return 0;

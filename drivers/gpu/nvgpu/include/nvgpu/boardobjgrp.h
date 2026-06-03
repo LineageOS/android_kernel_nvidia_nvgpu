@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025, NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_BOARDOBJGRP_H
@@ -111,25 +110,41 @@ struct boardobjgrp {
 	u32  objmask;
 	bool bconstructed;
 	u8 type;
+	/*!
+	 * Enumeration value for the concrete class type of this @ref BOARDOBJGRP
+	 *
+	 * @note    This field is a post-hoc addition to this structure. It will
+	 *          only be enforced to be valid for @ref BOARDOBJGRP objects that
+	 *          implement @ref BOARDOBJGRP_IFACE_MODEL_20.
+	 *
+	 *          For legacy @ref BOARDOBJGRP_IFACE_MODEL_10 implementations, it
+	 *          will be set to a default value of
+	 *          @ref NV2080_CTRL_BOARDOBJGRP_CLASS_TYPE_INVALID, unless the
+	 *          class has specifically made the effort to update its
+	 *          @ref BOARDOBJGRP_IFACE_MODEL_10 code to initialize it.
+	 */
+	u8 classType;
 	u8 classid;
 	struct pmu_board_obj **ppobjects;
 	struct boardobjgrpmask *mask;
-	u8  objslots;
-	u8  objmaxidx;
+	u16  objslots;
+	u16  objmaxidx;
 	struct boardobjgrp_pmu  pmu;
 
 	/* Basic interfaces */
 	int (*destruct)(struct boardobjgrp *pboardobjgrp);
 	int (*objinsert)(struct boardobjgrp *pboardobjgrp,
-			struct pmu_board_obj *obj, u8 index);
+			struct pmu_board_obj *obj, u16 index);
 	struct pmu_board_obj *(*objgetbyidx)(
-			struct boardobjgrp *pBobrdobjgrp, u8 index);
+			struct boardobjgrp *pBobrdobjgrp, u16 index);
 	struct pmu_board_obj *(*objgetnext)(struct boardobjgrp *pboardobjgrp,
-			u8 *currentindex, struct boardobjgrpmask *mask);
-	int (*objremoveanddestroy)(struct boardobjgrp *pboardobjgrp, u8 index);
+			u16 *currentindex, struct boardobjgrpmask *mask);
+	int (*objremoveanddestroy)(struct boardobjgrp *pboardobjgrp, u16 index);
 
 	/* PMU interfaces */
 	int (*pmuinithandle)(struct gk20a *g,
+			struct boardobjgrp *pboardobjgrp);
+	void (*pmucleanuphandle)(struct gk20a *g,
 			struct boardobjgrp *pboardobjgrp);
 	int (*pmuhdrdatainit)(struct gk20a *g, struct boardobjgrp *pboardobjgrp,
 			struct nv_pmu_boardobjgrp_super *pboardobjgrppmu,
@@ -144,20 +159,22 @@ struct boardobjgrp {
 			struct boardobjgrpmask *mask);
 	int (*pmudatainstget)(struct gk20a *g,
 			struct nv_pmu_boardobjgrp  *boardobjgrppmu,
-			struct nv_pmu_boardobj **pmu_obj, u8 idx);
+			struct nv_pmu_boardobj **pmu_obj, u16 idx);
 	int (*pmustatusinstget)(struct gk20a *g, void *pboardobjgrppmu,
 			struct nv_pmu_boardobj_query **obj_pmu_status,
-			u8 idx);
+			u16 idx);
 	struct nvgpu_list_node node;
 };
 
 struct boardobjgrp_iface_model_10 {
+	s16 offset;
 	bool b_copy_in;
 	bool b_hdr_export;
 
-	// Todo: finish implementing: add api callback pointers.
+	// Todo: finish implementing: add api callback pointers if needed.
 
 };
+typedef struct boardobjgrp_iface_model_10 BOARDOBJGRP_IFACE_MODEL_10;
 
 /*
 * Macro test whether a specified index into the BOARDOBJGRP is valid.
@@ -172,7 +189,7 @@ struct boardobjgrp_iface_model_10 {
 */
 #define BOARDOBJGRP_IS_EMPTY(_pboardobjgrp)                                    \
 	((!((_pboardobjgrp)->bconstructed)) ||                                 \
-	((_pboardobjgrp)->objmaxidx == CTRL_BOARDOBJ_IDX_INVALID))
+	((_pboardobjgrp)->objmaxidx == CTRL_BOARDOBJ_IDX_INVALID_16BIT))
 
 #define boardobjgrp_objinsert(_pboardobjgrp, _pboardobj, _idx)                 \
 	((_pboardobjgrp)->objinsert((_pboardobjgrp), (_pboardobj), (_idx)))
@@ -183,17 +200,17 @@ struct boardobjgrp_iface_model_10 {
 * be inserted contiguously (i.e. w/o fear of colliding with existing objects).
 */
 #define BOARDOBJGRP_NEXT_EMPTY_IDX(_pboardobjgrp)                              \
-	((CTRL_BOARDOBJ_IDX_INVALID == (_pboardobjgrp)->objmaxidx) ? 0U :      \
+	((CTRL_BOARDOBJ_IDX_INVALID_16BIT == (_pboardobjgrp)->objmaxidx) ? 0U :      \
 	((((_pboardobjgrp)->objmaxidx + 1U) >= (_pboardobjgrp)->objslots) ?    \
-	(u8)CTRL_BOARDOBJ_IDX_INVALID : (u8)((_pboardobjgrp)->objmaxidx + 1U)))
+	(u16)CTRL_BOARDOBJ_IDX_INVALID_16BIT : (u16)((_pboardobjgrp)->objmaxidx + 1U)))
 
 /*
 * Helper macro to determine the number of @ref BOARDOBJ pointers
 * that are required to be allocated in PMU @ref ppObjects.
 */
 #define BOARDOBJGRP_PMU_SLOTS_GET(_pboardobjgrp)                            \
-	((CTRL_BOARDOBJ_IDX_INVALID == (_pboardobjgrp)->objmaxidx) ? 0U :    \
-	(u8)((_pboardobjgrp)->objmaxidx + 1U))
+	((CTRL_BOARDOBJ_IDX_INVALID_16BIT == (_pboardobjgrp)->objmaxidx) ? 0U :    \
+	(u16)((_pboardobjgrp)->objmaxidx + 1U))
 
 #define BOARDOBJGRP_OBJ_GET_BY_IDX(_pboardobjgrp, _idx)                     \
 	((_pboardobjgrp)->objgetbyidx((_pboardobjgrp), (_idx)))
@@ -213,7 +230,7 @@ struct boardobjgrp_iface_model_10 {
 * If @ref _pmask is provided only objects specified by the mask are traversed.
 */
 #define BOARDOBJGRP_ITERATOR(_pgrp, _ptype, _pobj, _index, _pmask)             \
-	for ((_index) = CTRL_BOARDOBJ_IDX_INVALID,                             \
+	for ((_index) = CTRL_BOARDOBJ_IDX_INVALID_16BIT,                             \
 	(_pobj)  = (_ptype)boardobjgrpobjgetnextsafe((_pgrp),		       \
 						     &(_index), (_pmask));     \
 	(_pobj) != NULL;                                                       \
@@ -248,6 +265,8 @@ struct boardobjgrp_iface_model_10 {
 * not supported.
 */
 #define BOARDOBJGRP_GRP_CLASS_ID_INVALID                              255U
+
+#define NV2080_CTRL_BOARDOBJGRP_CLASS_TYPE_INVALID                    0xFFU
 
 /*!
 * Invalid UNIT_ID.  Used to indicate that the implementing class has not set
@@ -285,10 +304,10 @@ do {                                                                          \
 		_boardobjgrp_set_header_aligned), \
 	(u32)sizeof(union nv_pmu_##eng##_##class## \
 		_boardobj_set_union_aligned), \
-	(u32)nvgpu_pmu_get_ss_member_set_size(g, g->pmu, \
-		NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GRP), \
-	(u32)nvgpu_pmu_get_ss_member_set_offset(g, g->pmu, \
-	NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GRP), \
+	(u32)nvgpu_pmu_get_ss_member_size(g, g->pmu, \
+		NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_SET), \
+	(u32)nvgpu_pmu_get_ss_member_offset(g, g->pmu, \
+	NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_SET), \
 	NV_PMU_RPC_ID_##ENG##_BOARD_OBJ_GRP_CMD))
 
 #define BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g, pboardobjgrp, \
@@ -303,10 +322,10 @@ do {                                                                          \
 		_boardobjgrp_get_status_header_aligned), \
 	(u32)sizeof(union nv_pmu_##eng##_##class## \
 		_boardobj_get_status_union_aligned), \
-	(u32)nvgpu_pmu_get_ss_member_get_status_size(g, g->pmu, \
-		NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GRP), \
-	(u32)nvgpu_pmu_get_ss_member_get_status_offset(g, g->pmu, \
-	NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GRP), \
+	(u32)nvgpu_pmu_get_ss_member_size(g, g->pmu, \
+		NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GET_STATUS), \
+	(u32)nvgpu_pmu_get_ss_member_offset(g, g->pmu, \
+	NV_PMU_SUPER_SURFACE_MEMBER_##CLASS##_GET_STATUS), \
 	NV_PMU_RPC_ID_##ENG##_BOARD_OBJ_GRP_CMD))
 
 /* ------------------------ Function Prototypes ----------------------------- */
@@ -315,6 +334,9 @@ int nvgpu_boardobjgrp_construct_super(struct gk20a *g,
 	struct boardobjgrp *pboardobjgrp);
 
 void nvgpu_boardobjgrp_e32_hdr_set(struct nv_pmu_boardobjgrp *hdr, u32 objmask);
+
+/* PMU cleanup function declaration */
+void nvgpu_boardobjgrp_pmu_cleanup(struct gk20a *g, struct boardobjgrp *pboardobjgrp);
 
 static inline struct boardobjgrp *
 boardobjgrp_from_node(struct nvgpu_list_node *node)

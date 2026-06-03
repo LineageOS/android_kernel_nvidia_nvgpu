@@ -46,6 +46,22 @@ int add_ctxsw_buffer_map_entries_subunits(struct ctxsw_buf_offset_map_entry *map
 				u32 *count, u32 *offset,
 				u32 max_cnt, u32 base, u32 num_units,
 				u32 active_unit_mask, u32 stride, u32 mask);
-
+int add_ctxsw_buffer_map_entries_pmsys(
+	struct ctxsw_buf_offset_map_entry *map,
+	struct netlist_aiv_list *regs,	u32 *count, u32 *offset,
+	u32 max_cnt, u32 base, u32 mask);
+int add_ctxsw_buffer_map_entries(struct ctxsw_buf_offset_map_entry *map,
+					struct netlist_aiv_list *regs,
+					u32 *count, u32 *offset,
+					u32 max_cnt, u32 base, u32 mask);
+int add_ctxsw_buffer_map_entries_pmgpc(struct gk20a *g,
+					struct ctxsw_buf_offset_map_entry *map,
+					struct netlist_aiv_list *regs,
+					u32 *count, u32 *offset,
+					u32 max_cnt, u32 base, u32 mask);
+int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
+					struct ctxsw_buf_offset_map_entry *map,
+					u32 *count, u32 *offset, u32 max_cnt,
+					struct nvgpu_gr_config *config);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GR_HWPM_MAP_H */

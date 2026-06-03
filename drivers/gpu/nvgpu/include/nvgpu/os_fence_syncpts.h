@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+/*
+ * nvgpu os fence syncpts
  */
 
 #ifndef NVGPU_OS_FENCE_SYNCPT_H
@@ -56,7 +59,7 @@ int nvgpu_os_fence_syncpt_foreach_pt(
  * and should be called only on a valid instance of type
  * nvgpu_os_fence_syncpt.
  */
-u32 nvgpu_os_fence_syncpt_get_num_syncpoints(
+int nvgpu_os_fence_syncpt_get_num_syncpoints(
 	struct nvgpu_os_fence_syncpt *fence);
 
 /*
@@ -90,7 +93,7 @@ static inline int nvgpu_os_fence_get_syncpts(
 	return -EINVAL;
 }
 
-static inline u32 nvgpu_os_fence_syncpt_get_num_syncpoints(
+static inline int nvgpu_os_fence_syncpt_get_num_syncpoints(
 	struct nvgpu_os_fence_syncpt *fence)
 {
 	(void)fence;

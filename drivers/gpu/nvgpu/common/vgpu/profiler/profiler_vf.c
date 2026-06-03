@@ -152,15 +152,20 @@ int vf_gb10b_profiler_unbind_smpc(struct gk20a *g,
 	return err;
 }
 
-void vf_profiler_bind_hes_cwd(struct gk20a *g,
+int vf_profiler_bind_hes_cwd(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 reservation_id,
-		u32 pma_channel_id)
+		u32 pma_channel_id,
+		bool is_ctx_resident,
+		struct nvgpu_tsg *tsg)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_prof_bind_unbind_params *p =
 			&msg.params.prof_bind_unbind;
 	int err;
+
+	(void)is_ctx_resident;
+	(void)tsg;
 
 	nvgpu_assert(gr_instance_id == 0U);
 
@@ -179,17 +184,21 @@ void vf_profiler_bind_hes_cwd(struct gk20a *g,
 	if (err != 0)
 		nvgpu_err(g, "HES bind/unbind failed with err - %d", err);
 
-	return ;
+	return err;
 }
 
-void vf_profiler_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
-			u32 pma_channel_id, u32 chiplet_type,
-			u32 chiplet_local_index, u32 num_of_credits)
+int vf_profiler_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
+					 u32 pma_channel_id, u32 chiplet_type,
+					 u32 chiplet_local_index, u32 num_of_credits,
+					 bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_vf_set_hs_credits *p =
 			&msg.params.set_hs_credit;
 	int err;
+
+	(void) is_ctx_resident;
+	(void) tsg;
 
 	nvgpu_assert(gr_instance_id == 0U);
 
@@ -208,6 +217,8 @@ void vf_profiler_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
 
 	if (err != 0)
 		nvgpu_err(g, "Set HS credit cmd err - %d", err);
+
+	return err;
 }
 
 int vf_profiler_bind_pma_streamout(struct gk20a *g,
@@ -216,7 +227,9 @@ int vf_profiler_bind_pma_streamout(struct gk20a *g,
 		u64 pma_buffer_va,
 		u32 pma_buffer_size,
 		u64 pma_bytes_available_buffer_va,
-		u32 reservation_id)
+		u32 reservation_id,
+		struct nvgpu_tsg *tsg,
+		bool is_ctx_resident)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_prof_bind_unbind_params *p =
@@ -265,7 +278,8 @@ int vf_profiler_unbind_pma_streamout(struct gk20a *g,
 		bool is_ctxsw,
 		struct nvgpu_tsg *tsg,
 		void *pma_bytes_available_buffer_cpuva,
-		u32 reservation_id)
+		u32 reservation_id,
+		bool is_ctx_resident)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_prof_bind_unbind_params *p =
@@ -297,7 +311,7 @@ int vf_profiler_unbind_pma_streamout(struct gk20a *g,
 		err = nvgpu_perfbuf_update_get_put(g, pma_channel_id, 0U,
 				&bytes_available,
 				pma_bytes_available_buffer_cpuva, true,
-				NULL, NULL);
+				NULL, NULL, tsg, true);
 	} else {
 		if (p->is_ctx_resident == false) {
 			err = nvgpu_profiler_quiesce_hwpm_streamout_non_resident(g, tsg);
@@ -306,7 +320,7 @@ int vf_profiler_unbind_pma_streamout(struct gk20a *g,
 			err = nvgpu_perfbuf_update_get_put(g, pma_channel_id, 0U,
 					&bytes_available,
 					pma_bytes_available_buffer_cpuva, true,
-					NULL, NULL);
+					NULL, NULL, tsg, true);
 			if (err != 0) {
 				nvgpu_err(g, "update get put ptrs failed");
 			}
@@ -323,4 +337,32 @@ int vf_profiler_unbind_pma_streamout(struct gk20a *g,
 
 fail:
 	return err;
+}
+
+int vf_gb20c_profiler_unbind_ccuprof(struct gk20a *g,
+	u32 gr_instance_id, bool is_ctxsw, u32 reservation_id)
+{
+	struct tegra_vgpu_cmd_msg msg = {};
+	struct tegra_vgpu_prof_bind_unbind_params *p =
+			&msg.params.prof_bind_unbind;
+	int err;
+
+	nvgpu_assert(gr_instance_id == 0U);
+	/* CCU prof is currently not context switched */
+	nvgpu_assert(is_ctxsw == false);
+
+	msg.cmd = TEGRA_VGPU_CMD_VF_PROF_BIND_UNBIND;
+	msg.handle = vgpu_get_handle(g);
+
+	p->subcmd = TEGRA_VGPU_PROF_UNBIND_CCUPROF;
+	p->is_ctxsw = is_ctxsw;
+	p->reservation_id = reservation_id;
+	p->gr_instance_id = gr_instance_id;
+
+	nvgpu_log(g, gpu_dbg_prof, "VM attr - %u", reservation_id);
+	err = vgpu_comm_sendrecv(g, &msg);
+	err = err ? err : msg.ret;
+
+	return err;
+
 }

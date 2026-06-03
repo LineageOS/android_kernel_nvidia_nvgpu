@@ -45,7 +45,6 @@ void nvgpu_cic_mon_intr_nonstall_unit_config(struct gk20a *g, u32 unit, bool ena
 }
 #endif
 
-#ifndef CONFIG_NVGPU_MON_PRESENT
 void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g, u64 intr_mask)
 {
 	unsigned long flags = 0;
@@ -71,7 +70,6 @@ void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g, u64 intr_mask)
 		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
 	}
 }
-#endif
 
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
 void nvgpu_cic_mon_intr_nonstall_pause(struct gk20a *g)
@@ -206,10 +204,11 @@ int nvgpu_cic_mon_handle_fatal_intr(struct gk20a *g)
 static u32 nvgpu_cic_mon_intr_stall_isr_with_mask(struct gk20a *g, u64 intr_mask)
 {
 #ifdef CONFIG_NVGPU_MON_PRESENT
-	(void)g;
-	(void)(intr_mask);
-	return NVGPU_CIC_INTR_HANDLE;
-#else
+	if (g->mon_present) {
+		(void)(intr_mask);
+		return NVGPU_CIC_INTR_HANDLE;
+	} else {
+#endif
 	u64 intr_status = 0U;
 	bool handled = false;
 
@@ -240,7 +239,9 @@ static u32 nvgpu_cic_mon_intr_stall_isr_with_mask(struct gk20a *g, u64 intr_mask
 	if (nvgpu_gin_is_present(g)) {
 		handled = nvgpu_gin_handle_gr_illegal_method(g, intr_status);
 
-		handled = handled || nvgpu_gin_handle_nvdec_swgen0(g, intr_status);
+		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MULTIMEDIA)) {
+			handled = handled || nvgpu_gin_handle_nvdec_swgen0(g, intr_status);
+		}
 
 		if (handled) {
 			nvgpu_cic_rm_set_irq_stall(g, 0);
@@ -255,15 +256,18 @@ static u32 nvgpu_cic_mon_intr_stall_isr_with_mask(struct gk20a *g, u64 intr_mask
 	nvgpu_trace_intr_stall_done(g);
 
 	return NVGPU_CIC_INTR_HANDLE;
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	}
 #endif
 }
 
 u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
 {
 #ifdef CONFIG_NVGPU_MON_PRESENT
-	(void)g;
-	return NVGPU_CIC_INTR_HANDLE;
-#else
+	if (g->mon_present) {
+		return NVGPU_CIC_INTR_HANDLE;
+	} else {
+#endif
 	u64 intr_mask = 0UL;
 
 	if (nvgpu_gin_is_present(g)) {
@@ -271,15 +275,19 @@ u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
 	}
 
 	return nvgpu_cic_mon_intr_stall_isr_with_mask(g, intr_mask);
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	}
 #endif
 }
 
 static void nvgpu_cic_mon_intr_stall_handle_with_mask(struct gk20a *g, u64 intr_mask)
 {
 #ifdef CONFIG_NVGPU_MON_PRESENT
-	(void)g;
 	(void)(intr_mask);
-#else
+	if (g->mon_present) {
+		return;
+	} else {
+#endif
 	if (nvgpu_gin_is_present(g)) {
 		nvgpu_mutex_acquire(&g->gin.intr_thread_mutex);
 		nvgpu_gin_stall_isr_thread(g, intr_mask);
@@ -300,14 +308,19 @@ static void nvgpu_cic_mon_intr_stall_handle_with_mask(struct gk20a *g, u64 intr_
 	}
 
 	(void)nvgpu_cic_rm_broadcast_last_irq_stall(g);
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	}
 #endif
 }
 
 void nvgpu_cic_mon_intr_stall_handle(struct gk20a *g)
 {
 #ifdef CONFIG_NVGPU_MON_PRESENT
-	(void)g;
-#else
+	if (g->mon_present) {
+		return;
+	} else
+#endif
+	{
 	u64 intr_mask = 0UL;
 
 	if (nvgpu_gin_is_present(g)) {
@@ -315,7 +328,7 @@ void nvgpu_cic_mon_intr_stall_handle(struct gk20a *g)
 	}
 
 	nvgpu_cic_mon_intr_stall_handle_with_mask(g, intr_mask);
-#endif
+	}
 }
 
 u32 nvgpu_cic_mon_intr_msi_isr(struct gk20a *g, u32 id)

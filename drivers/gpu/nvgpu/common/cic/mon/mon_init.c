@@ -53,7 +53,7 @@ int nvgpu_cic_mon_init(struct gk20a *g)
 	if (g->ops.cic_mon.reg_errinj_cb != NULL) {
 		err = g->ops.cic_mon.reg_errinj_cb(g);
 		if (err != 0) {
-			nvgpu_err(g,
+			cic_dbg(g,
 				"Err inj callback registration failed: %d",
 				err);
 			/* Continue CIC init despite err inj utility
@@ -127,7 +127,7 @@ int nvgpu_cic_mon_deinit(struct gk20a *g)
 	if (g->ops.cic_mon.dereg_errinj_cb != NULL) {
 		int err = g->ops.cic_mon.dereg_errinj_cb();
 		if (err != 0) {
-			nvgpu_err(g,
+			cic_dbg(g,
 				"Err inj callback de-registration failed: %d",
 				err);
 			/* Continue CIC mon deinit despite err inj utility

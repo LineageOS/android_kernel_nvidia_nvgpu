@@ -11,4 +11,8 @@ struct gk20a;
 
 u32 ga10b_func_get_full_phys_offset(struct gk20a *g);
 
+#ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
+int ga10b_func_read_ptimer(struct gk20a *g, u64 *value);
+#endif
+
 #endif /* FUNC_GA10B_H */

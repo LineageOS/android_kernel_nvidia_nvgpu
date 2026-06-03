@@ -68,8 +68,10 @@ struct netlist_aiv_list;
 #define NETLIST_REGIONID_CTXREG_PPC_GFX			43
 #define NETLIST_REGIONID_CTXREG_ETPC_GFX		45
 #endif  /* CONFIG_NVGPU_GRAPHICS */
+#endif  /* CONFIG_NVGPU_DEBUGGER */
 #define NETLIST_REGIONID_SW_NON_CTX_LOCAL_COMPUTE_LOAD	48
 #define NETLIST_REGIONID_SW_NON_CTX_GLOBAL_COMPUTE_LOAD	50
+#ifdef CONFIG_NVGPU_DEBUGGER
 #ifdef CONFIG_NVGPU_GRAPHICS
 #define NETLIST_REGIONID_SW_NON_CTX_LOCAL_GFX_LOAD	49
 #define NETLIST_REGIONID_SW_NON_CTX_GLOBAL_GFX_LOAD	51
@@ -80,13 +82,30 @@ struct netlist_aiv_list;
 #define NETLIST_REGIONID_NVPERF_PMA_CONTROL	55
 #define NETLIST_REGIONID_CTXREG_LTS_BC		57
 #define NETLIST_REGIONID_CTXREG_LTS_UC		58
-#endif
+#endif /*CONFIG_NVGPU_DEBUGGER */
 
 #define NETLIST_REGIONID_CTXREGPMLRCC		60
 #define NETLIST_REGIONID_FECS_RISCV_UCODE_DATA      61
 #define NETLIST_REGIONID_FECS_RISCV_UCODE_INST      62
 #define NETLIST_REGIONID_GPCCS_RISCV_UCODE_DATA     63
 #define NETLIST_REGIONID_GPCCS_RISCV_UCODE_INST     64
+
+#ifdef CONFIG_NVGPU_DEBUGGER
+#define NETLIST_REGIONID_CTXREG_PMLTS			 65
+#define NETLIST_REGIONID_CTXREG_PMLRC			 66
+#define NETLIST_REGIONID_CTXREG_PM_SYSLTC		 67
+#define NETLIST_REGIONID_CTXREGPM_SYS_HEM		 69
+#define NETLIST_REGIONID_CTXREGPM_SYS_HEP		 70
+#define NETLIST_REGIONID_NVPERF_GPC_ROUTER_USER_CHANNEL	 71
+#define NETLIST_REGIONID_NVPERF_FBP_ROUTER_USER_CHANNEL  72
+#define NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL         73
+#define NETLIST_REGIONID_NVPERF_PMA_CMDSLICE             74
+#define NETLIST_REGIONID_NVPERF_PMA_USER_CHANNEL_CONTROL 75
+#define NETLIST_REGIONID_NVPERF_PMA_CMDSLICE_CONTROL     76
+#define NETLIST_REGIONID_NVPERF_SYS_ROUTER_USER_CHANNEL  77
+#define NETLIST_REGIONID_NVPERF_PMA_FWD_CHANNEL          78
+#endif /* CONFIG_NVGPU_DEBUGGER */
+
 
 struct netlist_region {
 	u32 region_id;
@@ -142,6 +161,7 @@ struct nvgpu_netlist_vars {
 #endif
 		struct netlist_aiv_list ppc;
 		struct netlist_aiv_list pm_sys;
+		struct netlist_aiv_list pm_sysltc;
 		struct netlist_aiv_list pm_gpc;
 		struct netlist_aiv_list pm_tpc;
 		struct netlist_aiv_list pm_ppc;
@@ -150,9 +170,19 @@ struct nvgpu_netlist_vars {
 		struct netlist_aiv_list fbp;
 		struct netlist_aiv_list fbp_router;
 		struct netlist_aiv_list gpc_router;
+		struct netlist_aiv_list gpc_router_user_channel;
 		struct netlist_aiv_list pm_ltc;
+		struct netlist_aiv_list pm_lts;
+		struct netlist_aiv_list pm_lrc;
 		struct netlist_aiv_list pm_fbpa;
 		struct netlist_aiv_list perf_sys_router;
+		struct netlist_aiv_list perf_sys_router_user_channel;
+		struct netlist_aiv_list perf_fbp_router_user_channel;
+		struct netlist_aiv_list perf_pma_user_channel;
+		struct netlist_aiv_list perf_pma_cmdslice;
+		struct netlist_aiv_list perf_pma_fwd_channel;
+		struct netlist_aiv_list per_pma_user_channel_control;
+		struct netlist_aiv_list perf_pma_cmdslice_control;
 		struct netlist_aiv_list perf_pma;
 		struct netlist_aiv_list pm_rop;
 		struct netlist_aiv_list pm_ucgpc;
@@ -163,6 +193,8 @@ struct nvgpu_netlist_vars {
 		struct netlist_aiv_list perf_gpc_control;
 		struct netlist_aiv_list perf_pma_control;
 		struct netlist_aiv_list pm_lrcc;
+		struct netlist_aiv_list pm_sys_hem;
+		struct netlist_aiv_list pm_sys_hep;
 #if defined(CONFIG_NVGPU_NON_FUSA)
 		struct netlist_aiv_list sys_compute;
 		struct netlist_aiv_list gpc_compute;

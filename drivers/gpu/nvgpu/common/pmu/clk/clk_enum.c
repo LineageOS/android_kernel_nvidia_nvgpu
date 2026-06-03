@@ -15,9 +15,39 @@
 #include "common/pmu/clk/clk.h"
 #include "clk_enum.h"
 
+static s32 clkEnum_PmuDataInit_SUPER(struct gk20a *g,
+	struct pmu_board_obj *pBoardObj,
+	struct nv_pmu_boardobj *pPmuData)
+{
+	s32 status = 0;
+	struct nv_pmu_clk_clk_enum_boardobj_set *pEnumSet = NULL;
+	struct clk_enum *pEnum  = NULL;
+
+	// Call BOARDOBJ super class.
+	status = pmu_board_obj_pmu_data_init_super(g, pBoardObj, pPmuData);
+	if (status != 0) {
+		nvgpu_err(g,
+			"Error initializing BOARDOBJ PMU data: status=0%d",
+			status);
+		goto done;
+	}
+
+	pEnum = (struct clk_enum *)pBoardObj;
+	pEnumSet = (struct nv_pmu_clk_clk_enum_boardobj_set *)pPmuData;
+
+	// Set CLK_ENUM-specific data.
+	pEnumSet->b_ocov_enabled = pEnum->b_ocov_enabled;
+	pEnumSet->freq_min_mhz   = pEnum->freq_min_mhz;
+	pEnumSet->freq_max_mhz   = pEnum->freq_max_mhz;
+
+done:
+	return status;
+}
+
 static s32 clk_enum_construct(struct gk20a *g, struct pmu_board_obj **obj,
 		size_t size, void *pargs)
 {
+	struct pmu_board_obj *pBoardObj = NULL;
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct clk_enum *pclkenum = NULL;
 	struct clk_enum *ptmpenum =
@@ -31,6 +61,7 @@ static s32 clk_enum_construct(struct gk20a *g, struct pmu_board_obj **obj,
 		status = -ENOMEM;
 		goto done;
 	}
+	pBoardObj = &pclkenum->super;
 
 	obj_tmp->type_mask |= (u32)BIT(NV2080_CTRL_CLK_CLK_ENUM_TYPE_1X);
 	status = pmu_board_obj_construct_super(g,
@@ -44,6 +75,9 @@ static s32 clk_enum_construct(struct gk20a *g, struct pmu_board_obj **obj,
 	pclkenum->b_ocov_enabled = ptmpenum->b_ocov_enabled;
 	pclkenum->freq_min_mhz = ptmpenum->freq_min_mhz;
 	pclkenum->freq_max_mhz = ptmpenum->freq_max_mhz;
+	// Set BOARDOBJ interfaces.
+	pBoardObj->pmudatainit = clkEnum_PmuDataInit_SUPER;
+
 done:
 	nvgpu_pmu_dbg(g, " done status %x", status);
 
@@ -169,7 +203,7 @@ static s32 devinit_get_clk_enum_table(struct gk20a *g,
 		pEnum = construct_clk_enum(g, (void *)&clkEnumData);
 		if (pEnum == NULL) {
 			nvgpu_err(g, "Error constructing Clk_enum boardobj for Entry: %d",
-						index);
+					index);
 			status = -EINVAL;
 			/* to avoid MISRA violation, exit at top of loop */
 			continue;
@@ -185,7 +219,6 @@ static s32 devinit_get_clk_enum_table(struct gk20a *g,
 			/* to avoid MISRA violation, exit at top of loop */
 			continue;
 		}
-
 	}
 
 done:
@@ -204,8 +237,8 @@ static s32 clk_enum_pmudatainit(struct gk20a *g,
 
 	status = boardobjgrp_pmudatainit_e32(g, pboardobjgrp, pboardobjgrppmu);
 	if (status != 0) {
-		nvgpu_err(g, "Error updating pmu boardobjgrp for Clk_enum. status - 0x%x",
-			  status);
+		nvgpu_err(g, "Error updating pmu boardobjgrp for Clk_enum. status - %d",
+				status);
 	}
 
 	nvgpu_pmu_dbg(g, " Done");
@@ -216,7 +249,7 @@ static s32 clk_enum_pmudatainit(struct gk20a *g,
 static s32 clk_enum_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 		struct nv_pmu_boardobj **pmu_obj,
-		u8 idx)
+		u16 idx)
 {
 	struct nv_pmu_clk_clk_enum_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_clk_clk_enum_boardobj_grp_set *)
@@ -245,6 +278,15 @@ s32 clk_enum_sw_setup(struct gk20a *g)
 
 	nvgpu_pmu_dbg(g, " ");
 
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->clk_pmu->clk_enumobjs->super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_enum boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_enum boardobjgrp for first time");
+
 	status = nvgpu_boardobjgrp_construct_e255(g,
 			&g->pmu->clk_pmu->clk_enumobjs->super);
 	if (status != 0) {
@@ -253,8 +295,6 @@ s32 clk_enum_sw_setup(struct gk20a *g)
 			status);
 		goto done;
 	}
-
-	pboardobjgrp = &g->pmu->clk_pmu->clk_enumobjs->super.super;
 	pclkenumobjs = g->pmu->clk_pmu->clk_enumobjs;
 
 	/* construct and set the boardobj class ID */
@@ -304,4 +344,23 @@ void clk_enum_free_pmupstate(struct gk20a *g)
 {
 	nvgpu_kfree(g, g->pmu->clk_pmu->clk_enumobjs);
 	g->pmu->clk_pmu->clk_enumobjs = NULL;
+}
+
+s32 clk_enum_pmu_setup(struct gk20a *g)
+{
+	s32 status;
+	struct boardobjgrp *pboardobjgrp = NULL;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	pboardobjgrp = &g->pmu->clk_pmu->clk_enumobjs->super.super;
+
+	if (!pboardobjgrp->bconstructed) {
+		return -EINVAL;
+	}
+
+	status = pboardobjgrp->pmuinithandle(g, pboardobjgrp);
+
+	nvgpu_pmu_dbg(g, " done status %d", status);
+	return status;
 }

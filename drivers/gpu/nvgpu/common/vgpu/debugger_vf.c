@@ -10,6 +10,8 @@
 #include <nvgpu/vgpu/vgpu.h>
 #include <nvgpu/vgpu/tegra_vgpu.h>
 #include <nvgpu/vgpu/vgpu_ivc.h>
+#include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/gr/obj_ctx.h>
 
 #include "hal/gr/gr/gr_gk20a.h"
 #include "debugger_vf.h"
@@ -80,7 +82,24 @@ static int vf_exec_ctx_regops_non_resident(struct nvgpu_tsg *tsg,
 				continue;
 			}
 
+			if (op->status != REGOP(STATUS_SUCCESS)) {
+				pos = (u8 *)&regop_offset->offsets[regop_offset->num_offsets];
+				continue;
+			}
+
 			for (i = 0; i < regop_offset->num_offsets; i++) {
+				/* sanity check gr ctxt offsets,
+				 * don't write outside, worst case
+				 */
+				if ((current_mem == nvgpu_gr_ctx_get_ctx_mem(
+								gr_ctx, NVGPU_GR_CTX_CTX)) &&
+						(regop_offset->offsets[i].offset >=
+						 nvgpu_gr_obj_ctx_get_golden_image_size(
+							 nvgpu_gr_get_golden_image_ptr(g)))) {
+					nvgpu_log(g, gpu_dbg_gpu_dbg, " 0x%x offset is beyond the gr ctx buffer",
+						regop_offset->offsets[i].offset);
+					continue;
+				}
 				if (pass == 0) { /* write pass */
 					gr_gk20a_regops_wr_ctx_mem(tsg, op,
 							current_mem,

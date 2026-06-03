@@ -17,6 +17,9 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/channel_sync.h>
 #include <nvgpu/nvgpu_init.h>
+#include <nvgpu/pmu/clk/clk.h>
+#include "../pmu/clk/clk.h"
+#include "../pmu/clk/clk_domain.h"
 #include <nvgpu/trace.h>
 #include <nvgpu/nvhost.h>
 #include <nvgpu/fb.h>
@@ -55,6 +58,7 @@
 
 #ifdef CONFIG_NVGPU_LS_PMU
 #include <nvgpu/pmu/pmu_pstate.h>
+#include <nvgpu/pmu/perf_cf.h>
 #endif
 
 #ifdef CONFIG_NVGPU_POWER_PG
@@ -386,17 +390,19 @@ int nvgpu_prepare_poweroff(struct gk20a *g)
 #endif
 
 #ifdef CONFIG_NVGPU_LS_PMU
-	/**
-	 * Codepath to disable SYSCLK Slowdown during Rail-Gate sequence
-	 */
-	if (g->sysclk_slowdown_enabled) {
-		nvgpu_cg_set_sysclk_slowdown_enabled(g, false);
-		// Enable CSD during Unrail-gate sequence
-		g->sysclk_slowdown_enabled = true;
-	}
-	/* disable elpg before gr or fifo suspend */
-	if (g->support_ls_pmu) {
-		ret = g->ops.pmu.pmu_destroy(g, g->pmu);
+	if (!nvgpu_is_enabled(g, NVGPU_DRIVER_IS_DYING)) {
+		/**
+		 * Codepath to disable SYSCLK Slowdown during Rail-Gate sequence
+		 */
+		if (g->sysclk_slowdown_enabled) {
+			nvgpu_cg_set_sysclk_slowdown_enabled(g, false);
+			// Enable CSD during Unrail-gate sequence
+			g->sysclk_slowdown_enabled = true;
+		}
+		/* disable elpg before gr or fifo suspend */
+		if (g->support_ls_pmu) {
+			ret = g->ops.pmu.pmu_destroy(g, g->pmu);
+		}
 	}
 #endif
 
@@ -439,11 +445,6 @@ int nvgpu_prepare_poweroff(struct gk20a *g)
 #endif
 
 	nvgpu_gsp_suspend(g);
-#ifdef CONFIG_NVGPU_GSP_SCHEDULER
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GSP_SCHED)) {
-		nvgpu_gsp_sched_suspend(g, g->gsp_sched);
-	}
-#endif
 
 	if (nvgpu_is_enabled(g, NVGPU_DRIVER_IS_DYING)) {
 		/*
@@ -463,8 +464,6 @@ int nvgpu_prepare_poweroff(struct gk20a *g)
 		nvgpu_err(g, "failed to halt engines %d", ret);
 	}
 
-	nvgpu_acr_suspend(g);
-
 	if (g->ops.grmgr.remove_gr_manager != NULL) {
 		tmp_ret = g->ops.grmgr.remove_gr_manager(g);
 		if (tmp_ret != 0) {
@@ -476,7 +475,9 @@ int nvgpu_prepare_poweroff(struct gk20a *g)
 	nvgpu_falcons_sw_free(g);
 
 #if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
-	g->ops.ce.ce_app_suspend(g);
+	if (g->ops.ce.ce_app_suspend != NULL) {
+		g->ops.ce.ce_app_suspend(g);
+	}
 #endif
 
 #if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
@@ -832,7 +833,9 @@ static int nvgpu_init_elcg_idle_filters(struct gk20a *g)
 		g->ops.pmu.is_cg_supported_by_pmu(g) == true) {
 		g->ops.pmu.pmu_elcg_init_idle_filters(g);
 	} else {
-		g->ops.therm.elcg_init_idle_filters(g);
+		if (g->ops.therm.elcg_init_idle_filters != NULL) {
+			g->ops.therm.elcg_init_idle_filters(g);
+		}
 	}
 
 	return 0;
@@ -1064,9 +1067,38 @@ static int nvgpu_enable_engine_runlists(struct gk20a *g)
 	return 0;
 }
 
+#ifdef CONFIG_NVGPU_LS_PMU
+static void perf_cf_topology_get_first_load(struct gk20a *g)
+{
+	int err = 0;
+	u32 utilization = 0;
+
+	if (g->pmu->perf_cf == NULL || g->pmu->perf_cf->perf_cf_metadata == NULL) {
+		return;
+	}
+
+	/*
+	 * The first reading from PMU will give average utilization from the beginning of the boot,
+	 * which isn't useful. Issue utilization command to PMU before driver power-on is done so
+	 * that user will see valid data from the second run of the command.
+	 */
+	if (g->pmu->perf_cf->perf_cf_metadata->perf_cf_top_metadata.perf_cf_top_state ==
+		PERF_CF_LOAD_RPC_COMPLETED) {
+			err = perf_cf_topology_get_load(g, &utilization, NVGPU_PMU_PERFMON_CLASS_GR);
+		if (err == 0) {
+			g->pmu->perf_cf->perf_cf_metadata->perf_cf_top_metadata.perf_cf_top_state =
+				PERF_CF_FIRST_GET_LOAD_COMPLETED;
+		}
+	} else {
+		nvgpu_err(g, "Perf CF Load not complete, get utilization feature turned off");
+	}
+}
+#endif
+
 int nvgpu_finalize_poweron(struct gk20a *g)
 {
 	int err = 0;
+	size_t i;
 	/*
 	 * This cannot be static because we use the func ptrs as initializers
 	 * and static variables require constant literals for initializers.
@@ -1154,6 +1186,11 @@ int nvgpu_finalize_poweron(struct gk20a *g)
 #endif
 #ifdef CONFIG_NVGPU_LS_PMU
 		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_rtos_init, NO_FLAG),
+		/* Setup PMU P-state support as soon as PMU is initialized */
+		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_pstate_sw_setup,
+						NVGPU_PMU_PSTATE),
+		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_pstate_pmu_setup,
+						NVGPU_PMU_PSTATE),
 #endif
 		NVGPU_INIT_TABLE_ENTRY(&nvgpu_init_elcg_ctrl, NO_FLAG),
 
@@ -1172,12 +1209,6 @@ int nvgpu_finalize_poweron(struct gk20a *g)
 				       NO_FLAG),
 #endif
 
-#ifdef CONFIG_NVGPU_LS_PMU
-		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_pstate_sw_setup,
-				       NVGPU_PMU_PSTATE),
-		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_pstate_pmu_setup,
-				       NVGPU_PMU_PSTATE),
-#endif
 		NVGPU_INIT_TABLE_ENTRY(&nvgpu_init_boot_clk_or_clk_arb, NO_FLAG),
 		NVGPU_INIT_TABLE_ENTRY(g->ops.therm.init_therm_support, NO_FLAG),
 #ifdef CONFIG_NVGPU_COMPRESSION
@@ -1195,10 +1226,6 @@ int nvgpu_finalize_poweron(struct gk20a *g)
 #endif
 		NVGPU_INIT_TABLE_ENTRY(&nvgpu_init_xve_set_speed, NO_FLAG),
 		NVGPU_INIT_TABLE_ENTRY(&nvgpu_init_syncpt_mem, NO_FLAG),
-#ifdef CONFIG_NVGPU_POWER_PG
-		NVGPU_INIT_TABLE_ENTRY(g->ops.pmu.pmu_restore_golden_img_state,
-				       NO_FLAG),
-#endif
 		NVGPU_INIT_TABLE_ENTRY(g->ops.channel.resume_all_serviceable_ch,
 				       NO_FLAG),
 #ifdef CONFIG_NVGPU_GSP_SCHEDULER
@@ -1224,7 +1251,24 @@ int nvgpu_finalize_poweron(struct gk20a *g)
 		NVGPU_INIT_TABLE_ENTRY(&nvgpu_pm_reservation_init, NO_FLAG),
 #endif
 	};
-	size_t i;
+
+#if defined(CONFIG_PM) && defined(CONFIG_NVGPU_LS_PMU)
+	/* Save clock state before init table runs (which includes boot clock setting) */
+	if (g->pmu && g->pmu->clk_pmu && g->pmu->clk_pmu->clk_domainobjs_50) {
+		if (g->suspended_clk_vf_info == NULL)
+			g->suspended_clk_vf_info = nvgpu_kzalloc(g,
+				sizeof(struct nvgpu_clk_vf_point_5x));
+
+		if (g->suspended_clk_vf_info != NULL) {
+			*g->suspended_clk_vf_info =
+				g->pmu->clk_pmu->clk_domainobjs_50->currentClocksVfInfo;
+			g->has_suspended_clk_state = true;
+			nvgpu_info(g, "Saved clock state before init: GPC=%u MHz, SYS=%u MHz, NVD=%u MHz, UPROC=%u MHz",
+				g->suspended_clk_vf_info->gpc_mhz, g->suspended_clk_vf_info->sys_mhz,
+				g->suspended_clk_vf_info->nvd_mhz, g->suspended_clk_vf_info->uproc_mhz);
+		}
+	}
+#endif
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_pm, " ");
 
@@ -1247,6 +1291,10 @@ int nvgpu_finalize_poweron(struct gk20a *g)
 		}
 	}
 
+#ifdef CONFIG_NVGPU_LS_PMU
+	perf_cf_topology_get_first_load(g);
+#endif
+
 #if defined(CONFIG_NVGPU_TRACE)
 	nvgpu_print_enabled_flags(g);
 #endif
@@ -1264,6 +1312,7 @@ done:
 		}
 	}
 #endif
+
 	nvgpu_multimedia_deinit(g);
 	nvgpu_falcons_sw_free(g);
 	return err;

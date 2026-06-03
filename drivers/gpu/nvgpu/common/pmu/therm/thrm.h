@@ -8,7 +8,7 @@
 #include "therm_dev.h"
 
 struct nvgpu_pmu_therm {
-	struct therm_devices therm_deviceobjs;
+	struct therm_devices *therm_deviceobjs;
 	struct therm_channels *therm_channelobjs;
 };
 

@@ -26,7 +26,7 @@ void nvgpu_priv_cmdbuf_free(struct priv_cmd_queue *q,
 
 void nvgpu_priv_cmdbuf_append(struct gk20a *g, struct priv_cmd_entry *e,
 		u32 *data, u32 entries);
-void nvgpu_priv_cmdbuf_append_zeros(struct gk20a *g, struct priv_cmd_entry *e,
+int nvgpu_priv_cmdbuf_append_zeros(struct gk20a *g, struct priv_cmd_entry *e,
 		u32 entries);
 
 void nvgpu_priv_cmdbuf_finish(struct gk20a *g, struct priv_cmd_entry *e,

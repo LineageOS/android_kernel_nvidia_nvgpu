@@ -228,6 +228,9 @@ int ga10b_pmu_pg_init_send(struct gk20a *g,
 		return status;
 	}
 
+	nvgpu_pmu_fw_state_change(g, pmu,
+			PMU_FW_STATE_ELPG_BOOTED, true);
+
 	status = ga10b_pmu_pg_post_init(g, pmu);
 	if (status != 0) {
 		nvgpu_err(g, "Failed to execute PG_POST_INIT RPC");
@@ -250,27 +253,41 @@ void ga10b_pg_rpc_handler(struct gk20a *g, struct nvgpu_pmu *pmu,
 		break;
 	case NV_PMU_RPC_ID_PG_SFM_UPDATE:
 		nvgpu_pmu_dbg(g, "Reply to PG_SFM_UPDATE");
-		nvgpu_pmu_fw_state_change(g, pmu,
-				PMU_FW_STATE_ELPG_BOOTED, true);
 		break;
 	case NV_PMU_RPC_ID_PG_ALLOW:
-		nvgpu_pmu_dbg(g, "Reply to PG_ALLOW");
 		rpc_allow = (struct pmu_rpc_struct_lpwr_pg_ctrl_allow *)rpc_payload->rpc_buff;
+		nvgpu_pmu_dbg(g, "Reply to PG_ALLOW, ctrl_id: %d", rpc_allow->ctrl_id);
 		if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_GRAPHICS) {
 			pmu->pg->elpg_stat = PMU_ELPG_STAT_ON;
 		} else if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_MS_LTC) {
 			pmu->pg->elpg_ms_stat = PMU_ELPG_MS_STAT_ON;
+		} else if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_GR_RG) {
+			pmu->pg->gpc_rg_stat = PMU_GPC_RG_STAT_ON;
+		} else if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVDEC) {
+			pmu->pg->nvdec_elpg_stat = PMU_ELPG_STAT_ON;
+		} else if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVENC) {
+			pmu->pg->nvenc_elpg_stat = PMU_ELPG_STAT_ON;
+		} else if (rpc_allow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_OFA) {
+			pmu->pg->ofa_elpg_stat = PMU_ELPG_STAT_ON;
 		} else {
 			nvgpu_err(g, "Invalid pg_engine_id");
 		}
 		break;
 	case NV_PMU_RPC_ID_PG_DISALLOW:
-		nvgpu_pmu_dbg(g, "Reply to PG_DISALLOW");
 		rpc_disallow = (struct pmu_rpc_struct_lpwr_pg_ctrl_disallow *)(void *)rpc_payload->rpc_buff;
+		nvgpu_pmu_dbg(g, "Reply to PG_DISALLOW, ctrl_id: %d", rpc_disallow->ctrl_id);
 		if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_GRAPHICS) {
 			pmu->pg->elpg_stat = PMU_ELPG_STAT_OFF;
 		} else if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_MS_LTC) {
 			pmu->pg->elpg_ms_stat = PMU_ELPG_MS_STAT_OFF;
+		} else if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_GR_RG) {
+			pmu->pg->gpc_rg_stat = PMU_GPC_RG_STAT_OFF;
+		} else if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVDEC) {
+			pmu->pg->nvdec_elpg_stat = PMU_ELPG_STAT_OFF;
+		} else if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVENC) {
+			pmu->pg->nvenc_elpg_stat = PMU_ELPG_STAT_OFF;
+		} else if (rpc_disallow->ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_OFA) {
+			pmu->pg->ofa_elpg_stat = PMU_ELPG_STAT_OFF;
 		} else {
 			nvgpu_err(g, "Invalid pg_engine_id");
 		}
@@ -403,8 +420,17 @@ int ga10b_pmu_pg_handle_async_cmd_resp(struct gk20a *g, u32 ctrl_id,
 		} else if (ctrl_id == PMU_PG_ELPG_ENGINE_ID_MS_LTC) {
 			g->pmu->pg->elpg_ms_disallow_state =
 				PMU_ELPG_MS_STAT_OFF;
+		} else if (ctrl_id == PMU_PG_ELPG_ENGINE_ID_GR_RG) {
+			g->pmu->pg->gpc_rg_disallow_state =
+				PMU_GPC_RG_STAT_OFF;
+		} else if (ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVDEC) {
+			g->pmu->pg->nvdec_elpg_disallow_state = PMU_ELPG_STAT_OFF;
+		} else if (ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_NVENC) {
+			g->pmu->pg->nvenc_elpg_disallow_state = PMU_ELPG_STAT_OFF;
+		} else if (ctrl_id == PMU_PG_ELPG_ENGINE_ID_VID_OFA) {
+			g->pmu->pg->ofa_elpg_disallow_state = PMU_ELPG_STAT_OFF;
 		} else {
-			nvgpu_err(g, "Invalid engine id");
+			nvgpu_err(g, "Invalid engine id %d", ctrl_id);
 			err = -EINVAL;
 		}
 		break;

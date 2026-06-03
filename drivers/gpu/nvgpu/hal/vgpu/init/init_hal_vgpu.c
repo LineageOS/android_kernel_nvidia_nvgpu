@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 // SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-#include <nvgpu/log.h>
 #include <nvgpu/gk20a.h>
 
 #include <nvgpu/vgpu/vgpu.h>
 #include <nvgpu/vgpu/os_init_hal_vgpu.h>
 
 #include "init_hal_vgpu.h"
-#include "vgpu_hal_gv11b.h"
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
-#include "vgpu_hal_ga10b.h"
 #if defined(CONFIG_NVGPU_GB10B)
 #include "vf_hal_gb10b.h"
 #endif
@@ -37,12 +34,6 @@ int vgpu_init_hal(struct gk20a *g)
 
 	switch (ver) {
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
-	case NVGPU_GPUID_GV11B:
-		err = vgpu_gv11b_init_hal(g);
-		break;
-	case NVGPU_GPUID_GA10B:
-		err = vgpu_ga10b_init_hal(g);
-		break;
 #if defined(CONFIG_NVGPU_GR_VIRTUALIZATION)
 #if defined(CONFIG_NVGPU_GB10B)
 	case NVGPU_GPUID_GB10B:

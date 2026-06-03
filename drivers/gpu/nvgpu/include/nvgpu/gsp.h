@@ -41,6 +41,7 @@ struct nvgpu_gsp {
 };
 
 int nvgpu_gsp_debug_buf_init(struct gk20a *g, u32 queue_no, u32 buffer_size);
+void nvgpu_gsp_debug_buf_deinit(struct gk20a *g);
 void nvgpu_gsp_suspend(struct gk20a *g);
 void gsp_release_firmware(struct gk20a *g, struct nvgpu_gsp *gsp);
 int nvgpu_gsp_sw_init(struct gk20a *g);
@@ -68,7 +69,7 @@ struct nvgpu_falcon *nvgpu_gsp_falcon_instance(struct gk20a *g);
  * @brief Processes messages from the GSP message queue and handles initialization messages.
  *
  * The steps performed by the function are as follows:
- * -# Retrieve the GSP scheduler structure from the GPU structure.
+ * -# Retrieve the GSP structure from the GPU structure.
  * -# Initialize a variable to store the message from the GSP.
  * -# Check if the GSP is ready to process messages. If not, process the initialization
  *    message using gsp_process_init_msg(). If processing the initialization message fails,
@@ -102,7 +103,7 @@ int nvgpu_gsp_wait_for_priv_lockdown_release(struct nvgpu_gsp *gsp,
  *
  * The steps performed by the function are as follows:
  * -# Return the status of the GSP readiness by accessing the 'gsp_ready' flag
- *    within the GSP scheduler structure of the GPU.
+ *    within the GSP structure of the GPU.
  *
  * @param [in] g  The GPU structure to check the GSP readiness status.
  *
@@ -110,4 +111,33 @@ int nvgpu_gsp_wait_for_priv_lockdown_release(struct nvgpu_gsp *gsp,
  * @return false if the GSP is not ready.
  */
 bool nvgpu_gsp_is_ready(struct gk20a *g);
+
+/**
+ * @brief Waits for the GSP to become ready or until a timeout occurs.
+ *
+ * This function checks if the GSP is ready in a loop with a delay
+ * between each check. It exits the loop if the GSP becomes ready or
+ * if the specified timeout duration has elapsed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Enter a loop that continues until the GSP is ready or the timeout
+ *    is reached.
+ * -# Inside the loop, check if the 'gsp_ready' flag of the GSP structure
+ *    is true. If it is, exit the loop as the GSP is ready.
+ * -# If the timeout value is less than or equal to zero, log an error message
+ *    indicating that the wait for the GSP to initialize has timed out,
+ *    and return -1 to indicate a timeout error.
+ * -# Call nvgpu_msleep() to sleep for a short duration to prevent busy-waiting.
+ * -# Decrement the timeout value by the sleep duration.
+ * -# If the loop exits because the GSP is ready, return 0 to indicate
+ *    success.
+ *
+ * @param [in] g          Pointer to the GPU driver structure.
+ * @param [in] timeoutms  The maximum time to wait for GSP to become
+ *                        ready, in milliseconds.
+ *
+ * @return 0 if the GSP becomes ready before the timeout.
+ * @return -1 if a timeout occurs before the GSP becomes ready.
+ */
+int nvgpu_gsp_wait_for_init(struct gk20a *g, signed int timeoutms);
 #endif /* NVGPU_GSP */

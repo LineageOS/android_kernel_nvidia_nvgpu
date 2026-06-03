@@ -46,21 +46,28 @@ static void add_sema_wait_cmd(struct gk20a *g, struct nvgpu_channel *c,
 			     va, cmd);
 }
 
-static void channel_sync_semaphore_gen_wait_cmd(struct nvgpu_channel *c,
+static int channel_sync_semaphore_gen_wait_cmd(struct nvgpu_channel *c,
 	struct nvgpu_semaphore *sema, struct priv_cmd_entry *wait_cmd,
 	u32 wait_cmd_size)
 {
 	bool has_incremented;
+	int err = 0;
 
 	if (sema == NULL) {
 		/* came from an expired sync fence */
-		nvgpu_priv_cmdbuf_append_zeros(c->g, wait_cmd, wait_cmd_size);
+		err = nvgpu_priv_cmdbuf_append_zeros(c->g, wait_cmd, wait_cmd_size);
+		if (err != 0) {
+			nvgpu_err(c->g, "nvgpu_priv_cmdbuf_append_zeros failed to return 0");
+			return err;
+		}
 	} else {
 		has_incremented = nvgpu_semaphore_can_wait(sema);
 		nvgpu_assert(has_incremented);
 		add_sema_wait_cmd(c->g, c, sema, wait_cmd);
 		nvgpu_semaphore_put(sema);
 	}
+
+	return err;
 }
 #endif
 
@@ -127,6 +134,7 @@ static int channel_sync_semaphore_wait_fd(
 	struct nvgpu_os_fence_sema os_fence_sema = {0};
 	int err;
 	u32 wait_cmd_size, i, num_fences;
+	u32 org_size = 0U;
 	struct nvgpu_semaphore *semaphore = NULL;
 
 	err = nvgpu_os_fence_fdget(&os_fence, c, fd);
@@ -151,8 +159,13 @@ static int channel_sync_semaphore_wait_fd(
 	}
 
 	wait_cmd_size = c->g->ops.sync.sema.get_wait_cmd_size();
+	if (!nvgpu_safe_mult_u32_return(wait_cmd_size, num_fences, &org_size)) {
+		nvgpu_err(c->g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto cleanup;
+	}
 	err = nvgpu_priv_cmdbuf_alloc(c->priv_cmd_q,
-		wait_cmd_size * num_fences, entry);
+		org_size, entry);
 	if (err != 0) {
 		goto cleanup;
 	}
@@ -160,8 +173,12 @@ static int channel_sync_semaphore_wait_fd(
 	for (i = 0; i < num_fences; i++) {
 		nvgpu_os_fence_sema_extract_nth_semaphore(
 			&os_fence_sema, i, &semaphore);
-		channel_sync_semaphore_gen_wait_cmd(c, semaphore, *entry,
+		err = channel_sync_semaphore_gen_wait_cmd(c, semaphore, *entry,
 				wait_cmd_size);
+		if (err != 0) {
+			nvgpu_err(c->g, "channel_sync_semaphore_gen_wait_cmd failed to return 0");
+			break;
+		}
 	}
 
 cleanup:

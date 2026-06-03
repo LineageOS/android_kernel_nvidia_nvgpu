@@ -23,6 +23,9 @@ struct nvgpu_nvdec {
 
 	/** Memory to store ucode contents locally. */
 	struct nvgpu_mem nvdec_mem_desc;
+
+	/** Memory for trace buffer */
+	struct nvgpu_mem trace_buf_mem[NVDEC_INST_MAX];
 };
 
 struct gk20a;

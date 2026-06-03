@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if defined(CONFIG_NVIDIA_CONFTEST)
 #include <nvidia/conftest.h>
@@ -41,7 +41,6 @@ static struct nvgpu_nvs_domain_ctrl_fifo_user_vma *
 static int zap_vma_entries(struct gk20a *g, struct vm_area_struct *vma)
 {
 	int err = 0;
-
 	#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 		mmap_write_lock(vma->vm_mm);
 	#else
@@ -135,7 +134,7 @@ static int nvgpu_nvs_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma
 
 	nvgpu_nvs_ctrl_fifo_lock_queues(g);
 
-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS) /* Linux v6.3 */
+#if defined(NV_VM_FLAGS_SET_PRESENT) /* Linux v6.3 */
 	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
 		VM_DONTDUMP);
 #else
@@ -144,7 +143,7 @@ static int nvgpu_nvs_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma
 #endif
 
 	if (buf->mask == NVGPU_NVS_CTRL_FIFO_QUEUE_CLIENT_EVENTS_READ) {
-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS) /* Linux v6.3 */
+#if defined(NV_VM_FLAGS_SET_PRESENT) /* Linux v6.3 */
 		vm_flags_set(vma, VM_SHARED);
 #else
 		vma->vm_flags |= VM_SHARED;
@@ -171,7 +170,13 @@ static int nvgpu_nvs_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma
 	vma_metadata->buf = buf;
 	nvgpu_init_list_node(&vma_metadata->node);
 
-	linux_buf->mapped_ref++;
+	if (!nvgpu_safe_add_u32_return(linux_buf->mapped_ref, 1, &linux_buf->mapped_ref)) {
+		nvgpu_err(g, "linux_buf->mapped_ref overflow");
+		zap_vma_entries(g, vma);
+		err = -EOVERFLOW;
+		goto fail;
+	}
+
 	nvgpu_list_add_tail(&vma_metadata->node, &linux_buf->list_mapped_user_vmas);
 
 	vma->vm_private_data = vma_metadata;

@@ -48,7 +48,7 @@ static int vftable_show(struct seq_file *s, void *unused)
 	for (index = 0; index < CTRL_CLK_LUT_NUM_ENTRIES_GV10x; index++) {
 		gpcclk_voltuv = voltage_min_uv + index * voltage_step_size_uv;
 		status = nvgpu_clk_domain_volt_to_freq(g, 0, &gpcclk_clkmhz,
-				&gpcclk_voltuv, CTRL_VOLT_DOMAIN_LOGIC);
+				&gpcclk_voltuv);
 
 		if (status != 0) {
 			nvgpu_err(g, "Failed to get freq for requested volt");

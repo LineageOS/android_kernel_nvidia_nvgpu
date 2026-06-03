@@ -511,25 +511,8 @@ u32 nvgpu_channel_update_gpfifo_get_and_get_free_count(struct nvgpu_channel *ch)
 }
 
 int nvgpu_channel_add_job(struct nvgpu_channel *c,
-				 struct nvgpu_channel_job *job,
-				 bool skip_buffer_refcounting)
+				 struct nvgpu_channel_job *job)
 {
-	struct vm_gk20a *vm = c->vm;
-	struct nvgpu_mapped_buf **mapped_buffers = NULL;
-	int err = 0;
-	u32 num_mapped_buffers = 0;
-
-	if (!skip_buffer_refcounting) {
-		err = nvgpu_vm_get_buffers(vm, &mapped_buffers,
-					&num_mapped_buffers);
-		if (err != 0) {
-			return err;
-		}
-	}
-
-	job->num_mapped_buffers = num_mapped_buffers;
-	job->mapped_buffers = mapped_buffers;
-
 	nvgpu_channel_launch_wdt(c);
 
 	nvgpu_channel_joblist_lock(c);
@@ -667,11 +650,6 @@ void nvgpu_channel_clean_up_jobs(struct nvgpu_channel *c)
 			}
 		}
 
-		if (job->num_mapped_buffers != 0U) {
-			nvgpu_vm_put_buffers(vm, job->mapped_buffers,
-				job->num_mapped_buffers);
-		}
-
 		nvgpu_channel_finalize_job(c, job);
 
 		job_finished = true;
@@ -709,8 +687,6 @@ void nvgpu_channel_clean_up_deterministic_job(struct nvgpu_channel *c)
 		return;
 	}
 
-	nvgpu_assert(job->num_mapped_buffers == 0U);
-
 	if (nvgpu_fence_is_expired(&job->post_fence)) {
 		nvgpu_channel_finalize_job(c, job);
 	}
@@ -743,7 +719,14 @@ bool nvgpu_channel_update_and_check_ctxsw_timeout(struct nvgpu_channel *ch,
 	u32 gpfifo_get;
 
 	if (ch->usermode_submit_enabled) {
-		ch->ctxsw_timeout_accumulated_ms += timeout_delta_ms;
+		/* Check for overflow before adding */
+		if (ch->ctxsw_timeout_accumulated_ms > U32_MAX - timeout_delta_ms) {
+			/* Cap at maximum value to prevent overflow */
+			ch->ctxsw_timeout_accumulated_ms = U32_MAX;
+			nvgpu_warn(ch->g, "ctxsw timeout overflow prevented for ch %d", ch->chid);
+		} else {
+			ch->ctxsw_timeout_accumulated_ms += timeout_delta_ms;
+		}
 		*progress = false;
 		goto done;
 	}
@@ -752,7 +735,14 @@ bool nvgpu_channel_update_and_check_ctxsw_timeout(struct nvgpu_channel *ch,
 
 	if (gpfifo_get == ch->ctxsw_timeout_gpfifo_get) {
 		/* didn't advance since previous ctxsw timeout check */
-		ch->ctxsw_timeout_accumulated_ms += timeout_delta_ms;
+		/* Check for overflow before adding */
+		if (ch->ctxsw_timeout_accumulated_ms > U32_MAX - timeout_delta_ms) {
+			/* Cap at maximum value to prevent overflow */
+			ch->ctxsw_timeout_accumulated_ms = U32_MAX;
+			nvgpu_warn(ch->g, "ctxsw timeout overflow prevented for ch %d", ch->chid);
+		} else {
+			ch->ctxsw_timeout_accumulated_ms += timeout_delta_ms;
+		}
 		*progress = false;
 	} else {
 		/* first ctxsw timeout isr encountered */
@@ -2630,7 +2620,7 @@ void nvgpu_channel_debug_dump_all(struct gk20a *g,
 		}
 		temp = min((size_t)nvgpu_safe_add_u64(strlen(domain_name), 1UL),
 			      (size_t)(sizeof(info->nvs_domain_name) - 1UL));
-			(void)strncpy(info->nvs_domain_name, domain_name, temp);
+			(void)snprintf(info->nvs_domain_name, temp, "%s", domain_name);
 
 #ifdef CONFIG_NVGPU_SW_SEMAPHORE
 		if (hw_sema != NULL) {

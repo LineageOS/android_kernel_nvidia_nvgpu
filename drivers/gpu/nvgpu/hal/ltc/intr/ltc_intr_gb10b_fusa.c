@@ -258,9 +258,15 @@ void gb10b_ltc_intr2_configure(struct gk20a *g)
 		ltc_ltcs_ltss_intr2_en_unsupported_chi_req_m(),
 		ltc_ltcs_ltss_intr2_en_unsupported_chi_req_enabled_f());
 
+	/*
+	 * Unexpected aperture: snp hit sys_noncoh (possible if evict posted and
+	 * membar not tracking). On gb10b, snoops will fail address compare if the
+	 * stored line is sys_nohcoh, so this interrupt will never be asserted.
+	 * The detection will be added in a future chip.
+	 */
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_m(),
-		ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_enabled_f());
+		ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_disabled_f());
 
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr2_en_invalid_rs_subid_m(),
@@ -345,10 +351,12 @@ void gb10b_ltc_intr3_configure(struct gk20a *g)
 	/*
 	 * VOLATILE_TO_COMPRESSED - A volatile transaction to compressed data
 	 * detected.
+	 * Volatile to compressed is a debug interrupt but its seen fired on
+	 * every buffer scrub, hence being left disabled.
 	 */
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr3_en_volatile_to_compressed_m(),
-		ltc_ltcs_ltss_intr3_en_volatile_to_compressed_enabled_f());
+		ltc_ltcs_ltss_intr3_en_volatile_to_compressed_disabled_f());
 
 	/*
 	 * ILLEGAL_ACCESS_KIND_TYPE1 - A read request kind does not match the

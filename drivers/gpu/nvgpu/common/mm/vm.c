@@ -17,12 +17,14 @@
 #include <nvgpu/timers.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/nvgpu_sgt.h>
-#include <nvgpu/vgpu/vm_vgpu.h>
 #include <nvgpu/cbc.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/power_features/pg.h>
 #include <nvgpu/nvhost.h>
 #include <nvgpu/string.h>
+
+/* Hardware limitation: Many buffers must reside under 2^40 (1TB) */
+#define GPU_VA_HARDWARE_MAX_LIMIT (1ULL << 40)
 
 struct nvgpu_ctag_buffer_info {
 	u64			size;
@@ -495,8 +497,10 @@ static int nvgpu_vm_init_user_vma(struct gk20a *g, struct vm_gk20a *vm,
 	 * User VMA.
 	 */
 	if (user_vma_start < user_vma_limit) {
-		(void) strcpy(alloc_name, "gk20a_");
-		(void) strcat(alloc_name, name);
+		(void) snprintf(alloc_name, sizeof(alloc_name), "%s", "gk20a_");
+		(void) snprintf(alloc_name + strlen(alloc_name),
+					sizeof(alloc_name) - strlen(alloc_name),
+					"%s", name);
 		err = nvgpu_allocator_init(g, &vm->user,
 						 vm, alloc_name,
 						 user_vma_start,
@@ -573,10 +577,11 @@ static int nvgpu_vm_init_user_lp_vma(struct gk20a *g, struct vm_gk20a *vm,
 	 * User VMA for large pages when a split address range is used.
 	 */
 	if (user_lp_vma_start < user_lp_vma_limit) {
-		(void) strcpy(alloc_name, "gk20a_");
-		(void) strncat(alloc_name, name, nvgpu_safe_sub_u64(
-					NVGPU_VM_NAME_LEN, prefix_len));
-		(void) strcat(alloc_name, "_lp");
+		(void) snprintf(alloc_name, sizeof(alloc_name), "%s", "gk20a_");
+		(void) snprintf(alloc_name + strlen(alloc_name), nvgpu_safe_sub_u64(
+					NVGPU_VM_NAME_LEN, prefix_len), "%s", name);
+		(void) snprintf(alloc_name + strlen(alloc_name), nvgpu_safe_sub_u64(
+					sizeof(alloc_name), strlen(alloc_name)), "%s", "_lp");
 		err = nvgpu_allocator_init(g, &vm->user_lp,
 						 vm, alloc_name,
 						 user_lp_vma_start,
@@ -645,10 +650,11 @@ static int nvgpu_vm_init_kernel_vma(struct gk20a *g, struct vm_gk20a *vm,
 	 * Kernel VMA.
 	 */
 	if (kernel_vma_start < kernel_vma_limit) {
-		(void) strcpy(alloc_name, "gk20a_");
-		(void) strncat(alloc_name, name, nvgpu_safe_sub_u64(
-						NVGPU_VM_NAME_LEN, prefix_len));
-		(void) strcat(alloc_name, "-sys");
+		(void) snprintf(alloc_name, sizeof(alloc_name), "%s", "gk20a_");
+		(void) snprintf(alloc_name + strlen(alloc_name), nvgpu_safe_sub_u64(
+					NVGPU_VM_NAME_LEN, prefix_len), "%s", name);
+		(void) snprintf(alloc_name + strlen(alloc_name), nvgpu_safe_sub_u64(
+					sizeof(alloc_name), strlen(alloc_name)), "%s", "-sys");
 		err = nvgpu_allocator_init(g, &vm->kernel,
 						 vm, alloc_name,
 						 kernel_vma_start,
@@ -856,6 +862,15 @@ static int nvgpu_vm_init_check_vma_limits(struct gk20a *g, struct vm_gk20a *vm,
 				u64 kernel_vma_start, u64 kernel_vma_limit)
 {
 	(void)vm;
+
+	/* Check if total VA space exceeds hardware limit */
+	if (kernel_vma_limit > GPU_VA_HARDWARE_MAX_LIMIT) {
+		nvgpu_err(g, "Requested VA limit 0x%llx exceeds hardware maximum 0x%llx (2^40 = 1TB). "
+			     "Many GPU buffers have hardware field size limits requiring addresses < 2^40.",
+			     kernel_vma_limit, GPU_VA_HARDWARE_MAX_LIMIT);
+		return -EINVAL;
+	}
+
 	if ((user_vma_start > user_vma_limit) ||
 		(user_lp_vma_start > user_lp_vma_limit) ||
 		(kernel_vma_start >= kernel_vma_limit)) {
@@ -1151,7 +1166,7 @@ int nvgpu_vm_do_init(struct mm_gk20a *mm,
 	}
 
 	/* Initialize the page table data structures. */
-	(void) strncpy(vm->name, name, (size_t)(sizeof(vm->name)-1ULL));
+	(void) snprintf(vm->name, sizeof(vm->name), "%s", name);
 	if (!nvgpu_is_legacy_vgpu(g)) {
 		err = nvgpu_gmmu_init_page_table(vm);
 		if (err != 0) {

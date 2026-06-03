@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025, NVIDIA CORPORATION & AFFILIATES.
+// All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/boardobjgrp.h>
@@ -45,7 +46,7 @@ static int check_boardobjgrp_param(struct gk20a *g,
  */
 static int
 obj_insert_final(struct boardobjgrp *pboardobjgrp,
-	struct pmu_board_obj *obj, u8 index)
+	struct pmu_board_obj *obj, u16 index)
 {
 	struct gk20a *g;
 
@@ -73,12 +74,12 @@ obj_insert_final(struct boardobjgrp *pboardobjgrp,
 	 * Check that this BOARDOBJ has not already been added to a
 	 * BOARDOBJGRP
 	 */
-	if (obj->idx != CTRL_BOARDOBJ_IDX_INVALID) {
+	if (obj->idx != CTRL_BOARDOBJ_IDX_INVALID_16BIT) {
 		return -EINVAL;
 	}
 
 	pboardobjgrp->ppobjects[index] = obj;
-	pboardobjgrp->objmaxidx = (u8)(BOARDOBJGRP_IS_EMPTY(pboardobjgrp) ?
+	pboardobjgrp->objmaxidx = (u16)(BOARDOBJGRP_IS_EMPTY(pboardobjgrp) ?
 			index : max(pboardobjgrp->objmaxidx, index));
 	obj->idx = index;
 
@@ -93,7 +94,7 @@ obj_insert_final(struct boardobjgrp *pboardobjgrp,
  * Retrieves a Board Object from a Board Object Group using the group's index.
  */
 static struct pmu_board_obj *obj_get_by_idx_final(
-		struct boardobjgrp *pboardobjgrp, u8 index)
+		struct boardobjgrp *pboardobjgrp, u16 index)
 {
 	if (!boardobjgrp_idxisvalid(pboardobjgrp, index)) {
 		return NULL;
@@ -106,12 +107,12 @@ static struct pmu_board_obj *obj_get_by_idx_final(
  * filtered out by the provided mask. If (mask == NULL) => no filtering.
  */
 static struct pmu_board_obj *obj_get_next_final(
-		struct boardobjgrp *pboardobjgrp, u8 *currentindex,
+		struct boardobjgrp *pboardobjgrp, u16 *currentindex,
 		struct boardobjgrpmask *mask)
 {
 	struct pmu_board_obj *obj_next = NULL;
-	u8 objmaxidx;
-	u8 index;
+	u16 objmaxidx;
+	u16 index;
 
 	if (currentindex == NULL) {
 		return NULL;
@@ -122,11 +123,11 @@ static struct pmu_board_obj *obj_get_next_final(
 	}
 
 	/* Search from next element unless first object was requested */
-	index = (*currentindex != CTRL_BOARDOBJ_IDX_INVALID) ?
-		(u8)(*currentindex + 1U) : 0U;
+	index = (*currentindex != CTRL_BOARDOBJ_IDX_INVALID_16BIT) ?
+		(u16)(*currentindex + 1U) : 0U;
 
 	/* For the cases below in which we have to return NULL */
-	*currentindex = CTRL_BOARDOBJ_IDX_INVALID;
+	*currentindex = CTRL_BOARDOBJ_IDX_INVALID_16BIT;
 
 
 	/* Validate provided mask */
@@ -138,7 +139,7 @@ static struct pmu_board_obj *obj_get_next_final(
 
 	objmaxidx = pboardobjgrp->objmaxidx;
 
-	if (objmaxidx != CTRL_BOARDOBJ_IDX_INVALID) {
+	if (objmaxidx != CTRL_BOARDOBJ_IDX_INVALID_16BIT) {
 		for (; index <= objmaxidx; index++) {
 			obj_next = pboardobjgrp->ppobjects[index];
 			if (obj_next != NULL) {
@@ -161,7 +162,7 @@ static struct pmu_board_obj *obj_get_next_final(
 
 static int pmu_data_inst_get_stub(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *boardobjgrppmu,
-	struct nv_pmu_boardobj **pmu_obj, u8 idx)
+	struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	(void)boardobjgrppmu;
 	(void)pmu_obj;
@@ -173,7 +174,7 @@ static int pmu_data_inst_get_stub(struct gk20a *g,
 
 static int pmu_status_inst_get_stub(struct gk20a *g,
 	void *pboardobjgrppmu,
-	struct nv_pmu_boardobj_query **obj_pmu_status, u8 idx)
+	struct nv_pmu_boardobj_query **obj_pmu_status, u16 idx)
 {
 	(void)pboardobjgrppmu;
 	(void)obj_pmu_status;
@@ -184,7 +185,7 @@ static int pmu_status_inst_get_stub(struct gk20a *g,
 
 static int obj_remove_and_destroy_final(
 		struct boardobjgrp *pboardobjgrp,
-		u8 index)
+		u16 index)
 {
 	int status = 0;
 	int stat;
@@ -196,7 +197,7 @@ static int obj_remove_and_destroy_final(
 		return -EINVAL;
 	}
 
-	if (pboardobjgrp->objmaxidx == CTRL_BOARDOBJ_IDX_INVALID) {
+	if (pboardobjgrp->objmaxidx == CTRL_BOARDOBJ_IDX_INVALID_16BIT) {
 		return -EINVAL;
 	}
 
@@ -239,7 +240,7 @@ static int destruct_super(struct boardobjgrp *pboardobjgrp)
 	struct gk20a *g = pboardobjgrp->g;
 	int status = 0;
 	int stat;
-	u8  index;
+	u16  index;
 
 	nvgpu_log_info(g, " ");
 
@@ -262,7 +263,7 @@ static int destruct_super(struct boardobjgrp *pboardobjgrp)
 
 	pboardobjgrp->objmask = 0;
 
-	if (pboardobjgrp->objmaxidx != CTRL_BOARDOBJ_IDX_INVALID) {
+	if (pboardobjgrp->objmaxidx != CTRL_BOARDOBJ_IDX_INVALID_16BIT) {
 		if (status == 0) {
 			status = -EINVAL;
 		}
@@ -316,11 +317,37 @@ static int pmu_cmd_pmu_init_handle_impl(struct gk20a *g,
 
 	if (is_pmu_cmd_id_valid(g,
 			pboardobjgrp, pcmd) != 0) {
+		nvgpu_err(g, "cmd ID invalid.");
 		goto pmu_cmd_pmu_init_handle_impl_exit;
 	}
 
 	if (pcmd->fbsize == 0U) {
+		/* This is not an error, it's a valid case. Some board object groups
+		 * have no data to send to PMU, it is safe to skip allocation.
+		 */
+		nvgpu_log_info(g, "fbsize is zero.");
 		goto pmu_cmd_pmu_init_handle_impl_exit;
+	}
+
+	/*
+	 * Check if memory is already allocated and valid.
+	 * If so, reuse it if the size matches, or free and reallocate if size differs.
+	 * This prevents memory leaks during regime changes.
+	 */
+	if (nvgpu_mem_is_valid(sysmem_desc)) {
+		if (sysmem_desc->size == pcmd->fbsize) {
+			/* Memory already allocated with correct size, reuse it */
+			nvgpu_log_info(g, "Reusing existing PMU memory (size=%u)", pcmd->fbsize);
+			pcmd->buf = (struct nv_pmu_boardobjgrp_super *)sysmem_desc->cpu_va;
+			/* Initialize reused buffer to zero for consistency */
+			memset(pcmd->buf, 0, pcmd->fbsize);
+			goto pmu_cmd_pmu_init_handle_impl_exit;
+		} else {
+			/* Size mismatch, free existing memory first */
+			nvgpu_log_info(g, "PMU memory size mismatch (old=%zu, new=%u), reallocating",
+				       sysmem_desc->size, pcmd->fbsize);
+			nvgpu_pmu_allocator_surface_free(g, sysmem_desc);
+		}
 	}
 
 	status = nvgpu_pmu_allocator_sysmem_surface_alloc(g, sysmem_desc, pcmd->fbsize);
@@ -377,6 +404,35 @@ static int pmu_init_handle_impl(struct gk20a *g,
 	return status;
 }
 
+/*
+ * Add cleanup function to properly free PMU command memory
+ * This ensures no memory leaks during shutdown or reinitilization
+ */
+static void pmu_cmd_pmu_cleanup_handle_impl(struct gk20a *g,
+	struct boardobjgrp_pmu_cmd *pcmd)
+{
+	struct nvgpu_mem *sysmem_desc = &pcmd->surf.sysmem_desc;
+
+	nvgpu_log_info(g, "Cleaning up PMU command memory");
+
+	if (nvgpu_mem_is_valid(sysmem_desc)) {
+		nvgpu_pmu_allocator_surface_free(g, sysmem_desc);
+		pcmd->buf = NULL;
+	}
+}
+
+static void pmu_cleanup_handle_impl(struct gk20a *g,
+	struct boardobjgrp *pboardobjgrp)
+{
+	nvgpu_log_info(g, "Cleaning up board object group PMU handles");
+
+	/* Clean up set command memory */
+	pmu_cmd_pmu_cleanup_handle_impl(g, &pboardobjgrp->pmu.set);
+
+	/* Clean up get status command memory */
+	pmu_cmd_pmu_cleanup_handle_impl(g, &pboardobjgrp->pmu.getstatus);
+}
+
 static int pmu_cmd_send_rpc(struct gk20a *g,
 	struct boardobjgrp *pboardobjgrp,
 	struct boardobjgrp_pmu_cmd *pcmd,
@@ -428,12 +484,21 @@ static int pmu_set_impl(struct gk20a *g,
 	nvgpu_log_info(g, " ");
 
 	if (check_boardobjgrp_param(g, pboardobjgrp) != 0) {
+		nvgpu_err(g, "check boardobjgrp param failed.");
 		return -EINVAL;
 	}
 
 	if ((pcmd->buf == NULL) ||
 		(pboardobjgrp->pmu.rpc_func_id ==
 		BOARDOBJGRP_GRP_RPC_FUNC_ID_INVALID)) {
+		nvgpu_err(g, "NULL buf or Invalid Id (0xff): buf %p rpc_func_id 0x%02x classID: 0x%02x",
+			pcmd->buf, pboardobjgrp->pmu.rpc_func_id, pboardobjgrp->classid);
+		return -EINVAL;
+	}
+
+	if (pboardobjgrp->pmudatainit == NULL) {
+		nvgpu_err(g, "pmudatainit is NULL on classID: 0x%02x",
+			pboardobjgrp->classid);
 		return -EINVAL;
 	}
 
@@ -567,6 +632,7 @@ int nvgpu_boardobjgrp_construct_super(struct gk20a *g,
 	pboardobjgrp->objmask = 0;
 
 	pboardobjgrp->classid = BOARDOBJGRP_GRP_CLASS_ID_INVALID;
+	pboardobjgrp->classType = NV2080_CTRL_BOARDOBJGRP_CLASS_TYPE_INVALID;
 	pboardobjgrp->pmu.unitid = BOARDOBJGRP_UNIT_ID_INVALID;
 	pboardobjgrp->pmu.bset = false;
 	pboardobjgrp->pmu.rpc_func_id = BOARDOBJGRP_GRP_RPC_FUNC_ID_INVALID;
@@ -582,6 +648,7 @@ int nvgpu_boardobjgrp_construct_super(struct gk20a *g,
 		obj_remove_and_destroy_final;
 
 	pboardobjgrp->pmuinithandle = pmu_init_handle_impl;
+	pboardobjgrp->pmucleanuphandle = pmu_cleanup_handle_impl;
 	pboardobjgrp->pmuhdrdatainit = nvgpu_boardobjgrp_pmu_hdr_data_init_super;
 	pboardobjgrp->pmudatainit = nvgpu_boardobjgrp_pmu_data_init_super;
 	pboardobjgrp->pmuset = pmu_set_impl;
@@ -590,7 +657,7 @@ int nvgpu_boardobjgrp_construct_super(struct gk20a *g,
 	pboardobjgrp->pmudatainstget = pmu_data_inst_get_stub;
 	pboardobjgrp->pmustatusinstget = pmu_status_inst_get_stub;
 
-	pboardobjgrp->objmaxidx = CTRL_BOARDOBJ_IDX_INVALID;
+	pboardobjgrp->objmaxidx = CTRL_BOARDOBJ_IDX_INVALID_16BIT;
 	pboardobjgrp->bconstructed = true;
 
 	nvgpu_list_add(&pboardobjgrp->node, &g->boardobjgrp_head);
@@ -603,12 +670,11 @@ int nvgpu_boardobjgrp_pmucmd_construct_impl(struct gk20a *g, struct boardobjgrp
 	*pboardobjgrp, struct boardobjgrp_pmu_cmd *cmd, u8 id, u8 msgid,
 	u16 hdrsize, u16 entrysize, u32 fbsize, u32 ss_offset, u8 rpc_func_id)
 {
-	(void)id;
-	(void)msgid;
-
 	nvgpu_log_fn(g, " ");
 
 	/* Copy the parameters into the CMD*/
+	cmd->id = id;
+	cmd->msgid = msgid;
 	cmd->dmem_buffer_size = ((hdrsize > entrysize) ? hdrsize : entrysize);
 	cmd->super_surface_offset = ss_offset;
 	pboardobjgrp->pmu.rpc_func_id = rpc_func_id;
@@ -634,6 +700,7 @@ int nvgpu_boardobjgrp_pmu_hdr_data_init_super(struct gk20a *g, struct boardobjgr
 	}
 	pboardobjgrppmu->type = pboardobjgrp->type;
 	pboardobjgrppmu->class_id = pboardobjgrp->classid;
+	pboardobjgrppmu->classType = pboardobjgrp->classType;
 	pboardobjgrppmu->obj_slots = BOARDOBJGRP_PMU_SLOTS_GET(pboardobjgrp);
 	pboardobjgrppmu->flags = 0;
 
@@ -648,7 +715,7 @@ int nvgpu_boardobjgrp_pmu_data_init_legacy(struct gk20a *g,
 	int status = 0;
 	struct pmu_board_obj *obj = NULL;
 	struct nv_pmu_boardobj *pmu_obj = NULL;
-	u8 index;
+	u16 index;
 
 	nvgpu_log_info(g, " ");
 
@@ -703,7 +770,7 @@ int nvgpu_boardobjgrp_pmu_data_init_super(struct gk20a *g, struct boardobjgrp
 	int status = 0;
 	struct pmu_board_obj *obj = NULL;
 	struct nv_pmu_boardobj	*pmu_obj = NULL;
-	u8 index;
+	u16 index;
 
 	nvgpu_log_info(g, " ");
 
@@ -727,7 +794,7 @@ int nvgpu_boardobjgrp_pmu_data_init_super(struct gk20a *g, struct boardobjgrp
 				(struct nv_pmu_boardobjgrp *)
 				(void *)pboardobjgrppmu, &pmu_obj, index);
 		if (status != 0) {
-			nvgpu_err(g, "could not get object instance");
+			nvgpu_err(g, "could not get object instance - index: %d", index);
 			goto boardobjgrp_pmu_data_init_super_exit;
 		}
 
@@ -754,7 +821,19 @@ void nvgpu_boardobjgrp_e32_hdr_set(struct nv_pmu_boardobjgrp *hdr, u32 objmask)
 
 	hdr->super.type = CTRL_BOARDOBJGRP_TYPE_E32;
 	hdr->super.class_id  = 0;
-	hdr->super.obj_slots = (u8)slots;
+	hdr->super.obj_slots = (u16)slots;
 	hdr->obj_mask = objmask;
+}
+
+/*
+ * Public function to cleanup PMU board object group memory
+ * Call this when shutting down or reinitializing
+ */
+void nvgpu_boardobjgrp_pmu_cleanup(struct gk20a *g, struct boardobjgrp *pboardobjgrp)
+{
+	nvgpu_log_info(g, "Cleaning up board object group PMU resources");
+
+	if (pboardobjgrp != NULL && pboardobjgrp->pmucleanuphandle != NULL)
+		pboardobjgrp->pmucleanuphandle(g, pboardobjgrp);
 }
 

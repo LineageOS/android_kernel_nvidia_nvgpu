@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 // SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+/*
+ * GK20A Channel Synchronization Abstraction
+ */
+
 #if !defined(CONFIG_NVGPU_SYNCFD_NONE) && !defined(CONFIG_TEGRA_GK20A_NVHOST_HOST1X)
 #include <uapi/linux/nvhost_ioctl.h>
 #endif
@@ -114,6 +118,7 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 		.c = c
 	};
 	u32 num_fences, wait_cmd_size;
+	u32 org_size = 0U;
 	int err = 0;
 
 	err = nvgpu_os_fence_fdget(&os_fence, c, fd);
@@ -128,8 +133,13 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 		goto cleanup;
 	}
 
-	num_fences = nvgpu_os_fence_syncpt_get_num_syncpoints(&os_fence_syncpt);
+	err = nvgpu_os_fence_syncpt_get_num_syncpoints(&os_fence_syncpt);
+	if (err < 0) {
+		nvgpu_err(c->g, "failed to get num syncpoints from os fence");
+		goto cleanup;
+	}
 
+	num_fences = err;
 	if (num_fences == 0U) {
 		goto cleanup;
 	}
@@ -143,12 +153,18 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 
 	/* To handle the signaled fence */
 	if (num_fences == 1 && nvgpu_os_fence_is_signaled(&os_fence_syncpt)) {
+		err = 0;
 		goto cleanup;
 	}
 
 	wait_cmd_size = c->g->ops.sync.syncpt.get_wait_cmd_size();
+	if (!nvgpu_safe_mult_u32_return(wait_cmd_size, num_fences, &org_size)) {
+		nvgpu_err(c->g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto cleanup;
+	}
 	err = nvgpu_priv_cmdbuf_alloc(c->priv_cmd_q,
-		wait_cmd_size * num_fences, wait_cmd);
+		org_size, wait_cmd);
 	if (err != 0) {
 		goto cleanup;
 	}

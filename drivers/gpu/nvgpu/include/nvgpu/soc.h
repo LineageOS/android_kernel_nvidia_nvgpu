@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
  * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_SOC_H
 #define NVGPU_SOC_H
 
@@ -80,9 +81,9 @@ bool nvgpu_is_soc_t194_a01(struct gk20a *g);
  *
  * @param g [in]	GPU super structure.
  *
- * - Set VMID_UNINITIALIZED to r->gid.
+ * - Read vmid/gid from NvHvGetOsVmId() and store it in r->gid.
  * - Check if nvgpu_is_hypervisor_mode is enabled if yes then
- *   - If module is not virtual then set nvgpu_hv_ipa_pa to desc->phys_addr.
+ *   - If module/dev is not virtual then set nvgpu_hv_ipa_pa to desc->phys_addr.
  *
  * @return 0 in case of success, <0 in case of call to NvHvGetOsVmId() gets fail.
  * @retval ENODEV Get VM id fails to open device node.

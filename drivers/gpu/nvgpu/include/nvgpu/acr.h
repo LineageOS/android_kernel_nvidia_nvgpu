@@ -202,12 +202,8 @@ int nvgpu_acr_alloc_blob_prerequisite(struct gk20a *g, struct nvgpu_acr *acr,
 	size_t size);
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
 int nvgpu_next_acr_wait_for_completion(struct gk20a *g,
 				struct hs_acr *acr_desc, u32 timeout);
-#endif
-
-void nvgpu_acr_suspend(struct gk20a *g);
 
 /**
  * @brief Deinitialize the ACR unit.
@@ -243,6 +239,8 @@ int nvgpu_acr_process_message(struct gk20a *g);
  */
 int nvgpu_acr_send_cmd_and_wait_for_ack(struct gk20a *g,
 		struct nv_flcn_cmd_gsp *cmd, u32 unit_id, u32 size);
+int nvgpu_acr_wait_message_cond(struct gk20a *g, u32 timeout_ms,
+		void *var, u8 val);
 
 /**
  * @brief Bootstrap the context switch engine.

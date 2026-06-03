@@ -4,6 +4,7 @@
 #include <nvgpu/nvhost.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/hw/gb10b/hw_func_gb10b.h>
+#include <nvgpu/channel_sync.h>
 
 #include "common/vgpu/clk_vgpu.h"
 #include "os/linux/vgpu/vgpu_linux.h"
@@ -16,9 +17,7 @@ int gb10b_vf_probe(struct device *dev)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	struct gk20a *g = platform->g;
-#ifdef CONFIG_TEGRA_GK20A_NVHOST
-	int ret;
-#endif
+	int ret = 0;
 
 	g->usermode_regs = g->func_regs + func_cfg0_r();
 	g->usermode_regs_bus_addr = g->regs_bus_addr + func_cfg0_r();
@@ -75,21 +74,26 @@ int gb10b_vf_probe(struct device *dev)
 			g->syncpt_unit_base_spa[0] = g->syncpt_unit_base[0];
 			g->syncpt_unit_base[0] = sg_dma_address(sg);
 		}
-			g->syncpt_size =
-				nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, 1);
-			nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
-				g->syncpt_unit_base[0], g->syncpt_unit_size, g->syncpt_size);
+
+		g->syncpt_size =
+			nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, 1);
+		g->gpu_num_syncpts = nvgpu_channel_get_synpoints(g);
+
+		nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x number of syncpoints %x\n",
+				g->syncpt_unit_base[0], g->syncpt_unit_size,
+				g->syncpt_size, g->gpu_num_syncpts);
 	}
 #endif
 	vgpu_init_clk_support(platform->g);
 
-	return 0;
+	return ret;
 }
 
 struct gk20a_platform gb10b_vf_tegra_platform = {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
 	.has_syncpoints = true,
 #endif
+	.has_scheduling_domains = true,
 
 	/* ptimer src frequency in hz*/
 	.ptimer_src_freq = 31250000,
@@ -127,7 +131,7 @@ struct gk20a_platform gb10b_vf_tegra_platform = {
 
 	.unified_memory = true,
 	.honors_aperture = true,
-	.dma_mask = DMA_BIT_MASK(41),
+	.dma_mask = DMA_BIT_MASK(39),
 
 	.busy = gk20a_tegra_busy,
 	.idle = gk20a_tegra_idle,

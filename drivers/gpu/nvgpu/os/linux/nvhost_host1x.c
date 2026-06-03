@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-fence.h>
+#include <linux/dma-fence-chain.h>
 #include <linux/file.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -87,16 +88,16 @@ int nvgpu_get_nvhost_dev(struct gk20a *g)
 		for_each_matching_node(np, host1x_match_rules[i]) {
 			host1x_pdev = of_find_device_by_node(np);
 			if (host1x_pdev) {
-				if ((strcmp(of_get_property(host1x_pdev->dev.of_node, "compatible", NULL),
-					"nvidia,tegraEmu-host1x")) == 0) {
-					g->is_host1x_emu = true;
-				}
+				g->host1x_devices[g->num_nvhost] = host1x_pdev;
 				if (!nvgpu_safe_add_u32_return(g->num_nvhost, 1U, &g->num_nvhost)) {
 					nvgpu_err(g, "num_nvhost overflow");
 					return -EOVERFLOW;
 				}
-
-				break;
+				if ((strcmp(of_get_property(host1x_pdev->dev.of_node, "compatible", NULL),
+					"nvidia,tegraEmu-host1x")) == 0) {
+					g->is_host1x_emu = true;
+					break;
+				}
 			}
 		}
 		if (host1x_pdev) {
@@ -104,7 +105,7 @@ int nvgpu_get_nvhost_dev(struct gk20a *g)
 		}
 	}
 
-	if (!host1x_pdev) {
+	if ((!host1x_pdev) && (!g->host1x_devices[0]) && (!g->host1x_devices[1])) {
 		nvgpu_warn(g, "host1x device not available");
 		nvgpu_set_enabled(g, NVGPU_HAS_SYNCPOINTS, false);
 		return -ENOSYS;
@@ -117,7 +118,15 @@ int nvgpu_get_nvhost_dev(struct gk20a *g)
 		return -ENOMEM;
 
 	g->nvhost->g = g;
-	g->nvhost->host1x_pdev = host1x_pdev;
+	if (g->num_nvhost > 1) {
+		for (i = 0; i < NVGPU_MAX_NUM_NUMA_NODES; i++) {
+			if (dev_to_node(&(g->host1x_devices[i])->dev) == g->numa_node_id) {
+				g->nvhost->host1x_pdev = g->host1x_devices[i];
+			}
+		}
+	} else {
+		g->nvhost->host1x_pdev = g->host1x_devices[0];
+	}
 
 	return 0;
 }
@@ -506,15 +515,52 @@ struct dma_fence *nvgpu_nvhost_fence_create(struct platform_device *pdev,
 			pts->thresh, true);
 }
 
-u32 nvgpu_nvhost_fence_num_pts(struct dma_fence *fence)
+int nvgpu_nvhost_fence_num_pts(struct dma_fence *fence)
 {
 	struct dma_fence_array *array;
+	struct dma_fence *iter, *child;
+	int count = 0;
 
-	array = to_dma_fence_array(fence);
-	if (!array)
-		return 1;
+	if (!fence) {
+		return -EINVAL;
+	}
 
-	return array->num_fences;
+	if (dma_fence_is_array(fence)) {
+		array = to_dma_fence_array(fence);
+		if (!array) {
+			return -EINVAL;
+		}
+		return array->num_fences;
+	} else if (dma_fence_is_chain(fence)) {
+		dma_fence_chain_for_each(iter, fence) {
+			child = dma_fence_chain_contained(iter);
+			if (!child) {
+				dma_fence_put(iter);
+				continue;
+			}
+			count++;
+			dma_fence_put(iter);
+		}
+		return count;
+	}
+
+	return 1;
+}
+
+static int nvgpu_nvhost_translate_local_to_global_syncptid(
+		struct dma_fence *fence,
+		struct nvhost_ctrl_sync_fence_info *info)
+{
+	int instance;
+
+	instance = host1x_fence_get_node(fence);
+	if (instance < 0) {
+		return instance;
+	}
+
+	info->id = HOST1X_LOCAL_TO_GLOBAL_SYNCPOINT(info->id, instance);
+
+	return 0;
 }
 
 int nvgpu_nvhost_fence_foreach_pt(struct dma_fence *fence,
@@ -523,28 +569,72 @@ int nvgpu_nvhost_fence_foreach_pt(struct dma_fence *fence,
 {
 	struct nvhost_ctrl_sync_fence_info info;
 	struct dma_fence_array *array;
+	struct dma_fence *child;
+	struct dma_fence *iter_fence;
 	int i, err;
 
-	array = to_dma_fence_array(fence);
-	if (!array) {
+	if (dma_fence_is_array(fence)) {
+		array = to_dma_fence_array(fence);
+		if (!array)
+			return -EINVAL;
+
+		for (i = 0; i < array->num_fences; ++i) {
+			err = host1x_fence_extract(array->fences[i], &info.id,
+				&info.thresh);
+
+			if (err)
+				return err;
+
+			err = nvgpu_nvhost_translate_local_to_global_syncptid(
+					array->fences[i], &info);
+			if (err)
+				return err;
+
+			err = iter(info, data);
+			if (err)
+				return err;
+		}
+	} else if (dma_fence_is_chain(fence)) {
+		dma_fence_chain_for_each(iter_fence, fence) {
+			child = dma_fence_chain_contained(iter_fence);
+			if (!child) {
+				dma_fence_put(iter_fence);
+				continue;
+			}
+
+			err = host1x_fence_extract(child, &info.id, &info.thresh);
+			if (err == -EINVAL && dma_fence_is_signaled(child)) {
+				/* Likely stub fence */
+				dma_fence_put(iter_fence);
+				continue;
+			} else if (err) {
+				dma_fence_put(iter_fence);
+				return err;
+			}
+
+			err = nvgpu_nvhost_translate_local_to_global_syncptid(
+					child, &info);
+			if (err)
+				return err;
+
+			err = iter(info, data);
+			if (err)
+				return err;
+
+			dma_fence_put(iter_fence);
+		}
+	} else {
 		err = host1x_fence_extract(fence,
 				&info.id, &info.thresh);
 		if (err)
 			return err;
 
+		err = nvgpu_nvhost_translate_local_to_global_syncptid(
+				fence, &info);
+		if (err)
+			return err;
+
 		return iter(info, data);
-	}
-
-	for (i = 0; i < array->num_fences; ++i) {
-		err = host1x_fence_extract(array->fences[i], &info.id,
-			   &info.thresh);
-
-		if (err)
-			return err;
-
-		err = iter(info, data);
-		if (err)
-			return err;
 	}
 
 	return 0;

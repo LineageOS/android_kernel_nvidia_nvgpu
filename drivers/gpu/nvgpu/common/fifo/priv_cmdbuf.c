@@ -291,13 +291,24 @@ void nvgpu_priv_cmdbuf_append(struct gk20a *g, struct priv_cmd_entry *e,
 	e->fill_off += entries;
 }
 
-void nvgpu_priv_cmdbuf_append_zeros(struct gk20a *g, struct priv_cmd_entry *e,
+int nvgpu_priv_cmdbuf_append_zeros(struct gk20a *g, struct priv_cmd_entry *e,
 		u32 entries)
 {
-	nvgpu_assert(e->fill_off + entries <= e->size);
+	int err = 0;
+	u32 entry_size = 0U;
+
+	if (!nvgpu_safe_add_u32_return(e->fill_off, entries, &entry_size)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	nvgpu_assert(entry_size <= e->size);
 	nvgpu_memset(g, e->mem, (e->off + e->fill_off) * sizeof(u32),
 			0, entries * sizeof(u32));
 	e->fill_off += entries;
+
+	return err;
 }
 
 void nvgpu_priv_cmdbuf_finish(struct gk20a *g, struct priv_cmd_entry *e,

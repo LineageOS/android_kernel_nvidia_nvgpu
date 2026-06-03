@@ -173,7 +173,10 @@ void nvgpu_tsg_subctx_unbind_channel(struct nvgpu_tsg *tsg,
 
 	if (nvgpu_list_empty(&subctx->ch_list)) {
 		if (force) {
-			nvgpu_tsg_delete_subcontext(g, tsg, ch->subctx_id);
+			if (nvgpu_tsg_delete_subcontext(g, tsg, ch->subctx_id) != 0) {
+				nvgpu_err(g, "subcontext: (%u) deletion failed",
+					  ch->subctx_id);
+			}
 		}
 
 		if (g->ops.tsg.remove_subctx_channel_hw != NULL) {

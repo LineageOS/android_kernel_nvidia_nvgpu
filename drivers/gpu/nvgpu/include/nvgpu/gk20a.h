@@ -17,6 +17,7 @@ struct nvgpu_gr;
 struct nvgpu_fbp;
 struct nvgpu_runlist;
 struct nvgpu_runlist_domain;
+struct nvgpu_clk_vf_point_5x;
 #ifdef CONFIG_NVGPU_SIM
 struct sim_nvgpu;
 #endif
@@ -25,6 +26,9 @@ struct nvgpu_ce_app;
 #endif
 #ifdef CONFIG_NVGPU_FECS_TRACE
 struct gk20a_ctxsw_trace;
+#endif
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+struct nvgpu_multimedia_trace_devs;
 #endif
 #ifdef CONFIG_NVGPU_TRACK_MEM_USAGE
 struct nvgpu_mem_alloc_tracker;
@@ -41,6 +45,9 @@ struct nvgpu_nvhost_dev;
 struct nvgpu_netlist_vars;
 #ifdef CONFIG_NVGPU_FECS_TRACE
 struct nvgpu_gr_fecs_trace;
+#endif
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+struct nvgpu_multimedia_trace_ctrls;
 #endif
 #ifdef CONFIG_NVGPU_CLK_ARB
 struct nvgpu_clk_arb;
@@ -64,8 +71,11 @@ struct clk_domains_mon_status_params;
 #endif
 struct nvgpu_cic_mon;
 struct nvgpu_cic_rm;
-#if defined(CONFIG_NVGPU_GSP_SCHEDULER) || defined(CONFIG_NVGPU_GSP_SCHEDULER_VM)
+#if defined(CONFIG_NVGPU_GSP_SCHEDULER)
 struct nvgpu_gsp_sched;
+#endif
+#if defined(CONFIG_NVGPU_GSP_SCHEDULER_VM)
+struct nvgpu_gsp_vm_sched;
 #endif
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 struct nvgpu_gsp_test;
@@ -80,6 +90,7 @@ enum nvgpu_nvlink_minion_dlcmd;
 #endif
 enum nvgpu_profiler_pm_resource_type;
 enum nvgpu_profiler_pm_reservation_scope;
+struct gpu_power_mgmt_data;
 
 #include <nvgpu/lock.h>
 #include <nvgpu/thread.h>
@@ -461,6 +472,9 @@ struct gk20a {
 	uintptr_t usermode_regs_saved;
 	uintptr_t func_regs_saved;
 
+	/* Flag for nvgpu-mon presence. */
+	bool mon_present;
+
 	/**
 	 * Handle to access nvhost APIs.
 	 */
@@ -501,6 +515,8 @@ struct gk20a {
 #endif
 #ifdef CONFIG_PM
 	bool suspended;
+	struct nvgpu_clk_vf_point_5x *suspended_clk_vf_info;
+	bool has_suspended_clk_state;
 #endif
 #ifdef CONFIG_NVGPU_NON_FUSA
 	bool sw_ready;
@@ -622,6 +638,10 @@ struct gk20a {
 	/** Pointer to struct maintaining GSP_SCHED unit's software state. */
 	struct nvgpu_gsp_sched *gsp_sched;
 #endif
+#if defined(CONFIG_NVGPU_GSP_SCHEDULER_VM)
+	/** Pointer to struct maintaining GSP_VM_SCHED unit's software state. */
+	struct nvgpu_gsp_vm_sched *gsp_vm_sched;
+#endif
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 	struct nvgpu_gsp_test *gsp_stest;
 #endif
@@ -635,8 +655,8 @@ struct gk20a {
 	struct nvgpu_nvdec *nvdec;
 	struct nvgpu_nvjpg *nvjpg;
 
-#ifdef CONFIG_NVGPU_DGPU
 	struct pmgr_pmupstate *pmgr_pmu;
+#ifdef CONFIG_NVGPU_DGPU
 	struct nvgpu_sec2 sec2;
 #endif
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_SCHEDULING
@@ -714,9 +734,15 @@ struct gk20a {
 #ifdef CONFIG_NVGPU_LS_PMU
 	bool elpg_enabled;
 	bool elpg_ms_enabled;
+	bool gpc_rg_enabled;
 	bool aelpg_enabled;
+	bool nvdec_elpg_enabled;
+	bool nvenc_elpg_enabled;
+	bool ofa_elpg_enabled;
 	bool can_elpg;
 	bool can_elpg_ms;
+	bool can_gpc_rg;
+	bool can_vid_elpg;
 #endif
 #ifdef CONFIG_NVGPU_NON_FUSA
 	bool mscg_enabled;
@@ -728,6 +754,9 @@ struct gk20a {
 
 	/** Ptimer source frequency. */
 	u32 ptimer_src_freq;
+
+	/** Power management data for voltage/frequency control */
+	struct gpu_power_mgmt_data *power_mgmt_data;
 
 #ifdef CONFIG_NVGPU_NON_FUSA
 	int railgate_delay;
@@ -787,7 +816,12 @@ struct gk20a {
 	struct nvgpu_pm_resource_reservations **pm_reservations;
 	nvgpu_atomic_t hwpm_refcount;
 	bool *pma_channel_reserved;
+	/* Number of pma channels supported by the GPU */
 	u32 num_pma_channels;
+	/* Number of pma channels context switched by the ucode
+	 * This should be less than the num_pma_channels
+	 */
+	u32 num_ctx_switched_pma_channels;
 	u32 channels_per_cblock;
 
 	/* Array of hs credits programmed for each pma_channels */
@@ -804,6 +838,11 @@ struct gk20a {
 	struct nvgpu_gr_fecs_trace *fecs_trace;
 #endif
 
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	struct nvgpu_multimedia_trace_devs *multimedia_trace_devs;
+	struct nvgpu_multimedia_trace_ctrls *multimedia_trace_ctrls;
+#endif
+
 #ifdef CONFIG_NVGPU_CYCLESTATS
 	struct nvgpu_mutex		cs_lock;
 	struct gk20a_cs_snapshot	*cs_data;
@@ -816,8 +855,20 @@ struct gk20a {
 #ifdef CONFIG_NVGPU_POWER_PG
 	u64 pg_ingating_time_us;
 	u64 pg_ungating_time_us;
+	u64 gpc_rg_ingating_time_us;
+	u64 gpc_rg_ungating_time_us;
+	u64 nvdec_pg_ingating_time_us;
+	u64 nvdec_pg_ungating_time_us;
+	u64 nvenc_pg_ingating_time_us;
+	u64 nvenc_pg_ungating_time_us;
+	u64 ofa_pg_ingating_time_us;
+	u64 ofa_pg_ungating_time_us;
 	u32 pg_gating_cnt;
 	u32 elpg_ms_gating_cnt;
+	u32 gpc_rg_gating_cnt;
+	u32 nvdec_pg_gating_cnt;
+	u32 nvenc_pg_gating_cnt;
+	u32 ofa_pg_gating_cnt;
 #endif
 
 	/** The HAL function pointers */
@@ -1000,8 +1051,12 @@ struct gk20a {
 	u64		syncpt_unit_base_spa[NVGPU_MAX_NUM_NUMA_NODES];
 	/** Full syncpoint aperture size. */
 	size_t		syncpt_unit_size;
-	/** Each syncpoint aperture size */
+	/** Each syncpoint aperture size. */
 	u32		syncpt_size;
+	/** Syncpoint devices. */
+	struct platform_device *host1x_devices[NVGPU_MAX_NUM_NUMA_NODES];
+	/** Number of GPU syncpoints */
+	u32		gpu_num_syncpts;
 #endif
 	/** Full syncpoint aperture. */
 	struct nvgpu_mem syncpt_mem[NVGPU_MAX_NUM_NUMA_NODES];
@@ -1037,6 +1092,20 @@ struct gk20a {
 
 	/** Flag to check if debugger and profiler support is enabled. */
 	u32 support_gpu_tools;
+
+	/**
+	 * Disable loading compute netlist region IDs.
+	 *
+	 * Compute netlist regions are loaded in non-fusa for all chip versions.
+	 *
+	 * In safety, to support set_falcon compute methods, compute netlist
+	 * regions need to be loaded. set_falcon compute methods is enabled from
+	 * gb10b and onwards.
+	 *
+	 * In safety, continue not to load compute netlist regions in safety
+	 * for previous chips.
+	 */
+	bool disable_compute_netlist_region_load;
 
 #ifdef CONFIG_NVS_PRESENT
 	struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl_fifo;
@@ -1078,6 +1147,14 @@ struct gk20a {
 	void *checker_data;
 #endif
 	bool is_mig_supported;
+#ifdef CONFIG_NVGPU_CILP
+	/**
+	 * To explicitly disable compute preemption mode: CILP.
+	 * Default : CILP is enabled on all configurations.
+	 * Only on Orin Safety: CILP is disabled.
+	 */
+	bool disable_cilp_preemption;
+#endif /* CONFIG_NVGPU_CILP */
 };
 
 /**
@@ -1189,11 +1266,9 @@ int gk20a_do_unidle(void *_g);
 #define NVGPU_GPUID_GA100   0x00000170U
 /** ga10b HW version */
 #define NVGPU_GPUID_GA10B   0x0000017BU
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
 /** gb10b HW version */
 #define NVGPU_GPUID_GB10B   0x000001ABU
 #define NVGPU_GPUID_GB10B_NEXT   0x000001ACU
-#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 #define NVGPU_GPUID_GB20B	0x000001BB

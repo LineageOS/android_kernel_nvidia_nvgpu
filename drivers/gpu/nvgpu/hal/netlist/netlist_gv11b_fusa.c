@@ -3,6 +3,7 @@
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/string.h>
+#include <nvgpu/netlist.h>
 
 #include "netlist_gv11b.h"
 
@@ -16,29 +17,29 @@ int gv11b_netlist_get_name(struct gk20a *g, int index, char *name)
 	switch (index) {
 #ifdef GV11B_NETLIST_IMAGE_FW_NAME
 	case NETLIST_FINAL:
-		(void) strcpy(name, GV11B_NETLIST_IMAGE_FW_NAME);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", GV11B_NETLIST_IMAGE_FW_NAME);
 		break;
 #endif
 #ifdef CONFIG_NVGPU_NON_FUSA
 #ifdef NVGPU_NETLIST_IMAGE_A
 	case NETLIST_SLOT_A:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_A);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_A);
 		break;
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_B
 	case NETLIST_SLOT_B:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_B);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_B);
 		break;
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_C
 	case NETLIST_SLOT_C:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_C);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_C);
 		break;
 #endif
 #endif
 #ifdef NVGPU_NETLIST_IMAGE_D
 	case NETLIST_SLOT_D:
-		(void) strcpy(name, NVGPU_NETLIST_IMAGE_D);
+		(void) snprintf(name, MAX_NETLIST_NAME, "%s", NVGPU_NETLIST_IMAGE_D);
 		break;
 #endif
 	default:

@@ -438,6 +438,23 @@ int nvgpu_gr_setup_set_preemption_mode(struct nvgpu_channel *ch,
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 
+#if !defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
+	/*
+	 * Remove the following WAR when interface to set TSG timeslice
+	 * nvgpu_tsg_set_timeslice() is supported in safety.
+	 *
+	 * emulating user-space sequence to set preemption mode followed by
+	 * setting tsg timeslice.
+	 */
+	if ((compute_preempt_mode == NVGPU_PREEMPTION_MODE_COMPUTE_CILP) &&
+		(!g->disable_cilp_preemption)) {
+		err = nvgpu_tsg_set_timeslice_for_cilp(tsg);
+		if (err != 0) {
+			nvgpu_err(g, "Failed to set TSG timeslice for CILP");
+		}
+	}
+#endif
+
 	return err;
 
 enable_ch:

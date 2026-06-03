@@ -70,7 +70,7 @@ done:
 static int _clk_progs_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 		struct nv_pmu_boardobj **pmu_obj,
-		u8 idx)
+		u16 idx)
 {
 	struct nv_pmu_clk_clk_prog_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_clk_clk_prog_boardobj_grp_set *)
@@ -98,6 +98,15 @@ int clk_prog_sw_setup(struct gk20a *g)
 
 	nvgpu_log_info(g, " ");
 
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->clk_pmu->clk_progobjs->super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_prog boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_prog boardobjgrp for first time");
+
 	status = nvgpu_boardobjgrp_construct_e255(g,
 			&g->pmu->clk_pmu->clk_progobjs->super);
 	if (status != 0) {
@@ -106,14 +115,11 @@ int clk_prog_sw_setup(struct gk20a *g)
 			status);
 		goto done;
 	}
-
-	pboardobjgrp = &g->pmu->clk_pmu->clk_progobjs->super.super;
 	pclkprogobjs = g->pmu->clk_pmu->clk_progobjs;
 
 	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, CLK_PROG);
-
 	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
-			clk, CLK, clk_prog, CLK_PROG);
+			clk, CLK, clk_prog, CLK_PROP_TOP);
 	if (status != 0) {
 		nvgpu_err(g,
 			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
@@ -622,7 +628,7 @@ static int _clk_prog_1x_master_rail_construct_vf_point(struct gk20a *g,
 		struct nvgpu_clk_pmupstate *pclk,
 		struct clk_prog_1x_master *p1xmaster,
 		struct ctrl_clk_clk_prog_1x_master_vf_entry *p_vf_rail,
-		struct clk_vf_point *p_vf_point_tmp, u8 *p_vf_point_idx)
+		struct clk_vf_point *p_vf_point_tmp, u16 *p_vf_point_idx)
 {
 	struct clk_vf_point *p_vf_point;
 	int status;
@@ -986,12 +992,13 @@ static int vfflatten_prog_1x_master(struct gk20a *g,
 		struct clk_vf_point vf_point;
 		struct clk_vf_point_freq freq;
 		struct clk_vf_point_volt volt;
+		struct clk_vf_point_50_freq vf_point_50;
 	} vf_point_data;
 	int status = 0;
 	u8 step_count;
 	u8 freq_step_size_mhz = 0;
-	u8 vf_point_idx;
-	u8 vf_rail_idx;
+	u16 vf_point_idx;
+	u16 vf_rail_idx;
 
 	(void)clk_domain_idx;
 
@@ -1015,9 +1022,6 @@ static int vfflatten_prog_1x_master(struct gk20a *g,
 
 		p_vf_rail->vf_point_idx_first = vf_point_idx;
 
-		vf_point_data.vf_point.vfe_equ_idx = p_vf_rail->vfe_idx;
-		vf_point_data.vf_point.volt_rail_idx = vf_rail_idx;
-
 		step_count = 0;
 
 		switch (p1xmaster->super.source) {
@@ -1030,11 +1034,13 @@ static int vfflatten_prog_1x_master(struct gk20a *g,
 					freq_step_size_mhz;
 			/* Intentional fall-through.*/
 
+			__attribute__((__fallthrough__));
+
 		case CTRL_CLK_PROG_1X_SOURCE_ONE_SOURCE:
 			vf_point_data.obj.type =
 					CTRL_CLK_CLK_VF_POINT_TYPE_35_FREQ;
-			 do {
-				 vf_point_data.vf_point.pair.freq_mhz =
+			do {
+				vf_point_data.vf_point_50.freqMHz =
 					(u16)(p1xmaster->super.freq_max_mhz -
 					  U16(step_count) *
 					  U16(freq_step_size_mhz));
@@ -1091,11 +1097,11 @@ static int vflookup_prog_1x_master(struct gk20a *g,
 	u32 j;
 	struct ctrl_clk_clk_prog_1x_master_vf_entry
 		*pvfentry;
-	struct clk_vf_point *pvfpoint;
+	struct clk_vf_point_50_freq *pvfpoint;
 	struct nvgpu_clk_progs *pclkprogobjs;
 	struct clk_prog_1x_master_ratio *p1xmasterratio;
 	u16 clkmhz;
-	u32 voltuv;
+	s32 voltuv;
 	u8 slaveentrycount;
 	u32 i;
 	struct ctrl_clk_clk_prog_1x_master_ratio_slave_entry *pslaveents;
@@ -1154,53 +1160,42 @@ static int vflookup_prog_1x_master(struct gk20a *g,
 		}
 	}
 
-	/* if both volt and clks are zero simply print*/
+	/* if both volt and clks are zero return */
 	if ((*pvoltuv == 0U) && (*pclkmhz == 0U)) {
-		for (j = pvfentry->vf_point_idx_first;
-			j <= pvfentry->vf_point_idx_last; j++) {
-			pvfpoint = get_vf_point_by_idx(pclk, j);
-			nvgpu_err(g, "v %x c %x",
-				pvfpoint->pair.voltage_uv,
-				pvfpoint->pair.freq_mhz);
-		}
 		return -EINVAL;
 	}
 	/* start looking up f for v for v for f */
 	/* looking for volt? */
 	if (*pvoltuv == 0U) {
-		pvfpoint = get_vf_point_by_idx(pclk,
+		pvfpoint = (struct clk_vf_point_50_freq *)get_vf_point_by_idx(pclk,
 				pvfentry->vf_point_idx_last);
 		/* above range? */
-		if (clkmhz > pvfpoint->pair.freq_mhz) {
+		if (clkmhz > pvfpoint->freqMHz)
 			return -EINVAL;
-		}
 
 		for (j = pvfentry->vf_point_idx_last;
 			j >= pvfentry->vf_point_idx_first; j--) {
-			pvfpoint = get_vf_point_by_idx(pclk, j);
-			if (clkmhz <= pvfpoint->pair.freq_mhz) {
-				voltuv = pvfpoint->pair.voltage_uv;
-			} else {
+			pvfpoint = (struct clk_vf_point_50_freq *)get_vf_point_by_idx(pclk, j);
+			if (clkmhz <= pvfpoint->freqMHz)
+				voltuv = pvfpoint->voltDeltauv;
+			else
 				break;
-			}
 		}
 	} else {	/* looking for clk? */
 
-		pvfpoint = get_vf_point_by_idx(pclk,
+		pvfpoint = (struct clk_vf_point_50_freq *)get_vf_point_by_idx(pclk,
 				pvfentry->vf_point_idx_first);
 		/* below range? */
-		if (voltuv < pvfpoint->pair.voltage_uv) {
+		if (voltuv < pvfpoint->voltDeltauv)
 			return -EINVAL;
-		}
 
 		for (j = pvfentry->vf_point_idx_first;
 			j <= pvfentry->vf_point_idx_last; j++) {
-			pvfpoint = get_vf_point_by_idx(pclk, j);
-			if (voltuv >= pvfpoint->pair.voltage_uv) {
-				clkmhz = pvfpoint->pair.freq_mhz;
-			} else {
+			pvfpoint = (struct clk_vf_point_50_freq *)get_vf_point_by_idx(pclk, j);
+			if (voltuv >= pvfpoint->voltDeltauv)
+				clkmhz = pvfpoint->freqMHz;
+			else
 				break;
-			}
 		}
 	}
 
@@ -1246,7 +1241,7 @@ static int getfpoints_prog_1x_master(struct gk20a *g,
 
 	struct ctrl_clk_clk_prog_1x_master_vf_entry
 		*pvfentry;
-	struct clk_vf_point *pvfpoint;
+	struct clk_vf_point_50_freq *pvfpoint;
 	struct nvgpu_clk_progs *pclkprogobjs;
 	u8 j;
 	u32 fpointscount = 0;
@@ -1288,8 +1283,8 @@ static int getfpoints_prog_1x_master(struct gk20a *g,
 	}
 	for (j = pvfentry->vf_point_idx_first;
 		j <= pvfentry->vf_point_idx_last; j++) {
-		pvfpoint = get_vf_point_by_idx(pclk, j);
-		**ppfreqpointsinmhz = pvfpoint->pair.freq_mhz;
+		pvfpoint = (struct clk_vf_point_50_freq *)get_vf_point_by_idx(pclk, j);
+		**ppfreqpointsinmhz = pvfpoint->freqMHz;
 		(*ppfreqpointsinmhz)++;
 	}
 done:

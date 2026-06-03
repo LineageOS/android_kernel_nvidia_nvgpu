@@ -29,5 +29,11 @@ int nvgpu_pmu_volt_sw_setup(struct gk20a *g);
 int nvgpu_pmu_volt_pmu_setup(struct gk20a *g);
 void nvgpu_pmu_volt_deinit(struct gk20a *g);
 int nvgpu_pmu_volt_init(struct gk20a *g);
+int nvgpu_pmu_volt_load(struct gk20a *g);
+
+/* Voltage rail functions */
+int nvgpu_volt_rail_get_status(struct gk20a *g, void **pmu_status_buf);
+int nvgpu_volt_rail_get_gpc_voltage(struct gk20a *g, void *pboardobjgrppmu, u32 *gpc_voltage_uv);
+int nvgpu_volt_rail_get_gpm_voltage(struct gk20a *g, void *pboardobjgrppmu, u32 *gpm_voltage_uv);
 
 #endif /* NVGPU_PMU_VOLT_H */

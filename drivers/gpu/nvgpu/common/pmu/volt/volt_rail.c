@@ -14,6 +14,7 @@
 #include "volt.h"
 #include "ucode_volt_inf.h"
 #include "volt_rail.h"
+#include <common/pmu/clk/ucode_clk_inf.h>
 
 #define NV_PMU_PERF_RPC_VFE_EQU_MONITOR_COUNT_MAX                            16U
 
@@ -277,7 +278,7 @@ static int volt_get_volt_rail_table(struct gk20a *g,
 
 static int volt_rail_devgrp_pmudata_instget(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp, struct nv_pmu_boardobj
-	**pmu_obj, u8 idx)
+	**pmu_obj, u16 idx)
 {
 	struct nv_pmu_volt_volt_rail_boardobj_grp_set *pgrp_set =
 		(struct nv_pmu_volt_volt_rail_boardobj_grp_set *)
@@ -299,7 +300,7 @@ static int volt_rail_devgrp_pmudata_instget(struct gk20a *g,
 
 static int volt_rail_devgrp_pmustatus_instget(struct gk20a *g,
 	void *pboardobjgrppmu, struct nv_pmu_boardobj_query
-	**obj_pmu_status, u8 idx)
+	**obj_pmu_status, u16 idx)
 {
 	struct nv_pmu_volt_volt_rail_boardobj_grp_get_status *pgrp_get_status =
 		(struct nv_pmu_volt_volt_rail_boardobj_grp_get_status *)
@@ -365,7 +366,7 @@ static int volt_rail_boardobj_grp_get_status(struct gk20a *g)
 	struct pmu_board_obj *obj = NULL;
 	struct nv_pmu_boardobj_query *pboardobjpmustatus = NULL;
 	int status;
-	u8 index;
+	u16 index;
 
 	nvgpu_log_info(g, " ");
 
@@ -376,7 +377,12 @@ static int volt_rail_boardobj_grp_get_status(struct gk20a *g)
 		nvgpu_err(g, "err getting boardobjs from pmu");
 		return status;
 	}
+
 	pboardobjgrppmu = pboardobjgrp->pmu.getstatus.buf;
+
+	if (pboardobjgrppmu == NULL) {
+		return -EINVAL;
+	}
 
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*, obj, index) {
 		status = pboardobjgrp->pmustatusinstget(g,
@@ -402,9 +408,18 @@ int volt_rail_sw_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct voltage_rail *pvolt_rail;
 	struct voltage_rail_3x *pvolt_rail_3x;
-	u8 i;
+	u16 i;
 
 	nvgpu_log_info(g, " ");
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "volt_rail boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing volt_rail boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails);
@@ -467,7 +482,7 @@ int volt_rail_sw_setup(struct gk20a *g)
 		}
 	} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
 		pboardobjgrp->pmudatainstget = volt_rail_devgrp_pmudata_instget_3x;
-		pboardobjgrp->pmustatusinstget = volt_rail_devgrp_pmustatus_instget;
+		pboardobjgrp->pmustatusinstget = volt_rail_devgrp_pmustatus_instget_3x;
 		pboardobjgrp->pmuhdrdatainit = volt_rail_devgrp_pmu_hdr_data_init_3x;
 
 		status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
@@ -573,6 +588,7 @@ static int volt_rail_volt_dev_register_1x(struct gk20a *g, struct voltage_rail
 	*pvolt_rail, u8 volt_dev_idx, u8 operation_type)
 {
 	int status = 0;
+	(void)g;
 
 	if (operation_type == CTRL_VOLT_DEVICE_OPERATION_TYPE_DEFAULT) {
 		if (pvolt_rail->volt_dev_idx_default ==
@@ -673,7 +689,7 @@ int nvgpu_pmu_volt_get_vmin_vmax_ps35(struct gk20a *g, u32 *vmin_uv, u32 *vmax_u
 	struct voltage_rail *volt_rail = NULL;
 	struct voltage_rail_3x *volt_rail_3x = NULL;
 	int status;
-	u8 index;
+	u16 index;
 
 	status = volt_rail_boardobj_grp_get_status(g);
 	if (status != 0) {
@@ -706,6 +722,7 @@ int nvgpu_pmu_volt_get_vmin_vmax_ps35(struct gk20a *g, u32 *vmin_uv, u32 *vmax_u
 				(volt_rail_3x->max_limitu_v != 0U)) {
 				*vmin_uv = volt_rail_3x->vmin_limitu_v;
 				*vmax_uv = volt_rail_3x->max_limitu_v;
+
 				return status;
 			}
 		} else {
@@ -723,7 +740,7 @@ int nvgpu_pmu_volt_get_curr_volt_ps35(struct gk20a *g, u32 *vcurr_uv)
 	struct voltage_rail *volt_rail = NULL;
 	struct voltage_rail_3x *volt_rail_3x = NULL;
 	int status;
-	u8 index;
+	u16 index;
 
 	status = volt_rail_boardobj_grp_get_status(g);
 	if (status != 0) {
@@ -764,11 +781,12 @@ u8 nvgpu_pmu_volt_get_vmargin_ps35(struct gk20a *g)
 	struct pmu_board_obj *obj = NULL;
 	struct voltage_rail *volt_rail = NULL;
 	struct voltage_rail_3x *volt_rail_3x = NULL;
-	u8 index, vmargin_uv;
+	u16 index, vmargin_uv;
 
 	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
 
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj *, obj, index) {
+
 		if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
 			volt_rail = (struct voltage_rail *)(void *)obj;
 			if (volt_rail->volt_margin_limit_vfe_equ_idx != 255U) {
@@ -777,7 +795,8 @@ u8 nvgpu_pmu_volt_get_vmargin_ps35(struct gk20a *g)
 			}
 		} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
 			volt_rail_3x = (struct voltage_rail_3x *)(void *)obj;
-			if (volt_rail_3x->volt_margin_limit_vfe_equ_idx != 255U) {
+			if (volt_rail_3x->volt_margin_limit_vfe_equ_idx !=
+					NV2080_CTRL_PERF_VFE_EQU_INDEX_INVALID) {
 				vmargin_uv = volt_rail_3x->volt_margin_limit_vfe_equ_idx;
 				return vmargin_uv;
 			}
@@ -786,6 +805,56 @@ u8 nvgpu_pmu_volt_get_vmargin_ps35(struct gk20a *g)
 			return 0U;
 		}
 	}
+
 	return 0U;
+}
+
+/**
+ * Helper function to get voltage limits for a specific rail
+ *
+ * @param g: GPU context
+ * @param rail_idx: Rail index (0=GPC, 1=GPM)
+ * @param vmin_uv: Output minimum voltage
+ * @param vmax_uv: Output maximum voltage
+ * @return: 0 on success, error code on failure
+ */
+int nvgpu_volt_rail_get_limits(struct gk20a *g, u8 rail_idx,
+			       u32 *vmin_uv, u32 *vmax_uv)
+{
+	struct boardobjgrp *pboardobjgrp;
+	struct pmu_board_obj *obj = NULL;
+	u16 index;
+	u32 rail_version = 0;
+	int err;
+
+	if (!vmin_uv || !vmax_uv)
+		return -EINVAL;
+
+	/* Call comprehensive status update to refresh data from PMU and update local objects */
+	err = volt_rail_boardobj_grp_get_status(g);
+	if (err != 0)
+		return err;
+
+	rail_version = g->pmu->volt->volt_metadata->volt_rail_metadata.version;
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
+
+	/* Find specific rail by index */
+	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*, obj, index) {
+		if (index == rail_idx) {
+			if (rail_version == 0x10U) {
+				struct voltage_rail *volt_rail = (struct voltage_rail *)(void *)obj;
+				*vmin_uv = volt_rail->vmin_limitu_v;
+				*vmax_uv = volt_rail->max_limitu_v;
+			} else if (rail_version == 0x30U) {
+				struct voltage_rail_3x *volt_rail_3x =
+					(struct voltage_rail_3x *)(void *)obj;
+				*vmin_uv = volt_rail_3x->vmin_limitu_v;
+				*vmax_uv = volt_rail_3x->max_limitu_v;
+			}
+			return 0;
+		}
+	}
+
+	return -ENOENT; /* Rail not found */
 }
 

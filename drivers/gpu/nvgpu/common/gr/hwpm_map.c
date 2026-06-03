@@ -77,7 +77,7 @@ static int map_cmp(const void *a, const void *b)
 	return 0;
 }
 
-static int add_ctxsw_buffer_map_entries_pmsys(
+int add_ctxsw_buffer_map_entries_pmsys(
 	struct ctxsw_buf_offset_map_entry *map,
 	struct netlist_aiv_list *regs,	u32 *count, u32 *offset,
 	u32 max_cnt, u32 base, u32 mask)
@@ -105,7 +105,7 @@ static int add_ctxsw_buffer_map_entries_pmsys(
 	return 0;
 }
 
-static int add_ctxsw_buffer_map_entries_pmgpc(struct gk20a *g,
+int add_ctxsw_buffer_map_entries_pmgpc(struct gk20a *g,
 					struct ctxsw_buf_offset_map_entry *map,
 					struct netlist_aiv_list *regs,
 					u32 *count, u32 *offset,
@@ -147,7 +147,7 @@ static int add_ctxsw_buffer_map_entries_pmgpc(struct gk20a *g,
 	return 0;
 }
 
-static int add_ctxsw_buffer_map_entries(struct ctxsw_buf_offset_map_entry *map,
+int add_ctxsw_buffer_map_entries(struct ctxsw_buf_offset_map_entry *map,
 					struct netlist_aiv_list *regs,
 					u32 *count, u32 *offset,
 					u32 max_cnt, u32 base, u32 mask)
@@ -222,68 +222,82 @@ int add_ctxsw_buffer_map_entries_subunits(
 	return 0;
 }
 
-static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
+int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
 					struct ctxsw_buf_offset_map_entry *map,
 					u32 *count, u32 *offset, u32 max_cnt,
 					struct nvgpu_gr_config *config)
 {
 	u32 num_gpcs = nvgpu_gr_config_get_gpc_count(config);
-	u32 num_ppcs, num_tpcs, gpc_num, base;
+	u32 num_ppcs, num_tpcs, gpc_num, base, router_channel_stride;
 	u32 gpc_base = nvgpu_get_litter_value(g, GPU_LIT_GPC_BASE);
 	u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
 	u32 ppc_in_gpc_base = nvgpu_get_litter_value(g, GPU_LIT_PPC_IN_GPC_BASE);
 	u32 ppc_in_gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_PPC_IN_GPC_STRIDE);
 	u32 tpc_in_gpc_base = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_BASE);
 	u32 tpc_in_gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_STRIDE);
+	u32 ctx_switched_pma_channels = g->num_ctx_switched_pma_channels;
+	u32 i;
 
 	for (gpc_num = 0; gpc_num < num_gpcs; gpc_num++) {
-		num_tpcs = nvgpu_gr_config_get_gpc_tpc_count(config, gpc_num);
-		base = gpc_base + (gpc_stride * gpc_num) + tpc_in_gpc_base;
-		if (add_ctxsw_buffer_map_entries_subunits(map,
-					nvgpu_netlist_get_pm_tpc_ctxsw_regs(g),
-					count, offset, max_cnt, base,
-					num_tpcs, ~U32(0U), tpc_in_gpc_stride,
-					(tpc_in_gpc_stride - 1U)) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_pm_tpc_ctxsw_regs(g)->count > 0U) {
+			num_tpcs = nvgpu_gr_config_get_gpc_tpc_count(config, gpc_num);
+			base = gpc_base + (gpc_stride * gpc_num) + tpc_in_gpc_base;
+			if (add_ctxsw_buffer_map_entries_subunits(map,
+						nvgpu_netlist_get_pm_tpc_ctxsw_regs(g),
+						count, offset, max_cnt, base,
+						num_tpcs, ~U32(0U), tpc_in_gpc_stride,
+						(tpc_in_gpc_stride - 1U)) != 0) {
+				return -EINVAL;
+			}
 		}
 
-		num_ppcs = nvgpu_gr_config_get_gpc_ppc_count(config, gpc_num);
-		base = gpc_base + (gpc_stride * gpc_num) + ppc_in_gpc_base;
-		if (add_ctxsw_buffer_map_entries_subunits(map,
-					nvgpu_netlist_get_pm_ppc_ctxsw_regs(g),
-					count, offset, max_cnt, base, num_ppcs,
-					~U32(0U), ppc_in_gpc_stride,
-					(ppc_in_gpc_stride - 1U)) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_pm_ppc_ctxsw_regs(g)->count > 0U) {
+			num_ppcs = nvgpu_gr_config_get_gpc_ppc_count(config, gpc_num);
+			base = gpc_base + (gpc_stride * gpc_num) + ppc_in_gpc_base;
+			if (add_ctxsw_buffer_map_entries_subunits(map,
+						nvgpu_netlist_get_pm_ppc_ctxsw_regs(g),
+						count, offset, max_cnt, base, num_ppcs,
+						~U32(0U), ppc_in_gpc_stride,
+						(ppc_in_gpc_stride - 1U)) != 0) {
+				return -EINVAL;
+			}
 		}
 
-		base = gpc_base + (gpc_stride * gpc_num);
-		if (add_ctxsw_buffer_map_entries_pmgpc(g, map,
-					nvgpu_netlist_get_pm_gpc_ctxsw_regs(g),
-					count, offset, max_cnt, base,
-					(gpc_stride - 1U)) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_pm_gpc_ctxsw_regs(g)->count > 0U) {
+			base = gpc_base + (gpc_stride * gpc_num);
+			if (add_ctxsw_buffer_map_entries_pmgpc(g, map,
+						nvgpu_netlist_get_pm_gpc_ctxsw_regs(g),
+						count, offset, max_cnt, base,
+						(gpc_stride - 1U)) != 0) {
+				return -EINVAL;
+			}
 		}
 
-		base = (g->ops.gr.ctxsw_prog.hw_get_pm_gpc_gnic_stride(g)) * gpc_num;
-		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_pm_ucgpc_entries_to_map(g, map,
-				nvgpu_netlist_get_pm_ucgpc_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_pm_ucgpc_ctxsw_regs(g)->count > 0U) {
+			base = (g->ops.gr.ctxsw_prog.hw_get_pm_gpc_gnic_stride(g)) * gpc_num;
+			if (g->ops.gr.hwpm_map.add_ctxsw_buffer_pm_ucgpc_entries_to_map(g, map,
+					nvgpu_netlist_get_pm_ucgpc_ctxsw_regs(g),
+					count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
+				return -EINVAL;
+			}
 		}
 
-		base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
-		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
-				nvgpu_netlist_get_perf_gpc_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_perf_gpc_ctxsw_regs(g)->count > 0U) {
+			base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
+			if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
+					nvgpu_netlist_get_perf_gpc_ctxsw_regs(g),
+					count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
+				return -EINVAL;
+			}
 		}
 
-		base = (g->ops.perf.get_pmmgpcrouter_per_chiplet_offset() * gpc_num);
-		if (add_ctxsw_buffer_map_entries(map,
-				nvgpu_netlist_get_gpc_router_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U)) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_gpc_router_ctxsw_regs(g)->count > 0U) {
+			base = (g->ops.perf.get_pmmgpcrouter_per_chiplet_offset() * gpc_num);
+			if (add_ctxsw_buffer_map_entries(map,
+					nvgpu_netlist_get_gpc_router_ctxsw_regs(g),
+					count, offset, max_cnt, base, ~U32(0U)) != 0) {
+				return -EINVAL;
+			}
 		}
 
 		/* Counter Aggregation Unit, if available */
@@ -299,16 +313,56 @@ static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
 			}
 		}
 
+		/*
+		 * The ucode was modified in GB20X for RM Bug 4536781 to support
+		 * dynamic TPC disablement. This is applicable to GB20Y as well.
+		 * During image size calculations, the ucode now uses the maximum
+		 * number of TPCs (rather than the count after floorsweeping).
+		 * This also affects the layout of the ctx offset buffer, increasing
+		 * padding to the next section by reglistCount * (MAX_NUM_TPCS - tpcCount).
+		 * This extra padding is added back here for each affected list.
+		 *
+		 * num_tpcs is the number of tpc accounting for FS.
+		 * DTD - Dynamic TPC disablement
+		 */
+		if (g->ops.gr.hwpm_map.add_padding_for_dtdtpc_support != NULL) {
+			if (g->ops.gr.hwpm_map.add_padding_for_dtdtpc_support(g,
+				nvgpu_netlist_get_pm_tpc_ctxsw_regs(g), offset, num_tpcs) != 0) {
+					return -EINVAL;
+			}
+			if (g->ops.gr.hwpm_map.add_padding_for_dtdtpc_support(g,
+				nvgpu_netlist_get_pm_cau_ctxsw_regs(g), offset, num_tpcs) != 0) {
+					return -EINVAL;
+			}
+		}
 		*offset = NVGPU_ALIGN(*offset, 256U);
 
-		base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
-		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
-				nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
-			return -EINVAL;
+		if (nvgpu_netlist_get_gpc_router_user_channel_ctxsw_regs(g)->count > 0) {
+			//Router channel stride is same for sys,gpc and fbp partition.
+			for (i = 0; i < ctx_switched_pma_channels; i++) {
+				router_channel_stride =  g->ops.perf.get_sysrouter_channel_stride();
+				base =
+				(g->ops.perf.get_pmmgpcrouter_per_chiplet_offset() * gpc_num);
+				if (add_ctxsw_buffer_map_entries(map,
+					nvgpu_netlist_get_gpc_router_user_channel_ctxsw_regs(g),
+					count, offset, max_cnt, base + (i * router_channel_stride),
+					~U32(0U)) != 0) {
+					return -EINVAL;
+				}
+				*offset = NVGPU_ALIGN(*offset, 256U);
+			}
 		}
 
-		*offset = NVGPU_ALIGN(*offset, 256U);
+		if (nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(g)->count > 0U) {
+			base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
+			if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
+					nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(g),
+					count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
+				return -EINVAL;
+			}
+			*offset = NVGPU_ALIGN(*offset, 256U);
+		}
+
 	}
 	return 0;
 }
@@ -390,14 +444,6 @@ int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 	u32 i, count = 0;
 	u32 offset = 0;
 	int ret;
-	u32 active_fbpa_mask;
-	u32 current_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
-	u32 num_fbps = nvgpu_grmgr_get_gr_num_fbps(g, current_gr_instance_id);
-	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
-	u32 num_fbpas = nvgpu_get_litter_value(g, GPU_LIT_NUM_FBPAS);
-	u32 fbpa_stride = nvgpu_get_litter_value(g, GPU_LIT_FBPA_STRIDE);
-	u32 num_ltc = g->ops.top.get_max_ltc_per_fbp(g) *
-		      g->ops.priv_ring.get_fbp_count(g);
 
 	if (hwpm_ctxsw_buffer_size == 0U) {
 		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
@@ -413,139 +459,30 @@ int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 		return -ENOMEM;
 	}
 
-	/* Add entries from _LIST_pm_ctx_reg_SYS */
-	if (add_ctxsw_buffer_map_entries_pmsys(map,
-		nvgpu_netlist_get_pm_sys_ctxsw_regs(g),
-		&count, &offset, hwpm_ctxsw_reg_count_max, 0, ~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_nv_perf_ctx_reg_SYS */
-	if (add_ctxsw_buffer_map_entries(map,
-		nvgpu_netlist_get_perf_sys_ctxsw_regs(g),
-		&count, &offset, hwpm_ctxsw_reg_count_max, 0, ~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_nv_perf_sysrouter_ctx_reg*/
-	if (add_ctxsw_buffer_map_entries(map,
-		nvgpu_netlist_get_perf_sys_router_ctxsw_regs(g),
-		&count, &offset, hwpm_ctxsw_reg_count_max, 0, ~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_nv_perf_sys_control_ctx_reg*/
-	if (nvgpu_netlist_get_perf_sys_control_ctxsw_regs(g)->count > 0U) {
-		offset = NVGPU_ALIGN(offset, 256U);
-
-		ret = add_ctxsw_buffer_map_entries(map,
-			nvgpu_netlist_get_perf_sys_control_ctxsw_regs(g),
-			&count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, ~U32(0U));
+	if (g->ops.gr.hwpm_map.add_reg_in_fecs_to_map != NULL) {
+		ret = g->ops.gr.hwpm_map.add_reg_in_fecs_to_map(g, map, &count, &offset,
+				hwpm_ctxsw_reg_count_max);
 		if (ret != 0) {
 			goto cleanup;
 		}
 	}
 
-	if (g->ops.gr.hwpm_map.align_regs_perf_pma) {
-		g->ops.gr.hwpm_map.align_regs_perf_pma(&offset);
-	}
-
-	/* Add entries from _LIST_nv_perf_pma_ctx_reg*/
-	ret = add_ctxsw_buffer_map_entries(map,
-		nvgpu_netlist_get_perf_pma_ctxsw_regs(g), &count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, ~U32(0U));
-	if (ret != 0) {
-		goto cleanup;
-	}
-
 	offset = NVGPU_ALIGN(offset, 256U);
 
-	/* Add entries from _LIST_nv_perf_pma_control_ctx_reg*/
-	ret = add_ctxsw_buffer_map_entries(map,
-		nvgpu_netlist_get_perf_pma_control_ctxsw_regs(g), &count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, ~U32(0U));
-	if (ret != 0) {
-		goto cleanup;
-	}
-
-	offset = NVGPU_ALIGN(offset, 256U);
-
-	/* Add entries from _LIST_nv_perf_fbp_ctx_regs */
-	if (add_ctxsw_buffer_map_entries_subunits(map,
-		nvgpu_netlist_get_fbp_ctxsw_regs(g), &count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, num_fbps, ~U32(0U),
-			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_nv_perf_fbprouter_ctx_regs */
-	if (add_ctxsw_buffer_map_entries_subunits(map,
-			nvgpu_netlist_get_fbp_router_ctxsw_regs(g),
-			&count, &offset, hwpm_ctxsw_reg_count_max, 0,
-			num_fbps, ~U32(0U), g->ops.perf.get_pmmfbprouter_per_chiplet_offset(),
-			~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	if (g->ops.gr.hwpm_map.get_active_fbpa_mask) {
-		active_fbpa_mask = g->ops.gr.hwpm_map.get_active_fbpa_mask(g);
-	} else {
-		active_fbpa_mask = ~U32(0U);
-	}
-
-	/* Add entries from _LIST_nv_pm_fbpa_ctx_regs */
-	if (add_ctxsw_buffer_map_entries_subunits(map,
-			nvgpu_netlist_get_pm_fbpa_ctxsw_regs(g),
-			&count, &offset, hwpm_ctxsw_reg_count_max, 0,
-			num_fbpas, active_fbpa_mask, fbpa_stride, ~U32(0U))
-				!= 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_nv_pm_rop_ctx_regs */
-	if (add_ctxsw_buffer_map_entries(map,
-		nvgpu_netlist_get_pm_rop_ctxsw_regs(g), &count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, ~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	/* Add entries from _LIST_compressed_nv_pm_ltc_ctx_regs */
-	if (add_ctxsw_buffer_map_entries_subunits(map,
-			nvgpu_netlist_get_pm_ltc_ctxsw_regs(g), &count, &offset,
-			hwpm_ctxsw_reg_count_max, 0, num_ltc, ~U32(0U),
-			ltc_stride, ~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	if (g->ops.gr.hwpm_map.add_ctxsw_buffer_lrcc_entries_to_map != NULL) {
-		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_lrcc_entries_to_map(g,
-				map, nvgpu_netlist_get_pm_lrcc_ctxsw_regs(g),
-				&count, &offset,
-				hwpm_ctxsw_reg_count_max, num_ltc) != 0) {
+	if (g->ops.gr.hwpm_map.add_reg_in_gpccs_to_map != NULL) {
+		ret = g->ops.gr.hwpm_map.add_reg_in_gpccs_to_map(g, map, &count, &offset,
+				hwpm_ctxsw_reg_count_max, config);
+		if (ret != 0) {
 			goto cleanup;
 		}
 	}
 
-	offset = NVGPU_ALIGN(offset, 256U);
-
-	/* Add entries from _LIST_nv_perf_fbp_control_ctx_regs */
-	if (add_ctxsw_buffer_map_entries_subunits(map,
-			nvgpu_netlist_get_perf_fbp_control_ctxsw_regs(g),
-			&count, &offset, hwpm_ctxsw_reg_count_max, 0,
-			num_fbps, ~U32(0U),
-			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			~U32(0U)) != 0) {
-		goto cleanup;
-	}
-
-	offset = NVGPU_ALIGN(offset, 256U);
-
-	/* Add GPC entries */
-	if (add_ctxsw_buffer_map_entries_gpcs(g, map, &count, &offset,
-			hwpm_ctxsw_reg_count_max, config) != 0) {
-		goto cleanup;
+	if (g->ops.gr.hwpm_map.add_hes_reg_to_map != NULL) {
+		ret = g->ops.gr.hwpm_map.add_hes_reg_to_map(g, map, &count, &offset,
+				hwpm_ctxsw_reg_count_max);
+		if (ret != 0) {
+			goto cleanup;
+		}
 	}
 
 	if (offset > hwpm_ctxsw_buffer_size) {

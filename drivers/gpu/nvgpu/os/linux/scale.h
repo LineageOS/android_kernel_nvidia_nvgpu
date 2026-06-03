@@ -29,6 +29,13 @@ void gk20a_scale_init(struct device *);
 void gk20a_scale_exit(struct device *);
 void gk20a_scale_hw_init(struct device *dev);
 
+/* OPP functions for device tree-based frequency management */
+int gk20a_tegra_init_opp_table(struct device *dev);
+void gk20a_tegra_cleanup_opp_table(struct device *dev);
+int gk20a_tegra_get_clk_freqs_from_opp(struct device *dev,
+				       unsigned long **freqs,
+				       int *num_freqs);
+
 #if defined(CONFIG_GK20A_DEVFREQ)
 /*
  * call when performing submit to notify scaling mechanism that the module is

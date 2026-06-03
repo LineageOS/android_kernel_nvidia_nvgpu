@@ -348,8 +348,13 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 			 * No need to set clvc_offset_source and accumulator_pwm_source in ptmp_dev
 			 * because b_clvc_hw_offset_support is 0 in VBIOS
 			 */
-			ptmp_dev->raw_period =
-				g->ops.clk.get_crystal_clk_hz(g) / frequency_hz;
+
+			/*
+			 * TODO: Use XTAL clock to calculate raw_period because it was used in Tu104
+			 * and it matches with N1C bios dump. Change to the proper clock source after
+			 * we have confirmation from RM team.
+			 */
+			ptmp_dev->raw_period = (XTAL4X_KHZ * 1000) / frequency_hz;
 			if (ptmp_dev->raw_period == 0) {
 				nvgpu_err(g, "Invalid raw_period = %d", ptmp_dev->raw_period);
 				status = -EINVAL;
@@ -492,7 +497,7 @@ done:
 
 static int volt_device_devgrp_pmudata_instget(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-	struct nv_pmu_boardobj **pmu_obj, u8 idx)
+	struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_volt_volt_device_boardobj_grp_set *pgrp_set =
 		(struct nv_pmu_volt_volt_device_boardobj_grp_set *)
@@ -591,9 +596,18 @@ int volt_dev_sw_setup(struct gk20a *g)
 	int status = 0;
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct voltage_device *pvolt_device;
-	u8 i;
+	u16 i;
 
 	nvgpu_log_info(g, " ");
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_dev_metadata.volt_devices.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "volt_dev boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing volt_dev boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->volt->volt_metadata->volt_dev_metadata.volt_devices);
@@ -603,8 +617,6 @@ int volt_dev_sw_setup(struct gk20a *g)
 			"status - 0x%x", status);
 		goto done;
 	}
-
-	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_dev_metadata.volt_devices.super;
 
 	pboardobjgrp->pmudatainstget  = volt_device_devgrp_pmudata_instget;
 

@@ -149,7 +149,12 @@ static u32 nvgpu_runlist_append_prio(struct nvgpu_fifo *f,
 			if (entries == RUNLIST_APPEND_FAILURE) {
 				return RUNLIST_APPEND_FAILURE;
 			}
-			count += entries;
+
+			if (nvgpu_safe_add_u32_return(count, entries,
+							&count) == false) {
+				nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+				return RUNLIST_APPEND_FAILURE;
+			}
 		}
 	}
 
@@ -198,14 +203,24 @@ static u32 nvgpu_runlist_append_med(struct nvgpu_fifo *f,
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 
 		entries = nvgpu_runlist_append_tsg(f->g, domain,
 				runlist_entry, entries_left, tsg);
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 	}
 
 	return count;
@@ -237,21 +252,36 @@ static u32 nvgpu_runlist_append_low(struct nvgpu_fifo *f,
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 
 		entries = nvgpu_runlist_append_hi(f, domain,
 				runlist_entry, entries_left);
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 
 		entries = nvgpu_runlist_append_tsg(f->g, domain,
 				runlist_entry, entries_left, tsg);
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 	}
 
 	if (count == 0U) {
@@ -290,7 +320,12 @@ static u32 nvgpu_runlist_append_flat(struct nvgpu_fifo *f,
 		if (entries == RUNLIST_APPEND_FAILURE) {
 			return RUNLIST_APPEND_FAILURE;
 		}
-		count += entries;
+
+		if (nvgpu_safe_add_u32_return(count, entries,
+						&count) == false) {
+			nvgpu_err(f->g, "Runlist entry count overflow prevented in append_med");
+			return RUNLIST_APPEND_FAILURE;
+		}
 	}
 
 	return count;

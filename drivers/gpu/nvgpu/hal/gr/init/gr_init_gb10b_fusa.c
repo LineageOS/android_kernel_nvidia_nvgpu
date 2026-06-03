@@ -10,6 +10,7 @@
 #include <nvgpu/gr/ctx_mappings.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr_instances.h>
+#include <nvgpu/gr/gr_falcon.h>
 
 #include "nvgpu/gr/gr_utils.h"
 
@@ -587,36 +588,20 @@ void gb10b_gr_init_fs_state(struct gk20a *g)
 
 void gb10b_gr_init_override_context_reset(struct gk20a *g)
 {
-	nvgpu_writel(g, gr_fecs_ctxsw_reset_ctl_r(),
-			gr_fecs_ctxsw_reset_ctl_sys_halt_disabled_f() |
-			gr_fecs_ctxsw_reset_ctl_sys_engine_reset_disabled_f() |
-			gr_fecs_ctxsw_reset_ctl_sys_context_reset_enabled_f());
+	int err;
 
-	nvgpu_writel(g, gr_gpccs_ctxsw_reset_ctl_r(),
-			gr_gpccs_ctxsw_reset_ctl_gpc_halt_disabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_gpc_reset_disabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_gpc_context_reset_enabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_zcull_reset_enabled_f());
-
-	nvgpu_udelay(FECS_CTXSW_RESET_DELAY_US);
-	(void) nvgpu_readl(g, gr_fecs_ctxsw_reset_ctl_r());
-	(void) nvgpu_readl(g, gr_gpccs_ctxsw_reset_ctl_r());
-
-	/* Deassert reset */
-	nvgpu_writel(g, gr_fecs_ctxsw_reset_ctl_r(),
-			gr_fecs_ctxsw_reset_ctl_sys_halt_disabled_f() |
-			gr_fecs_ctxsw_reset_ctl_sys_engine_reset_disabled_f() |
-			gr_fecs_ctxsw_reset_ctl_sys_context_reset_disabled_f());
-
-	nvgpu_writel(g, gr_gpccs_ctxsw_reset_ctl_r(),
-			gr_gpccs_ctxsw_reset_ctl_gpc_halt_disabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_gpc_reset_disabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_gpc_context_reset_disabled_f() |
-			gr_gpccs_ctxsw_reset_ctl_zcull_reset_disabled_f());
-
-	nvgpu_udelay(FECS_CTXSW_RESET_DELAY_US);
-	(void) nvgpu_readl(g, gr_fecs_ctxsw_reset_ctl_r());
-	(void) nvgpu_readl(g, gr_gpccs_ctxsw_reset_ctl_r());
+	/*
+	 * FECS/GPCCS context_reset doesn't work via PRIV writes if the PLM is
+	 * updated by FECS during golden save. This reset is required to be
+	 * done during subsequent golden save during GR recovery sequence.
+	 * This reset can be achieved through FECS using the method
+	 * NVGPU_PRI_FECS_METHOD_PUSH_ADR_CONTEXT_RESET.
+	 */
+	err = g->ops.gr.falcon.ctrl_ctxsw(g,
+		NVGPU_PRI_FECS_METHOD_PUSH_ADR_CONTEXT_RESET, 0, NULL);
+	if (err != 0) {
+		nvgpu_err(g, "ctxsw method context_reset failed - %d", err);
+	}
 }
 
 void gb10b_gr_init_detect_sm_arch(struct gk20a *g)

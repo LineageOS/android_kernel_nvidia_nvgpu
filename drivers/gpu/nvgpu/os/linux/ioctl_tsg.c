@@ -228,6 +228,10 @@ static int nvgpu_tsg_bind_scheduling_domain(struct nvgpu_tsg *tsg,
 	}
 
 	err = nvgpu_tsg_bind_domain(tsg, domain);
+	if (err != 0) {
+		nvgpu_err(tsg->g, "failed to bind tsg: (%u) to a scheduling domain",
+			  tsg->tsgid);
+	}
 
 	nvgpu_nvs_domain_put(tsg->g, domain);
 
@@ -541,6 +545,12 @@ static int nvgpu_tsg_ioctl_get_share_token(struct gk20a *g,
 	u64 token = 0;
 	int err;
 
+	if (sizeof(args->share_token) <
+		(sizeof(source_device_instance_id) + sizeof(token))) {
+		nvgpu_err(g, "Invalid size of TSG share token");
+		return -EINVAL;
+	}
+
 	if (target_device_instance_id == 0UL) {
 		nvgpu_err(g, "Invalid source/target device instance id");
 		return -EINVAL;
@@ -576,8 +586,7 @@ static int nvgpu_tsg_ioctl_get_share_token(struct gk20a *g,
 	}
 
 	nvgpu_gpu_encode_share_token(g, source_device_instance_id,
-				     token, sizeof(args->share_token),
-				     args->share_token);
+				     token, args->share_token);
 	tsg->share_token_count++;
 
 	nvgpu_mutex_release(&tsg->tsg_share_lock);
@@ -594,8 +603,13 @@ static int nvgpu_tsg_ioctl_revoke_share_token(struct gk20a *g,
 	u64 token = 0UL;
 	int err;
 
+	if (sizeof(args->share_token) <
+		(sizeof(source_device_instance_id) + sizeof(token))) {
+		nvgpu_err(g, "Invalid size of TSG share token");
+		return -EINVAL;
+	}
+
 	nvgpu_gpu_decode_share_token(g, args->share_token,
-				     sizeof(args->share_token),
 				     &source_device_instance_id, &token);
 
 	if ((source_device_instance_id == 0UL) ||
@@ -613,6 +627,11 @@ static int nvgpu_tsg_ioctl_revoke_share_token(struct gk20a *g,
 	}
 
 	nvgpu_mutex_acquire(&tsg->tsg_share_lock);
+
+	if (tsg->share_token_count <= 0U) {
+		nvgpu_err(g, "TSG share token count already zero");
+		return -EINVAL;
+	}
 
 	err = nvgpu_gpu_revoke_share_token(g,
 					source_device_instance_id,
@@ -765,6 +784,7 @@ int nvgpu_ioctl_tsg_dev_release(struct inode *inode, struct file *filp)
 	struct tsg_private *priv = filp->private_data;
 	struct nvgpu_tsg *tsg;
 	struct gk20a *g;
+	int ret = 0;
 #ifdef CONFIG_NVGPU_TSG_SHARING
 	u32 count;
 	int err;
@@ -791,7 +811,14 @@ int nvgpu_ioctl_tsg_dev_release(struct inode *inode, struct file *filp)
 				  err);
 		}
 
-		tsg->share_token_count -= count;
+		if (!nvgpu_safe_sub_u32_return(tsg->share_token_count, count,
+				&tsg->share_token_count)) {
+			nvgpu_err(g, "tsg->share_token_count underflow");
+			nvgpu_mutex_release(&tsg->tsg_share_lock);
+			tsg->share_token_count = 0;
+			ret = -EOVERFLOW;
+			goto out;
+		}
 
 		nvgpu_mutex_release(&tsg->tsg_share_lock);
 
@@ -814,11 +841,13 @@ int nvgpu_ioctl_tsg_dev_release(struct inode *inode, struct file *filp)
 	if (priv->ctrl_priv) {
 		nvgpu_ref_put(&priv->ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
 	}
+
+out:
 	nvgpu_kfree(g, priv);
 
 	nvgpu_put(g);
 
-	return 0;
+	return ret;
 }
 
 static int gk20a_tsg_ioctl_set_runlist_interleave(struct gk20a *g,

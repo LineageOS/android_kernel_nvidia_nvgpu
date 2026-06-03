@@ -162,12 +162,16 @@ int gb10b_fb_set_fbp_mask(struct gk20a *g,
 	u32 index;
 	u32 first_gpu_instance_id = 0U;
 	struct nvgpu_gpu_instance *gpu_instance;
-	u32 max_fbp, fbp_en_mask;
-	u32 tmp_fbp_en_mask, i;
+	u32 fbp_en_mask;
+#ifdef CONFIG_NVGPU_NON_FUSA
+	u32 max_fbp, tmp_fbp_en_mask, i;
 	int err;
+#endif
 
 	fbp_en_mask = nvgpu_fbp_get_fbp_en_mask(g->fbp);
+#ifdef CONFIG_NVGPU_NON_FUSA
 	max_fbp = g->ops.top.get_max_fbps_count(g);
+#endif
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
 		first_gpu_instance_id = 1U;
 	}
@@ -181,15 +185,18 @@ int gb10b_fb_set_fbp_mask(struct gk20a *g,
 			 */
 			if (gpu_instance[index].swizzle_id == 0x1) {
 				gpu_instance[index].fbp_en_mask = fbp_en_mask &
-					~BIT32(nvgpu_safe_sub_u32(nvgpu_fls(fbp_en_mask), 1U));
+					~BIT32(nvgpu_safe_sub_u32(
+						nvgpu_safe_cast_u64_to_u32(nvgpu_fls(fbp_en_mask)), 1U));
 			} else if (gpu_instance[index].swizzle_id == 0x2) {
 				gpu_instance[index].fbp_en_mask =
-					BIT32(nvgpu_safe_sub_u32(nvgpu_fls(fbp_en_mask), 1U));
+					BIT32(nvgpu_safe_sub_u32(
+						nvgpu_safe_cast_u64_to_u32(nvgpu_fls(fbp_en_mask)), 1U));
 			} else {
 				gpu_instance[index].fbp_en_mask = fbp_en_mask;
 			}
 		}
 
+#ifdef CONFIG_NVGPU_NON_FUSA
 		tmp_fbp_en_mask = gpu_instance[index].fbp_en_mask;
 		for (i = 0; i < max_fbp; i++) {
 			if (tmp_fbp_en_mask & 1) {
@@ -206,6 +213,7 @@ int gb10b_fb_set_fbp_mask(struct gk20a *g,
 			nvgpu_err(g, "failed to fetch lts mask");
 			return err;
 		}
+#endif
 	}
 	return 0;
 }

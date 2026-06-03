@@ -49,7 +49,6 @@ static int lpwr_debug_show(struct seq_file *s, void *data)
 	}
 
 	return 0;
-
 }
 
 static int lpwr_debug_open(struct inode *inode, struct file *file)
@@ -107,8 +106,8 @@ static int mscg_stat_show(struct seq_file *s, void *data)
 			residency, pg_stat_data.gating_cnt,
 			pg_stat_data.avg_entry_latency_us,
 			pg_stat_data.avg_exit_latency_us);
-	return 0;
 
+	return 0;
 }
 
 static int mscg_stat_open(struct inode *inode, struct file *file)
@@ -142,8 +141,8 @@ static int mscg_transitions_show(struct seq_file *s, void *data)
 	total_gating_cnt = g->pg_gating_cnt + pg_stat_data.gating_cnt;
 
 	seq_printf(s, "%u\n", total_gating_cnt);
-	return 0;
 
+	return 0;
 }
 
 static int mscg_transitions_open(struct inode *inode, struct file *file)
@@ -200,8 +199,8 @@ static int elpg_stat_show(struct seq_file *s, void *data)
 			residency, pg_stat_data.gating_cnt,
 			pg_stat_data.avg_entry_latency_us,
 			pg_stat_data.avg_exit_latency_us);
-	return 0;
 
+	return 0;
 }
 
 static int elpg_stat_open(struct inode *inode, struct file *file)
@@ -235,8 +234,8 @@ static int elpg_transitions_show(struct seq_file *s, void *data)
 	total_gating_cnt = g->pg_gating_cnt + pg_stat_data.gating_cnt;
 
 	seq_printf(s, "%u\n", total_gating_cnt);
-	return 0;
 
+	return 0;
 }
 
 static int elpg_transitions_open(struct inode *inode, struct file *file)
@@ -293,8 +292,8 @@ static int elpg_ms_stat_show(struct seq_file *s, void *data)
 			residency, pg_stat_data.gating_cnt,
 			pg_stat_data.avg_entry_latency_us,
 			pg_stat_data.avg_exit_latency_us);
-	return 0;
 
+	return 0;
 }
 
 static int elpg_ms_stat_open(struct inode *inode, struct file *file)
@@ -328,6 +327,7 @@ static int elpg_ms_transitions_show(struct seq_file *s, void *data)
 	total_gating_cnt = g->elpg_ms_gating_cnt + pg_stat_data.gating_cnt;
 
 	seq_printf(s, "%u\n", total_gating_cnt);
+
 	return 0;
 }
 
@@ -341,6 +341,378 @@ static const struct file_operations elpg_ms_transitions_fops = {
 	.read           = seq_read,
 	.llseek         = seq_lseek,
 	.release        = single_release,
+};
+
+static int gpc_rg_stat_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u64 total_ingating, total_ungating, residency, divisor, dividend;
+	int err;
+
+	/* Don't unnecessarily power on the device */
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_GR_RG, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_ingating = g->gpc_rg_ingating_time_us +
+			(u64)pg_stat_data.ingating_time;
+	total_ungating = g->gpc_rg_ungating_time_us +
+			(u64)pg_stat_data.ungating_time;
+	divisor = total_ingating + total_ungating;
+
+	/* We compute the residency on a scale of 1000 */
+	dividend = nvgpu_safe_mult_u64(total_ingating, 1000UL);
+
+	if (divisor)
+		residency = div64_u64(dividend, divisor);
+	else
+		residency = 0;
+
+	seq_printf(s,
+			"Time in GPC_RG: %llu us\n"
+			"Time out of GPC_RG: %llu us\n"
+			"GPC_RG residency ratio: %llu\n"
+			"GPC_RG Entry Count: %u\n"
+			"GPC_RG Avg Entry latency %u us\n"
+			"GPC_RG Avg Exit latency %u us\n",
+			total_ingating, total_ungating,
+			residency, pg_stat_data.gating_cnt,
+			pg_stat_data.avg_entry_latency_us,
+			pg_stat_data.avg_exit_latency_us);
+
+	return 0;
+}
+
+static int gpc_rg_stat_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, gpc_rg_stat_show, inode->i_private);
+}
+
+static const struct file_operations gpc_rg_stat_fops = {
+	.open		= gpc_rg_stat_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int gpc_rg_transitions_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u32 total_gating_cnt;
+	int err;
+
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_GR_RG, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_gating_cnt = g->gpc_rg_gating_cnt + pg_stat_data.gating_cnt;
+
+	seq_printf(s, "%u\n", total_gating_cnt);
+
+	return 0;
+}
+
+static int gpc_rg_transitions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, gpc_rg_transitions_show, inode->i_private);
+}
+
+static const struct file_operations gpc_rg_transitions_fops = {
+	.open		= gpc_rg_transitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvdec_elpg_stat_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u64 total_ingating, total_ungating, residency, divisor, dividend;
+	int err;
+
+	/* Don't unnecessarily power on the device */
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_NVDEC, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_ingating = g->nvdec_pg_ingating_time_us +
+			(u64)pg_stat_data.ingating_time;
+	total_ungating = g->nvdec_pg_ungating_time_us +
+			(u64)pg_stat_data.ungating_time;
+	divisor = total_ingating + total_ungating;
+
+	/* We compute the residency on a scale of 1000 */
+	dividend = total_ingating * 1000;
+
+	if (divisor)
+		residency = div64_u64(dividend, divisor);
+	else
+		residency = 0;
+
+	seq_printf(s,
+			"Time in NVDEC_ELPG: %llu us\n"
+			"Time out of NVDEC_ELPG: %llu us\n"
+			"NVDEC_ELPG residency ratio: %llu\n"
+			"NVDEC_ELPG Entry Count: %u\n"
+			"NVDEC_ELPG Avg Entry latency %u us\n"
+			"NVDEC_ELPG Avg Exit latency %u us\n",
+			total_ingating, total_ungating,
+			residency, pg_stat_data.gating_cnt,
+			pg_stat_data.avg_entry_latency_us,
+			pg_stat_data.avg_exit_latency_us);
+
+	return 0;
+}
+
+static int nvdec_elpg_stat_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvdec_elpg_stat_show, inode->i_private);
+}
+
+static const struct file_operations nvdec_elpg_stat_fops = {
+	.open		= nvdec_elpg_stat_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvdec_elpg_transitions_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u32 total_gating_cnt;
+	int err;
+
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_NVDEC, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_gating_cnt = g->nvdec_pg_gating_cnt + pg_stat_data.gating_cnt;
+
+	seq_printf(s, "%u\n", total_gating_cnt);
+
+	return 0;
+}
+
+static int nvdec_elpg_transitions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvdec_elpg_transitions_show, inode->i_private);
+}
+
+static const struct file_operations nvdec_elpg_transitions_fops = {
+	.open		= nvdec_elpg_transitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvenc_elpg_stat_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u64 total_ingating, total_ungating, residency, divisor, dividend;
+	int err;
+
+	/* Don't unnecessarily power on the device */
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_NVENC, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_ingating = g->nvenc_pg_ingating_time_us +
+			(u64)pg_stat_data.ingating_time;
+	total_ungating = g->nvenc_pg_ungating_time_us +
+			(u64)pg_stat_data.ungating_time;
+	divisor = total_ingating + total_ungating;
+
+	/* We compute the residency on a scale of 1000 */
+	dividend = total_ingating * 1000;
+
+	if (divisor)
+		residency = div64_u64(dividend, divisor);
+	else
+		residency = 0;
+
+	seq_printf(s,
+			"Time in NVENC_ELPG: %llu us\n"
+			"Time out of NVENC_ELPG: %llu us\n"
+			"NVENC_ELPG residency ratio: %llu\n"
+			"NVENC_ELPG Entry Count: %u\n"
+			"NVENC_ELPG Avg Entry latency %u us\n"
+			"NVENC_ELPG Avg Exit latency %u us\n",
+			total_ingating, total_ungating,
+			residency, pg_stat_data.gating_cnt,
+			pg_stat_data.avg_entry_latency_us,
+			pg_stat_data.avg_exit_latency_us);
+
+	return 0;
+}
+
+static int nvenc_elpg_stat_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvenc_elpg_stat_show, inode->i_private);
+}
+
+static const struct file_operations nvenc_elpg_stat_fops = {
+	.open		= nvenc_elpg_stat_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int nvenc_elpg_transitions_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u32 total_gating_cnt;
+	int err;
+
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_NVENC, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_gating_cnt = g->nvenc_pg_gating_cnt + pg_stat_data.gating_cnt;
+
+	seq_printf(s, "%u\n", total_gating_cnt);
+
+	return 0;
+}
+
+static int nvenc_elpg_transitions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nvenc_elpg_transitions_show, inode->i_private);
+}
+
+static const struct file_operations nvenc_elpg_transitions_fops = {
+	.open		= nvenc_elpg_transitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int ofa_elpg_stat_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u64 total_ingating, total_ungating, residency, divisor, dividend;
+	int err;
+
+	/* Don't unnecessarily power on the device */
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_OFA, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_ingating = g->ofa_pg_ingating_time_us +
+			(u64)pg_stat_data.ingating_time;
+	total_ungating = g->ofa_pg_ungating_time_us +
+			(u64)pg_stat_data.ungating_time;
+	divisor = total_ingating + total_ungating;
+
+	/* We compute the residency on a scale of 1000 */
+	dividend = total_ingating * 1000;
+
+	if (divisor)
+		residency = div64_u64(dividend, divisor);
+	else
+		residency = 0;
+
+	seq_printf(s,
+			"Time in OFA_ELPG: %llu us\n"
+			"Time out of OFA_ELPG: %llu us\n"
+			"OFA_ELPG residency ratio: %llu\n"
+			"OFA_ELPG Entry Count: %u\n"
+			"OFA_ELPG Avg Entry latency %u us\n"
+			"OFA_ELPG Avg Exit latency %u us\n",
+			total_ingating, total_ungating,
+			residency, pg_stat_data.gating_cnt,
+			pg_stat_data.avg_entry_latency_us,
+			pg_stat_data.avg_exit_latency_us);
+
+	return 0;
+}
+
+static int ofa_elpg_stat_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ofa_elpg_stat_show, inode->i_private);
+}
+
+static const struct file_operations ofa_elpg_stat_fops = {
+	.open		= ofa_elpg_stat_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int ofa_elpg_transitions_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+	struct pmu_pg_stats_data pg_stat_data = { 0 };
+	u32 total_gating_cnt;
+	int err;
+
+	if (nvgpu_is_powered_on(g)) {
+		err = gk20a_busy(g);
+		if (err)
+			return err;
+
+		nvgpu_pmu_get_pg_stats(g,
+			PMU_PG_ELPG_ENGINE_ID_VID_OFA, &pg_stat_data);
+		gk20a_idle(g);
+	}
+	total_gating_cnt = g->ofa_pg_gating_cnt + pg_stat_data.gating_cnt;
+
+	seq_printf(s, "%u\n", total_gating_cnt);
+
+	return 0;
+}
+
+static int ofa_elpg_transitions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ofa_elpg_transitions_show, inode->i_private);
+}
+
+static const struct file_operations ofa_elpg_transitions_fops = {
+	.open		= ofa_elpg_transitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
 };
 
 static int falc_trace_show(struct seq_file *s, void *data)
@@ -388,6 +760,7 @@ static int falc_trace_show(struct seq_file *s, void *data)
 	}
 
 	nvgpu_kfree(g, tracebuffer);
+
 	return 0;
 }
 
@@ -409,8 +782,8 @@ static int perfmon_events_enable_show(struct seq_file *s, void *data)
 
 	seq_printf(s, "%u\n",
 		nvgpu_pmu_perfmon_get_sampling_enable_status(g->pmu) ? 1 : 0);
-	return 0;
 
+	return 0;
 }
 
 static int perfmon_events_enable_open(struct inode *inode, struct file *file)
@@ -480,8 +853,8 @@ static int perfmon_events_count_show(struct seq_file *s, void *data)
 	struct gk20a *g = s->private;
 
 	seq_printf(s, "%llu\n", nvgpu_pmu_perfmon_get_events_count(g->pmu));
-	return 0;
 
+	return 0;
 }
 
 static int perfmon_events_count_open(struct inode *inode, struct file *file)
@@ -559,6 +932,54 @@ int gk20a_pmu_debugfs_init(struct gk20a *g)
 	d = debugfs_create_file(
 		"elpg_ms_transitions", S_IRUGO, l->debugfs, g,
 						&elpg_ms_transitions_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"gpc_rg_residency", S_IRUGO|S_IWUSR, l->debugfs, g,
+						&gpc_rg_stat_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"gpc_rg_transitions", S_IRUGO, l->debugfs, g,
+						&gpc_rg_transitions_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"nvdec_elpg_residency", S_IRUGO|S_IWUSR, l->debugfs, g,
+						&nvdec_elpg_stat_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"nvdec_elpg_transitions", S_IRUGO, l->debugfs, g,
+						&nvdec_elpg_transitions_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"nvenc_elpg_residency", S_IRUGO|S_IWUSR, l->debugfs, g,
+						&nvenc_elpg_stat_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"nvenc_elpg_transitions", S_IRUGO, l->debugfs, g,
+						&nvenc_elpg_transitions_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"ofa_elpg_residency", S_IRUGO|S_IWUSR, l->debugfs, g,
+						&ofa_elpg_stat_fops);
+	if (!d)
+		goto err_out;
+
+	d = debugfs_create_file(
+		"ofa_elpg_transitions", S_IRUGO, l->debugfs, g,
+						&ofa_elpg_transitions_fops);
 	if (!d)
 		goto err_out;
 

@@ -10,6 +10,7 @@
 #include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/soc.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/netlist.h>
 
 #include <nvgpu/dma.h>
 
@@ -27,18 +28,8 @@
 #include <nvgpu_next_firmware.h>
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA)
-#if defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C)
 #define GB10B_FECS_RISCV_UCODE_PKC_SIG             "fecs_riscv_pkc_sig.bin"
 #define GB10B_GPCCS_RISCV_UCODE_PKC_SIG            "gpccs_riscv_pkc_sig.bin"
-#endif
-#endif
-
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
-#define MAX_NETLIST_NAME (sizeof("prod_test_nsr/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
-#else
-#define MAX_NETLIST_NAME (sizeof("safety/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
-#endif
 
 #ifdef CONFIG_NVGPU_LS_PMU
 int nvgpu_acr_lsf_pmu_ucode_details(struct gk20a *g, void *lsf_ucode_img)
@@ -160,12 +151,7 @@ exit:
 struct nvgpu_firmware *nvgpu_acr_lsf_fecs_get_firmware(struct gk20a *g, u32 version)
 {
 	struct nvgpu_firmware *fecs_sig = NULL;
-
-#ifdef CONFIG_NVGPU_NON_FUSA
-#if defined(CONFIG_NVGPU_GB20C) || defined(CONFIG_NVGPU_GB10B)
 	char name[MAX_NETLIST_NAME];
-#endif
-#endif
 
 	switch (version) {
 		case NVGPU_GPUID_GV11B:
@@ -202,14 +188,13 @@ struct nvgpu_firmware *nvgpu_acr_lsf_fecs_get_firmware(struct gk20a *g, u32 vers
 			break;
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-		case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 		case NVGPU_GPUID_GB10B_NEXT:
-#endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#if defined(CONFIG_NVGPU_GB20C)
 		case NVGPU_GPUID_GB20C:
 #endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && (defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C))
+#endif
+		case NVGPU_GPUID_GB10B:
 			if (nvgpu_platform_is_simulation(g)) {
 				fecs_sig = nvgpu_request_firmware(g,
 					GB10B_FECS_RISCV_UCODE_PKC_SIG,
@@ -226,7 +211,6 @@ struct nvgpu_firmware *nvgpu_acr_lsf_fecs_get_firmware(struct gk20a *g, u32 vers
 				}
 			}
 			break;
-#endif
 		default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 			fecs_sig = nvgpu_next_request_fecs_firmware(g);
@@ -364,11 +348,7 @@ rel_sig:
 struct nvgpu_firmware *nvgpu_acr_lsf_gpccs_get_firmware(struct gk20a *g, u32 version)
 {
 	struct nvgpu_firmware *gpccs_sig = NULL;
-#ifdef CONFIG_NVGPU_NON_FUSA
-#if defined(CONFIG_NVGPU_GB20C) || defined(CONFIG_NVGPU_GB10B)
 	char name[MAX_NETLIST_NAME];
-#endif
-#endif
 
 	switch (version) {
 	case NVGPU_GPUID_GV11B:
@@ -405,14 +385,13 @@ struct nvgpu_firmware *nvgpu_acr_lsf_gpccs_get_firmware(struct gk20a *g, u32 ver
 			break;
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-		case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 		case NVGPU_GPUID_GB10B_NEXT:
-#endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#if defined(CONFIG_NVGPU_GB20C)
 		case NVGPU_GPUID_GB20C:
 #endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && (defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C))
+#endif
+		case NVGPU_GPUID_GB10B:
 			if (nvgpu_platform_is_simulation(g)) {
 				gpccs_sig = nvgpu_request_firmware(g,
 					GB10B_GPCCS_RISCV_UCODE_PKC_SIG,
@@ -429,7 +408,6 @@ struct nvgpu_firmware *nvgpu_acr_lsf_gpccs_get_firmware(struct gk20a *g, u32 ver
 				}
 			}
 			break;
-#endif
 		default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 			gpccs_sig = nvgpu_next_request_gpccs_firmware(g);

@@ -85,10 +85,6 @@ struct nvgpu_runlist;
  * Suppress WFI before fence trigger.
  */
 #define NVGPU_SUBMIT_FLAGS_SUPPRESS_WFI			BIT32(4)
-/**
- * Skip buffer refcounting during submit.
- */
-#define NVGPU_SUBMIT_FLAGS_SKIP_BUFFER_REFCOUNTING	BIT32(5)
 
 /**
  * The binary format of 'struct nvgpu_channel_fence' introduced here
@@ -447,11 +443,6 @@ struct nvgpu_channel {
 	struct nvgpu_channel_user_syncpt *user_sync;
 #endif
 
-#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
-	/** Channel handle for vgpu case. */
-	u64 virt_ctx;
-#endif
-
 	/** Channel's subcontext. */
 	struct nvgpu_tsg_subctx *subctx;
 
@@ -583,8 +574,7 @@ u32 nvgpu_channel_update_gpfifo_get_and_get_free_count(
 		struct nvgpu_channel *ch);
 u32 nvgpu_channel_get_gpfifo_free_count(struct nvgpu_channel *ch);
 int nvgpu_channel_add_job(struct nvgpu_channel *c,
-				 struct nvgpu_channel_job *job,
-				 bool skip_buffer_refcounting);
+				 struct nvgpu_channel_job *job);
 void nvgpu_channel_clean_up_jobs(struct nvgpu_channel *c);
 void nvgpu_channel_clean_up_deterministic_job(struct nvgpu_channel *c);
 int nvgpu_submit_channel_gpfifo_user(struct nvgpu_channel *c,

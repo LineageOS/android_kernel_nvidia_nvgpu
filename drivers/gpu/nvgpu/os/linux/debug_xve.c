@@ -21,6 +21,10 @@ static ssize_t xve_link_speed_write(struct file *filp,
 	u32 link_speed = 0;
 	int ret;
 
+	if (g->ops.xve.set_speed == NULL) {
+		return -ENODEV;
+	}
+
 	buff_size = min_t(size_t, 16, len);
 
 	(void) memset(kbuff, 0, 16);
@@ -60,6 +64,10 @@ static int xve_link_speed_show(struct seq_file *s, void *unused)
 	u32 speed;
 	int err;
 
+	if (g->ops.xve.get_speed == NULL) {
+		return -ENODEV;
+	}
+
 	err = g->ops.xve.get_speed(g, &speed);
 	if (err)
 		return err;
@@ -86,6 +94,10 @@ static int xve_available_speeds_show(struct seq_file *s, void *unused)
 {
 	struct gk20a *g = s->private;
 	u32 available_speeds;
+
+	if (g->ops.xve.available_speeds == NULL) {
+		return -ENODEV;
+	}
 
 	g->ops.xve.available_speeds(g, &available_speeds);
 
@@ -116,6 +128,10 @@ static int xve_link_control_status_show(struct seq_file *s, void *unused)
 {
 	struct gk20a *g = s->private;
 	u32 link_status;
+
+	if (g->ops.xve.get_link_control_status == NULL) {
+		return -ENODEV;
+	}
 
 	link_status = g->ops.xve.get_link_control_status(g);
 	seq_printf(s, "0x%08x\n", link_status);

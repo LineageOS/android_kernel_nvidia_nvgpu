@@ -274,7 +274,7 @@ int gb10b_pmu_pg_init_send(struct gk20a *g,
 
 	nvgpu_log_fn(g, " ");
 
-	status = gb10b_pmu_pg_pre_init(g, pmu);
+	status = pmu->pg->pre_init(g, pmu);
 	if (status != 0) {
 		nvgpu_err(g, "Failed to execute PG_PRE_INIT RPC");
 		return status;
@@ -288,31 +288,31 @@ int gb10b_pmu_pg_init_send(struct gk20a *g,
 			pg_engine_id < PMU_PG_ELPG_ENGINE_ID_INVALID_ENGINE;
 			pg_engine_id++) {
 		if ((BIT32(pg_engine_id) & pg_engine_id_list) != 0U) {
-			status = gb10b_pmu_pg_init(g, pmu, pg_engine_id);
+			status = pmu->pg->init(g, pmu, pg_engine_id);
 			if (status != 0) {
 				nvgpu_err(g, "Failed to execute PG_INIT RPC");
 				return status;
 			}
 
-			status = gb10b_pmu_pg_threshold_update(g, pmu, pg_engine_id);
+			status = pmu->pg->pmu_pg_threshold_update(g, pmu, pg_engine_id);
 			if (status != 0) {
 				nvgpu_err(g, "Failed to execute PG_THRESHOLD_UPDATE RPC");
 				return status;
 			}
 
-			if (g->gpcclk_flcg_enabled) {
-				status = gb10b_pmu_pg_sfm_update(g, pmu,
-						pg_engine_id, true);
-			} else {
-				status = gb10b_pmu_pg_sfm_update(g, pmu,
-						pg_engine_id, false);
-			}
+			/* sfm differs for flcg enabled and disabled */
+			status = pmu->pg->pmu_pg_sfm_update(g, pmu,
+					pg_engine_id, g->gpcclk_flcg_enabled);
 			if (status != 0) {
 				nvgpu_err(g, "Failed to execute PG_SFM_UPDATE RPC");
 				return status;
 			}
 		}
 	}
+
+	nvgpu_pmu_fw_state_change(g, pmu,
+			PMU_FW_STATE_ELPG_BOOTED, true);
+
 	if (pmu->pg->priv_blocker_init != NULL) {
 		status = pmu->pg->priv_blocker_init(g, pmu);
 		if (status != 0) {
@@ -360,7 +360,7 @@ int gb10b_pmu_pg_init_send(struct gk20a *g,
 		}
 	}
 
-	status = gb10b_pmu_pg_post_init(g, pmu);
+	status = pmu->pg->post_init(g, pmu);
 	if (status != 0) {
 		nvgpu_err(g, "Failed to execute PG_POST_INIT RPC");
 		return status;
@@ -414,8 +414,10 @@ int gb10b_pmu_pg_fgpg_init(struct gk20a *g,
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_NVDEC1) |
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_NVENC0) |
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_NVENC1) |
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_NVJPG0) |
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_NVJPG1) |
+#endif
 			BIT32(NV_PMU_LPWR_SEQ_FGPG_CTRL_ID_OFA);
 
 	g->fgpg_supported_engmask = rpc.support_mask;
@@ -856,9 +858,12 @@ void nvgpu_gb10b_pg_sw_init(struct gk20a *g,
 	pg->pg_loading_rpc_handler = ga10b_pg_loading_rpc_handler;
 	pg->pg_rpc_handler = ga10b_pg_rpc_handler;
 	pg->init_send = gb10b_pmu_pg_init_send;
+	pg->pre_init = gb10b_pmu_pg_pre_init;
+	pg->post_init = gb10b_pmu_pg_post_init;
 	pg->process_pg_event = ga10b_pmu_pg_process_pg_event;
 	pg->pmu_get_pg_buf_gpu_va = gb10b_pmu_get_pg_buf_gpu_va;
 	pg->pmu_get_pg_buf_gpu_va_hi = gb10b_pmu_get_pg_buf_gpu_va_hi;
+	pg->pmu_pg_threshold_update = gb10b_pmu_pg_threshold_update;
 	pg->pmu_pg_sfm_update = gb10b_pmu_pg_sfm_update;
 	pg->fgpg_init = gb10b_pmu_pg_fgpg_init;
 	pg->fgpg_state_change = gb10b_pmu_pg_fgpg_state_change;

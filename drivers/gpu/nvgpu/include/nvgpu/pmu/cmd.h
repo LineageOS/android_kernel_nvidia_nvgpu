@@ -47,6 +47,17 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 	u16 size_rpc, u16 size_scratch, pmu_callback caller_cb,
 	void *caller_cb_param, bool is_copy_back);
 
+/* RPC unit id sending pstate boardobjgrp RPCs */
+#define PMU_PSTATE_RPC_UNIT_ID(pmu_unit_id) \
+	(                                       \
+		pmu_unit_id == PMU_UNIT_CLK     ||  \
+		pmu_unit_id == PMU_UNIT_VOLT    ||  \
+		pmu_unit_id == PMU_UNIT_THERM   ||  \
+		pmu_unit_id == PMU_UNIT_PERF    ||  \
+		pmu_unit_id == PMU_UNIT_PERF_CF ||  \
+		pmu_unit_id == PMU_UNIT_PMGR        \
+	)
+
 /* RPC */
 #define PMU_RPC_EXECUTE(_stat, _pmu, _unit, _func, _prpc, _size)\
 	do {                                                 \

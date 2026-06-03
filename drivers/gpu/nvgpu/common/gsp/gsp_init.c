@@ -52,9 +52,6 @@ void nvgpu_gsp_sw_deinit(struct gk20a *g)
 
 	if (gsp != NULL) {
 		nvgpu_mutex_destroy(&flcn->isr_mutex);
-#ifdef CONFIG_NVGPU_FALCON_DEBUG
-		nvgpu_falcon_dbg_buf_destroy(gsp->gsp_flcn);
-#endif
 
 		if (gsp->gsp_ipc != NULL) {
 			if (gsp->gsp_ipc->sequences != NULL) {
@@ -120,11 +117,19 @@ de_init:
 	return err;
 }
 
+void nvgpu_gsp_debug_buf_deinit(struct gk20a *g)
+{
+	nvgpu_gsp_dbg(g, " ");
+#ifdef CONFIG_NVGPU_FALCON_DEBUG
+	nvgpu_falcon_dbg_buf_destroy(&g->gsp_flcn);
+#endif
+}
+
 int nvgpu_gsp_debug_buf_init(struct gk20a *g, u32 queue_no, u32 buffer_size)
 {
 	int err = 0;
 
-	nvgpu_log_fn(g, " ");
+	nvgpu_gsp_dbg(g, " ");
 
 	/* enable debug buffer support */
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
@@ -189,4 +194,25 @@ bool nvgpu_gsp_is_ready(struct gk20a *g)
 int nvgpu_gsp_process_message(struct gk20a *g)
 {
 	return nvgpu_gsp_process_ipc_message(g);
+}
+
+int nvgpu_gsp_wait_for_init(struct gk20a *g, signed int timeoutms)
+{
+	nvgpu_gsp_dbg(g, " ");
+
+	do {
+		if (nvgpu_gsp_is_ready(g)) {
+			break;
+		}
+
+		if (timeoutms <= 0) {
+			nvgpu_err(g, "gsp wait for init timedout");
+			return -1;
+		}
+
+		nvgpu_msleep(10);
+		timeoutms -= 10;
+	} while (true);
+
+	return 0;
 }

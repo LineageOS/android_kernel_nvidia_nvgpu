@@ -29,12 +29,6 @@
 #define GB10B_FECS_RISCV_BOOTPLUGIN                "g_rv_boot_plugin_fecs.text.bin"
 #define GB10B_GPCCS_RISCV_BOOTPLUGIN               "g_rv_boot_plugin_gpccs.text.bin"
 
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
-#define MAX_NETLIST_NAME (sizeof("prod_test_nsr/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
-#else
-#define MAX_NETLIST_NAME (sizeof("safety/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
-#endif
-
 static s32 nvgpu_gb10b_acr_get_ucode_details
 (
 	struct gk20a *g,

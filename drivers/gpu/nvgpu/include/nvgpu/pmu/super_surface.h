@@ -23,33 +23,48 @@ struct nvgpu_pmu_super_surface;
  * The ordering here is very important because it defines the order of
  * processing in the PMU and takes dependencies into consideration.
  */
-#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_DEVICE_GRP          0x00U
-#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_CHANNEL_GRP         0x01U
-#define NV_PMU_SUPER_SURFACE_MEMBER_VFE_VAR_GRP               0x03U
-#define NV_PMU_SUPER_SURFACE_MEMBER_VFE_EQU_GRP               0x04U
-#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_DEVICE_GRP           0x0BU
-#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_RAIL_GRP             0x0CU
-#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_POLICY_GRP           0x0DU
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_DOMAIN_GRP            0x12U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_PROG_GRP              0x13U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VIN_DEVICE_GRP        0x15U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_FLL_DEVICE_GRP        0x16U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_POINT_GRP          0x17U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_FREQ_CONTROLLER_GRP   0x18U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_FREQ_DOMAIN_GRP       0x19U
-#define NV_PMU_SUPER_SURFACE_MEMBER_CHANGE_SEQ_GRP            0x1EU
-#define NV_PMU_SUPER_SURFACE_MEMBER_PSTATE_GRP                0x20U
+#define NV_PMU_SUPER_SURFACE_MEMBER_FBQ_CMD                        0x0000U
+#define NV_PMU_SUPER_SURFACE_MEMBER_FBQ_MSG                        0x0001U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_DOMAIN_SET                 0x0002U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_NAFLL_DEVICE_SET           0x0003U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_NAFLL_DEVICE_GET_STATUS    0x0004U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_ADC_DEVICE_SET             0x0005U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_ADC_DEVICE_GET_STATUS      0x0006U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_POINT_SET               0x0007U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_POINT_GET_STATUS        0x0008U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_FREQ_DOMAIN_SET            0x0009U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_ENUM_SET                   0x000AU
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_REL_SET                 0x000BU
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_PROP_REGIME_SET            0x000CU
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_PROP_TOP_SET               0x000DU
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_PROP_TOP_REL_SET           0x000EU
+#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_RAIL_SET                  0x000FU
+#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_RAIL_GET_STATUS           0x0010U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_DEVICE_SET                0x0011U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VOLT_POLICY_SET                0x0012U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VFE_VAR_SET                    0x0013U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VFE_VAR_GET_STATUS             0x0014U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VFE_EQU_SET                    0x0015U
+#define NV_PMU_SUPER_SURFACE_MEMBER_VPSTATE_SET                    0x0016U
+#define NV_PMU_SUPER_SURFACE_MEMBER_PERF_LIMIT_SET                 0x0017U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CHANGE_SEQ_SET                 0x0018U
+#define NV_PMU_SUPER_SURFACE_MEMBER_CHANGE_SEQ_GET_STATUS          0x0019U
+#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_DEVICE_SET               0x001AU
+#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_DEVICE_GET_STATUS        0x001BU
+#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_CHANNEL_SET              0x001CU
+#define NV_PMU_SUPER_SURFACE_MEMBER_THERM_CHANNEL_GET_STATUS       0x001DU
+#define NV_PMU_SUPER_SURFACE_MEMBER_PWR_DEVICE_SET                 0x001EU
+#define NV_PMU_SUPER_SURFACE_MEMBER_PWR_DEVICE_V2_GET_STATUS       0x001FU
+#define NV_PMU_SUPER_SURFACE_MEMBER_PWR_CHANNEL_V2_GET_STATUS      0x0020U
+#define NV_PMU_SUPER_SURFACE_MEMBER_PERF_CF_TOPOLOGY_SET           0x0021U
+#define NV_PMU_SUPER_SURFACE_MEMBER_PERF_CF_TOPOLOGY_GET_STATUS    0x0022U
+#define NV_PMU_SUPER_SURFACE_MEMBER_MAX                            0x0023U
 
-#define NV_PMU_SUPER_SURFACE_MEMBER_COUNT                     0x21U
+u32 nvgpu_pmu_get_ss_member_offset(struct gk20a *g,
+	struct nvgpu_pmu *pmu, u32 member_id);
+u32 nvgpu_pmu_get_ss_member_size(struct gk20a *g,
+	struct nvgpu_pmu *pmu, u32 member_id);
 
-u32 nvgpu_pmu_get_ss_member_set_offset(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id);
-u32 nvgpu_pmu_get_ss_member_set_size(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id);
-u32 nvgpu_pmu_get_ss_member_get_status_offset(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id);
-u32 nvgpu_pmu_get_ss_member_get_status_size(struct gk20a *g,
-	struct nvgpu_pmu *pmu, u32 member_id);
 int nvgpu_pmu_ss_create_ssmd_lookup_table(struct gk20a *g,
 	struct nvgpu_pmu *pmu, struct nvgpu_pmu_super_surface *ss);
 struct nvgpu_mem *nvgpu_pmu_super_surface_mem(struct gk20a *g,

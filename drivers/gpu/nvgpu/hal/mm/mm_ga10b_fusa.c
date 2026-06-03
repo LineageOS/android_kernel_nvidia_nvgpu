@@ -69,6 +69,19 @@ int ga10b_mm_bar2_vm_size(struct gk20a *g, u32 *buffer_size)
 		return -EOVERFLOW;
 	}
 
+	/*
+	 * Consider fragmentation that can happen by buddy allocator due to
+	 * mismatch in the size of fault buffers and method buffers. Fault
+	 * buffers are bigger in size and lead to allocation of higher
+	 * order allocation. Subsequent request to allocate method
+	 * buffers will fail when allocating maximum number of
+	 * channels supported.
+	 */
+	if (nvgpu_safe_mult_u32_return(fb_size, 2U, &fb_size) == false) {
+		nvgpu_err(g, "buffer overflow");
+		return -EOVERFLOW;
+	}
+
 	nvgpu_log_info(g, "fault buffers size in bytes %u", fb_size);
 
 	if (nvgpu_safe_add_u32_return(*buffer_size, fb_size, buffer_size) == false) {

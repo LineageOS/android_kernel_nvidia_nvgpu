@@ -18,14 +18,17 @@ u32 gb10b_grce_config_size(void)
 
 u32 gb10b_ce_pce_map_value(struct gk20a *g)
 {
-	(void)g;
-
 	/*
 	 * Hardcode the expected PCE map here. This bitmask indicates which
 	 * physical copy engines are present (and not floorswept). Only PCEs
 	 * with a corresponding bit set here may be assigned to an LCE.
 	 */
-	return (BIT32(1) | BIT32(0));
+	if (nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl)
+				== NVGPU_GPUID_GB10B_NEXT) {
+		return BIT32(0);
+	} else {
+		return (BIT32(1) | BIT32(0));
+	}
 }
 
 static void gb10b_ce_print_config(struct gk20a *g)
@@ -62,17 +65,31 @@ void gb10b_ce_init_pce2lce_configs(struct gk20a *g, u32 *pce2lce_configs)
 
 	/* PCE0 is assigned to LCE2. */
 	pce2lce_configs[0] = ce_pce2lce_config_pce_assigned_lce_config_0_init_f();
-	/* PCE1 is assigned to LCE3. */
-	pce2lce_configs[1] = ce_pce2lce_config_pce_assigned_lce_config_1_init_f();
+
+	if (nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl)
+				== NVGPU_GPUID_GB10B_NEXT) {
+		/* There is no PCE1. */
+		pce2lce_configs[1] = 0xf;
+	} else {
+		/* PCE1 is assigned to LCE3. */
+		pce2lce_configs[1] = ce_pce2lce_config_pce_assigned_lce_config_1_init_f();
+	}
 }
 
 void gb10b_ce_init_grce_configs(struct gk20a *g, u32 *grce_configs)
 {
 	(void)g;
 
-	/* GRCE0 shares PCE1 with LCE3. */
-	grce_configs[0] = (ce_grce_config_shared_config_0_init_f() |
-			ce_grce_config_shared_lce_config_0_init_f());
+	if (nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl)
+				== NVGPU_GPUID_GB10B_NEXT) {
+		/* GRCE0 shares PCE0 with LCE2. */
+		grce_configs[0] = 0x40000002;
+	} else {
+		/* GRCE0 shares PCE1 with LCE3. */
+		grce_configs[0] = (ce_grce_config_shared_config_0_init_f() |
+				ce_grce_config_shared_lce_config_0_init_f());
+	}
+
 	/* No LCEs mapped to GRCE1. */
 	grce_configs[1] = (ce_grce_config_shared_config_1_init_f() |
 			ce_grce_config_shared_lce_config_1_init_f());
@@ -155,7 +172,7 @@ void gb10b_ce_set_pce2lce_mapping(struct gk20a *g)
 				ce_pce2lce_config_pce_assigned_lce_m(),
 				pce2lce_configs[i]);
 			nvgpu_writel(g, ce_pce2lce_config_r(i), reg_val);
-			pce_bitmask_per_lce[pce2lce_configs[i]] = BIT(i);
+			pce_bitmask_per_lce[pce2lce_configs[i]] = (u32)BIT(i);
 		}
 	}
 	/*

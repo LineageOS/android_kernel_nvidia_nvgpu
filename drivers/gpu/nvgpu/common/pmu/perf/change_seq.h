@@ -47,4 +47,16 @@ struct change_seq_pmu {
 int perf_change_seq_sw_setup(struct gk20a *g);
 int perf_change_seq_pmu_setup(struct gk20a *g);
 
+/*
+ * Forward declaration for clkClkDomainGetApiDomainByIndex function
+ */
+extern s32 clkClkDomainGetApiDomainByIndex(struct gk20a *g, u32 *api_domain, u32 index);
+
+/* Forward declaration for power management data access */
+struct gpu_power_mgmt_data {
+	struct nvgpu_mutex sysfs_lock;
+	u32 clock_mode;
+	/* Other fields omitted for brevity */
+};
+
 #endif /* NVGPU_CHANGE_SEQ_H */

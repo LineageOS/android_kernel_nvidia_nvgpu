@@ -10,10 +10,14 @@
 
 struct gk20a;
 
+#define PMU_DRIVER_REGISTER_CLIENT_PG		(1U << 0)
+#define PMU_DRIVER_REGISTER_CLIENT_PSTATE	(1U << 1)
+
 #ifdef CONFIG_NVGPU_LS_PMU
 int nvgpu_pmu_wait_fw_driver_register_ready(struct gk20a *g);
 int  nvgpu_pmu_driver_register_send(struct gk20a *g,
-		enum  driver_register_type register_type);
+		enum  driver_register_type register_type,
+		u32 client_mask);
 #endif
 
 #endif /* NVGPU_PMU_MODEL_20_H */

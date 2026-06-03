@@ -27,5 +27,9 @@ int gb10b_hwpm_map_add_lrcc_entries_to_map(struct gk20a *g,
 		struct ctxsw_buf_offset_map_entry *map,
 		struct netlist_aiv_list *regs, u32 *count, u32 *offset,
 		u32 max_cnt, u32 num_lrc);
+
+void gb10b_hwpm_map_get_cpc_info(struct gk20a *g, u32 *max_cpc_per_gpc,
+		u32 *num_gnics_per_cpc, const u32 **gnic_stride_array,
+		u32 *gnic_stride);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GR_HWPM_MAP_GB10B_H */

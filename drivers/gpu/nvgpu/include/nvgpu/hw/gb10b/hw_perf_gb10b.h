@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
-
 /*
  * Function/Macro naming determines intended use:
  *
@@ -116,6 +115,7 @@
 		nvgpu_safe_mult_u32((i), 128U)), nvgpu_safe_mult_u32((j), 64U)))
 #define perf_pmasys_channel_outbase__size_1_v()                    (0x00000003U)
 #define perf_pmasys_channel_outbase__size_2_v()                    (0x00000002U)
+#define perf_pmasys_channel_outbase_ptr_f(v)       ((U32(v) & 0x7ffffffU) << 5U)
 #define perf_pmasys_channel_outbaseupper_r(i,j)\
 		(nvgpu_safe_add_u32(nvgpu_safe_add_u32(0x002b0a2cU, \
 		nvgpu_safe_mult_u32((i), 128U)), nvgpu_safe_mult_u32((j), 64U)))
@@ -127,6 +127,7 @@
 		nvgpu_safe_mult_u32((i), 128U)), nvgpu_safe_mult_u32((j), 64U)))
 #define perf_pmasys_channel_outsize__size_1_v()                    (0x00000003U)
 #define perf_pmasys_channel_outsize__size_2_v()                    (0x00000002U)
+#define perf_pmasys_channel_outsize_numbytes_f(v)  ((U32(v) & 0x7ffffffU) << 5U)
 #define perf_pmasys_channel_mem_bytes_addr_r(i,j)\
 		(nvgpu_safe_add_u32(nvgpu_safe_add_u32(0x002b0a3cU, \
 		nvgpu_safe_mult_u32((i), 128U)), nvgpu_safe_mult_u32((j), 64U)))
@@ -196,6 +197,12 @@
 #define perf_pmasys_channel_config_secure_mbu_membar_type_none_v() (0x00000000U)
 #define perf_pmasys_channel_config_secure_mbu_membar_type_sys_v()  (0x00000001U)
 #define perf_pmasys_channel_config_secure_mbu_membar_type_gl_v()   (0x00000002U)
+#define perf_pmasys_channel_config_secure_skip_idle_between_xactions_m()\
+				(U32(0x1U) << 24U)
+#define perf_pmasys_channel_config_secure_skip_idle_between_xactions_disable_f()\
+				(0x0U)
+#define perf_pmasys_channel_config_secure_skip_idle_between_xactions_enable_f()\
+				(0x1000000U)
 #define perf_pmmsys_engine_sel_r(i)\
 		(nvgpu_safe_add_u32(0x0024006cU, nvgpu_safe_mult_u32((i), 512U)))
 #define perf_pmmsys_engine_sel__size_1_v()                         (0x00000012U)

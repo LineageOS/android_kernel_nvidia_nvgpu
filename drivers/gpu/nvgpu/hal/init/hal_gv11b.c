@@ -80,6 +80,7 @@
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/regops_gv11b.h"
 #include "hal/regops/allowlist_gv11b.h"
+#include "hal/regops/allowlist_gb10b.h"
 #endif
 #ifdef CONFIG_NVGPU_RECOVERY
 #include "hal/rc/rc_gv11b.h"
@@ -723,6 +724,7 @@ static const struct gops_gr gv11b_ops_gr = {
 	.pre_process_sm_exception = gr_gv11b_pre_process_sm_exception,
 	.set_bes_crop_debug3 = gr_gp10b_set_bes_crop_debug3,
 	.set_bes_crop_debug4 = gr_gp10b_set_bes_crop_debug4,
+	.set_tex_in_dbg = gv11b_gr_intr_set_tex_in_dbg,
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gv11b_gr_get_egpc_base,
@@ -1178,9 +1180,6 @@ static const struct gops_pmu gv11b_ops_pmu = {
 		 */
 	/* Basic init ops */
 	.pmu_early_init = nvgpu_pmu_early_init,
-#ifdef CONFIG_NVGPU_POWER_PG
-	.pmu_restore_golden_img_state = nvgpu_pmu_restore_golden_img_state,
-#endif
 	.is_pmu_supported = gv11b_is_pmu_supported,
 	.falcon_base_addr = gv11b_pmu_falcon_base_addr,
 	.pmu_reset = nvgpu_pmu_reset,
@@ -1318,6 +1317,7 @@ static const struct gops_regops gv11b_ops_regops = {
 	.get_smpc_register_ranges = gv11b_get_smpc_register_ranges,
 	.get_cau_register_ranges = NULL,
 	.get_hwpm_perfmux_register_ranges = gv11b_get_hwpm_perfmux_register_ranges,
+	.init_reg_op_type_per_register_type = gb10b_init_reg_op_type_per_register_type,
 };
 #endif
 

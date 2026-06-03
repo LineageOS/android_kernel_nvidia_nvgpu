@@ -19,7 +19,7 @@ void gb10b_ltc_set_zbc_depth_entry(struct gk20a *g, u32 depth_val, u32 index);
 
 void gb10b_ltc_init_fs_state(struct gk20a *g);
 u64 gb10b_determine_L2_size_bytes(struct gk20a *g);
-#ifndef CONFIG_NVGPU_NON_FUSA
+#if defined(CONFIG_NVGPU_NON_FUSA) && !defined(CONFIG_NVGPU_GB10B)
 void gb10b_set_default_l2_max_ways_evict_last(struct gk20a *g,
 			struct nvgpu_gr_ctx *gr_ctx);
 #endif

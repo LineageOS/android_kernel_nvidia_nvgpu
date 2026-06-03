@@ -40,23 +40,6 @@ union nv_pmu_volt_volt_rail_boardobj_set_union {
 	struct nv_pmu_volt_volt_rail_boardobj_set super;
 };
 
-/*
- * For the below structures, followed the naming format from RM
- * so that it will be easy to compare the code with RM.
- * For PMU board objects, this helps in maintaining the same alignment as RM
- */
-struct nv_pmu_boardobj_interface {
-	u8 rsvd;
-};
-
-struct nv_pmu_boardobj_iface_model {
-	struct nv_pmu_boardobj_interface super;
-};
-
-struct nv_pmu_boardobj_iface_model_10 {
-	struct nv_pmu_boardobj_iface_model super;
-};
-
 struct nv_pmu_volt_volt_rail_boardobj_set_2x {
 	struct nv_pmu_boardobj super;
 	struct nv_pmu_boardobj_iface_model_10 model10;
@@ -236,19 +219,23 @@ struct nv_pmu_volt_volt_rail_boardobj_get_status {
 };
 
 struct nv_pmu_volt_volt_rail_boardobj_get_status_3x {
-	struct nv_pmu_boardobj_query super;
-	u32 curr_volt_defaultu_v;
-	u32 sw_last_target_voltu_v;
-	u32 rel_limitu_v;
-	u32 alt_rel_limitu_v;
-	u32 ov_limitu_v;
-	u32 max_limitu_v;
-	u32 vmin_limitu_v;
-	s32 volt_margin_limitu_v;
-	u32 volt_min_noise_unawareu_v;
-	u32 curr_volt_sensedu_v;
-	u8 rail_action;
-	s32 clvc_offsetu_v;
+	struct nv_pmu_boardobj_query super;           /* offset 0-3:   type + grp_idx (padded) */
+	u32 time_stamp_lo;                             /* offset 4-7:   Lower 32 bits timestamp */
+	u32 time_stamp_hi;                             /* offset 8-11:  Upper 32 bits timestamp */
+	u32 curr_volt_defaultu_v;                      /* offset 12-15: Current voltage default */
+	u32 sw_last_target_voltu_v;                    /* offset 16-19: Last target voltage */
+	u32 rel_limitu_v;                              /* offset 20-23: Maximum reliability limit */
+	u32 alt_rel_limitu_v;                          /* offset 24-27: Alt max reliability limit */
+	u32 ov_limitu_v;                               /* offset 28-31: Maximum over-voltage limit */
+	u32 max_limitu_v;                              /* offset 32-35: Maximum voltage limit */
+	u32 vmin_limitu_v;                             /* offset 36-39: Minimum voltage limit */
+	s32 volt_margin_limitu_v;                      /* offset 40-43: Worst case voltage margin */
+	u32 volt_min_noise_unawareu_v;                 /* offset 44-47: V_min noise-unaware */
+	u32 curr_volt_sensedu_v;                       /* offset 48-51: Sensed voltage value */
+	u8 rail_action;                                /* offset 52:    Rail state/action */
+	u8 padding2[3];                                /* offset 53-55: Explicit padding for alignment */
+	s32 clvc_offsetu_v;                            /* offset 56-59: CLVC offset voltage */
+	/* offset 60-63: HW target voltage */
 	u32 hw_target_voltageu_v[CTRL_VOLT_PWM_ACCUMULATOR_TYPE_COUNT];
 };
 
@@ -278,12 +265,13 @@ NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E32(volt, volt_rail_3x);
 
 /* VOLT RPC */
 #define NV_PMU_RPC_ID_VOLT_BOARD_OBJ_GRP_CMD			0x00U
-#define NV_PMU_RPC_ID_VOLT_VOLT_SET_VOLTAGE			0x01U
-#define NV_PMU_RPC_ID_VOLT_LOAD					0x02U
-#define NV_PMU_RPC_ID_VOLT_VOLT_RAIL_GET_VOLTAGE		0x03U
-#define NV_PMU_RPC_ID_VOLT_VOLT_POLICY_SANITY_CHECK		0x04U
-#define NV_PMU_RPC_ID_VOLT_TEST_EXECUTE				0x05U
-#define NV_PMU_RPC_ID_VOLT__COUNT				0x06U
+#define NV_PMU_RPC_COPY_OUT_VOLT_BOARD_OBJ_GRP_CMD		0x01U
+#define NV_PMU_RPC_ID_VOLT_VOLT_SET_VOLTAGE			0x02U
+#define NV_PMU_RPC_ID_VOLT_LOAD					0x03U
+#define NV_PMU_RPC_ID_VOLT_VOLT_RAIL_GET_VOLTAGE		0x04U
+#define NV_PMU_RPC_ID_VOLT_VOLT_POLICY_SANITY_CHECK		0x05U
+#define NV_PMU_RPC_ID_VOLT_TEST_EXECUTE				0x06U
+#define NV_PMU_RPC_ID_VOLT__COUNT				0x07U
 
 /*
  * Defines the structure that holds data

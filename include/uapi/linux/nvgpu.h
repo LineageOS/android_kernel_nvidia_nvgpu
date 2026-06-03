@@ -171,8 +171,8 @@
  */
 
 /**
- * @defgroup NVGPURM_STD_IOCTL_CTRL NVGPU UAPI: Device control (safety subset)
- * @ingroup NVGPURM_STD_IOCTL
+ * @defgroup NVGPURM_LINUX_IOCTL_CTRL NVGPU UAPI: Device control (safety subset)
+ * @ingroup NVGPURM_LINUX_IOCTL
  * @brief Safety subset of the NvGPU resource manager usermode API:
  * device control functionality (@c /dev/nvgpu/<gpu>/ctrl).
  *
@@ -200,8 +200,7 @@
  *   <dd>Units are selected through a mapping. Notably, virtual SMs are mapped
  *       to physical units, and different contexts may use different mappings
  *       for added resiliency.
- *       (See @ref NVGPURM_INTF_VSMS_MAPPING,
- *       @c #NVGPU_GPU_FLAGS_SUPPORT_SM_DIVERSITY.)
+ *       (See @ref NVGPURM_INTF_VSMS_MAPPING)
  * </dl>
  *
  * In addition, the GPU has logical copy engines which have a set of physical
@@ -301,7 +300,6 @@
  *   <td>1</td>
  *   <td>Wait for idle</td>
  *   <td>Yes</td>
- *   <td>Yes</td>
  *   <td>The caller must ensure that the channel is idle. See, *e.g.*,
  *     https://p4viewer.nvidia.com/get//hw/doc/gpu/ampere_info/gen_manuals/ga10b/dev_pbdma.ref /
  *     NV_UDMA_WFI</td>
@@ -351,7 +349,7 @@
  * </tr>
  * <tr>
  *   <td>1</td>
- *   <td>Initialize the TSG: @ref NVGPURM_INTF_TSG_OPEN_TSG</td>
+ *   <td>Initialize the TSG: @ref NVGPURM_INTF_OPEN_TSG</td>
  *   <td>Yes</td>
  *   <td>Depending on @c #NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE, creates a new
  *       TSG or shares an existing TSG, returns a TSG fd</td>
@@ -670,32 +668,198 @@ struct nvgpu_tsg_read_all_sm_error_state_args {
 	__u64 buffer_size;
 };
 
-/*
- * This struct is used to read and configure l2 max evict_last
- * setting.
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_TSG_GET_L2_MAX_WAYS_EVICT_LAST IOCTL: NVGPU_TSG_IOCTL_GET_L2_MAX_WAYS_EVICT_LAST
+ * @brief Gets L2 max ways EVICT_LAST policy.
+ *
+ * This IOCTL gets L2 max ways EVICT_LAST policy.
+ * @sa @ref NVGPURM_INTF_TSG_SET_L2_MAX_WAYS_EVICT_LAST
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_tsg_l2_max_ways_evict_last_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid flag passed.
+ * - @c EINVAL --- Error in getting L2 max ways EVICT_LAST policy.
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ * - @c ENOMEM --- Memory allocation fails for ioctl command buffer or in ioctl processing
+ * - @c EFAULT --- Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_TSG_SET_L2_MAX_WAYS_EVICT_LAST IOCTL: NVGPU_TSG_IOCTL_SET_L2_MAX_WAYS_EVICT_LAST
+ * @brief Sets L2 max ways EVICT_LAST policy.
+ *
+ * This IOCTL sets L2 max ways EVICT_LAST policy. The lines in an L2 cache set can be allocated
+ * with following eviction policies: EVICT_FIRST, EVICT_NORMAL, EVICT_LAST. Cache lines allocated
+ * with eviction_policy = EVICT_LAST remain persistent in the cache. MAX_WAYS_EVICT_LAST indicates
+ * how many ways (lines) in a set can have the level two cache line class of EVICT_LAST. On Ampere+
+ * chips, If a new request arrives that would cause this threshold to be exceeded, the
+ * oldest EVICT_LAST line is demoted to EVICT_NORMAL.
+ *
+ * @sa https://p4viewer.nvidia.com/get///hw/doc/gpu/ampere_info/gen_manuals/ga100/pri_ltc.ref
+ * (NV_PLTC_LTSS_TSTG_SET_MGMT_0_MAX_WAYS_EVICT_LAST)
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_tsg_l2_max_ways_evict_last_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid flag passed.
+ * - @c EINVAL --- Error in setting L2 max ways EVICT_LAST policy.
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ * - @c ENOMEM --- Memory allocation fails for ioctl command buffer or in ioctl processing
+ * - @c EFAULT --- Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_TSG_SET_L2_MAX_WAYS_EVICT_LAST
+ * @ingroup NVGPURM_INTF_TSG_GET_L2_MAX_WAYS_EVICT_LAST
+ * @brief Header struct for @ref NVGPURM_INTF_TSG_SET_L2_MAX_WAYS_EVICT_LAST and
+ * @ref NVGPURM_INTF_TSG_GET_L2_MAX_WAYS_EVICT_LAST.
  */
 struct nvgpu_tsg_l2_max_ways_evict_last_args {
-	/*
-	 * Maximum number of ways in a l2 cache set that can be allocated
-	 * with eviction_policy=EVICT_LAST
+	/**
+	 * @brief Maximum number of ways in a l2 cache set that can be allocated with
+	 * eviction_policy=EVICT_LAST.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     Set max number of ways with eviction policy EVICT_LAST.
+	 *     Range: [0, proj_scal_litter_num_ltc_lts_ways_v()]
+	 *   </dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>
+	 *     Get max number of ways with eviction policy EVICT_LAST.
+	 *   </dd>
+	 * </dl>
 	 */
 	__u32 max_ways;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
 
-/*
- * This struct contains the parameter for configuring L2 sector promotion.
- * It supports 3 valid options:-
- *  - PROMOTE_NONE(1): cache-miss doens't get promoted.
- *  - PROMOTE_64B(2): cache-miss gets promoted to 64 bytes if less than 64 bytes.
- *  - PROMOTE_128B(4): cache-miss gets promoted to 128 bytes if less than 128 bytes.
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_TSG_SET_L2_SECTOR_PROMOTION IOCTL: NVGPU_TSG_IOCTL_SET_L2_SECTOR_PROMOTION
+ * @brief Configures L2 sector promotion policy.
+ *
+ * Sector promotion is a form of data prefetching. The cache lines in L2
+ * are organized into sectors of 32 bytes. When a read request results in a cache
+ * miss and it does not span all the sectors in a cache line, sectors that are
+ * not covered by the read may be read anyway for the sake of prefetching. This
+ * process is termed as "promotion". The promoted sectors will be cached,
+ * but the data will not be returned to the requester.
+ *
+ * The promotion policy determines the number of adjacent sectors that needs
+ * to be prefetched.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_tsg_set_l2_sector_promotion_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid flag passed.
+ * - @c EINVAL --- Error in applying L2 sector promotion policy.
+ * - @c ENODEV --- GPU not ready
+ * - @c ENOMEM --- Memory allocation fails for ioctl command buffer or in ioctl processing
+ * - @c EFAULT --- Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_TSG_SET_L2_SECTOR_PROMOTION
+ * @{
+ */
+
+/**
+ * @brief Flag indicating that cache-miss doesn't get promoted.
  */
 #define NVGPU_GPU_IOCTL_TSG_L2_SECTOR_PROMOTE_FLAG_NONE		(1U << 0U)
+
+/**
+ * @brief Flag indicating that cache-miss gets promoted to 64 bytes if less than 64 bytes.
+ */
 #define NVGPU_GPU_IOCTL_TSG_L2_SECTOR_PROMOTE_FLAG_64B		(1U << 1U)
+
+/**
+ * @brief Flag indicating that cache-miss gets promoted to 128 bytes if less than 128 bytes.
+ */
 #define NVGPU_GPU_IOCTL_TSG_L2_SECTOR_PROMOTE_FLAG_128B		(1U << 2U)
+
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_TSG_SET_L2_SECTOR_PROMOTION
+ * @brief Header struct for @ref NVGPURM_INTF_TSG_SET_L2_SECTOR_PROMOTION.
+ */
 struct nvgpu_tsg_set_l2_sector_promotion_args {
-	/* Valid promotion flag */
+	/**
+	 * @brief One of the NVGPU_GPU_IOCTL_TSG_L2_SECTOR_PROMOTE_FLAG_* L2 sector promotion flag.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     Flag for L2 sector promotion policy.
+	 *   </dd>
+	 * </dl>
+	 */
 	__u32 promotion_flag;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
 
@@ -900,7 +1064,7 @@ struct nvgpu_tsg_delete_subcontext_args {
  *
  * Argument @c #nvgpu_tsg_get_share_token_args::target_device_instance_id
  * specifies the recipient of the share token. When the token is consumed by a
- * call to @ref NVGPURM_INTF_TSG_OPEN_TSG, the device instance id of the TSG
+ * call to @ref NVGPURM_INTF_OPEN_TSG, the device instance id of the TSG
  * parent ctrl node must match. (See <tt>@ref
  * nvgpu_gpu_characteristics::device_instance_id</tt>.) This allows the share
  * token to be consumed only by a dedicated receiver for secure sharing.
@@ -969,7 +1133,7 @@ struct nvgpu_tsg_delete_subcontext_args {
  *   <td>@c 4</td>
  *   <td>Importer</td>
  *   <td>Open a TSG using the share token. See the sequence in @ref
- *	 NVGPURM_INTF_TSG_OPEN_TSG.</td>
+ *	 NVGPURM_INTF_OPEN_TSG.</td>
  * </tr>
  * <tr>
  *   <td>@c 5</td>
@@ -1259,12 +1423,57 @@ struct nvgpu_tsg_revoke_share_token_args {
  */
 #define NVGPU_IOCTL_TSG_PREEMPT \
 	_IO(NVGPU_TSG_IOCTL_MAGIC, 5)
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_EVENT_ID_CTRL IOCTL: NVGPU_IOCTL_TSG_EVENT_ID_CTRL
+ * @brief Register for events that needs to be checked using poll() system call.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_event_id_ctrl_args</td>
+ *   <td>@c #nvgpu_event_id_ctrl_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Invalid @c #nvgpu_event_id_ctrl_args::cmd
+ * - @c ENOMEM --- Memory allocation failed
+ * - @c EINVAL --- @c #nvgpu_event_id_ctrl_args::event_id out of bounds
+ * - @c ENODEV --- Taking GPU reference failed
+ * - @c EFAULT --- Copy from user space failed
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_EVENT_ID_CTRL
+ * @brief Command code for @ref NVGPURM_INTF_EVENT_ID_CTRL.
+ */
 #define NVGPU_IOCTL_TSG_EVENT_ID_CTRL \
 	_IOWR(NVGPU_TSG_IOCTL_MAGIC, 7, struct nvgpu_event_id_ctrl_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_RUNLIST_INTERLEAVE
+ * @brief Command code for @ref NVGPURM_INTF_SET_RUNLIST_INTERLEAVE.
+ */
 #define NVGPU_IOCTL_TSG_SET_RUNLIST_INTERLEAVE \
 	_IOW(NVGPU_TSG_IOCTL_MAGIC, 8, struct nvgpu_runlist_interleave_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_TIMESLICE
+ * @brief Command code for @ref NVGPURM_INTF_SET_TIMESLICE.
+ */
 #define NVGPU_IOCTL_TSG_SET_TIMESLICE \
 	_IOW(NVGPU_TSG_IOCTL_MAGIC, 9, struct nvgpu_timeslice_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_TIMESLICE
+ * @brief Command code for @ref NVGPURM_INTF_GET_TIMESLICE.
+ */
 #define NVGPU_IOCTL_TSG_GET_TIMESLICE \
 	_IOR(NVGPU_TSG_IOCTL_MAGIC, 10, struct nvgpu_timeslice_args)
 /**
@@ -1276,7 +1485,6 @@ struct nvgpu_tsg_revoke_share_token_args {
 	_IOWR(NVGPU_TSG_IOCTL_MAGIC, 11, struct nvgpu_tsg_bind_channel_ex_args)
 /**
  * @ingroup NVGPURM_INTF_TSG_READ_SM_ERR_STATE
- *
  * @brief Command code for @ref NVGPURM_INTF_TSG_READ_SM_ERR_STATE.
  */
 #define NVGPU_TSG_IOCTL_READ_SINGLE_SM_ERROR_STATE \
@@ -2235,6 +2443,10 @@ struct nvgpu_profiler_vab_flush_state_args {
 
 #define NVGPU_IOCTL_MAGIC 'H'
 #define NVGPU_NO_TIMEOUT ((__u32)~0U)
+/**
+ * @ingroup NVGPURM_INTF_SET_TIMEOUT_EX
+ * @brief Bit position in timeout flag to indicate dump disablement.
+ */
 #define NVGPU_TIMEOUT_FLAG_DISABLE_DUMP		0
 
 /* this is also the hardware memory format */
@@ -2243,7 +2455,45 @@ struct nvgpu_gpfifo {
 	__u32 entry1; /* second word of gpfifo entry */
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ *
+ * @defgroup NVGPURM_INTF_GET_TIMEDOUT IOCTL: NVGPU_IOCTL_CHANNEL_GET_TIMEDOUT
+ * @brief Get serviceable status of a given channel.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_get_param_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOMEM ---  Memory allocation failed for command buffer.
+ * - @c EFAULT ---  Copy to user space fails
+ */
+/**
+ * @ingroup NVGPURM_INTF_GET_TIMEDOUT
+ * @brief Header struct for @ref NVGPURM_INTF_GET_TIMEDOUT.
+ */
 struct nvgpu_get_param_args {
+	/**
+	 * @brief Returns whether channel is serviceable or not. True (1) for unserviceable,
+	 * false (0) otherwise.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>State of the channel</dd>
+	 * </dl>
+	 */
 	__u32 value;
 };
 
@@ -2272,20 +2522,6 @@ struct nvgpu_set_nvmap_fd_args {
  * @ingroup NVGPURM_INTF_ALLOC_OBJ_CTX
  * @{
  */
-
-/**
- * @brief Specifies that graphics preemption is used on this channel.
- *
- * @deprecated Should not be used. Use @ref NVGPURM_INTF_SET_PREEMPTION_MODE.
- */
-#define NVGPU_ALLOC_OBJ_FLAGS_GFXP		NVGPU_BIT32(1)
-
-/**
- * @brief Specifies that compute preemption is used on this channel.
- *
- * @deprecated Should not be used. Use @ref NVGPURM_INTF_SET_PREEMPTION_MODE.
- */
-#define NVGPU_ALLOC_OBJ_FLAGS_CILP		NVGPU_BIT32(2)
 
 /**
  * @brief Specifies that VPR is enabled on this channel.
@@ -2904,51 +3140,295 @@ struct nvgpu_channel_setup_bind_args {
 	__u32 reserved[8];
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_SUBMIT_GPFIFO IOCTL: NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO
+ * @brief Submits work to gpfifo and wait on syncpoints
+ *
+ * Submits work on a given channel by writing the commands into the gpfifo buffer. GP_PUT field of USERD is updated
+ * accordingly.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_submit_gpfifo_args</td>
+ *   <td>@c #nvgpu_submit_gpfifo_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---     Flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_WAIT or @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_GET
+ *                     is set but syncpoint support is not there in nvgpu driver and flag
+ *                     @c #NVGPU_SUBMIT_GPFIFO_FLAGS_SYNC_FENCE is also not set.
+ * - @c EINVAL ---     Flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_SYNC_FENCE is set but syncfd is not supported.
+ * - @c ETIMEDOUT ---  If channel is unserviceable.
+ * - @c ENODEV ---     GPU is not ready.
+ * - @c EFAULT ---     Copy from user space fails
+ */
+/**
+ * @ingroup NVGPURM_INTF_SUBMIT_GPFIFO
+ * @brief Struct containing syncpoint id and value for @ref NVGPURM_INTF_SUBMIT_GPFIFO.
+ */
 struct nvgpu_fence {
-	__u32 id;        /* syncpoint id or sync fence fd */
-	__u32 value;     /* syncpoint value (discarded when using sync fence) */
+	/**
+	 * @brief Syncpoint id or sync fence fd
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Syncpoint id or sync fence fd when flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_WAIT
+	 *     is set
+	 *   </dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>Syncpoint id or sync fence fd returned when flag
+	 *     @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_GET
+	 *   </dd>
+	 * </dl>
+	 */
+	__u32 id;
+
+	/**
+	 * @brief Syncpoint value
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Syncpoint value when flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_WAIT is set</dd>
+	 *   <dt>[in/out]</dt>
+	 *   <dd>Syncpoint value returned when flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_GET
+	 *     is set
+	 *   </dd>
+	 * </dl>
+	 *
+	 * @remark this field is discarded when flag @c #NVGPU_SUBMIT_GPFIFO_FLAGS_SYNC_FENCE is set.
+	 */
+	__u32 value;
 };
 
-/* insert a wait on the fence before submitting gpfifo */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_WAIT	(1 << 0)
-/* insert a fence update after submitting gpfifo and
-   return the new fence for others to wait on */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_GET	(1 << 1)
-/* choose between different gpfifo entry formats */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_HW_FORMAT	(1 << 2)
-/* interpret fence as a sync fence fd instead of raw syncpoint fence */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_SYNC_FENCE	(1 << 3)
-/* suppress WFI before fence trigger */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_SUPPRESS_WFI	(1 << 4)
-/* skip buffer refcounting during submit */
-#define NVGPU_SUBMIT_GPFIFO_FLAGS_SKIP_BUFFER_REFCOUNTING	(1 << 5)
+/**
+ * @ingroup NVGPURM_INTF_SUBMIT_GPFIFO
+ * @{
+ */
 
+/**
+ * @brief Insert a wait on the fence before submitting gpfifo
+ */
+#define NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_WAIT	(1 << 0)
+
+/**
+ * @brief Insert a fence update after submitting gpfifo and return the new fence for others to wait on
+ */
+#define NVGPU_SUBMIT_GPFIFO_FLAGS_FENCE_GET	(1 << 1)
+
+/**
+ * @brief Choose between different gpfifo entry formats
+ */
+#define NVGPU_SUBMIT_GPFIFO_FLAGS_HW_FORMAT	(1 << 2)
+
+/**
+ * @brief Interpret fence as a sync fence fd instead of raw syncpoint fence
+ */
+#define NVGPU_SUBMIT_GPFIFO_FLAGS_SYNC_FENCE	(1 << 3)
+
+/**
+ * @brief suppress WFI before fence trigger
+ */
+#define NVGPU_SUBMIT_GPFIFO_FLAGS_SUPPRESS_WFI	(1 << 4)
+
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_SUBMIT_GPFIFO
+ * @brief Header struct for @ref NVGPURM_INTF_SUBMIT_GPFIFO.
+ */
 struct nvgpu_submit_gpfifo_args {
+	/**
+	 * @brief Starting address of gpfifo entries array
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Starting address of gpfifo entries array</dd>
+	 * </dl>
+	 *
+	 * @remark Each entry consist of two words of 32 bits each.
+	 */
 	__u64 gpfifo;
+
+	/**
+	 * @brief Number of gpfifo entries to be submitted
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Number of entries</dd>
+	 * </dl>
+	 */
 	__u32 num_entries;
+
+	/**
+	 * @brief Gpfifo submit flags (@c NVGPU_SUBMIT_GPFIFO_FLAGS_*)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Submit flag</dd>
+	 * </dl>
+	 */
 	__u32 flags;
+
+	/**
+	 * @brief Struct providing syncpoint id and value
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Struct providing syncpoint id and value</dd>
+	 * </dl>
+	 */
 	struct nvgpu_fence fence;
 };
 
-struct nvgpu_wait_args {
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_CHANNEL_WAIT IOCTL: NVGPU_IOCTL_CHANNEL_WAIT
+ * @brief Wait for events like error notifier setting or semaphore for a given channel.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_wait_args</td>
+ *   <td>@c #nvgpu_wait_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input validation fails.
+ * - @c ETIMEDOUT  ---  If channel is marked as unserviceable.
+ * - @c ETIMEDOUT  ---  If the wait timedout without getting the expected event.
+ * - @c EINTR  ---  If the wait is interrupted by a signal.
+ * - @c ENOMEM ---  Memory allocation failed for command buffer.
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from user space fails
+ */
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_WAIT
+ * @brief Wait on error notifier setting
+ */
 #define NVGPU_WAIT_TYPE_NOTIFIER	0x0
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_WAIT
+ * @brief Wait on gpu semaphore
+ */
 #define NVGPU_WAIT_TYPE_SEMAPHORE	0x1
+
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_WAIT
+ * @brief Header struct for @ref NVGPURM_INTF_CHANNEL_WAIT.
+ */
+struct nvgpu_wait_args {
+	/**
+	 * @brief Type of wait, one of the @c #NVGPU_WAIT_TYPE_NOTIFIER or
+	 * @c #NVGPU_WAIT_TYPE_SEMAPHORE
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Type of wait.</dd>
+	 * </dl>
+	 */
 	__u32 type;
+	/**
+	 * @brief Timeout (in ms) for wait. 0 for no timeout or infinite timeout.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Timeout for wait</dd>
+	 * </dl>
+	 */
 	__u32 timeout;
 	union {
 		struct {
-			/* handle and offset for notifier memory */
+			/**
+			 * @brief Dmabuf fd for notifier memory buffer.
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt>
+			 *   <dd>dmabuf fd for notifier memory buffer</dd>
+			 * </dl>
+			 */
 			__u32 dmabuf_fd;
+			/**
+			 * @brief Offset in the notifier memory buffer.
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt>
+			 *   <dd>Offset in the notifier memory buffer</dd>
+			 * </dl>
+			 */
 			__u32 offset;
+			/**
+			 * @brief Padding1
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Zeroed</dd>
+			 *   <dt>[out]</dt><dd>Ignore</dd>
+			 * </dl>
+			 */
 			__u32 padding1;
+			/**
+			 * @brief Padding2
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Zeroed</dd>
+			 *   <dt>[out]</dt><dd>Ignore</dd>
+			 * </dl>
+			 */
 			__u32 padding2;
 		} notifier;
 		struct {
-			/* handle and offset for semaphore memory */
+			/**
+			 * @brief Dmabuf fd for semaphore memory buffer.
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt>
+			 *   <dd>dmabuf fd for semaphore memory buffer</dd>
+			 * </dl>
+			 */
 			__u32 dmabuf_fd;
+			/**
+			 * @brief Offset in the semaphore memory buffer.
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt>
+			 *   <dd>Offset in the semaphore memory buffer</dd>
+			 * </dl>
+			 */
 			__u32 offset;
-			/* semaphore payload to wait for */
+			/**
+			 * @brief semaphore payload to wait for
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt>
+			 *   <dd>semaphore payload to wait for</dd>
+			 * </dl>
+			 */
 			__u32 payload;
+			/**
+			 * @brief Padding
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Zeroed</dd>
+			 *   <dt>[out]</dt><dd>Ignore</dd>
+			 * </dl>
+			 */
 			__u32 padding;
 		} semaphore;
 	} condition; /* determined by type field */
@@ -2958,19 +3438,160 @@ struct nvgpu_set_timeout_args {
 	__u32 timeout;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_SET_TIMEOUT_EX IOCTL: NVGPU_IOCTL_CHANNEL_SET_TIMEOUT_EX
+ * @brief Sets context switch timeout for a given channel.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_set_timeout_ex_args</td>
+ *   <td>@c #nvgpu_set_timeout_ex_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOMEM ---  Memory allocation failed for command buffer.
+ * - @c EFAULT ---  Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_TIMEOUT_EX
+ * @brief Header struct for @ref NVGPURM_INTF_SET_TIMEOUT_EX.
+ */
 struct nvgpu_set_timeout_ex_args {
+	/**
+	 * @brief ctxsw timeout value to be set (in milliseconds)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>ctxsw timeout value</dd>
+	 * </dl>
+	 * Range: Minimum value set is 20ms for safety and 100ms otherwise. If lower value is passed
+	 * timeout will be set to the minimum allowed value.
+	 */
 	__u32 timeout;
+	/**
+	 * @brief Flag to indicate timeout options. Debug dump is disabled if bit number
+	 * @c #NVGPU_TIMEOUT_FLAG_DISABLE_DUMP is set.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Flag to indicate timeout options.</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_ZCULL_BIND IOCTL: NVGPU_IOCTL_CHANNEL_ZCULL_BIND
+ * @brief Sets the Z-cull context switch mode to a channel, and optionally
+ * binds a Z-cull buffer to it.
+ *
+ * This function sets the Z-cull context switch mode to a channel. Depending on
+ * the mode, a buffer is also bound. When bound, the buffer is used to save
+ * and restore the GPU Z-cull RAM when the channel is preempted and resumed,
+ * respectively.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_zcull_bind_args</td>
+ *   <td>@c #nvgpu_zcull_bind_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input validation fails.
+ * - @c ENOMEM ---  Memory allocation failed for command buffer.
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_BIND
+ * @{
+ */
+
+/**
+ * @brief Z-cull buffer is global
+ *
+ * This mode is the normal Z-cull operation where it is not
+ * context switched and there is one set of globally shared
+ * Z-cull memory and tables. This mode is only supported as
+ * long as all channels use this mode.
+ */
 #define NVGPU_ZCULL_MODE_GLOBAL		0
+/**
+ * @brief Z-cull buffer is reset on context switch
+ *
+ * This mode causes the Z-cull tables to be reset on a context
+ * switch, but the Z-cull buffer will not be saved/restored.
+ */
 #define NVGPU_ZCULL_MODE_NO_CTXSW		1
+/**
+ * @brief Z-cull buffer is context-switched
+ *
+ * This mode will cause the Z-cull buffers and tables to be
+ * saved/restored on context switches.
+ */
 #define NVGPU_ZCULL_MODE_SEPARATE_BUFFER	2
+/**
+ * @brief Deprecated Z-cull mode
+ * @deprecated This mode is not supported on Tegra and should be deleted.
+ */
 #define NVGPU_ZCULL_MODE_PART_OF_REGULAR_BUF	3
 
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_BIND
+ * @brief Header struct for @ref NVGPURM_INTF_ZCULL_BIND.
+ */
 struct nvgpu_zcull_bind_args {
+	/**
+	 * @brief GPU virtual address of z-cull buffer mapping if
+	 * @c #NVGPU_ZCULL_MODE_SEPARATE_BUFFER mode is selected.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>GPU virtual address of z-cull buffer mapping</dd>
+	 * </dl>
+	 */
 	__u64 gpu_va;
+	/**
+	 * @brief z-cull binding mode. Must be one of the NVGPU_ZCULL_MODE_*
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>z-cull binding mode</dd>
+	 * </dl>
+	 */
 	__u32 mode;
+	/**
+	 * @brief Padding
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 padding;
 };
 
@@ -3002,7 +3623,7 @@ struct nvgpu_zcull_bind_args {
  * @retval -1       Call failed (errno is set)
  *
  * Errors:
- * - @c EINVAL ---  Invalid @c #nvgpu_set_error_notifier::mem_import_id
+ * - @c EINVAL ---  Invalid @c #nvgpu_set_error_notifier::mem
  * - @c ENOMEM ---  Memory allocation failed
  * - @c EINVAL ---  @c #nvgpu_set_error_notifier::offset out of bounds
  * - @c ENODEV ---  GPU not ready
@@ -3286,49 +3907,292 @@ struct nvgpu_channel_wdt_args {
 
 /** @} */
 
-/*
- * Interleaving channels in a runlist is an approach to improve
- * GPU scheduling by allowing certain channels to appear multiple
- * times on the runlist. The number of times a channel appears is
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_SET_RUNLIST_INTERLEAVE IOCTL: NVGPU_IOCTL_TSG_SET_RUNLIST_INTERLEAVE
+ * @brief Controls how much a TSG will be repeated in a runlist.
+ *
+ * Interleaving TSGs in a runlist is an approach to improve
+ * GPU scheduling by allowing certain TSGs to appear multiple
+ * times on the runlist. The number of times a TSG appears is
  * governed by the following levels:
  *
- * low (L)   : appears once
- * medium (M): if L, appears L times
- *             else, appears once
- * high (H)  : if L, appears (M + 1) x L times
- *             else if M, appears M times
- *             else, appears once
+ * <dl>
+ *   <dt>low (L)</dt>
+ *   <dd>appears once</dd>
+ *   <dt>medium (M)</dt>
+ *   <dd>if L, appears L times else, appears once</dd>
+ *   <dt>high (H)</dt>
+ *   <dd>if L, appears (M + 1) x L times else if M, appears M times else, appears once</dd>
+ * </dl>
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_runlist_interleave_args</td>
+ *   <td>@c #nvgpu_runlist_interleave_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input validation fails.
+ * - @c EPERM  ---  Scheduling ioctls are locked.
+ * - @c ETIMEDOUT  ---  If runlist update times out after setting TSG interleaving.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from user space fails
+ *
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_RUNLIST_INTERLEAVE
+ * @brief Header struct for @ref NVGPURM_INTF_SET_RUNLIST_INTERLEAVE.
  */
 struct nvgpu_runlist_interleave_args {
+	/**
+	 * @brief Level of runlist interleaving required for a given TSG
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Level of runlist interleaving for a given TSG</dd>
+	 * </dl>
+	 *
+	 * Range: One of the following levels:
+	 * - @c #NVGPU_RUNLIST_INTERLEAVE_LEVEL_LOW
+	 * - @c #NVGPU_RUNLIST_INTERLEAVE_LEVEL_MEDIUM
+	 * - @c #NVGPU_RUNLIST_INTERLEAVE_LEVEL_HIGH
+	 */
 	__u32 level;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
+
+/**
+ * @ingroup NVGPURM_INTF_SET_RUNLIST_INTERLEAVE
+ *
+ * @{
+ */
+
+/**
+ * @brief Lowest interleaving supported in runlist.
+ */
 #define NVGPU_RUNLIST_INTERLEAVE_LEVEL_LOW	0
+/**
+ * @brief Medium interleaving supported in runlist.
+ */
 #define NVGPU_RUNLIST_INTERLEAVE_LEVEL_MEDIUM	1
+/**
+ * @brief High interleaving supported in runlist.
+ */
 #define NVGPU_RUNLIST_INTERLEAVE_LEVEL_HIGH	2
+/**
+ * @brief Total types of interleaving supported in runlist.
+ */
 #define NVGPU_RUNLIST_INTERLEAVE_NUM_LEVELS	3
 
-/* controls how long a channel occupies an engine uninterrupted */
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_SET_TIMESLICE IOCTL: NVGPU_IOCTL_TSG_SET_TIMESLICE
+ * @brief Controls how long a TSG occupies an engine uninterrupted
+ *
+ * This ioctl can be used to set timeslice for a given TSG. The timeslice also includes the
+ * context switch time i.e. time taken for ctxsw fw to switch the contexts. The actual context
+ * switch time may also depend on engine state and the preemption type.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_timeslice_args</td>
+ *   <td>@c #nvgpu_timeslice_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input validation fails.
+ * - @c EPERM  ---  Scheduling ioctls are locked.
+ * - @c ETIMEDOUT  ---  If runlist update times out after setting TSG timeslice.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_TSG
+ * @defgroup NVGPURM_INTF_GET_TIMESLICE IOCTL: NVGPU_IOCTL_TSG_GET_TIMESLICE
+ * @brief Get the timeslice set for a given TSG
+ *
+ * This ioctl can be used to get timeslice for a given TSG. See @ref NVGPURM_INTF_SET_TIMESLICE
+ * which is used for setting the timeslice other than the default value.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_timeslice_args</td>
+ *   <td>@c #nvgpu_timeslice_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input validation fails.
+ * - @c EFAULT ---  Copy from user space fails
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_TIMESLICE
+ * @ingroup NVGPURM_INTF_GET_TIMESLICE
+ * @brief Header struct for @ref NVGPURM_INTF_SET_TIMESLICE and @ref NVGPURM_INTF_GET_TIMESLICE
+ */
 struct nvgpu_timeslice_args {
+	/**
+	 * @brief Set or get timeslice (in microseconds) for a given TSG
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>timeslice in microseconds to be set</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>get timeslice in microseconds</dd>
+	 * </dl>
+	 * Range: [1000, 50000]
+	 */
 	__u32 timeslice_us;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_EVENT_ID_CTRL
+ * @brief Header struct for @ref NVGPURM_INTF_EVENT_ID_CTRL.
+ */
 struct nvgpu_event_id_ctrl_args {
-	__u32 cmd; /* in */
-	__u32 event_id; /* in */
-	__s32 event_fd; /* out */
+	/**
+	 * @brief Must be NVGPU_IOCTL_CHANNEL_EVENT_ID_CMD_ENABLE for registering tsg events
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Must be set to NVGPU_IOCTL_CHANNEL_EVENT_ID_CMD_ENABLE.</dd>
+	 * </dl>
+	 */
+	__u32 cmd;
+
+	/**
+	 * @brief Event id to register for notification
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Event id.</dd>
+	 * </dl>
+	 * Range: One of the NVGPU_IOCTL_CHANNEL_EVENT_ID_* event ids and must be less than
+	 * NVGPU_IOCTL_CHANNEL_EVENT_ID_MAX.
+	 */
+	__u32 event_id;
+
+	/**
+	 * @brief event file descriptor on which poll() can be issued
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>
+	 *     Event file descriptor
+	 *   </dd>
+	 * </dl>
+	 */
+	__s32 event_fd;
+
+	/**
+	 * @brief Padding
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 padding;
 };
+
+/**
+ * @ingroup NVGPURM_INTF_EVENT_ID_CTRL
+ *
+ * @{
+ */
+
+/**
+ * @brief Register for breakpoint trap (BPT) interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_BPT_INT		0
+
+/**
+ * @brief Register for BPT pause interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_BPT_PAUSE		1
+
+/**
+ * @brief Register for blocking sync interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_BLOCKING_SYNC	2
+
+/**
+ * @brief Register for cilp preemption start interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_CILP_PREEMPTION_STARTED	3
+
+/**
+ * @brief Register for cilp preemption complete interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_CILP_PREEMPTION_COMPLETE	4
+
+/**
+ * @brief Register for GR semaphore write awaken interrupt event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_GR_SEMAPHORE_WRITE_AWAKEN	5
+
+/**
+ * @brief Upper limit on the number of event.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_MAX		6
 
+/**
+ * @brief Enable command for event registration.
+ */
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_CMD_ENABLE		1
+
+/** @} */
 
 /**
  * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
@@ -3455,10 +4319,72 @@ struct nvgpu_preemption_mode_args {
 	__u32 compute_preempt_mode;
 };
 
-struct nvgpu_boosted_ctx_args {
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_SET_BOOSTED_CTX IOCTL: NVGPU_IOCTL_CHANNEL_SET_BOOSTED_CTX
+ * @brief Sets the GPU channel to boost mode.
+ *
+ * @remark Boost mode should be set before the first kickoff.
+ * @remark Boost mode is not supported for ampere and blackwell.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_boosted_ctx_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Callback that sets boost mode is not set
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_BOOSTED_CTX
+ * @brief Normal boost mode i.e. the default mode
+ */
 #define NVGPU_BOOSTED_CTX_MODE_NORMAL			(0U)
+
+/**
+ * @ingroup NVGPURM_INTF_SET_BOOSTED_CTX
+ * @brief Performance boost mode
+ */
 #define NVGPU_BOOSTED_CTX_MODE_BOOSTED_EXECUTION	(1U)
+
+/**
+ * @ingroup NVGPURM_INTF_SET_BOOSTED_CTX
+ * @brief Header struct for @ref NVGPURM_INTF_SET_BOOSTED_CTX
+ */
+struct nvgpu_boosted_ctx_args {
+	/**
+	 * @brief One of the NVGPU_BOOSTED_CTX_MODE_* performance boost mode.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     Performance boost mode
+	 *   </dd>
+	 * </dl>
+	 */
 	__u32 boost;
+
+	/**
+	 * @brief Padding
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 padding;
 };
 
@@ -3546,16 +4472,160 @@ struct nvgpu_reschedule_runlist_args {
 	__u32 flags;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_CHANNEL_ENABLE IOCTL: NVGPU_IOCTL_CHANNEL_ENABLE
+ * @brief Enables channel scheduling
+ *
+ * This command enables the channel to be scheduled by the runlist. The
+ * channel can be previously disabled in the runlist, e.g.,:
+ * - as a consequence of a trap/error; or
+ * - explicitly with @ref NVGPURM_INTF_CHANNEL_DISABLE.
+ *
+ * @remark When a channel is created, it is enabled by default.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_CHANNEL_DISABLE IOCTL: NVGPU_IOCTL_CHANNEL_DISABLE
+ * @brief Disable channel.
+ *
+ * @remark Disabling a channel from the schedule does not guarantee that
+ * the channel will stop processing on-going work in case it is currently
+ * active. It merely means that the channel will not be rescheduled until a
+ * subsequent enable. Use @ref NVGPURM_INTF_CHANNEL_PREEMPT after disabling
+ * the channel to ensure it is no longer active.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_CHANNEL_PREEMPT IOCTL: NVGPU_IOCTL_CHANNEL_PREEMPT
+ * @brief Preempts a channel.
+ *
+ * NvRmGpuChannelControlCmd_Preempt preempts the current work of the
+ * channel on the GPU. If the channel is part of a TSG, all channels in the
+ * TSG are preempted. Preemption type depends on the preemption mode and
+ * the current activity on the channel/TSG.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Functionality not implemented
+ * - @c ENODEV --- GPU not ready
+ */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CHANNEL
+ * @defgroup NVGPURM_INTF_CHANNEL_FORCE_RESET IOCTL: NVGPU_IOCTL_CHANNEL_FORCE_RESET
+ * @brief Aborts a channel and sets the error notifier.
+ *
+ * This command aborts the channel. If the channel is part of a TSG, all
+ * channels in the TSG are aborted. After a channel is aborted, the channel
+ * will not be able to execute any subsequent work.
+ *
+ * @remark If error notifier is assigned, it will receive an error
+ * notification after the channel has been successfully aborted.
+ *
+ * @remark After channel abort, the user should read error notifiers if
+ * applicable, and close the channel.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOMEM ---  Memory allocation failed for command buffer.
+ * - @c ENODEV --- GPU not ready
+ */
+
 #define NVGPU_IOCTL_CHANNEL_SET_NVMAP_FD	\
 	_IOW(NVGPU_IOCTL_MAGIC, 5, struct nvgpu_set_nvmap_fd_args)
 #define NVGPU_IOCTL_CHANNEL_SET_TIMEOUT	\
 	_IOW(NVGPU_IOCTL_MAGIC, 11, struct nvgpu_set_timeout_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_TIMEDOUT
+ * @brief Command code for @ref NVGPURM_INTF_GET_TIMEDOUT.
+ */
 #define NVGPU_IOCTL_CHANNEL_GET_TIMEDOUT	\
 	_IOR(NVGPU_IOCTL_MAGIC, 12, struct nvgpu_get_param_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_TIMEOUT_EX
+ * @brief Command code for @ref NVGPURM_INTF_SET_TIMEOUT_EX.
+ */
 #define NVGPU_IOCTL_CHANNEL_SET_TIMEOUT_EX	\
 	_IOWR(NVGPU_IOCTL_MAGIC, 18, struct nvgpu_set_timeout_ex_args)
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_WAIT
+ * @brief Command code for @ref NVGPURM_INTF_CHANNEL_WAIT.
+ */
 #define NVGPU_IOCTL_CHANNEL_WAIT		\
 	_IOWR(NVGPU_IOCTL_MAGIC, 102, struct nvgpu_wait_args)
+/**
+ * @ingroup NVGPURM_INTF_SUBMIT_GPFIFO
+ * @brief Command code for @ref NVGPURM_INTF_SUBMIT_GPFIFO.
+ */
 #define NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO	\
 	_IOWR(NVGPU_IOCTL_MAGIC, 107, struct nvgpu_submit_gpfifo_args)
 /**
@@ -3564,6 +4634,10 @@ struct nvgpu_reschedule_runlist_args {
  */
 #define NVGPU_IOCTL_CHANNEL_ALLOC_OBJ_CTX	\
 	_IOWR(NVGPU_IOCTL_MAGIC, 108, struct nvgpu_alloc_obj_ctx_args)
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_BIND
+ * @brief Command code for @ref NVGPURM_INTF_ZCULL_BIND.
+ */
 #define NVGPU_IOCTL_CHANNEL_ZCULL_BIND		\
 	_IOWR(NVGPU_IOCTL_MAGIC, 110, struct nvgpu_zcull_bind_args)
 /**
@@ -3574,12 +4648,28 @@ struct nvgpu_reschedule_runlist_args {
 	_IOWR(NVGPU_IOCTL_MAGIC, 111, struct nvgpu_set_error_notifier)
 #define NVGPU_IOCTL_CHANNEL_OPEN	\
 	_IOR(NVGPU_IOCTL_MAGIC,  112, struct nvgpu_channel_open_args)
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_ENABLE
+ * @brief Command code for @ref NVGPURM_INTF_CHANNEL_ENABLE.
+ */
 #define NVGPU_IOCTL_CHANNEL_ENABLE	\
 	_IO(NVGPU_IOCTL_MAGIC,  113)
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_DISABLE
+ * @brief Command code for @ref NVGPURM_INTF_CHANNEL_DISABLE.
+ */
 #define NVGPU_IOCTL_CHANNEL_DISABLE	\
 	_IO(NVGPU_IOCTL_MAGIC,  114)
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_PREEMPT
+ * @brief Command code for @ref NVGPURM_INTF_CHANNEL_PREEMPT.
+ */
 #define NVGPU_IOCTL_CHANNEL_PREEMPT	\
 	_IO(NVGPU_IOCTL_MAGIC,  115)
+/**
+ * @ingroup NVGPURM_INTF_CHANNEL_FORCE_RESET
+ * @brief Command code for @ref NVGPURM_INTF_CHANNEL_FORCE_RESET.
+ */
 #define NVGPU_IOCTL_CHANNEL_FORCE_RESET	\
 	_IO(NVGPU_IOCTL_MAGIC,  116)
 #define NVGPU_IOCTL_CHANNEL_EVENT_ID_CTRL \
@@ -3604,6 +4694,10 @@ struct nvgpu_reschedule_runlist_args {
  */
 #define NVGPU_IOCTL_CHANNEL_ALLOC_GPFIFO_EX	\
 	_IOWR(NVGPU_IOCTL_MAGIC, 123, struct nvgpu_alloc_gpfifo_ex_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_BOOSTED_CTX
+ * @brief Command code for @ref NVGPURM_INTF_SET_BOOSTED_CTX
+ */
 #define NVGPU_IOCTL_CHANNEL_SET_BOOSTED_CTX	\
 	_IOW(NVGPU_IOCTL_MAGIC, 124, struct nvgpu_boosted_ctx_args)
 /**
@@ -3858,5 +4952,139 @@ struct nvgpu_sched_event_arg {
 };
 
 #define NVGPU_SCHED_API_VERSION		1
+
+/*
+ * /dev/nvgpu/<gpu>/gsp_vm_sched device
+ *
+ * Opening a '/dev/nvgpu/<gpu>/gsp_vm_sched' device node creates a way to control
+ * GSP VM scheduling parameters.
+ */
+
+#define NVGPU_VM_SCHED_IOCTL_MAGIC 'V'
+
+/**
+ * Structure for VM Scheduler configuration info.
+ */
+struct nvgpu_vm_sched_config_args {
+	/* out: min timeslice (us) for vm scheduling. */
+	__u32 min_timeslice;
+
+	/* out: max timeslice (us) for vm scheduling. */
+	__u32 max_timeslice;
+
+	/* out: number of timeslice entries. */
+	__u32 num_timeslice_entries;
+
+	/* in: size of buffer in bytes */
+	__u32 size;
+
+	/* in: address of the buffer to store config entries */
+	/* out: buffer contains timeslice entries of type
+	 *      struct nvgpu_vm_sched_engine_timeslice_args.
+	 *      No data is written if buffer points to null address.
+	 */
+	__u64 buffer;
+};
+
+/**
+ * Structure for getting and setting engine timeslice info.
+ */
+struct nvgpu_vm_sched_engine_timeslice_args {
+	/* in/out: VM ID for timeslice entry */
+	__u32 vmid;
+	/* in/out: Engine ID of type NVGPU_GPU_ENGINE_ID_* */
+	__u32 engine_id;
+	/* in/out: Engine instance number */
+	__u32 instance;
+	/* in/out: Timeslice value for this entry */
+	__u32 timeslice;
+};
+
+#define NVGPU_VM_SCHED_IOCTL_GET_CONFIG					\
+	_IOWR(NVGPU_VM_SCHED_IOCTL_MAGIC, 1,				\
+		struct nvgpu_vm_sched_config_args)
+#define NVGPU_VM_SCHED_IOCTL_GET_ENG_TIMESLICE				\
+	_IOWR(NVGPU_VM_SCHED_IOCTL_MAGIC, 2,				\
+		struct nvgpu_vm_sched_engine_timeslice_args)
+#define NVGPU_VM_SCHED_IOCTL_SET_ENG_TIMESLICE				\
+	_IOW(NVGPU_VM_SCHED_IOCTL_MAGIC, 3,				\
+		struct nvgpu_vm_sched_engine_timeslice_args)
+#define NVGPU_VM_SCHED_IOCTL_LAST					\
+	_IOC_NR(NVGPU_VM_SCHED_IOCTL_SET_ENG_TIMESLICE)
+
+#define NVGPU_VM_SCHED_IOCTL_MAX_ARG_SIZE				\
+	sizeof(struct nvgpu_vm_sched_config_args)
+
+/*
+ * /dev/nvgpu/<gpu>/multimedia device
+ *
+ * Opening a '/dev/nvgpu/<gpu>/multimedia' device node creates a way to
+ * interact with multimedia engines.
+ */
+
+#define NVGPU_MULTIMEDIA_IOCTL_MAGIC 'M'
+
+#define NVGPU_MULTIMEDIA_TAG_SOF			0x00
+#define NVGPU_MULTIMEDIA_TAG_CTXSW_REQ_BY_HOST		0x01
+#define NVGPU_MULTIMEDIA_TAG_SAVE_END			0x03
+#define NVGPU_MULTIMEDIA_TAG_RESTORE_START		0x04
+#define NVGPU_MULTIMEDIA_TAG_CONTEXT_START		0x05
+#define NVGPU_MULTIMEDIA_TAG_SESSION_START		0x07
+#define NVGPU_MULTIMEDIA_TAG_SESSION_END		0x08
+#define NVGPU_MULTIMEDIA_TAG_ENGINE_RESET		0xfe
+#define NVGPU_MULTIMEDIA_TAG_INVALID_TIMESTAMP		0xff
+#define NVGPU_MULTIMEDIA_TAG_LAST			\
+	NVGPU_MULTIMEDIA_TAG_INVALID_TIMESTAMP
+
+
+struct nvgpu_multimedia_trace_entry {
+	__u8 tag;
+	__u8 vmid;
+	__u16 seqno;		/* sequence number to detect drops */
+	__u32 context_id;	/* context_id as allocated by nvgpu multimedia */
+	__u64 pid;		/* 64-bit Process-ID as allocated by OS */
+	__u64 timestamp;	/* 64-bit timestamp */
+};
+
+#define NVGPU_MULTIMEDIA_RING_HEADER_MAGIC 0x7000fade
+#define NVGPU_MULTIMEDIA_RING_HEADER_VERSION 0
+
+struct nvgpu_multimedia_ring_header {
+	__u32 magic;
+	__u32 version;
+	__u32 num_ents;
+	__u32 ent_size;
+	volatile __u32 drop_count;	/* excluding filtered out events */
+	volatile __u32 write_seqno;
+	volatile __u32 write_idx;
+	volatile __u32 read_idx;
+};
+
+struct nvgpu_multimedia_ring_setup_args {
+	/* in: engine ID/type to set-up ring buffer */
+	__u32 engine_id;
+	/* in: engine instance to set-up ring buffer */
+	__u32 instance;
+	/* [in/out] Size of ring buffer in bytes (including header).
+	 * Will be rounded to page size.
+	 * This parameter is updated with actual allocated size.
+	 */
+	__u32 size;
+};
+
+#define NVGPU_MULTIMEDIA_IOCTL_TRACE_ENABLE \
+	_IO(NVGPU_MULTIMEDIA_IOCTL_MAGIC, 1)
+#define NVGPU_MULTIMEDIA_IOCTL_TRACE_DISABLE \
+	_IO(NVGPU_MULTIMEDIA_IOCTL_MAGIC, 2)
+#define NVGPU_MULTIMEDIA_IOCTL_RING_SETUP \
+	_IOWR(NVGPU_MULTIMEDIA_IOCTL_MAGIC, 3, struct nvgpu_multimedia_ring_setup_args)
+#define NVGPU_MULTIMEDIA_IOCTL_POLL \
+	_IO(NVGPU_MULTIMEDIA_IOCTL_MAGIC, 6)
+
+#define NVGPU_MULTIMEDIA_IOCTL_LAST            \
+	_IOC_NR(NVGPU_MULTIMEDIA_IOCTL_POLL)
+
+#define NVGPU_MULTIMEDIA_IOCTL_MAX_ARG_SIZE	\
+	sizeof(struct nvgpu_multimedia_ring_setup_args)
 
 #endif

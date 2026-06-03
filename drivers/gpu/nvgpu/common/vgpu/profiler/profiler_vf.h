@@ -27,28 +27,39 @@ int vf_gb10b_profiler_unbind_smpc(struct gk20a *g,
 		bool is_ctxsw,
 		struct nvgpu_tsg *tsg,
 		u32 reservation_id);
-void vf_profiler_bind_hes_cwd(struct gk20a *g,
+int vf_profiler_bind_hes_cwd(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 reservation_id,
-		u32 pma_channel_id);
-void vf_profiler_set_hs_credit_per_chiplet(struct gk20a *g,
+		u32 pma_channel_id,
+		bool is_ctx_resident,
+		struct nvgpu_tsg *tsg);
+int vf_profiler_set_hs_credit_per_chiplet(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 pma_channel_id,
 		u32 chiplet_type,
 		u32 chiplet_local_index,
-		u32 num_of_credits);
+		u32 num_of_credits,
+		bool is_ctx_resident,
+		struct nvgpu_tsg *tsg);
 int vf_profiler_bind_pma_streamout(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 pma_channel_id,
 		u64 pma_buffer_va,
 		u32 pma_buffer_size,
 		u64 pma_bytes_available_buffer_va,
-		u32 reservation_id);
+		u32 reservation_id,
+		struct nvgpu_tsg *tsg,
+		bool is_ctx_resident);
 int vf_profiler_unbind_pma_streamout(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 pma_channel_id,
 		bool is_ctxsw,
 		struct nvgpu_tsg *tsg,
 		void *pma_bytes_available_buffer_cpuva,
+		u32 reservation_id,
+		bool is_ctx_resident);
+int vf_gb20c_profiler_unbind_ccuprof(struct gk20a *g,
+		u32 gr_instance_id,
+		bool is_ctxsw,
 		u32 reservation_id);
 #endif

@@ -20,6 +20,9 @@ struct nvgpu_nvjpg {
 
 	/** Memory to store ucode contents locally. */
 	struct nvgpu_mem nvjpg_mem_desc;
+
+	/** Memory for trace buffer */
+	struct nvgpu_mem trace_buf_mem[NVJPG_INST_MAX];
 };
 
 struct gk20a;

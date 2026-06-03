@@ -134,6 +134,7 @@ u32 gb10b_acr_lsf_ofa_riscv(struct gk20a *g,
 	return BIT32(lsf->falcon_id);
 }
 
+#ifdef CONFIG_NVGPU_NON_FUSA
 static u32 gb10b_acr_lsf_nvjpg_riscv(struct gk20a *g,
 		struct acr_lsf_config *lsf)
 {
@@ -149,6 +150,7 @@ static u32 gb10b_acr_lsf_nvjpg_riscv(struct gk20a *g,
 
 	return BIT32(lsf->falcon_id);
 }
+#endif
 
 int nvgpu_gb10b_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 	struct nvgpu_acr *acr, struct hs_acr *acr_desc, bool is_recovery)
@@ -439,8 +441,10 @@ static u32 gb10b_acr_lsf_config(struct gk20a *g,
 		lsf_enable_mask |= nvgpu_gb10b_acr_lsf_riscv_eb_gpccs(g,
 						&acr->lsf[FALCON_ID_GPCCS_RISCV_EB]);
 	}
+#ifdef CONFIG_NVGPU_NON_FUSA
 	lsf_enable_mask |= gb10b_acr_lsf_nvjpg_riscv(g,
 					&acr->lsf[FALCON_ID_NVJPG_RISCV_EB]);
+#endif
 	lsf_enable_mask |= gb10b_acr_lsf_ofa_riscv(g,
 					&acr->lsf[FALCON_ID_OFA_RISCV_EB]);
 	lsf_enable_mask |= gb10b_acr_lsf_nvenc_riscv(g,

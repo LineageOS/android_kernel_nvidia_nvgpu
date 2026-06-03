@@ -68,7 +68,7 @@ void nvgpu_pte_dbg_print(struct gk20a *g,
 
 		ctag_num = nvgpu_safe_cast_u64_to_u32(ctag_tmp /
 						      g->ops.fb.compression_page_size(g));
-		(void)strcpy(ctag_str, "ctag=0x\0");
+		(void)snprintf(ctag_str, sizeof(ctag_str), "%s", "ctag=0x\0");
 		str_len = nvgpu_safe_cast_u64_to_u32(strlen(ctag_str));
 		(void)nvgpu_strnadd_u32(ctag_str + str_len, ctag_num,
 					nvgpu_safe_sub_u32(31U, str_len), 16U);

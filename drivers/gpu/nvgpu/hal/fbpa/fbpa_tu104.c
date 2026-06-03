@@ -118,17 +118,17 @@ int nvgpu_ecc_counter_init_per_fbpa(struct gk20a *g,
 		 * Store stats name as below:
 		 * fbpa<fbpa_value>_<name_string>
 		 */
-		(void)strcpy(stats[i].name, "fbpa");
+		(void)snprintf(stats[i].name, sizeof(stats[i].name), "%s", "fbpa");
 		(void)nvgpu_strnadd_u32(fbpa_str, i, sizeof(fbpa_str), 10U);
-		(void)strncat(stats[i].name, fbpa_str,
-					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
-		(void)strncat(stats[i].name, "_",
-					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
-		(void)strncat(stats[i].name, name,
-					NVGPU_ECC_STAT_NAME_MAX_SIZE -
-					strlen(stats[i].name));
+		(void)snprintf(stats[i].name + strlen(stats[i].name),
+					NVGPU_ECC_STAT_NAME_MAX_SIZE - strlen(stats[i].name),
+					"%s", fbpa_str);
+		(void)snprintf(stats[i].name+strlen(stats[i].name),
+					NVGPU_ECC_STAT_NAME_MAX_SIZE - strlen(stats[i].name),
+					"%s", "_");
+		(void)snprintf(stats[i].name+strlen(stats[i].name),
+					NVGPU_ECC_STAT_NAME_MAX_SIZE - strlen(stats[i].name),
+					"%s", name);
 
 		nvgpu_ecc_stat_add(g, &stats[i]);
 	}

@@ -413,7 +413,7 @@ done:
 }
 static int volt_policy_devgrp_pmudata_instget(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-	struct nv_pmu_boardobj **pmu_obj, u8 idx)
+	struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_volt_volt_policy_boardobj_grp_set *pgrp_set =
 		(struct nv_pmu_volt_volt_policy_boardobj_grp_set *)
@@ -485,6 +485,15 @@ int volt_policy_sw_setup(struct gk20a *g)
 
 	nvgpu_log_info(g, " ");
 
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_policy_metadata.volt_policies.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "volt_policy boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing volt_policy boardobjgrp for first time");
+
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->volt->volt_metadata->volt_policy_metadata.volt_policies);
 	if (status != 0) {
@@ -493,9 +502,6 @@ int volt_policy_sw_setup(struct gk20a *g)
 			"status - 0x%x", status);
 		goto done;
 	}
-
-	pboardobjgrp =
-		&g->pmu->volt->volt_metadata->volt_policy_metadata.volt_policies.super;
 
 	pboardobjgrp->pmudatainstget  = volt_policy_devgrp_pmudata_instget;
 	pboardobjgrp->pmudatainit = volt_policy_grp_pmudatainit_super;

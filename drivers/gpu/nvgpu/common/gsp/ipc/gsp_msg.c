@@ -4,6 +4,7 @@
 #include <nvgpu/engine_queue.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/gsp.h>
+#include <nvgpu/gsp_vm_scheduler.h>
 
 #include "gsp_queue.h"
 #include "gsp_msg.h"
@@ -283,11 +284,27 @@ int nvgpu_gsp_process_ipc_message(struct gk20a *g)
 		nvgpu_gsp_dbg(g, "ctrl_flags = 0x%08x, seq_id = 0x%08x",
 			msg.hdr.ctrl_flags, msg.hdr.seq_id);
 
-		status = gsp_response_handle(gsp, &msg);
-		if (status != 0) {
-			return status;
+		if (msg.hdr.ctrl_flags == 0) {
+			status = gsp_response_handle(gsp, &msg);
+			if (status != 0) {
+				return status;
+			}
 		}
-
+#if defined(CONFIG_NVGPU_GSP_SCHEDULER_VM)
+		else {
+			if (nvgpu_is_enabled(g, NVGPU_GSP_SCHEDULER_VM)) {
+				if (msg.hdr.unit_id == NV_GSP_UNIT_VM_SCHED) {
+					status = gsp_vm_sched_event_handler(g, &msg);
+					if (status != 0) {
+						return status;
+					}
+				} else {
+					nvgpu_err(g, "gsp vm sched event is not valid to unit");
+					return -EINVAL;
+				}
+			}
+		}
+#endif
 		if (!nvgpu_gsp_queue_is_empty(gsp_ipc->queues,
 				GSP_NV_MSGQ_LOG_ID)) {
 			g->ops.gsp.set_msg_intr(g);

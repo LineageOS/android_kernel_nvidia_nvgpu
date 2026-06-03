@@ -33,6 +33,19 @@ int thermChannelIfaceModel10Construct_DEBUG_V10(struct gk20a *g, struct pmu_boar
     // pModel10->copyState     = _thermChannelIfaceModel10CopyState_DEBUG_V10;
     // Override super-class interfaces
     // pChDebug10->super.super.super.stateInit = _thermChannelStateInit_DEBUG_V10;
+
+    // CRITICAL FIX: Copy base thermal channel data from input
+    pChDebug10->super.super.bScaling            = pChTemp->super.super.bScaling;
+    pChDebug10->super.super.scaling             = pChTemp->super.super.scaling;
+    pChDebug10->super.super.offsetSW            = pChTemp->super.super.offsetSW;
+    pChDebug10->super.super.bBounds             = pChTemp->super.super.bBounds;
+    pChDebug10->super.super.temp_min            = pChTemp->super.super.temp_min;
+    pChDebug10->super.super.temp_max            = pChTemp->super.super.temp_max;
+    pChDebug10->super.super.tempSim.bSupported  = pChTemp->super.super.tempSim.bSupported;
+    pChDebug10->super.super.tempSim.bEnabled    = pChTemp->super.super.tempSim.bEnabled;
+    pChDebug10->super.super.tempSim.targetTemp  = pChTemp->super.super.tempSim.targetTemp;
+    pChDebug10->super.super.chType              = pChTemp->super.super.chType;
+
     // Set THERM_CHANNEL_DEBUG_V10 specific parameters.
     pChDebug10->thermDevIdx = pChTemp->thermDevIdx;
     pChDebug10->thermDevProvIdxStart = pChTemp->thermDevProvIdxStart;

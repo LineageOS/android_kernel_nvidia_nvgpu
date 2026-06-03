@@ -8,6 +8,7 @@
 #include <nvgpu/flcnif_cmn.h>
 #include <nvgpu/pmu/volt.h>
 #include <nvgpu/boardobjgrp_e255.h>
+#include <nvgpu/bug.h>
 #include <common/pmu/boardobj/ucode_boardobj_inf.h>
 
 /*!
@@ -41,6 +42,7 @@
  * Types of NAFLL devices that are supported
  */
 #define NV2080_CTRL_CLK_NAFLL_DEVICE_TYPE_V35				(0x00000005U)
+#define NV2080_CTRL_CLK_CLK_NAFLL_DEVICE_TYPE_V35_SECURE_V10	(0x00000006U)
 
 /*
  * Types of CLK_ENUM classes that are supported
@@ -62,7 +64,6 @@
 
 #define NV2080_CTRL_CLK_CLK_VF_REL_VF_ENTRY_SEC_MAX		0x03U
 #define NV2080_CTRL_CLK_CLK_VF_REL_VF_ENTRY_MAX		NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_MAX
-
 /*!
  * Count of max supported secondary entries.
  */
@@ -81,8 +82,13 @@
 #define NV2080_CTRL_CLK_CLK_VF_TUPLE_VARIABLE_MAX		0x04U
 
 #define NV2080_CTRL_PERF_VFE_EQU_INDEX_INVALID			0xFFFFU
-
 #define NV2080_CTRL_CLK_CLK_VF_POINT_IDX_INVALID		0xFFFFU
+
+/*
+ * Macro defining max allowed voltage rail VF items per clk domain.
+ */
+#define NV_CTRL_CLK_CLK_DOMAIN_PROG_RAIL_VF_ITEM_MAX    0x6U
+#define NV_CTRL_CLK_CLK_DOMAIN_50_PROG_PHYSICAL_FBVDD_VF_MAPPING_TABLE_MAX_MAPPINGS 16U
 
 /*!
  * Enumeration of CLK_VF_REL class types.
@@ -173,6 +179,34 @@
 #define CTRL_CLK_CLK_DOMAIN_3X_PROG_ORDERING_INDEX_INVALID	 	0xFFU
 #define CTRL_CLK_CLK_DOMAIN_INDEX_INVALID				0xFFU
 
+#define CTRL_CLK_CLK_DOMAIN_VERSION_50					0x50U
+#define CTRL_CLK_CLK_DOMAIN_50_PROG_PHYSICAL_RAIL_VF_TYPE_NONE      0x0U
+#define CTRL_CLK_CLK_DOMAIN_50_PROG_PHYSICAL_RAIL_VF_TYPE_PRIMARY   0x1U
+#define CTRL_CLK_CLK_DOMAIN_50_PROG_PHYSICAL_RAIL_VF_TYPE_SECONDARY 0x2U
+
+#define VBIOS_CLOCKS_TABLE_1X_HAL_NUM_CLOCK_ENTRIES                 0xF
+#define VBIOS_CLOCKS_TABLE_1X_NUM_HALS                              0xA
+#define VBIOS_CLOCKS_TABLE_1X_NUM_FACTORY_OC_CLK_DOMAINS            0x2
+#define VBIOS_CLOCKS_TABLE_1X_NUM_FACTORY_OC_VPSTATE_IDXS           0x2
+#define VBIOS_CLOCKS_TABLE_1X_NUM_CPMU_CPLUT_MAPPINGS               0x10
+
+#define NV_CTRL_CLK_CLIENT_CLK_DOMAIN_IDX_INVALID   0xFFU
+
+/*!
+ * Enumeration of clock domain types.
+ */
+#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_LOGICAL                   0x0
+#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_PHYSICAL_WITH_LOGICAL     0x1
+#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_PHYSICAL                  0x2
+#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_INVALID                  0xFF
+#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_IDX_INVALID                   0xFF
+
+/*
+ * Enumeration of FREQ_DOMAIN types.
+ * As of Clocks 3.1, there is only one type.
+ */
+#define NV2080_CTRL_CLK_FREQ_DOMAIN_SCHEMA_CLK3     0x03U
+
 /*!
  * Enumeration of CLK_PROG types.
  */
@@ -204,19 +238,72 @@
 #define CTRL_CLK_CLK_VF_POINT_TYPE_35_VOLT				0x06U
 #define CTRL_CLK_CLK_VF_POINT_TYPE_35_VOLT_PRI				0x07U
 #define CTRL_CLK_CLK_VF_POINT_TYPE_35_VOLT_SEC				0x08U
+
+#define NV2080_CTRL_CLK_CLK_VF_POINT_TYPE_50_FREQ		15U
+#define NV2080_CTRL_CLK_CLK_VF_POINT_TYPE_50_VOLT		16U
+#define NV2080_CTRL_CLK_CLK_VF_POINT_TYPE_50_VOLT_PRI	17U
+#define NV2080_CTRL_CLK_CLK_VF_POINT_TYPE_50_VOLT_SEC	18U
+#define NV2080_CTRL_CLK_CLK_VF_POINT_TYPE_MAX			19U
+#define NV2080_CTRL_CLK_CLK_VF_POINT_DVCO_OFFSET_CODE_INVALID 0xFFU
+
 #define CTRL_CLK_CLK_VF_POINT_IDX_INVALID				0xFFU
 #define CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE			0x5U
 
-#define NV_PMU_RPC_ID_CLK_CNTR_SAMPLE_DOMAIN				0x01U
-#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_35_PROG_VOLT_TO_FREQ		0x02U
-#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_35_PROG_FREQ_TO_VOLT		0x03U
-#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_35_PROG_FREQ_QUANTIZE		0x04U
-#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_35_PROG_CLIENT_FREQ_DELTA_ADJ	0x05U
-#define NV_PMU_RPC_ID_CLK_FREQ_EFFECTIVE_AVG				0x06U
-#define NV_PMU_RPC_ID_CLK_LOAD						0x07U
-#define NV_PMU_RPC_ID_CLK_VF_CHANGE_INJECT				0x08U
-#define NV_PMU_RPC_ID_CLK_MCLK_SWITCH					0x09U
-#define NV_PMU_RPC_ID_CLK__COUNT					0x0AU
+#define NV2080_CTRL_CLK_NAFLL_LUT_VF_CURVE_SEC_MAX              (0x00000003U)
+#define NV2080_CTRL_CLK_NAFLL_NDIV_ACCUMULATOR_TYPE_MAX         (0x2U)
+
+#define NV_PMU_RPC_ID_CLK_BOARD_OBJ_GRP_IFACE_MODEL_10_CMD		0x00
+#define NV_PMU_RPC_ID_CLK_BOARD_OBJ_GRP_IFACE_MODEL_PMU_INIT_1X_CMD	0x01
+#define NV_PMU_RPC_ID_CLK_CNTR_SAMPLE_DOMAIN				0x02
+#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_PROG_VOLT_TO_FREQ			0x03
+#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_PROG_FREQ_TO_VOLT			0x04
+#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_PROG_FREQ_QUANTIZE			0x05
+#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_PROG_CLIENT_FREQ_DELTA_ADJ		0x06
+#define NV_PMU_RPC_ID_CLK_CLK_DOMAIN_PROG_FREQS_ENUM			0x07
+#define NV_PMU_RPC_ID_CLK_FREQ_EFFECTIVE_AVG				0x08
+#define NV_PMU_RPC_ID_CLK_LOAD						0x09
+#define NV_PMU_RPC_ID_CLK_VF_CHANGE_INJECT				0x0A
+#define NV_PMU_RPC_ID_CLK_MCLK_SWITCH					0x0B
+#define NV_PMU_RPC_ID_CLK__COUNT					0x0C
+
+/*!
+ * Macros for the @ref feature parameter in the @ref RM_PMU_CLK_LOAD structure
+ */
+#define NV_RM_PMU_CLK_LOAD_FEATURE_INVALID                          (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_NAFLL                            (0x00000001U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_ADC                              (0x00000002U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_FREQ_CONTROLLER                  (0x00000003U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_FREQ_EFFECTIVE_AVG               (0x00000004U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_CLK_DOMAIN                       (0x00000005U)
+#define NV_RM_PMU_CLK_LOAD_FEATURE_CLK_CONTROLLER                   (0x00000006U)
+
+/*!
+ * Macros for the @ref actionMask parameter in the @ref RM_PMU_CLK_LOAD structure
+ */
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_LUT_REPROGRAM                         (0:0)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_LUT_REPROGRAM_NO             (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_LUT_REPROGRAM_YES            (0x00000001U)
+
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_CONTROLLER_CALLBACK              (1:1)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_CONTROLLER_CALLBACK_NO  (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_CONTROLLER_CALLBACK_YES (0x00000001U)
+
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_EFFECTIVE_AVG_CALLBACK           (2:2)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_EFFECTIVE_AVG_CALLBACK_NO  (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_FREQ_EFFECTIVE_AVG_CALLBACK_YES (0x00000001U)
+
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_CALLBACK                          (3:3)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_CALLBACK_NO              (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_CALLBACK_YES             (0x00000001U)
+
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_HW_CAL_PROGRAM                    (4:4)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_HW_CAL_PROGRAM_NO        (0x00000000U)
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_HW_CAL_PROGRAM_YES       (0x00000001U)
+
+/* Helper macro for ADC action mask with both ADC_CALLBACK and ADC_HW_CAL_PROGRAM enabled */
+#define NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_FULL \
+	((NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_CALLBACK_YES << 3) | \
+	 (NV_RM_PMU_CLK_LOAD_ACTION_MASK_ADC_HW_CAL_PROGRAM_YES << 4))
 
 /*!
  * Macros for the @ref feature parameter in the @ref NV_PMU_CLK_LOAD structure
@@ -238,10 +325,15 @@
 #define NV_NV_PMU_CLK_LOAD_ACTION_MASK_VIN_HW_CAL_PROGRAM_YES	(0x00000001U)
 
 #define CTRL_CLK_CLK_DELTA_MAX_VOLT_RAILS				4U
+#define NV2080_CTRL_VOLT_VOLT_RAIL_CLIENT_MAX_RAILS_V2  0x08U
+
+/* Enumeration of FREQ_DELTA offset types. */
+#define CTRL_CLK_CLK_FREQ_DELTA_TYPE_STATIC				0x00U
+#define CTRL_CLK_CLK_FREQ_DELTA_TYPE_PERCENT			0x01U
 
 union ctrl_clk_freq_delta_data {
 	s32 delta_khz;
-	s16 delta_percent;
+	s16 delta_percent;	// SFXP4_12
 };
 
 struct ctrl_clk_freq_delta {
@@ -251,7 +343,7 @@ struct ctrl_clk_freq_delta {
 
 struct ctrl_clk_clk_delta {
 	struct ctrl_clk_freq_delta freq_delta;
-	int volt_deltauv[CTRL_CLK_CLK_DELTA_MAX_VOLT_RAILS];
+	s32 volt_deltauv[NV2080_CTRL_VOLT_VOLT_RAIL_CLIENT_MAX_RAILS_V2];
 };
 
 struct ctrl_clk_domain_control_35_prog_clk_mon {
@@ -396,7 +488,7 @@ struct nv_pmu_rpc_clk_domain_35_prog_freq_to_volt {
  * CLK_DOMAIN BOARDOBJGRP Header structure.  Describes global state about the
  * CLK_DOMAIN feature.
  */
-struct nv_pmu_clk_clk_domain_boardobjgrp_set_header {
+struct nv_pmu_clk_clk_domain_10_boardobjgrp_set_header {
 	struct nv_pmu_boardobjgrp_e32 super;
 	u32 vbios_domains;
 	struct ctrl_boardobjgrp_mask_e32 prog_domains_mask;
@@ -413,10 +505,41 @@ struct nv_pmu_clk_clk_domain_boardobjgrp_set_header {
 	struct ctrl_clk_clk_delta deltas;
 };
 
+struct nv_pmu_clk_clk_domain_50_boardobjgrp_set_header {
+	struct ctrl_boardobjgrp_mask_e32 progClientVisibleDomainsMask;
+	struct ctrl_boardobjgrp_mask_e32 progPhysicalDomainsMask;
+	struct ctrl_boardobjgrp_mask_e32 progPhysicalCpmuDomainsMask;
+};
+
+struct nv_pmu_clk_clk_domain_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e32 super;
+	struct ctrl_boardobjgrp_mask_e32 progDomainsMask;
+	struct ctrl_boardobjgrp_mask_e32 clkMonDomainsMask;
+	u16 cntrSamplingPeriodms;
+	bool bClkMonEnabled;
+	u16 clkMonRefWinUsec;
+	u16 xbarBoostVfeIdx;
+	u8 version;
+	bool bOverrideOVOC;
+	bool bDebugMode;
+	bool bEnforceVfMonotonicity;
+	bool bEnforceVfSmoothening;
+	bool bGrdFreqOCEnabled;
+	bool bInsAwareVFDisable;
+	bool bSkipMclkSwitch;
+	u8 voltRailsMax;
+	struct ctrl_clk_clk_delta deltas;
+	u8 clientToInternalIdxMap[NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS];
+	union {
+		struct nv_pmu_clk_clk_domain_50_boardobjgrp_set_header v50;
+	}data;
+};
+
 struct nv_pmu_clk_clk_domain_boardobj_set {
 	struct nv_pmu_boardobj super;
-	u32 domain;
+	u32 domain;		// CLKWHICH_<xzy>
 	u32 api_domain;
+	bool b_noise_aware_capable;
 	u8 perf_domain_grp_idx;
 };
 
@@ -484,10 +607,253 @@ struct nv_pmu_clk_clk_domain_35_master_boardobj_set {
 	struct ctrl_boardobjgrp_mask_e32 master_slave_domains_grp_mask;
 };
 
-
 struct nv_pmu_clk_clk_domain_35_slave_boardobj_set {
 	struct nv_pmu_clk_clk_domain_35_prog_boardobj_set super;
 	struct nv_pmu_clk_clk_domain_3x_slave_boardobj_set slave;
+};
+
+struct ctrl_clk_domain_control_50_prog_physical_clk_mon {
+	u32 flags;
+	u32 low_threshold_override;		// UFXP20_12
+	u32 high_threshold_override;	// UFXP20_12
+};
+
+struct ctrl_clk_domain_info_50_prog_physical_clk_mon {
+	u16 low_threshold_vfe_idx;
+	u16 high_threshold_vfe_idx;
+};
+
+/*
+ * Data that is used to adjust power measurements made on the FBVDD rail.
+ */
+struct ctrl_clk_domain_50_prog_physical_fbvdd_pwr_adj {
+	u32 slope;
+	u32 interceptmW;
+};
+
+/*
+ * Defines a mapping between max freq at required voltage.
+ */
+struct ctrl_clk_domain_50_prog_physical_fbvdd_vf_mapping {
+	u32 max_freq_khz;
+	u32 volt_uv;
+};
+
+/*
+ * A lookup table from FBVDD frequencies to voltage.
+ */
+struct ctrl_clk_domain_50_prog_physical_fbvdd_vf_mapping_tbl {
+	u8 number_mappings;
+	struct ctrl_clk_domain_50_prog_physical_fbvdd_vf_mapping
+		mappings[NV_CTRL_CLK_CLK_DOMAIN_50_PROG_PHYSICAL_FBVDD_VF_MAPPING_TABLE_MAX_MAPPINGS];
+};
+
+/*
+ * FBVDD data that may be associated with a given clock domain.
+ */
+struct crtl_clk_domain_50_prog_physical_fbvdd_data {
+	bool valid;
+	struct ctrl_clk_domain_50_prog_physical_fbvdd_pwr_adj pwr_adjustment;
+	struct ctrl_clk_domain_50_prog_physical_fbvdd_vf_mapping_tbl vf_mapping_tbl;
+};
+
+struct ctrl_clk_domain_info_50_physical_rail_vf_primary {
+	u8 clk_vf_rel_idx_first;
+	u8 clk_vf_rel_idx_last;
+	struct ctrl_boardobjgrp_mask_e32 secondary_domain_mask;
+	struct ctrl_boardobjgrp_mask_e32 primary_secondary_domain_mask;
+};
+
+struct ctrl_clk_domain_info_50_physical_rail_vf_secondary {
+	u8 primary_idx;
+};
+
+struct ctrl_clk_domain_info_50_prog_physical_rail_vf_item {
+	u8 type;
+	u8 clk_position;
+	union {
+		struct ctrl_clk_domain_info_50_physical_rail_vf_primary primary;
+		struct ctrl_clk_domain_info_50_physical_rail_vf_secondary secondary;
+	} data;
+};
+
+/*!
+ * RM_PMU structure representing the @ref NV2080_CTRL_CLK_CLK_DOMAIN_TYPE_MODEL_10
+ * for the common base class for "MODEL_10" functionality.
+ */
+struct nv_pmu_clk_clk_domain_model_10_boardobj_set
+{
+    /*!
+     * BOARDOBJ super class.  Must always be the first element in the structure.
+     */
+    struct nv_pmu_clk_clk_domain_boardobj_set  super;
+
+    /*!
+     * Interface for the 1.0 version of the BOARDOBJ model
+     */
+    u8 rsvd;
+};
+
+/*!
+ * Clock Domain 30 Primary structure.  Contains information specific to a Primary
+ * Clock Domain.
+ */
+struct nv_pmu_clk_clk_domain_prog_boardobj_set
+{
+    /*!
+     * _PMU_BOARDOBJ_INTERFACE super class. Must always be first object in the
+     * structure.
+     */
+    u8 rsvd;	/* Stubbing for _PMU_BOARDOBJ_INTERFACE */
+    /*!
+     * Mask of VOLT_RAILs on which the given CLK_DOMAIN_PROG has a
+     * Vmin, and for which a VF curve has been specified.
+     */
+    struct ctrl_boardobjgrp_mask_e32  voltRailVminMask;
+};
+
+/*!
+ * Clock domain info 50 structure.  Contains CLK_DOMAIN state that is specific
+ * to the pstates 4.0 implemenation of CLK_DOMAINS.
+ *
+ */
+struct nv_pmu_clk_clk_domain_50_boardobj_set
+{
+	/*!
+	 * CLK_DOMAIN super class.  Must always be first object in the
+	 * structure.
+	 */
+	struct nv_pmu_clk_clk_domain_model_10_boardobj_set super;
+};
+
+/*!
+ * Clock Domain 50 Fixed structure.  Contains information specific to a Fixed
+ * Clock Domain.
+ */
+struct nv_pmu_clk_clk_domain_50_fixed_boardobj_set
+{
+	/*!
+	 * CLK_DOMAIN_50 super class.  Must always be first object in the
+	 * structure.
+	 */
+	struct nv_pmu_clk_clk_domain_50_boardobj_set super;
+
+	/*!
+	 * Fixed frequency of the given CLK_DOMAIN in MHz.  This is the frequency
+	 * that the VBIOS DEVINIT has programmed for the CLK_DOMAIN.
+	 */
+	u16  freqMHz;
+};
+
+/*!
+ * Clock Domain 50 Prog structure. Contains information specific to a
+ * Programmable Clock Domain.
+ */
+struct nv_pmu_clk_clk_domain_50_prog_boardobj_set
+{
+	/*!
+	 * CLK_DOMAIN super class.  Must always be first object in the
+	 * structure.
+	 */
+	struct nv_pmu_clk_clk_domain_50_boardobj_set    super;
+	/*!
+	 * CLK_DOMAIN_PROG super/interface class.
+	 */
+	struct nv_pmu_clk_clk_domain_prog_boardobj_set  prog;
+
+	bool bFAVPointAvailable;
+};
+
+/*!
+ * Clock Domain 50 Prog Physical structure. Contains information specific to a
+ * Programmable Clock Domain.
+ */
+struct nv_pmu_clk_clk_domain_50_prog_physical_boardobj_set
+{
+	/*!
+	 * CLK_DOMAIN super class.  Must always be first object in the
+	 * structure.
+	 */
+	struct nv_pmu_clk_clk_domain_50_prog_boardobj_set super;
+	/*!
+	 * Pre-Volt ordering index for clock programming changes.
+	 */
+	u8    preVoltOrderingIndex;
+	/*!
+	 * Post-Volt ordering index for clock programming changes.
+	 */
+	u8    postVoltOrderingIndex;
+	/*!
+	 * Count of total number of (primary + secondary) curves supported on this clock domain.
+	 */
+	u8    clkVFCurveCount;
+	/*!
+	 * First index into the Clock Enumeration Table for this CLK_DOMAIN.
+	 */
+	u8    clkEnumIdxFirst;
+	/*!
+	 * Last index into the Clock Enumeration Table for this CLK_DOMAIN.
+	 */
+	u8    clkEnumIdxLast;
+	/*!
+	 * Index of the logical clock domain.
+	 */
+	u8    logicalDomainIdx;
+	/*!
+	 * Minimum frequency delta which can be applied to the CLK_DOMAIN.
+	 */
+	u16   freqDeltaMinMHz;
+	/*!
+	 * Maximum frequency delta which can be applied to the CLK_DOMAIN.
+	 */
+	s16   freqDeltaMaxMHz;
+	/*!
+	 * Factory OC frequency delta. We always apply this delta regardless of the
+	 * frequency delta range reg@ freqDeltaMinMHz and ref@ freqDeltaMaxMHz as
+	 * long as the clock programming entry has the OC feature enabled in it.
+	 * ref@ CLK_PROG_1X_PRIMARY::bOCOVEnabled
+	 */
+	struct ctrl_clk_freq_delta  factoryDelta;
+	/*!
+	 * GRD OC frequency delta. This delta is programmed by POR team in clocks
+	 * table. We will respect this delta IFF client explicitly opted for it by
+	 * setting ref@ CLK_DOMAINS::bGrdFreqOCEnabled
+	 */
+	struct ctrl_clk_freq_delta      grdFreqDelta;
+	/*!
+	 * Local delta for each programmable CLK_DOMAIN
+	 */
+	struct ctrl_clk_clk_delta   deltas;
+	/*!
+	 * Clock Monitor specific information used to compute the threshold values.
+	 */
+	struct ctrl_clk_domain_info_50_prog_physical_clk_mon     clkMonInfo;
+	/*!
+	 * Clock Monitors specific information used to override the threshold values.
+	 */
+	struct ctrl_clk_domain_control_50_prog_physical_clk_mon  clkMonCtrl;
+
+	/*!
+	 * Data characterizing the FBVDD rail associated with this CLK_DOMAIN, if
+	 * valid.
+	 */
+	struct crtl_clk_domain_50_prog_physical_fbvdd_data fbvddData;
+
+	/*!
+	 * Mask of volt rails on which this clock domain has its Vmin.
+	 */
+	u32 railMask;
+	/*!
+	 * Rail specific data for a given programmable clock domain.
+	 * ref@ NV2080_CTRL_CLK_CLK_DOMAIN_INFO_50_PROG_RAIL_VF_ITEM
+	 */
+	struct ctrl_clk_domain_info_50_prog_physical_rail_vf_item
+			railVfItem[NV_CTRL_CLK_CLK_DOMAIN_PROG_RAIL_VF_ITEM_MAX];
+	/*!
+	 * Clock identifier for this CLK_DOMAIN in the CPMU. This value is chip specific
+	 * and dictated by the VBIOS Clocks Table HAL.
+	 */
+	NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID cpmuClkId;
 };
 
 union nv_pmu_clk_clk_domain_boardobj_set_union {
@@ -502,6 +868,10 @@ union nv_pmu_clk_clk_domain_boardobj_set_union {
 	struct nv_pmu_clk_clk_domain_35_prog_boardobj_set v35_prog;
 	struct nv_pmu_clk_clk_domain_35_master_boardobj_set v35_master;
 	struct nv_pmu_clk_clk_domain_35_slave_boardobj_set v35_slave;
+	struct nv_pmu_clk_clk_domain_50_boardobj_set v50;
+	struct nv_pmu_clk_clk_domain_50_fixed_boardobj_set v50_fixed;
+	struct nv_pmu_clk_clk_domain_50_prog_boardobj_set v50_prog;
+	struct nv_pmu_clk_clk_domain_50_prog_physical_boardobj_set v50_prog_physical;
 };
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_domain);
@@ -617,6 +987,7 @@ struct nv_pmu_clk_clk_fll_device_boardobjgrp_set_header {
 struct nv_pmu_clk_lut_device_desc {
 	u8 vselect_mode;
 	u16 hysteresis_threshold;
+	bool b_quick_slowdown_force_engage[NV2080_CTRL_CLK_NAFLL_LUT_VF_CURVE_SEC_MAX];
 };
 
 struct nv_pmu_clk_regime_desc {
@@ -670,11 +1041,6 @@ struct nv_pmu_clk_clk_nafll_device_boardobj_set {
 	struct ctrl_boardobjgrp_mask_e32 lut_prog_bcast_secndary_mask;
 };
 
-union nv_pmu_clk_clk_nafll_device_boardobj_set_union {
-	struct nv_pmu_boardobj obj;
-	struct nv_pmu_clk_clk_nafll_device_boardobj_set super;
-};
-
 struct nv_pmu_clk_clk_fll_device_model10_boardobj_set {
 	struct nv_pmu_clk_clk_nafll_device_boardobj_set super;
 	u8 rsvd;
@@ -685,6 +1051,12 @@ struct nv_pmu_clk_clk_fll_device_v35_boardobj_set {
 	bool b_hw_pldiv_enable;
 };
 
+union nv_pmu_clk_clk_nafll_device_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_nafll_device_boardobj_set super;
+	struct nv_pmu_clk_clk_fll_device_v35_boardobj_set v35;
+};
+
 struct nv_pmu_clk_clk_nafll_device_boardobjgrp_set_header {
 	struct nv_pmu_boardobjgrp_e32 super;
 	struct ctrl_boardobjgrp_mask_e32 lut_prog_master_mask;
@@ -692,6 +1064,9 @@ struct nv_pmu_clk_clk_nafll_device_boardobjgrp_set_header {
 	u32 lut_min_voltage_uv;
 	u8 lut_num_entries;
 	u16 max_min_freq_mhz;
+	struct ctrl_boardobjgrp_mask_e32 unicast_nafll_dev_mask;
+	struct ctrl_boardobjgrp_mask_e32 broadcast_nafll_dev_mask;
+	bool b_die1_all_gpc_floorswept;
 };
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_nafll_device);
@@ -718,8 +1093,6 @@ union nv_pmu_clk_clk_enum_boardobj_set_union {
 	struct nv_pmu_clk_clk_enum_model_10 model10;
 };
 
-// _mg_ Todo: Move this to include/nvgpu/pmu/super_surface.h when we refactor super_surface.
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_ENUM_GRP					0x27U
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_enum);
 
@@ -827,8 +1200,12 @@ struct nv_pmu_clk_clk_vf_rel_table_secondary_entry {
 	u16 freqMHz;
 };
 
+struct nv_pmu_clk_clk_vf_rel_ratio_secondary_entry {
+	u8 ratio;
+	u8 clkDomIdx;
+};
+
 struct nv_pmu_clk_clk_vf_rel_4x_table_boardobj_set {
-	u8 rsvd;
 	struct nv_pmu_clk_clk_vf_rel_table_secondary_entry
 		secondaryEntries[NV2080_CTRL_CLK_CLK_VF_REL_TABLE_SECONDARY_ENTRIES_MAX];
 };
@@ -840,6 +1217,11 @@ struct nv_pmu_clk_clk_vf_rel_4x_table_boardobj_set {
 struct nv_pmu_clk_clk_vf_rel_50_table_boardobj_set {
 	struct nv_pmu_clk_clk_vf_rel_50_boardobj_set super;
 	struct nv_pmu_clk_clk_vf_rel_4x_table_boardobj_set table;
+};
+
+struct nv_pmu_clk_clk_vf_rel_4x_ratio_boardobj_set {
+	struct nv_pmu_clk_clk_vf_rel_ratio_secondary_entry
+		secondaryEntries[NV2080_CTRL_CLK_CLK_VF_REL_RATIO_SECONDARY_ENTRIES_MAX];
 };
 
 struct nv_pmu_clk_clk_vf_rel_ratio_volt_smooth_data {
@@ -858,6 +1240,7 @@ struct nv_pmu_clk_clk_vf_rel_ratio_volt_smooth_data {
 };
 
 struct nv_pmu_clk_clk_vf_rel_ratio_volt_vf_smooth_data_grp {
+	struct nv_pmu_boardobj obj;
 	/*
 	 * Contains the number of different VF-ramp rates that indicate the
 	 * maximum step size.
@@ -871,9 +1254,22 @@ struct nv_pmu_clk_clk_vf_rel_ratio_volt_vf_smooth_data_grp {
 		vfSmoothDataEntries[NV2080_CTRL_CLK_CLK_VF_REL_RATIO_VOLT_VF_SMOOTH_DATA_ENTRIES_MAX];
 };
 
-struct nv_pmu_clk_clk_vf_rel_ratio_secondary_entry {
-	u8 clkDomIdx;
-	u8 ratio;
+struct nv_pmu_clk_clk_vf_rel_50_ratio_boardobj_set {
+	struct nv_pmu_clk_clk_vf_rel_50_boardobj_set super;
+	struct nv_pmu_clk_clk_vf_rel_4x_ratio_boardobj_set ratio;
+};
+
+struct nv_pmu_clk_clk_vf_rel_4x_ratio_volt_boardobj_set {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_vf_rel_ratio_volt_vf_smooth_data_grp vfSmoothDataGrp;
+};
+
+struct nv_pmu_clk_clk_vf_rel_50_ratio_volt_boardobj_set {
+	struct nv_pmu_clk_clk_vf_rel_50_ratio_boardobj_set super;
+	struct nv_pmu_clk_clk_vf_rel_4x_ratio_volt_boardobj_set ratioVolt;
+	u8 vfGenMethod;
+	u16 devinitVfeIdx;
+	u16 favDeratedSubCurveVFEEqnIdx;
 };
 
 /*!
@@ -883,14 +1279,291 @@ union nv_pmu_clk_clk_vf_rel_boardobj_set_union {
 	struct nv_pmu_boardobj obj;
 	struct nv_pmu_clk_clk_vf_rel_boardobj_set super;
 	struct nv_pmu_clk_clk_vf_rel_50_boardobj_set v50;
-	// _mg_ Todo: add vf_rel_ratio 50 set, ratio_volt 50 set,
+	struct nv_pmu_clk_clk_vf_rel_50_ratio_boardobj_set v50Ratio;
+	struct nv_pmu_clk_clk_vf_rel_50_ratio_volt_boardobj_set v50RatioVolt;
 	struct nv_pmu_clk_clk_vf_rel_50_table_boardobj_set v50Table;
 };
 
-#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_REL_GRP 0x30U
-
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_vf_rel);
 
+#define NV2080_CTRL_CLK_CLK_PROP_REGIME_ID_MAX 20U
+
+/*!
+ * CLK_PROP_REGIME BOARDOBJGRP Header structure. Describes global state about the
+ * CLK_PROP_REGIME feature.
+ */
+struct nv_pmu_clk_clk_prop_regime_boardobjgrp_set_header {
+	/*!
+	 * BOARDOBJGRP_E32 super class.  Must always be first element in structure.
+	 */
+	struct nv_pmu_boardobjgrp_e32 super;
+
+	/*!
+	 * Clock Propagation regime HAL.
+	 * NV2080_CTRL_CLK_CLK_PROP_REGIME_HAL_<xyz>
+	 */
+	u8 regimeHal;
+
+	/*!
+	 * Regime id NV2080_CTRL_CLK_CLK_PROP_REGIME_ID_<xyz> to board object
+	 * index map.
+	 */
+	u16 regimeIdToIdxMap[NV2080_CTRL_CLK_CLK_PROP_REGIME_ID_MAX];
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the CLK_PROP_REGIME
+ * super class.
+ */
+struct nv_pmu_clk_clk_prop_regime_boardobj_set {
+	/*!
+	 * BOARDOBJ super class.  Must always be the first element in the structure.
+	 */
+	struct nv_pmu_boardobj super;
+
+	/*!
+	 * Clock Propagation Regime Id.
+	 */
+	u8 regimeId;
+	/*!
+	 * Mask of clock domains that must be programmed based on their
+	 * clock propagation relationship.
+	 */
+	struct ctrl_boardobjgrp_mask_e32 clkDomainMask;
+};
+
+union nv_pmu_clk_clk_prop_regime_boardobj_set_union {
+    struct nv_pmu_boardobj obj;
+    struct nv_pmu_clk_clk_prop_regime_boardobj_set super;
+};
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_prop_regime);
+
+#define NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS          16U
+
+struct ctrl_clk_clk_prop_top_info_frequency_search_space {
+	u16 minRatioClkPropTopIdx;
+	u16 maxRatioClkPropTopIdx;
+	u8 searchSpaceHal;
+	bool bUseHigherIsoSecFmaxVminMhz;
+};
+
+/*
+ * Array of source to destination clock propagation topology path for a given
+ * programmable clock domain. Each path stores the clock propagation relationship
+ * index which represents the next relationship index on the path from source
+ * clock domain to desitnation clock domain.
+ */
+struct ctrl_clk_clk_prop_top_clk_domain_dst_path {
+	u16 dstPath[NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS];
+};
+
+/*
+ * Array of source to destination clock propagation topology path for all
+ * programmable clock domains.
+ */
+struct ctrl_clk_clk_prop_top_clk_domains_dst_path {
+	struct ctrl_clk_clk_prop_top_clk_domain_dst_path
+		domainDstPath[NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS];
+};
+
+/*!
+ * CLK_PROP_TOP BOARDOBJGRP Header structure. Describes global state about the
+ * CLK_PROP_TOP feature.
+ */
+struct nv_pmu_clk_clk_prop_top_boardobjgrp_set_header {
+	/*!
+	 * BOARDOBJGRP_E32 super class. Must always be first element in structure.
+	 */
+	struct nv_pmu_boardobjgrp_e32  super;
+
+	/*!
+	 * Clock Propagation Topology HAL.
+	 * @ref NV2080_CTRL_CLK_CLK_PROP_TOP_HAL_<xyz>
+	 */
+	u8 topHal;
+
+	/*!
+	 * Active Clock Propagation Topology Id.
+	 * SW will dynamically select the active topology from set of available
+	 * topologies based on the active workload hints coming from KMD/DX.
+	 */
+	u8 activeTopId;
+
+	/*!
+	 * Forced active Clock Propagation Topology Id.
+	 * When client force an active topology id, the SW will respect the forced
+	 * topology instead of selecting the topology based on workload.
+	 *
+	 * Logic:
+	 * Use forced active topology if @ref activeTopIdForced == VALID
+	 * otherwise use @ref activeTopId
+	*/
+	u8 activeTopIdForced;
+
+	/*!
+	 * Structure describing frequency search space related information required by
+	 * external clients (power controller, DLPPE).
+	 */
+	struct ctrl_clk_clk_prop_top_info_frequency_search_space
+						freqSearchSpace;
+};
+
+ /*!
+ * Structure describing the static configuration/POR state of the CLK_PROP_TOP
+ * super class.
+ */
+struct nv_pmu_clk_clk_prop_top_boardobj_set {
+	/*!
+	 * BOARDOBJ super class. Must always be the first element in the structure.
+	 */
+	struct nv_pmu_boardobj super;
+
+	/*!
+	 * Clock Propagation Topology Id.
+	 */
+	u8 topId;
+
+	/*!
+	 * Mask of clock propagation topology relationships that are valid for this clock
+	 * propagation topology.
+	 */
+	struct ctrl_boardobjgrp_mask_e255 clkPropTopRelMask;
+
+	struct ctrl_clk_clk_prop_top_clk_domains_dst_path domainsDstPath;
+};
+
+union nv_pmu_clk_clk_prop_top_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_prop_top_boardobj_set super;
+};
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_prop_top);
+
+/*!
+ * Structure describing the static configuration/POR state of the CLK_PROP_TOP_REL
+ * super class.
+ */
+struct nv_pmu_clk_clk_prop_top_rel_boardobj_set {
+    /*!
+     * BOARDOBJ super class.  Must always be the first element in the structure.
+     */
+    struct nv_pmu_boardobj super;
+
+    /*!
+     * Source Clock Domain Index.
+     */
+    u8 clkDomainIdxSrc;
+
+    /*!
+     * Destination Clock Domain Index.
+     */
+    u8 clkDomainIdxDst;
+
+    /*!
+     * Boolean tracking whether bidirectional relationship enabled.
+     */
+    bool bBiDirectional;
+};
+
+struct clk_prop_top_rel_model_10_boardobj_set {
+	struct nv_pmu_clk_clk_prop_top_rel_boardobj_set super;
+	s16 offset;
+};
+
+struct clk_prop_top_rel_1x_boardobj_set {
+	struct clk_prop_top_rel_model_10_boardobj_set super;
+};
+
+struct clk_prop_top_rel_1x_ratio_boardobj_set {
+	struct clk_prop_top_rel_1x_boardobj_set super;
+	u32 ratio;        // fixed point 16.16 format.
+	u32 ratioInverse; // fixed point 16.16 format.
+};
+
+struct clk_prop_top_rel_1x_volt_boardobj_set {
+	struct clk_prop_top_rel_1x_boardobj_set super;
+	u8 voltRailIdx;
+};
+
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX 32
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX  32
+
+struct ctrl_clk_prop_top_rel_table_rel_tuple {
+	u16 freqMHzSrc;
+	u16 freqMHzDst;
+};
+
+struct ctrl_clk_prop_top_rel_cpmu_rel_tuple {
+	u16 clkDomainIdxSrc;
+	u16 clkDomainIdxDst;
+};
+
+/*!
+ * CLK_PROP_TOP_REL BOARDOBJGRP Header structure. Describes global state about the
+ * CLK_PROP_TOP_REL feature.
+ */
+struct nv_pmu_clk_clk_prop_top_rel_boardobjgrp_set_header {
+	/*!
+	 * BOARDOBJGRP_E255 super class. Must always be first element in structure.
+	 */
+	struct nv_pmu_boardobjgrp_e255 super;
+
+	/*!
+	 * Count of valid table relationship tuple array entries.
+	 */
+	u8 tableRelTupleCount;
+
+	/*!
+	 * Array of frequency tuple for table based clock propagation topology relationships.
+	 * Here valid indexes corresponds to [0, tableRelTupleCount]
+	 */
+	struct ctrl_clk_prop_top_rel_table_rel_tuple
+	tableRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX];
+
+	/*!
+	 * Count of valid CPMU relationship tuple array entries.
+	 */
+	u8 cpmuRelTupleCount;
+
+	/*!
+	 * All clk->clk frequency relationships that the CPMU needs represented in
+	 * its CPLUT (Clock Propagation LUT).
+	 */
+	struct ctrl_clk_prop_top_rel_cpmu_rel_tuple
+	cpmuRelTuple[NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX];
+};
+
+union nv_pmu_clk_clk_prop_top_rel_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_prop_top_rel_boardobj_set super;
+	struct clk_prop_top_rel_model_10_boardobj_set model10;
+    struct clk_prop_top_rel_1x_boardobj_set       v1x;
+    struct clk_prop_top_rel_1x_ratio_boardobj_set v1xRatio;
+    struct clk_prop_top_rel_1x_volt_boardobj_set  v1xVolt;
+};
+
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_prop_top_rel);
+
+struct nv_pmu_clk_freq_domain_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e32 super;
+	u32 initFlags;
+	u16 mclkFreqMHzBootPstate;
+};
+
+struct nv_pmu_clk_freq_domain_boardobj_set {
+	struct nv_pmu_boardobj obj;
+	u8 rsvd;
+	u32 clkDomain;
+};
+
+union nv_pmu_clk_freq_domain_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_freq_domain_boardobj_set domain;
+};
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, freq_domain);
 
 struct nv_pmu_clk_clk_vin_device_boardobjgrp_set_header {
 	struct nv_pmu_boardobjgrp_e32 super;
@@ -924,24 +1597,75 @@ struct nv_pmu_clk_clk_adc_device_boardobj_set {
 	bool devinit_enabled;
 };
 
-struct nv_ctrl_boardobjgrp_interface {
-	u8	rsvd;
+struct ctrl_clk_adc_device_info_data_v30 {
+	u8 rsvd;
+	s8 offset;
+	s8 gain;
+	s8 course_offset;
+	s8 course_gain;
+	s8 low_temp_low_volt_err;
+	s8 low_temp_hi_volt_err;
+	s8 hi_temp_low_volt_err;
+	s8 hi_temp_hi_volt_err;
+	s8 adc_code_correction_offset;
 };
 
-struct  nv_ctrl_boardobjgrp_info_iface_model {
-	struct nv_ctrl_boardobjgrp_interface super;
+struct nv_pmu_clkclk_adc_device_model_10_boardobj_set {
+	struct nv_pmu_clk_clk_adc_device_boardobj_set super;
+	u8 model10_rsvd;
 };
 
-struct nv_ctrl_boardobjgrp_info_iface_model_10 {
-	struct  nv_ctrl_boardobjgrp_info_iface_model super;
+struct nv_pmu_clk_clk_adc_device_v30_boardobj_set {
+	// CLK_ADC_DEVICE super class. This should always be the first member!
+	struct nv_pmu_clkclk_adc_device_model_10_boardobj_set super;
+	// Structure containing static information specific to the V30 ADC device.
+	struct ctrl_clk_adc_device_info_data_v30 data;
+	// Padding to account for Isink V10 structure which is not used.
+	u32 pad[8];
 };
 
-struct nv_ctrl_clk_adc_devices_info_data_model_10 {
-	struct nv_ctrl_boardobjgrp_info_iface_model_10 model10;
+struct nv_pmu_clk_clk_adc_device_v20_boardobjgrp_set_header {
+	s8 lowTemp;
+	s8 highTemp;
+	s8 refTemp;
+	s8 adcCodeCorrectionOffsetMin;
+	s8 adcCodeCorrectionOffsetMax;
+	u8 tempVfeVarIdx;
+	u32 lowVoltuV;
+	u32 highVoltuV;
+	u32 refVoltuV;
 };
+
+struct nv_pmu_clk_clk_adc_device_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e32 super;
+	//
+	// Version of underlying ADC device table - usually
+	// corresponding to the VBIOS table version.
+	u8 version;
+	//
+	// Global disable control for all ADCs. If set to NV_FALSE, the
+	// devices are not allowed to be disabled and powered off.
+	bool bAdcIsDisableAllowed;
+	// Mask of CLK_ADC_DEVICEs that support NAFLL functionality
+	struct ctrl_boardobjgrp_mask_e32 nafllAdcDevicesMask;
+	//
+	// Union of ADC device table version specific data that
+	// needs to be passed down to the PMU.
+	union {
+		struct nv_pmu_clk_clk_adc_device_v20_boardobjgrp_set_header adcsV20;
+	} data;
+};
+
+union nv_pmu_clk_clk_adc_device_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_adc_device_v30_boardobj_set v30;
+};
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_adc_device);
+
 
 struct nv_ctrl_clk_adc_devices_info_data_v20 {
-	struct nv_ctrl_clk_adc_devices_info_data_model_10 super;
+	u8 model10_rsvd;
 	u8 cal_invalid_fuse_rev_mask;
 	u8 low_temp_err_invalid_fuse_rev_mask;
 	u8 high_temp_err_invalid_fuse_rev_mask;
@@ -962,18 +1686,22 @@ struct nv_ctrl_clk_adc_devices_info_data_v20 {
 union nv_pmu_clk_clk_vin_device_boardobj_set_union {
 	struct nv_pmu_boardobj obj;
 	struct nv_pmu_clk_clk_vin_device_boardobj_set super;
-	struct nv_pmu_clk_clk_vin_device_v20_boardobj_set v20;
 };
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_vin_device);
 
 struct nv_pmu_clk_clk_vf_point_boardobjgrp_set_header {
-	struct nv_pmu_boardobjgrp_e255 super;
+	struct nv_pmu_boardobjgrp_e2048 super;
+	//
+	// Mask setting for applying constant offset on primary and all secondary VF curves.
+	// If any the bits are set, the feature will be active.
+	u8 sparseMMAVFMarginEnabledMask;
 };
 
 struct nv_pmu_clk_clk_vf_point_sec_boardobjgrp_set_header {
-	struct nv_pmu_boardobjgrp_e255 super;
+	struct nv_pmu_boardobjgrp_e2048 super;
 };
+
 struct nv_pmu_clk_clk_vf_point_boardobj_set {
 	struct nv_pmu_boardobj super;
 	u8 vfe_equ_idx;
@@ -997,11 +1725,84 @@ struct nv_pmu_clk_clk_vf_point_volt_35_sec_boardobj_set {
 	u8 dvco_offset_code_override;
 };
 
+/*!
+ * CLK_VF_POINT_50 - Defines a single point on a VF Curve.
+ */
+struct nv_pmu_clk_clk_vf_point_50_boardobj_set {
+	/*!
+	 * CLK_VF_POINT super class.  Must always be the first element in the structure.
+	 */
+	struct nv_pmu_clk_clk_vf_point_boardobj_set super;
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the _VOLT class.
+ */
+struct nv_pmu_clk_clk_vf_point_50_volt_boardobj_set {
+	/*!
+	 * CLK_VF_POINT_50 super class.  Must always be the first element in the structure.
+	 */
+	struct nv_pmu_clk_clk_vf_point_50_boardobj_set super;
+	/*!
+	 * Source voltage (uV) which was used to specify this CLK_VF_POINT_VOLT.
+	 * These are the voltage values supported by the ADC/NAFLL.  This value will
+	 * be rounded to the regulator size supported by the VOLTAGE_RAIL and stored
+	 * in @ref super.voltageuV.  However, this source voltage value should be
+	 * used when looking up data corresponding to the original ADC/NAFLL values.
+	 */
+	u32 sourceVoltageuV;
+	/*!
+	 * This will give the deviation of given freq from it's nominal value.
+	 */
+	struct ctrl_clk_freq_delta freqDelta;
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the _VOLT_SEC class.
+ */
+struct nv_pmu_clk_clk_vf_point_50_volt_sec_boardobj_set {
+	/*!
+	 * CLK_VF_POINT_50_VOLT super class.  Must always be the first element in the structure.
+	 */
+	struct nv_pmu_clk_clk_vf_point_50_volt_boardobj_set super;
+
+	/*!
+	 * DVCO offset override in terms of DVCO codes to trigger the fast
+	 * slowdown while HW switches from reference NDIV point to secondary NDIV.
+	 *
+	 * This value will be override by SET CONTROL and used in PMU when not
+	 * equal to @ref NV2080_CTRL_CLK_CLK_VF_POINT_DVCO_OFFSET_CODE_INVALID
+	 */
+	u8 dvcoOffsetCodeOverride;
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the _FREQ class.
+ */
+struct nv_pmu_clk_clk_vf_point_50_freq_boardobj_set {
+	/*!
+	 * CLK_VF_POINT_50 super class.  Must always be the first element in the structure.
+	 */
+	struct nv_pmu_clk_clk_vf_point_50_boardobj_set super;
+
+	/*!
+	 * Frequency (MHz) for this VF point.
+	 */
+	u16 freqMHz;
+	/*!
+	 * This will give the deviation of given voltage from it's nominal value.
+	 */
+	s32 voltDeltauV;
+};
+
 union nv_pmu_clk_clk_vf_point_boardobj_set_union {
 	struct nv_pmu_boardobj obj;
 	struct nv_pmu_clk_clk_vf_point_boardobj_set super;
 	struct nv_pmu_clk_clk_vf_point_freq_boardobj_set freq;
 	struct nv_pmu_clk_clk_vf_point_volt_boardobj_set volt;
+	struct nv_pmu_clk_clk_vf_point_50_boardobj_set v50;
+	struct nv_pmu_clk_clk_vf_point_50_freq_boardobj_set v50freq;
+	struct nv_pmu_clk_clk_vf_point_50_volt_boardobj_set v50volt;
 };
 
 union nv_pmu_clk_clk_vf_point_sec_boardobj_set_union {
@@ -1010,32 +1811,72 @@ union nv_pmu_clk_clk_vf_point_sec_boardobj_set_union {
 	struct nv_pmu_clk_clk_vf_point_freq_boardobj_set freq;
 	struct nv_pmu_clk_clk_vf_point_volt_boardobj_set volt;
 	struct nv_pmu_clk_clk_vf_point_volt_35_sec_boardobj_set v35_volt_sec;
+	struct nv_pmu_clk_clk_vf_point_50_boardobj_set v50;
+	struct nv_pmu_clk_clk_vf_point_50_freq_boardobj_set v50freq;
+	struct nv_pmu_clk_clk_vf_point_50_volt_boardobj_set v50volt;
+	struct nv_pmu_clk_clk_vf_point_50_volt_sec_boardobj_set v50voltSec;
 };
 
-NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_vf_point);
-NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_vf_point_sec);
+/*
+ * CUSTOM ALIGNED UNION MACRO FOR VF POINTS:
+ * Creates 144-byte aligned unions for VF points instead of the default 16-byte alignment.
+ * This ensures proper array stride matching PMU structure layout.
+ */
+#define NV_PMU_MAKE_ALIGNED_UNION_VF_POINT(name, type) \
+	union name##_aligned { \
+		union name data; \
+		u8 pad[144]; \
+	}
+
+/*
+ * CUSTOM VF POINT GET_STATUS MACRO:
+ * Modified version of NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE that uses 144-byte alignment
+ */
+#define NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_VF_POINT(_eng, _class, _slots) \
+	NV_PMU_MAKE_ALIGNED_STRUCT( \
+	nv_pmu_##_eng##_##_class##_boardobjgrp_get_status_header, struct); \
+	NV_PMU_MAKE_ALIGNED_UNION_VF_POINT( \
+	nv_pmu_##_eng##_##_class##_boardobj_get_status_union, union); \
+	struct nv_pmu_##_eng##_##_class##_boardobj_grp_get_status { \
+	union nv_pmu_##_eng##_##_class##_boardobjgrp_get_status_header_aligned \
+	hdr; \
+	union nv_pmu_##_eng##_##_class##_boardobj_get_status_union_aligned \
+	objects[(_slots)]; \
+	}
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E2048(clk, clk_vf_point);
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E2048(clk, clk_vf_point_sec);
+
+/*
+ * Pack of two CLK VF POINTS board object groups. These two must go
+ * together down to PMU and PMU will construct them in one CMD.
+ */
+struct nv_pmu_clk_clk_vf_point_boardobj_grp_set_pack {
+	struct nv_pmu_clk_clk_vf_point_boardobj_grp_set pri;
+	struct nv_pmu_clk_clk_vf_point_sec_boardobj_grp_set sec;
+};
 
 struct nv_pmu_clk_clk_vf_point_boardobjgrp_get_status_header {
-	struct nv_pmu_boardobjgrp_e255 super;
+	struct nv_pmu_boardobjgrp_e2048 super;
 	u32 vf_points_cahce_counter;
 };
 
 struct nv_pmu_clk_clk_vf_point_35_freq_boardobj_get_status {
-	struct nv_pmu_boardobj super;
+	struct nv_pmu_boardobj_query super;
 	struct ctrl_clk_vf_point_base_vf_tuple base_vf_tuple;
 	struct ctrl_clk_vf_point_vf_tuple
 		offseted_vf_tuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
 };
 
 struct nv_pmu_clk_clk_vf_point_35_volt_pri_boardobj_get_status {
-	struct nv_pmu_boardobj super;
+	struct nv_pmu_boardobj_query super;
 	struct ctrl_clk_vf_point_base_vf_tuple base_vf_tuple;
 	struct ctrl_clk_vf_point_vf_tuple
 		offseted_vf_tuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
 };
 
 struct nv_pmu_clk_clk_vf_point_35_volt_sec_boardobj_get_status {
-	struct nv_pmu_boardobj super;
+	struct nv_pmu_boardobj_query super;
 	struct ctrl_clk_vf_point_base_vf_tuple_sec base_vf_tuple;
 	struct ctrl_clk_vf_point_vf_tuple
 		offseted_vf_tuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
@@ -1047,7 +1888,7 @@ struct ctrl_clk_vf_pair {
 };
 
 struct nv_pmu_clk_clk_vf_point_boardobj_get_status {
-	struct nv_pmu_boardobj super;
+	struct nv_pmu_boardobj_query super;
 	struct ctrl_clk_vf_pair pair;
 	u8 dummy[38];
 };
@@ -1057,18 +1898,133 @@ struct nv_pmu_clk_clk_vf_point_volt_boardobj_get_status {
 	u16 vf_gain_value;
 };
 
+/* Define structures used in v50 get_status */
+struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple {
+	u32 voltageuV;
+	struct ctrl_clk_vf_point_freq_tuple freqTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	u16 cpmMaxFreqOffsetMHz;
+};
+
+struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple_sec {
+	u32 voltageuV;
+	struct ctrl_clk_vf_point_freq_tuple freqTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	u16 cpmMaxFreqOffsetMHz;
+};
+
+struct nv2080_ctrl_clk_clk_vf_point_vf_tuple {
+	u32 voltageuV;
+	u16 freqMHz;
+};
+
+struct nv2080_ctrl_clk_offset_vf_tuple {
+	s32 voltageOffsetuV;
+	s16 freqOffsetMHz;
+};
+
+
+/* v50 get_status structures */
+struct nv_pmu_clk_clk_vf_point_50_freq_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple activeBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple pickedBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		activeOffsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		activeOffsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+struct nv_pmu_clk_clk_vf_point_50_volt_pri_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple activeBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple pickedBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		activeOffsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		activeOffsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+struct nv_pmu_clk_clk_vf_point_50_volt_sec_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple_sec activeBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple_sec pickedBaseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		activeOffsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		activeOffsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+
+/* v40 get_status structures - missing from union */
+struct nv_pmu_clk_clk_vf_point_40_freq_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple baseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		offsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		offsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+struct nv_pmu_clk_clk_vf_point_40_volt_pri_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple baseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		offsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		offsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+struct nv_pmu_clk_clk_vf_point_40_volt_sec_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Fixed: Use nv_pmu_boardobj_query */
+	struct nv2080_ctrl_clk_clk_vf_point_base_vf_tuple_sec baseVFTuple;
+	struct nv2080_ctrl_clk_clk_vf_point_vf_tuple
+		offsetedVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+	struct nv2080_ctrl_clk_offset_vf_tuple
+		offsetVFTuple[CTRL_CLK_CLK_VF_POINT_FREQ_TUPLE_MAX_SIZE];
+};
+
+/* v30 get_status structures */
+struct nv_pmu_clk_clk_vf_point_30_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;  /* Use nv_pmu_boardobj_query */
+	struct ctrl_clk_vf_pair pair;
+	u8 padding[38];  /* Match struct size from PMU side */
+};
+
 union nv_pmu_clk_clk_vf_point_boardobj_get_status_union {
-	struct nv_pmu_boardobj obj;
+	struct nv_pmu_boardobj_query obj;  /* Use nv_pmu_boardobj_query instead of nv_pmu_boardobj */
 	struct nv_pmu_clk_clk_vf_point_boardobj_get_status super;
 	struct nv_pmu_clk_clk_vf_point_volt_boardobj_get_status volt;
+	struct nv_pmu_clk_clk_vf_point_30_boardobj_get_status v30;
 	struct nv_pmu_clk_clk_vf_point_35_freq_boardobj_get_status v35_freq;
 	struct nv_pmu_clk_clk_vf_point_35_volt_pri_boardobj_get_status
 								v35_volt_pri;
 	struct nv_pmu_clk_clk_vf_point_35_volt_sec_boardobj_get_status
 								v35_volt_sec;
+	struct nv_pmu_clk_clk_vf_point_40_freq_boardobj_get_status v40_freq;
+	struct nv_pmu_clk_clk_vf_point_40_volt_pri_boardobj_get_status v40_volt_pri;
+	struct nv_pmu_clk_clk_vf_point_40_volt_sec_boardobj_get_status v40_volt_sec;
+	struct nv_pmu_clk_clk_vf_point_50_freq_boardobj_get_status v50_freq;
+	struct nv_pmu_clk_clk_vf_point_50_volt_pri_boardobj_get_status v50_volt_pri;
+	struct nv_pmu_clk_clk_vf_point_50_volt_sec_boardobj_get_status v50_volt_sec;
+	/* Force union to be exactly 144 bytes to match PMU side */
+	u8 pmu_size_match[144];
 };
 
-NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E255(clk, clk_vf_point);
+/*
+ * STRUCTURE SIZE VERIFICATION:
+ * These static assertions ensure that NVGPU structures match PMU structure sizes.
+ * The PMU uses 144-byte structures for VF points, so NVGPU must match exactly.
+ *
+ * IMPORTANT: Individual structures don't need to be 144 bytes - only the union
+ * needs to be 144 bytes due to the pmu_size_match[144] array. The individual
+ * structures are naturally smaller (around 60-80 bytes) but the union size
+ * determines the array element size for proper PMU communication.
+ */
+nvgpu_static_assert(sizeof(union nv_pmu_clk_clk_vf_point_boardobj_get_status_union) == 144);
+
+NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_VF_POINT(clk, clk_vf_point, CTRL_BOARDOBJGRP_E2048_MAX_OBJECTS);
+
+/* Verify that our custom GET_STATUS aligned union is exactly 144 bytes */
+nvgpu_static_assert(sizeof(union nv_pmu_clk_clk_vf_point_boardobj_get_status_union_aligned) == 144);
 
 struct nv_pmu_clk_load {
 	u8 feature;
@@ -1166,5 +2122,56 @@ union nv_pmu_clk_clk_fll_device_boardobj_get_status_union {
 };
 
 NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E32(clk, clk_fll_device);
+
+struct nv_pmu_clk_clk_nafll_device_v2_boardobjgrp_get_status_header {
+	struct nv_pmu_boardobjgrp_e32 super;
+};
+
+struct nv_ctrl_clk_lut_20_vf_entry {
+	u16 ndiv;
+	u8 ndivOffset;
+	u8 dvcoOffset;
+};
+
+struct nv_ctrl_clk_lut_30_vf_entry {
+	u16 ndiv;
+	u8 ndivOffset[NV2080_CTRL_CLK_NAFLL_LUT_VF_CURVE_SEC_MAX];
+	u8 dvcoOffset[NV2080_CTRL_CLK_NAFLL_LUT_VF_CURVE_SEC_MAX];
+	u16 cpmMaxNdivOffset;
+};
+
+union nv_pmu_clk_lut_vf_entry_data_v2 {
+	u32 entry;
+	struct nv_pmu_clk_lut_vf_entry lut10;
+	struct nv_ctrl_clk_lut_20_vf_entry lut20;
+	struct nv_ctrl_clk_lut_30_vf_entry lut30;
+};
+
+struct nv_pmu_clk_lut_vf_entry_v2 {
+	u8 type;
+	union nv_pmu_clk_lut_vf_entry_data_v2 data;
+};
+
+struct nv_pmu_clk_lut_vf_curve_v2 {
+	struct nv_pmu_clk_lut_vf_entry_v2 lutVfEntries[CTRL_CLK_LUT_NUM_ENTRIES_MAX];
+};
+
+struct nv_pmu_clk_clk_nafll_device_v2_boardobj_get_status {
+	struct nv_pmu_boardobj_query super;
+	u8 current_regime_id;
+	bool b_dvco_min_reached;
+	u16 dvco_min_freq_mhz;
+	u8 sw_override_mode;
+	union nv_pmu_clk_lut_vf_entry_data_v2 sw_override;
+	struct nv_pmu_clk_lut_vf_curve_v2 lutVfCurve;
+	u16 nafll_acc_freq_mhz[NV2080_CTRL_CLK_NAFLL_NDIV_ACCUMULATOR_TYPE_MAX];
+};
+
+union nv_pmu_clk_clk_nafll_device_v2_boardobj_get_status_union {
+	struct nv_pmu_boardobj_query obj;
+	struct nv_pmu_clk_clk_nafll_device_v2_boardobj_get_status super;
+};
+
+NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E32(clk, clk_nafll_device_v2);
 
 #endif /* NVGPU_PMUIF_CLK_H */

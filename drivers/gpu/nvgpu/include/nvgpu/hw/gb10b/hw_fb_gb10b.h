@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -324,11 +324,12 @@
 #define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_offset_f(v)\
 				((U32(v) & 0x3fU) << 0U)
 #define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_offset_m()   (U32(0x3fU) << 0U)
+#define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_mask_f(v)\
+				((U32(v) & 0xffffU) << 16U)
+#define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_mask_m()  (U32(0xffffU) << 16U)
 #define fb_mmu_gfid_gr_fault_id_cfg_0_bar_remote_swizid_f(v)\
 				((U32(v) & 0xfU) << 8U)
 #define fb_mmu_gfid_gr_fault_id_cfg_0_bar_remote_swizid_m()    (U32(0xfU) << 8U)
-#define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_mask_m()  (U32(0xffffU) << 16U)
-#define fb_mmu_gfid_gr_fault_id_cfg_0_guest_veid_mask_f(v) ((U32(v) & 0xffffU) << 16U)
 #define fb_mmu_hypervisor_ctl_r()                                  (0x001fa5d0U)
 #define fb_mmu_hypervisor_ctl_sriov_m()                        (U32(0x1U) << 0U)
 #define fb_mmu_hypervisor_ctl_sriov_enabled_f()                           (0x1U)

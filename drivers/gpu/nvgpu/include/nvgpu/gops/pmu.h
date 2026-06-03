@@ -289,9 +289,6 @@ struct gops_pmu {
 	 */
 	void (*handle_ext_irq)(struct gk20a *g, u32 intr);
 
-#ifdef CONFIG_NVGPU_POWER_PG
-	int (*pmu_restore_golden_img_state)(struct gk20a *g);
-#endif
 	/** @cond DOXYGEN_SHOULD_SKIP_THIS */
 
 #ifdef CONFIG_NVGPU_LS_PMU
@@ -565,6 +562,13 @@ struct gops_pmu {
 #endif
 	unsigned long long (*get_amap_extmem2_start)(void);
 	/** @endcond */
+
+	int (*pmu_elcg_sub_feature_id_to_engine_id)(struct gk20a *g,
+							u32 sub_feature_id);
+	u32 (*pmu_elcg_all_engine_mask)(void);
+	u32 (*pmu_elcg_mm_engine_mask)(void);
+	u32 (*pmu_fgpg_all_engine_mask)(void);
+	bool is_perf_cf_supported;
 };
 
 #endif

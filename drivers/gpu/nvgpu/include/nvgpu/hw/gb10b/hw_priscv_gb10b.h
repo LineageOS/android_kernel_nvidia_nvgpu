@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -67,8 +67,10 @@
 #define priscv_riscv_irqdest_r()                                   (0x0000052cU)
 #define priscv_riscv_tracectl_r()                                  (0x00000400U)
 #define priscv_riscv_trace_rdidx_r()                               (0x00000404U)
-#define priscv_riscv_trace_rdidx_rdidx_v(r)                (((r) >> 0U) & 0xffU)
+#define priscv_riscv_trace_rdidx_rdidx_f(v)             ((U32(v) & 0xffU) << 0U)
 #define priscv_riscv_trace_rdidx_maxidx_v(r)              (((r) >> 16U) & 0xffU)
+#define priscv_riscv_trace_wtidx_r()                               (0x00000408U)
+#define priscv_riscv_trace_wtidx_wtidx_v(r)               (((r) >> 24U) & 0xffU)
 #define priscv_riscv_tracepc_hi_r()                                (0x00000410U)
 #define priscv_riscv_tracepc_lo_r()                                (0x0000040cU)
 #define priscv_riscv_intr_status_r()                               (0x00000394U)

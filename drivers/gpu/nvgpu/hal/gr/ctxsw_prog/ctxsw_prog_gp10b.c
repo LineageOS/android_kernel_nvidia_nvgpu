@@ -10,16 +10,6 @@
 
 #include <nvgpu/hw/gp10b/hw_ctxsw_prog_gp10b.h>
 
-#ifdef CONFIG_NVGPU_CILP
-void gp10b_ctxsw_prog_set_compute_preemption_mode_cilp(struct gk20a *g,
-	struct nvgpu_mem *ctx_mem)
-{
-	nvgpu_mem_wr(g, ctx_mem,
-		ctxsw_prog_main_image_compute_preemption_options_o(),
-		ctxsw_prog_main_image_compute_preemption_options_control_cilp_f());
-}
-#endif
-
 #ifdef CONFIG_NVGPU_DEBUGGER
 void gp10b_ctxsw_prog_set_pmu_options_boost_clock_frequencies(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem, u32 boosted_ctx)

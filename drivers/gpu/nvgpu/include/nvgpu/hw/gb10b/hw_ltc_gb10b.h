@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -145,14 +145,10 @@
 #define ltc_ltcs_ltss_intr_en_idle_error_cbc_enabled_f()              (0x20000U)
 #define ltc_ltcs_ltss_intr_en_ecc_sec_error_m()               (U32(0x1U) << 24U)
 #define ltc_ltcs_ltss_intr_en_ecc_sec_error_disable_f()                   (0x0U)
-							    /* NEEDS_IP_AUDIT */
 #define ltc_ltcs_ltss_intr_en_ecc_ded_error_m()               (U32(0x1U) << 25U)
 #define ltc_ltcs_ltss_intr_en_ecc_ded_error_disable_f()                   (0x0U)
-							    /* NEEDS_IP_AUDIT */
 #define ltc_ltcs_ltss_intr_en_debug_m()                       (U32(0x1U) << 26U)
-							    /* NEEDS_IP_AUDIT */
 #define ltc_ltcs_ltss_intr_en_debug_disable_f()                           (0x0U)
-							    /* NEEDS_IP_AUDIT */
 #define ltc_ltcs_ltss_intr_idle_error_tstg_m()                 (U32(0x1U) << 2U)
 #define ltc_ltcs_ltss_intr_idle_error_tstg_reset_f()                      (0x4U)
 #define ltc_ltcs_ltss_intr_en_idle_error_tstg_m()             (U32(0x1U) << 18U)
@@ -244,6 +240,7 @@
 #define ltc_ltcs_ltss_intr2_snp_sys_aperture_mismatch_reset_f()          (0x20U)
 #define ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_m()  (U32(0x1U) << 21U)
 #define ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_enabled_f() (0x200000U)
+#define ltc_ltcs_ltss_intr2_en_snp_sys_aperture_mismatch_disabled_f()     (0x0U)
 #define ltc_ltcs_ltss_intr2_invalid_rs_subid_m()               (U32(0x1U) << 6U)
 #define ltc_ltcs_ltss_intr2_invalid_rs_subid_reset_f()                   (0x40U)
 #define ltc_ltcs_ltss_intr2_en_invalid_rs_subid_m()           (U32(0x1U) << 22U)
@@ -296,6 +293,7 @@
 #define ltc_ltcs_ltss_intr3_volatile_to_compressed_reset_f()            (0x200U)
 #define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_m()     (U32(0x1U) << 25U)
 #define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_enabled_f()   (0x2000000U)
+#define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_disabled_f()        (0x0U)
 #define ltc_ltc0_lts0_intr_r()                                     (0x0014040cU)
 #define ltc_ltc0_lts0_intr2_r()                                    (0x00140408U)
 #define ltc_ltc0_lts0_intr3_r()                                    (0x00140588U)

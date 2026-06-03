@@ -82,7 +82,9 @@ int gb10b_priv_ring_enable(struct gk20a *g)
 
 	if (nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY)) {
 		/* Priv sec is enabled, PRI will be enabled by secure firmware  */
-		return status;
+		return 0;
+	} else {
+		return -EINVAL;
 	}
 
 	/*

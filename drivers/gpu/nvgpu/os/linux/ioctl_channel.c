@@ -357,8 +357,14 @@ static int gk20a_init_error_notifier(struct nvgpu_channel *ch,
 {
 	struct dma_buf *dmabuf;
 	void *va;
-	u64 end = args->offset + sizeof(struct nvgpu_notification);
+	u64 end = 0ULL;
 	struct nvgpu_channel_linux *priv = ch->os_priv;
+
+	if (!nvgpu_safe_add_u64_return(args->offset, sizeof(struct nvgpu_notification),
+			&end)) {
+		nvgpu_err(NULL, "arg size overflow");
+		return -EOVERFLOW;
+	}
 
 	if (!args->mem) {
 		pr_err("gk20a_init_error_notifier: invalid memory handle\n");
@@ -990,12 +996,6 @@ static u32 nvgpu_obj_ctx_user_flags_to_common_flags(u32 user_flags)
 {
 	u32 flags = 0;
 
-	if (user_flags & NVGPU_ALLOC_OBJ_FLAGS_GFXP)
-		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP;
-
-	if (user_flags & NVGPU_ALLOC_OBJ_FLAGS_CILP)
-		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP;
-
 #ifdef CONFIG_NVGPU_VPR
 	if (user_flags & NVGPU_ALLOC_OBJ_FLAGS_VPR_ENABLED)
 		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR;
@@ -1535,6 +1535,9 @@ long gk20a_channel_ioctl(struct file *filp,
 	{
 		u32 timeout =
 			(u32)((struct nvgpu_set_timeout_args *)buf)->timeout;
+		if (timeout < CTXSW_TIMEOUT_PERIOD_MS) {
+			timeout = CTXSW_TIMEOUT_PERIOD_MS;
+		}
 		nvgpu_log(g, gpu_dbg_gpu_dbg, "setting timeout (%d ms) for chid %d",
 			   timeout, ch->chid);
 		ch->ctxsw_timeout_max_ms = timeout;
@@ -1551,6 +1554,9 @@ long gk20a_channel_ioctl(struct file *filp,
 		bool ctxsw_timeout_debug_dump = !((u32)
 			((struct nvgpu_set_timeout_ex_args *)buf)->flags &
 			(1 << NVGPU_TIMEOUT_FLAG_DISABLE_DUMP));
+		if (timeout < CTXSW_TIMEOUT_PERIOD_MS) {
+			timeout = CTXSW_TIMEOUT_PERIOD_MS;
+		}
 		nvgpu_log(g, gpu_dbg_gpu_dbg, "setting timeout (%d ms) for chid %d",
 			   timeout, ch->chid);
 		ch->ctxsw_timeout_max_ms = timeout;

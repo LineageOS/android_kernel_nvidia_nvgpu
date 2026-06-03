@@ -5,19 +5,17 @@
 #include "hal/mm/mm_gp10b.h"
 #include "hal/mm/mm_gv11b.h"
 #include "hal/mm/mm_ga10b.h"
-#include "hal/mm/gmmu/gmmu_gk20a.h"
 #include "hal/mm/gmmu/gmmu_gm20b.h"
 #include "hal/mm/gmmu/gmmu_gv11b.h"
 #include "hal/mm/mmu_fault/mmu_fault_gv11b.h"
 #include "hal/mm/mmu_fault/mmu_fault_gb10b.h"
-#include "hal/mm/gmmu/gmmu_ga10b.h"
 #include "hal/mm/gmmu/gmmu_gb10b.h"
+#include "hal/mm/cache/flush_gv11b.h"
 #include "hal/class/class_gb10b.h"
 #include "hal/fifo/preempt_gv11b.h"
 #include "hal/fifo/engines_gp10b.h"
 #include "hal/fifo/engines_gv11b.h"
 #include "hal/fifo/fifo_ga10b.h"
-#include "hal/fifo/fifo_intr_ga10b.h"
 #include "hal/fifo/pbdma_gm20b.h"
 #include "hal/fifo/pbdma_gp10b.h"
 #include "hal/fifo/pbdma_gv11b.h"
@@ -44,11 +42,9 @@
 #include "hal/gr/ctxsw_prog/ctxsw_prog_ga10b.h"
 #include "hal/gr/gr/gr_ga10b.h"
 #include "hal/gr/gr/gr_gb10b.h"
-#include "hal/gr/init/gr_init_ga10b.h"
 #include "hal/gr/intr/gr_intr_gb10b.h"
 #include <nvgpu/gr/fecs_trace.h>
 #ifdef CONFIG_NVGPU_FECS_TRACE
-#include "hal/gr/fecs_trace/fecs_trace_gm20b.h"
 #include "hal/gr/fecs_trace/fecs_trace_gv11b.h"
 #include "hal/gr/fecs_trace/fecs_trace_gb10b.h"
 #endif
@@ -58,30 +54,28 @@
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/regops_gb10b.h"
 #include "hal/regops/allowlist_gb10b.h"
+#include "hal/regops/allowlist_auto_generated_gb10b.h"
 #endif
 #include "hal/perf/perf_ga10b.h"
 #include "hal/perf/perf_gb10b.h"
-#include "hal/gr/fecs_trace/fecs_trace_gv11b.h"
 #ifdef CONFIG_NVGPU_GRAPHICS
 #include "hal/gr/zbc/zbc_gb10b.h"
 #endif
 #include "hal/gr/hwpm_map/hwpm_map_gv100.h"
+#include "hal/gr/hwpm_map/hwpm_map_ga10b.h"
 #include "hal/gr/hwpm_map/hwpm_map_gb10b.h"
 #include "hal/ltc/ltc_gm20b.h"
 #include "hal/ltc/ltc_gb10b.h"
-#include "hal/fb/fb_gm20b.h"
-#include "hal/fb/fb_gp10b.h"
 #include "hal/fb/fb_gb10b.h"
-#include "hal/fb/fb_mmu_fault_gb10b.h"
 #include "hal/fb/intr/fb_intr_ga10b.h"
 #include "hal/fb/fb_mmu_fault_gv11b.h"
+#include "hal/func/func_ga10b.h"
 #include "hal/func/func_gb10b.h"
 #include "hal/gr/init/gr_init_gm20b.h"
 #include "hal/gr/init/gr_init_gp10b.h"
 #include "hal/gr/init/gr_init_gv11b.h"
 #include "hal/gr/init/gr_init_tu104.h"
 #include "hal/gr/init/gr_init_gb10b.h"
-#include "hal/gr/intr/gr_intr_gv11b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gm20b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gp10b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gv11b.h"
@@ -107,7 +101,6 @@
 #include <nvgpu/vgpu/vgpu.h>
 #include <nvgpu/error_notifier.h>
 #include <nvgpu/acr.h>
-#include <nvgpu/ce.h>
 #include <nvgpu/ce_app.h>
 #include <nvgpu/runlist.h>
 #include <nvgpu/nvhost.h>
@@ -135,16 +128,19 @@
 #include "common/vgpu/debugger_vf.h"
 #include "common/vgpu/pm_reservation_vgpu.h"
 #include "common/vgpu/perf/perf_vgpu.h"
-#include "common/vgpu/gr/fecs_trace_vgpu.h"
 #include "common/vgpu/perf/cyclestats_snapshot_vgpu.h"
-#include "common/vgpu/ptimer/ptimer_vgpu.h"
-#include "common/vgpu/profiler/profiler_vgpu.h"
 #include "common/vgpu/rc/rc_vf.h"
 #include "common/vgpu/profiler/profiler_vf.h"
 #include "common/vgpu/perf/perf_vf.h"
 
 #include <nvgpu/debugger.h>
 #include <nvgpu/gr/setup.h>
+#include <nvgpu/ofa.h>
+#include <nvgpu/ptimer.h>
+#include <nvgpu/nvdec.h>
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+#include <nvgpu/nvjpg.h>
+#endif
 #include <nvgpu/vgpu/ce_vgpu.h>
 
 static int vf_gb10b_init_gpu_characteristics(struct gk20a *g)
@@ -188,6 +184,7 @@ static int vf_gb10b_init_gpu_characteristics(struct gk20a *g)
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_VAB_ENABLED, false);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_CWD_HES, true);
 #endif
+	nvgpu_set_enabled(g, NVGPU_SUPPORT_MULTIMEDIA_TRACE, false);
 
 	return 0;
 }
@@ -374,6 +371,9 @@ static const struct gops_gr_hwpm_map vf_gb10b_ops_gr_hwpm_map = {
 	.add_ctxsw_buffer_gpc_perf_entries_to_map = gb10b_hwpm_map_add_gpc_perf_entries_to_map,
 	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gb10b_hwpm_map_add_pm_ucgpc_entries_to_map,
 	.add_ctxsw_buffer_lrcc_entries_to_map = gb10b_hwpm_map_add_lrcc_entries_to_map,
+	.add_reg_in_fecs_to_map = ga10b_hwpm_map_add_reg_in_fecs_to_map,
+	.add_reg_in_gpccs_to_map = ga10b_hwpm_map_add_reg_in_gpccs_to_map,
+	.get_cpc_info = gb10b_hwpm_map_get_cpc_info,
 };
 #endif
 
@@ -479,7 +479,6 @@ static const struct gops_gr vf_gb10b_ops_gr = {
 	.set_gpc_tpc_mask = NULL,
 #endif
 	.dump_gr_regs = NULL,
-	.update_pc_sampling = vgpu_gr_update_pc_sampling,
 	.init_sm_dsm_reg_info = gv11b_gr_init_sm_dsm_reg_info,
 	.init_cyclestats = vgpu_gr_init_cyclestats,
 	.set_sm_debug_mode = gv11b_gr_set_sm_debug_mode,
@@ -526,24 +525,34 @@ static const struct gops_gr vf_gb10b_ops_gr = {
 };
 
 static const struct gops_nvenc vf_gb10b_ops_nvenc = {
+	.init = nvgpu_nvenc_sw_init,
+	.deinit = nvgpu_nvenc_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
 static const struct gops_ofa vf_gb10b_ops_ofa = {
+	.init = nvgpu_ofa_sw_init,
+	.deinit = nvgpu_ofa_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
 static const struct gops_nvdec vf_gb10b_ops_nvdec = {
+	.init = nvgpu_nvdec_sw_init,
+	.deinit = nvgpu_nvdec_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static const struct gops_nvjpg vf_gb10b_ops_nvjpg = {
+	.init = nvgpu_nvjpg_sw_init,
+	.deinit = nvgpu_nvjpg_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
+#endif
 
 static const struct gops_class vf_gb10b_ops_gpu_class = {
 	.is_valid = gb10b_class_is_valid,
@@ -553,7 +562,9 @@ static const struct gops_class vf_gb10b_ops_gpu_class = {
 	.is_valid_nvenc = gb10b_class_is_valid_nvenc,
 	.is_valid_ofa = gb10b_class_is_valid_ofa,
 	.is_valid_nvdec = gb10b_class_is_valid_nvdec,
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.is_valid_nvjpg = gb10b_class_is_valid_nvjpg,
+#endif
 };
 
 static const struct gops_fb_intr vf_gb10b_ops_fb_intr = {
@@ -629,7 +640,7 @@ static const struct gops_fifo vf_gb10b_ops_fifo = {
 	.fifo_init_support = nvgpu_fifo_init_support,
 	.fifo_suspend = nvgpu_fifo_suspend,
 	.init_fifo_setup_hw = vgpu_gv11b_init_fifo_setup_hw,
-	.preempt_channel = vgpu_fifo_preempt_channel,
+	.preempt_channel = NULL,
 	.preempt_tsg = vgpu_fifo_preempt_tsg,
 	.is_preempt_pending = gv11b_fifo_is_preempt_pending,
 	.reset_enable_hw = NULL,
@@ -638,7 +649,7 @@ static const struct gops_fifo vf_gb10b_ops_fifo = {
 #endif
 	.setup_sw = vgpu_fifo_setup_sw,
 	.cleanup_sw = vgpu_fifo_cleanup_sw,
-	.set_sm_exception_type_mask = vgpu_set_sm_exception_type_mask,
+	.set_sm_exception_type_mask = nvgpu_tsg_set_sm_exception_type_mask,
 	.intr_0_enable = NULL,
 	.intr_1_enable = NULL,
 	.intr_0_isr = NULL,
@@ -796,6 +807,7 @@ static const struct gops_channel vf_gb10b_ops_channel = {
 	.resume_all_serviceable_ch = nvgpu_channel_resume_all_serviceable_ch,
 	.set_error_notifier = nvgpu_set_err_notifier,
 	.reset_faulted = vgpu_vf_channel_reset_faulted,
+	.get_vmid = vgpu_channel_get_vmid,
 };
 
 static const struct gops_tsg vf_gb10b_ops_tsg = {
@@ -974,6 +986,7 @@ static const struct gops_regops vf_gb10b_ops_regops = {
 		gb10b_get_hwpm_pma_trigger_register_offset_allowlist,
 	.get_smpc_register_offset_allowlist = gb10b_get_smpc_register_offset_allowlist,
 	.get_cau_register_offset_allowlist = gb10b_get_cau_register_offset_allowlist,
+	.get_hes_register_offset_allowlist = gb10b_get_hes_register_offset_allowlist,
 	.get_hwpm_perfmon_register_ranges = gb10b_get_hwpm_perfmon_register_ranges,
 	.get_hwpm_router_register_ranges = gb10b_get_hwpm_router_register_ranges,
 	.get_hwpm_pma_channel_register_ranges = gb10b_get_hwpm_pma_channel_register_ranges,
@@ -985,6 +998,7 @@ static const struct gops_regops vf_gb10b_ops_regops = {
 	.get_hwpm_mm_register_ranges = gb10b_get_hwpm_mm_register_ranges,
 	.get_hes_register_ranges = gb10b_get_hes_register_ranges,
 	.is_hwpm_pma_reg_context_switched = gb10b_is_hwpm_pma_reg_context_switched,
+	.init_reg_op_type_per_register_type = gb10b_init_reg_op_type_per_register_type,
 };
 #endif
 
@@ -1034,6 +1048,7 @@ static const struct gops_perf vf_gb10b_ops_perf = {
 	.enable_pm_trigger = vf_perf_enable_pm_trigger,
 	.get_pma_cblock_instance_count = gb10b_perf_get_pma_cblock_instance_count,
 	.get_pma_channel_count = gb10b_perf_get_pma_channel_count,
+	.get_ctx_switched_pma_channel_count = ga10b_perf_get_ctx_switched_pma_channel_count,
 	.get_pma_channels_per_cblock = gb10b_perf_get_pma_channels_per_cblock,
 	.init_inst_block = vf_perf_init_inst_block,
 	.deinit_inst_block = vf_perf_deinit_inst_block,
@@ -1087,9 +1102,9 @@ static const struct gops_bus vf_gb10b_ops_bus = {
 
 static const struct gops_ptimer vf_gb10b_ops_ptimer = {
 	.isr = NULL,
-	.read_ptimer = vgpu_read_ptimer,
+	.read_ptimer = ga10b_func_read_ptimer,
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
-	.get_timestamps_zipper = vgpu_get_timestamps_zipper,
+	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
 #endif
 #ifdef CONFIG_NVGPU_PROFILER
 	.get_timer_reg_offsets = gv11b_ptimer_get_timer_reg_offsets,
@@ -1215,7 +1230,9 @@ int vf_gb10b_init_hal(struct gk20a *g)
 	gops->nvenc = vf_gb10b_ops_nvenc;
 	gops->ofa = vf_gb10b_ops_ofa;
 	gops->nvdec = vf_gb10b_ops_nvdec;
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	gops->nvjpg = vf_gb10b_ops_nvjpg;
+#endif
 	gops->cg = vf_gb10b_ops_cg;
 	gops->fifo = vf_gb10b_ops_fifo;
 	gops->engine = vf_gb10b_ops_engine;

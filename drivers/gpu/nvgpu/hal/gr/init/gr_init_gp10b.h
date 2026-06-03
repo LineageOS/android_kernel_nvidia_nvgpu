@@ -24,7 +24,7 @@ void gp10b_gr_init_commit_global_cb_manager(struct gk20a *g,
 	struct nvgpu_gr_config *config, struct nvgpu_gr_ctx *gr_ctx,
 	bool patch);
 
-void gp10b_gr_init_get_supported_preemption_modes(
+void gp10b_gr_init_get_supported_preemption_modes(struct gk20a *g,
 	u32 *graphics_preemption_mode_flags, u32 *compute_preemption_mode_flags);
 void gp10b_gr_init_get_default_preemption_modes(
 	u32 *default_graphics_preempt_mode, u32 *default_compute_preempt_mode);

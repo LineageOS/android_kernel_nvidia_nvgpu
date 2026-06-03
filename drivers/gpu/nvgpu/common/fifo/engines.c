@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 // SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-
 #include <nvgpu/log.h>
 #include <nvgpu/errno.h>
 #include <nvgpu/timers.h>
 #include <nvgpu/bitops.h>
+#include <nvgpu/io.h>
 #ifdef CONFIG_NVGPU_LS_PMU
 #include <nvgpu/pmu.h>
 #include <nvgpu/pmu/mutex.h>
@@ -27,6 +27,7 @@
 #include <nvgpu/swprofile.h>
 #include <nvgpu/multimedia.h>
 #include <nvgpu/gr/gr_instances.h>
+#include <nvgpu/hw/gb10b/hw_fuse_gb10b.h>
 
 #include <nvgpu/fifo/swprofile.h>
 
@@ -58,6 +59,37 @@ enum nvgpu_fifo_engine nvgpu_engine_enum_from_dev(struct gk20a *g,
 	}
 
 	return ret;
+}
+
+const struct nvgpu_device *nvgpu_dev_from_fifo_engine_enum(struct gk20a *g,
+			enum nvgpu_fifo_engine engine_type, u32 inst_id)
+{
+	u32 dev_type;
+
+	switch (engine_type) {
+	case NVGPU_ENGINE_GR:
+		dev_type = NVGPU_DEVTYPE_GRAPHICS;
+		break;
+	case NVGPU_ENGINE_ASYNC_CE:
+		dev_type = NVGPU_DEVTYPE_LCE;
+		break;
+	case NVGPU_ENGINE_NVENC:
+		dev_type = NVGPU_DEVTYPE_NVENC;
+		break;
+	case NVGPU_ENGINE_OFA:
+		dev_type = NVGPU_DEVTYPE_OFA;
+		break;
+	case NVGPU_ENGINE_NVDEC:
+		dev_type = NVGPU_DEVTYPE_NVDEC;
+		break;
+	case NVGPU_ENGINE_NVJPG:
+		dev_type = NVGPU_DEVTYPE_NVJPG;
+		break;
+	default:
+		return NULL;
+	}
+
+	return nvgpu_device_get(g, dev_type, inst_id);
 }
 
 const struct nvgpu_device *nvgpu_engine_get_active_eng_info(
@@ -592,6 +624,14 @@ int nvgpu_engine_get_fast_ce_runlist_id(struct gk20a *g, u32 gpu_instance_id, u3
 			lce_dev = gpu_instance->lce_devs[i];
 			if (nvgpu_engine_enum_from_dev(g, lce_dev) == NVGPU_ENGINE_ASYNC_CE) {
 				*ce_runlist_id = lce_dev->runlist_id;
+				/*
+				 * In GB10B_NEXT, there is no PCE mapping to LCE3.
+				 * PCE0 is mapped to GRCE0 and LCE2 whose runlist id is 7.
+				 */
+				if (nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl)
+						== NVGPU_GPUID_GB10B_NEXT) {
+					*ce_runlist_id = 7;
+				}
 				return 0;
 			}
 		} while (i != 0);
@@ -651,6 +691,7 @@ u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g, u32 inst_id)
 	return dev->runlist_id;
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g, u32 inst_id)
 {
 	const struct nvgpu_device *dev;
@@ -662,6 +703,7 @@ u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g, u32 inst_id)
 
 	return dev->runlist_id;
 }
+#endif
 
 bool nvgpu_engine_is_valid_runlist_id(struct gk20a *g, u32 runlist_id)
 {
@@ -1287,4 +1329,46 @@ int nvgpu_halt_engines(struct gk20a *g)
 	}
 
 	return err;
+}
+
+u32 nvgpu_engine_get_nvdec_engine_status(struct gk20a *g)
+{
+	u32 reg_value;
+
+	nvgpu_log_fn(g, " ");
+
+	reg_value = nvgpu_readl(g, fuse_status_opt_nvdec_r());
+	return reg_value;
+}
+
+u32 nvgpu_engine_get_nvenc_engine_status(struct gk20a *g)
+{
+	u32 reg_value;
+
+	nvgpu_log_fn(g, " ");
+
+	reg_value = nvgpu_readl(g, fuse_status_opt_nvenc_r());
+	return reg_value;
+}
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+u32 nvgpu_engine_get_nvjpg_engine_status(struct gk20a *g)
+{
+	u32 reg_value;
+
+	nvgpu_log_fn(g, " ");
+
+	reg_value = nvgpu_readl(g, fuse_status_opt_nvjpg_r());
+	return reg_value;
+}
+#endif
+
+u32 nvgpu_engine_get_ofa_engine_status(struct gk20a *g)
+{
+	u32 reg_value;
+
+	nvgpu_log_fn(g, " ");
+
+	reg_value = nvgpu_readl(g, fuse_status_opt_ofa_r());
+	return reg_value;
 }

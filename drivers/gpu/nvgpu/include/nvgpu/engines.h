@@ -102,6 +102,23 @@ enum nvgpu_fifo_engine {
  */
 enum nvgpu_fifo_engine nvgpu_engine_enum_from_dev(struct gk20a *g,
 					const struct nvgpu_device *dev);
+
+/**
+ * @brief Get pointer to #nvgpu_device for the s/w defined engine enum type.
+ *
+ * @param g [in]		The GPU driver struct.
+ * @param engine_type [in]	Engine enum type.
+ * @param inst_id [in]		Engine's instance identification number.
+ *
+ * This is used to get the device struct for the given s/w engine enum type
+ * and instance number.
+ *
+ * @return Pointer to #nvgpu_device.
+ * @retval NULL if engine enum type is not listed in the enum or not supported.
+ */
+const struct nvgpu_device *nvgpu_dev_from_fifo_engine_enum(struct gk20a *g,
+			enum nvgpu_fifo_engine engine_type, u32 inst_id);
+
 /**
  * @brief Get pointer to #nvgpu_device for the h/w engine id.
  *
@@ -341,6 +358,7 @@ u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g, u32 inst_id);
  *         instance.
  */
 u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g, u32 inst_id);
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 /**
  * @brief Get runlist id for the given instance of #NVGPU_ENGINE_NVJPG engine enum
  *        type.
@@ -356,6 +374,7 @@ u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g, u32 inst_id);
  *         instance.
  */
 u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g, u32 inst_id);
+#endif
 /**
  * @brief Check if runlist id corresponds to runlist id of one of the
  *        engine ids supported by h/w.
@@ -554,5 +573,55 @@ void nvgpu_engine_remove_one_dev(struct nvgpu_fifo *f,
  * @retval < 0 if call to halt GR ctxsw fails.
  */
 int nvgpu_halt_engines(struct gk20a *g);
+
+/**
+ * @brief Get NVDEC engine status.
+ *
+ * @param g [in]		The GPU driver struct.
+ *
+ * Reads the fuse_status_opt_nvdec_r() register to determine which NVDEC
+ * engines are floorswept.
+ *
+ * @return Bitmask of floorswept NVDEC engines.
+ */
+u32 nvgpu_engine_get_nvdec_engine_status(struct gk20a *g);
+
+/**
+ * @brief Get NVENC engine status.
+ *
+ * @param g [in]		The GPU driver struct.
+ *
+ * Reads the fuse_status_opt_nvenc_r() register to determine which NVENC
+ * engines are floorswept.
+ *
+ * @return Bitmask of floorswept NVENC engines.
+ */
+u32 nvgpu_engine_get_nvenc_engine_status(struct gk20a *g);
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+/**
+ * @brief Get NVJPG engine status.
+ *
+ * @param g [in]		The GPU driver struct.
+ *
+ * Reads the fuse_status_opt_nvjpg_r() register to determine which NVJPG
+ * engines are floorswept.
+ *
+ * @return Bitmask of floorswept NVJPG engines.
+ */
+u32 nvgpu_engine_get_nvjpg_engine_status(struct gk20a *g);
+#endif
+
+/**
+ * @brief Get OFA engine status.
+ *
+ * @param g [in]		The GPU driver struct.
+ *
+ * Reads the fuse_status_opt_ofa_r() register to determine which OFA
+ * engines are floorswept.
+ *
+ * @return Bitmask of floorswept OFA engines.
+ */
+u32 nvgpu_engine_get_ofa_engine_status(struct gk20a *g);
 
 #endif /*NVGPU_ENGINE_H*/

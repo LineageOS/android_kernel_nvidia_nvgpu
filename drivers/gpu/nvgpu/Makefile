@@ -376,8 +376,17 @@ nvgpu-y += \
 	common/pmu/volt/volt_rail_3x.o \
 	common/pmu/volt/volt_dev.o \
 	common/pmu/volt/volt_policy.o \
+	common/pmu/perf_cf/perf_cf.o \
+	common/pmu/perf_cf/perf_cf_topology.o \
 	common/pmu/therm/thrm.o \
 	common/pmu/therm/therm_dev.o \
+	common/pmu/therm/therm_device_3x.o \
+	common/pmu/therm/therm_device_gpu_gtz_v10.o \
+	common/pmu/therm/therm_device_gpu_stz_v10.o \
+	common/pmu/therm/therm_device_gpu_tz_v10.o \
+	common/pmu/therm/therm_device_gpu_tsense_v10.o \
+	common/pmu/therm/therm_device_gpu_mini_tsense_v10.o \
+	common/pmu/therm/therm_device_mem_v10.o \
 	common/pmu/therm/therm_channel.o \
 	common/pmu/therm/therm_channel_provider_v10.o \
 	common/pmu/therm/therm_channel_debug_v10.o \
@@ -388,7 +397,9 @@ nvgpu-y += \
 	common/pmu/pmu_rtos_init.o \
 	common/pmu/clk/clk_vin.o \
 	common/pmu/clk/clk_fll.o \
+	common/pmu/clk/clk3_freq_domain.o \
 	common/pmu/clk/clk_domain.o \
+	common/pmu/clk/clk_domain_50.o \
 	common/pmu/clk/clk_enum.o \
 	common/pmu/clk/clk_prog.o \
 	common/pmu/clk/clk_prop_regime.o \
@@ -403,6 +414,7 @@ nvgpu-y += \
 	common/pmu/boardobj/boardobjgrp_e255.o \
 	common/pmu/boardobj/boardobjgrp_e2048.o \
 	common/pmu/boardobj/boardobjgrp_e32.o \
+	common/vbios/bios_sw_gb20c.o \
 	common/clk_arb/clk_arb.o \
 	common/clk_arb/clk_arb_gp10b.o \
 	common/rc/rc.o \
@@ -416,7 +428,6 @@ nvgpu-y += \
 	common/multimedia/nvenc.o \
 	common/multimedia/ofa.o \
 	common/multimedia/nvdec.o \
-	common/multimedia/nvjpg.o \
 	common/multimedia/multimedia.o \
 	hal/bus/bus_gk20a.o \
 	hal/class/class_gm20b.o \
@@ -433,6 +444,7 @@ nvgpu-y += \
 	hal/gr/intr/gr_intr_gm20b.o \
 	hal/gr/intr/gr_intr_gp10b.o \
 	hal/gr/hwpm_map/hwpm_map_gv100.o \
+	hal/gr/hwpm_map/hwpm_map_ga10b.o \
 	hal/gr/zbc/zbc_gm20b.o \
 	hal/gr/zbc/zbc_gp10b.o \
 	hal/gr/zbc/zbc_gv11b.o \
@@ -588,7 +600,8 @@ nvgpu-$(CONFIG_DEBUG_FS) += \
 	os/linux/debug_gsp.o \
 	os/linux/debug_multimedia.o \
 	os/linux/debug_boot_time.o \
-	os/linux/debug_c2c.o
+	os/linux/debug_c2c.o \
+	os/linux/debug_clk_gb20c.o
 
 ifneq ($(CONFIG_NVGPU_EMB_LINUX_PROD_BUILD),y)
 nvgpu-$(CONFIG_DEBUG_FS) += os/linux/debug_pmu.o
@@ -601,6 +614,12 @@ nvgpu-$(CONFIG_DEBUG_FS) += \
 	os/linux/debug_kmem.o
 endif
 
+ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),y)
+nvgpu-y += os/linux/ioctl_gsp_vm_sched.o
+nvgpu-$(CONFIG_DEBUG_FS) += \
+	os/linux/debug_gsp_vm_sched.o
+endif
+
 nvgpu-$(CONFIG_NVGPU_FECS_TRACE) += \
 	common/gr/fecs_trace.o \
 	hal/gr/fecs_trace/fecs_trace_gm20b.o \
@@ -611,6 +630,11 @@ ifeq ($(CONFIG_NVGPU_FECS_TRACE),y)
 nvgpu-$(CONFIG_DEBUG_FS) += \
 	os/linux/debug_fecs_trace.o
 endif
+
+nvgpu-$(CONFIG_NVGPU_MULTIMEDIA_TRACE) += \
+	common/multimedia/multimedia_trace.o \
+	common/multimedia/multimedia_trace_ctrl.o \
+	os/linux/multimedia_trace_linux.o
 
 nvgpu-$(CONFIG_TEGRA_GK20A) += \
 	os/linux/fuse.o \
@@ -660,16 +684,10 @@ nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
 	os/linux/vgpu/sysfs_vgpu.o \
 	os/linux/vgpu/vgpu_common.o \
 	os/linux/vgpu/vgpu_ivc.o \
-	os/linux/vgpu/vgpu_linux.o \
-	os/linux/vgpu/gv11b/platform_gv11b_vgpu_tegra.o
+	os/linux/vgpu/vgpu_linux.o
 
 nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
 	os/linux/vgpu/vf_linux.o
-
-ifeq ($(CONFIG_NVGPU_FECS_TRACE),y)
-nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
-	os/linux/vgpu/fecs_trace_vgpu_linux.o
-endif
 
 nvgpu-$(CONFIG_COMMON_CLK) += \
 	os/linux/clk.o \
@@ -746,11 +764,8 @@ nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
 	common/vgpu/ltc/ltc_vgpu.o \
 	common/vgpu/fbp/fbp_vgpu.o \
 	common/vgpu/fb/fb_vgpu.o \
-	common/vgpu/fb/vab_vgpu.o \
 	common/vgpu/gr/gr_vgpu.o \
 	common/vgpu/gr/gr_vf.o \
-	common/vgpu/gr/ctx_vgpu.o \
-	common/vgpu/gr/subctx_vgpu.o \
 	common/vgpu/top/top_vgpu.o \
 	common/vgpu/fifo/fifo_vgpu.o \
 	common/vgpu/fifo/fifo_vf.o \
@@ -758,8 +773,6 @@ nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
 	common/vgpu/fifo/tsg_vgpu.o \
 	common/vgpu/fifo/tsg_vf.o \
 	common/vgpu/fifo/preempt_vgpu.o \
-	common/vgpu/fifo/runlist_vgpu.o \
-	common/vgpu/fifo/ramfc_vgpu.o \
 	common/vgpu/fifo/userd_vgpu.o \
 	common/vgpu/fifo/channel_vf.o \
 	common/vgpu/fifo/runlist_vf.o \
@@ -767,23 +780,20 @@ nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
 	common/vgpu/rc/rc_vf.o \
 	common/vgpu/ce_vgpu.o \
 	common/vgpu/mm/mm_vgpu.o \
-	common/vgpu/mm/vm_vgpu.o \
 	common/vgpu/init/init_vgpu.o \
 	common/vgpu/init/init_vf.o \
 	common/vgpu/ivc/comm_vgpu.o \
 	common/vgpu/intr/intr_vgpu.o \
-	common/vgpu/ptimer/ptimer_vgpu.o \
 	common/vgpu/debugger_vgpu.o \
 	common/vgpu/debugger_vf.o \
 	common/vgpu/pm_reservation_vgpu.o \
 	common/vgpu/perf/perf_vgpu.o \
-	common/vgpu/profiler/profiler_vgpu.o \
 	common/vgpu/ecc_vgpu.o \
 	common/vgpu/clk_vgpu.o \
-	common/vgpu/gr/fecs_trace_vgpu.o \
+	common/vgpu/pmu_vgpu.o \
+	common/vgpu/gsp_scheduler/gsp_vm_scheduler_vf.o \
 	hal/vgpu/init/init_hal_vgpu.o \
-	hal/vgpu/fifo/fifo_gv11b_vgpu.o \
-	hal/vgpu/sync/syncpt_cmdbuf_gv11b_vgpu.o
+	hal/vgpu/fifo/fifo_gv11b_vgpu.o
 
 nvgpu-$(CONFIG_NVGPU_CYCLESTATS) += \
 	common/perf/cyclestats_snapshot.o \
@@ -792,8 +802,6 @@ nvgpu-$(CONFIG_NVGPU_CYCLESTATS) += \
 ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),y)
 nvgpu-$(CONFIG_NVGPU_CYCLESTATS) += \
 	common/vgpu/perf/cyclestats_snapshot_vgpu.o
-nvgpu-$(CONFIG_NVGPU_COMPRESSION) += \
-	common/vgpu/cbc/cbc_vgpu.o
 endif
 
 nvgpu-$(CONFIG_NVGPU_COMPRESSION) += \
@@ -944,11 +952,6 @@ nvgpu-$(CONFIG_NVGPU_HAL_NON_FUSA) += \
 	hal/top/top_gm20b.o \
 	hal/mssnvlink/mssnvlink_ga10b.o
 
-ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),y)
-nvgpu-$(CONFIG_NVGPU_HAL_NON_FUSA) += \
-	hal/vgpu/init/vgpu_hal_gv11b.o
-endif
-
 ifeq ($(CONFIG_NVGPU_HAL_NON_FUSA),y)
 nvgpu-y += \
 	common/falcon/falcon_sw_ga10b.o \
@@ -957,7 +960,8 @@ nvgpu-y += \
 	common/acr/acr_sw_ga100.o \
 	common/pmu/perfmon/pmu_perfmon_sw_ga10b.o \
 	common/pmu/pg/pg_sw_ga10b.o \
-	common/pmu/pmu_sw/pmu_sw_ga10b.o
+	common/pmu/pmu_sw/pmu_sw_ga10b.o \
+	common/multimedia/nvjpg.o
 
 nvgpu-y += \
 	hal/init/hal_ga10b.o \
@@ -1037,10 +1041,6 @@ nvgpu-y += \
 	hal/cbc/cbc_ga100.o \
 	hal/cbc/cbc_ga10b_fusa.o
 endif
-
-nvgpu-$(CONFIG_NVGPU_GR_VIRTUALIZATION) += \
-	hal/vgpu/init/vgpu_hal_ga10b.o \
-	os/linux/vgpu/ga10b/platform_ga10b_vgpu_tegra.o
 
 endif
 
@@ -1212,7 +1212,12 @@ ifeq ($(CONFIG_NVGPU_DEBUGGER),y)
 nvgpu-y += \
 	hal/perf/perf_gb10b.o \
 	hal/regops/regops_gb10b.o \
-	hal/regops/allowlist_gb10b.o
+	hal/regops/regops_gb20c.o \
+	hal/regops/allowlist_gb10b.o \
+	hal/regops/allowlist_gb20c.o \
+	hal/regops/allowlist_auto_generated_gb10b.o \
+	hal/regops/allowlist_auto_generated_gb20c.o \
+	hal/regops/user_access_map_gb20c.o
 endif
 
 endif
@@ -1251,14 +1256,20 @@ nvgpu-y += \
 	hal/perf/perf_gb20c.o \
 	hal/ltc/ltc_gb20c_fusa.o \
 	os/linux/pci_gb20c_tegra.o \
+	os/linux/vbios.o \
 	hal/fuse/fuse_gb20c.o \
+	hal/power_features/cg/gb20c_gating_reglist.o \
 	hal/falcon/falcon_gb20c_fusa.o \
 	hal/nvdec/nvdec_gb20c.o \
 	hal/nvenc/nvenc_gb20c.o \
 	hal/ofa/ofa_gb20c.o \
 	hal/netlist/netlist_gb20c_fusa.o \
 	hal/fifo/pbdma_status_gb20c_fusa.o \
-	hal/fifo/pbdma_gb20c.o
+	hal/fifo/pbdma_gb20c.o \
+	hal/fifo/tsg_gb20c_fusa.o \
+	hal/pmu/pmu_gb20c.o \
+	hal/vbios/bios_gb20c.o \
+	hal/gr/hwpm_map/hwpm_map_gb20c.o
 
 ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),y)
 nvgpu-y += \

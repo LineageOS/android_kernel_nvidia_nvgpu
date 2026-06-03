@@ -27,8 +27,6 @@
 #include "gr_falcon_priv.h"
 #include "gr_priv.h"
 
-#define MAX_NETLIST_NAME (sizeof("Gxxxx/") + sizeof("prod_test_nsr/NET?_img_xxxxx_encrypted.bin"))
-
 struct nvgpu_gr_falcon *nvgpu_gr_falcon_init_support(struct gk20a *g)
 {
 	struct nvgpu_gr_falcon *falcon;
@@ -604,6 +602,11 @@ static int nvgpu_gr_riscv_load_ctxsw_manifest(struct gk20a *g,
 		nvgpu_err(g, "gr nvriscv get IMEM size failed");
 	}
 
+	if (size > dmem_size) {
+		nvgpu_err(g, "manifest size (%u) exceeds DMEM size (%u)", size, dmem_size);
+		return -EINVAL;
+	}
+
 	err = nvgpu_falcon_copy_to_dmem(flcn, (dmem_size - size),
 		manifest, size, 0);
 	if (err != 0) {
@@ -624,6 +627,11 @@ static int nvgpu_gr_riscv_load_ctxsw_bootplugin(struct gk20a *g,
 	err = nvgpu_falcon_get_mem_size(flcn, MEM_IMEM, &imem_size);
 	if (err != 0) {
 		nvgpu_err(g, "gr nvriscv get IMEM size failed");
+	}
+
+	if (size > imem_size) {
+		nvgpu_err(g, "bootplugin size (%u) exceeds IMEM size (%u)", size, imem_size);
+		return -EINVAL;
 	}
 
 	err = nvgpu_falcon_copy_to_imem(flcn, (imem_size - size),

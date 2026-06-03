@@ -189,6 +189,7 @@ struct gk20a_platform gv11b_tegra_platform = {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
 	.has_syncpoints = true,
 #endif
+	.has_scheduling_domains = true,
 
 	/* ptimer src frequency in hz*/
 	.ptimer_src_freq	= 31250000,

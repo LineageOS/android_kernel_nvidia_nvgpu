@@ -506,7 +506,7 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 {
 	u32 supported_graphics_preempt_mode = 0U;
 	u32 supported_compute_preempt_mode = 0U;
-#if defined(CONFIG_NVGPU_CILP) && defined(CONFIG_NVGPU_GFXP)
+#if defined(CONFIG_NVGPU_CILP) || defined(CONFIG_NVGPU_GFXP)
 	int err;
 #endif
 
@@ -524,7 +524,7 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 		return false;
 	}
 
-	g->ops.gr.init.get_supported__preemption_modes(
+	g->ops.gr.init.get_supported__preemption_modes(g,
 			&supported_graphics_preempt_mode,
 			&supported_compute_preempt_mode);
 
@@ -556,7 +556,9 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 		   (compute_preempt_mode == NVGPU_PREEMPTION_MODE_COMPUTE_CILP)) {
 		return false;
 	}
+#endif
 
+#ifdef CONFIG_NVGPU_CILP
 	if (g->ops.gpu_class.is_valid_compute(ch->obj_class) &&
 	    compute_preempt_mode == NVGPU_PREEMPTION_MODE_COMPUTE_CILP) {
 		err = nvgpu_tsg_validate_cilp_config(ch);
@@ -565,7 +567,9 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 			return false;
 		}
 	}
+#endif /* CONFIG_NVGPU_CILP */
 
+#ifdef CONFIG_NVGPU_GFXP
 	if (g->ops.gpu_class.is_valid_gfx(ch->obj_class)) {
 		err = nvgpu_tsg_validate_cilp_config(ch);
 		if (err != 0) {
@@ -573,7 +577,7 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 			return false;
 		}
 	}
-#endif
+#endif /* CONFIG_NVGPU_GFXP */
 
 	return true;
 }
@@ -710,7 +714,7 @@ bool nvgpu_gr_ctx_desc_force_preemption_gfxp(struct nvgpu_gr_ctx_desc *gr_ctx_de
 }
 #endif /* CONFIG_NVGPU_GFXP */
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
 bool nvgpu_gr_ctx_desc_force_preemption_cilp(struct nvgpu_gr_ctx_desc *gr_ctx_desc)
 {
 	return gr_ctx_desc->force_preemption_cilp;

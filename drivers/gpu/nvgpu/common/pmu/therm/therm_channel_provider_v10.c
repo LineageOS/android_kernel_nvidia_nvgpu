@@ -38,6 +38,19 @@ s32 thermChannelIfaceModel10Construct_PROVIDER_V10
     // Override Boardobj Model 10 interfaces
     //pModel10->super.getInfo = _thermChannelIfaceModel10GetInfo_PROVIDER_V10;
     //pModel10->pmuDataInit   = _thermChannelIfaceModel10PmuDataInit_PROVIDER_V10;
+
+    // CRITICAL FIX: Copy base thermal channel data from input
+    pChProvider10->super.super.bScaling            = pChTemp->super.super.bScaling;
+    pChProvider10->super.super.scaling             = pChTemp->super.super.scaling;
+    pChProvider10->super.super.offsetSW            = pChTemp->super.super.offsetSW;
+    pChProvider10->super.super.bBounds             = pChTemp->super.super.bBounds;
+    pChProvider10->super.super.temp_min            = pChTemp->super.super.temp_min;
+    pChProvider10->super.super.temp_max            = pChTemp->super.super.temp_max;
+    pChProvider10->super.super.tempSim.bSupported  = pChTemp->super.super.tempSim.bSupported;
+    pChProvider10->super.super.tempSim.bEnabled    = pChTemp->super.super.tempSim.bEnabled;
+    pChProvider10->super.super.tempSim.targetTemp  = pChTemp->super.super.tempSim.targetTemp;
+    pChProvider10->super.super.chType              = pChTemp->super.super.chType;
+
     // Set THERM_CHANNEL_PROVIDER_V10 specific parameters.
     pChProvider10->thermDevIdx = pChTemp->thermDevIdx;
     pChProvider10->thermDevProvIdx = pChTemp->thermDevProvIdx;
@@ -46,8 +59,5 @@ s32 thermChannelIfaceModel10Construct_PROVIDER_V10
 
 thermChannelIfaceModel10Construct_PROVIDER_V10_exit:
 
-    if (ppBoardObj != NULL && *ppBoardObj != NULL && status == 0) {
-        nvgpu_err(g, "Final board obj type: %d", (*ppBoardObj)->type);
-    }
     return status;
 }

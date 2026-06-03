@@ -35,7 +35,9 @@
 #include <nvgpu/nvenc.h>
 #include <nvgpu/ofa.h>
 #include <nvgpu/nvdec.h>
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 #include <nvgpu/nvjpg.h>
+#endif
 
 #include "hal/mm/mm_gp10b.h"
 #include "hal/mm/mm_gv11b.h"
@@ -129,6 +131,7 @@
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/regops_gb10b.h"
 #include "hal/regops/allowlist_gb10b.h"
+#include "hal/regops/allowlist_auto_generated_gb10b.h"
 #endif
 #ifdef CONFIG_NVGPU_RECOVERY
 #include "hal/rc/rc_gv11b.h"
@@ -225,6 +228,7 @@
 #include "hal/gr/intr/gr_intr_gb10b.h"
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/gr/hwpm_map/hwpm_map_gv100.h"
+#include "hal/gr/hwpm_map/hwpm_map_ga10b.h"
 #include "hal/gr/hwpm_map/hwpm_map_gb10b.h"
 #endif
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gm20b.h"
@@ -274,7 +278,9 @@
 #include "hal/nvenc/nvenc_gb10b.h"
 #include "hal/ofa/ofa_gb10b.h"
 #include "hal/nvdec/nvdec_gb10b.h"
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 #include "hal/nvjpg/nvjpg_gb10b.h"
+#endif
 
 #ifdef CONFIG_NVGPU_LS_PMU
 #include "common/pmu/pg/pg_sw_gm20b.h"
@@ -360,7 +366,6 @@ static int gb10b_init_gpu_characteristics(struct gk20a *g)
 	 * Usermode submits are not tied to syncpoints and can be safely enabled.
 	 */
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_USERMODE_SUBMIT, true);
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_DEVICE_EVENTS, true);
 
 	return 0;
 }
@@ -528,7 +533,7 @@ static const struct gops_gr_ctxsw_prog gb10b_ops_gr_ctxsw_prog = {
 #endif
 	.set_context_buffer_ptr = gv11b_ctxsw_prog_set_context_buffer_ptr,
 	.set_type_per_veid_header = gv11b_ctxsw_prog_set_type_per_veid_header,
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	.set_zcull_ptr = gv11b_ctxsw_prog_set_zcull_ptr,
 	.set_zcull = gm20b_ctxsw_prog_set_zcull,
 	.set_zcull_mode_no_ctxsw = gm20b_ctxsw_prog_set_zcull_mode_no_ctxsw,
@@ -607,9 +612,9 @@ static const struct gops_gr_config gb10b_ops_gr_config = {
 	.get_pes_tpc_mask = gb10b_gr_config_get_pes_tpc_mask,
 	.get_pd_dist_skip_table_size = gm20b_gr_config_get_pd_dist_skip_table_size,
 	.init_sm_id_table = gb10b_gr_config_init_sm_id_table,
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	.get_zcull_count_in_gpc = gm20b_gr_config_get_zcull_count_in_gpc,
-#endif /* CONFIG_NVGPU_GRAPHICS */
+#endif /* CONFIG_NVGPU_GRAPHICS && CONFIG_NVGPU_ZCULL */
 };
 
 #ifdef CONFIG_NVGPU_FECS_TRACE
@@ -640,22 +645,24 @@ static const struct gops_gr_setup gb10b_ops_gr_setup = {
 	.alloc_obj_ctx = nvgpu_gr_setup_alloc_obj_ctx,
 	.free_gr_ctx = nvgpu_gr_setup_free_gr_ctx,
 	.free_subctx = nvgpu_gr_setup_free_subctx,
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	.bind_ctxsw_zcull = nvgpu_gr_setup_bind_ctxsw_zcull,
-#endif /* CONFIG_NVGPU_GRAPHICS */
+#endif /* CONFIG_NVGPU_GRAPHICS && CONFIG_NVGPU_ZCULL */
 	.set_preemption_mode = nvgpu_gr_setup_set_preemption_mode,
 #ifdef CONFIG_NVGPU_DEBUGGER
 	.setup_pri_address_buffer = nvgpu_gr_setup_pri_address_buffer,
 #endif
 };
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS)
 static const struct gops_gr_zbc gb10b_ops_gr_zbc = {
 	.add_color = gb10b_gr_zbc_add_color,
 	.load_default_sw_table = ga10b_gr_zbc_load_static_table,
 	.add_depth = gb10b_gr_zbc_add_depth,
+#ifdef CONFIG_NVGPU_ZBC_USER
 	.set_table = nvgpu_gr_zbc_set_table,
 	.query_table = nvgpu_gr_zbc_query_table,
+#endif
 	.add_stencil = gb10b_gr_zbc_add_stencil,
 	.get_gpcs_swdx_dss_zbc_c_format_reg = gb10b_gr_zbc_get_gpcs_swdx_dss_zbc_c_format_reg,
 	.get_gpcs_swdx_dss_zbc_z_format_reg = gb10b_gr_zbc_get_gpcs_swdx_dss_zbc_z_format_reg,
@@ -664,7 +671,7 @@ static const struct gops_gr_zbc gb10b_ops_gr_zbc = {
 };
 #endif
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 static const struct gops_gr_zcull gb10b_ops_gr_zcull = {
 	.init_zcull_hw = gb10b_gr_init_zcull_hw,
 	.get_zcull_info = gm20b_gr_get_zcull_info,
@@ -678,6 +685,9 @@ static const struct gops_gr_hwpm_map gb10b_ops_gr_hwpm_map = {
 	.add_ctxsw_buffer_gpc_perf_entries_to_map = gb10b_hwpm_map_add_gpc_perf_entries_to_map,
 	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gb10b_hwpm_map_add_pm_ucgpc_entries_to_map,
 	.add_ctxsw_buffer_lrcc_entries_to_map = gb10b_hwpm_map_add_lrcc_entries_to_map,
+	.add_reg_in_fecs_to_map = ga10b_hwpm_map_add_reg_in_fecs_to_map,
+	.add_reg_in_gpccs_to_map = ga10b_hwpm_map_add_reg_in_gpccs_to_map,
+	.get_cpc_info = gb10b_hwpm_map_get_cpc_info,
 };
 #endif
 
@@ -810,8 +820,10 @@ static const struct gops_gr_intr gb10b_ops_gr_intr = {
 	.read_exception1 = gm20b_gr_intr_read_exception1,
 	.trapped_method_info = gm20b_gr_intr_get_trapped_method_info,
 	.get_fault_context = nvgpu_gr_intr_get_fault_context,
+#ifdef CONFIG_NVGPU_NON_FUSA
 	.handle_semaphore_pending = nvgpu_gr_intr_handle_semaphore_pending,
 	.handle_notify_pending = nvgpu_gr_intr_handle_notify_pending,
+#endif
 	.handle_gcc_exception = gb10b_gr_intr_handle_gcc_exception,
 	.handle_gpc_gpcmmu_exception = ga10b_gr_intr_handle_gpc_gpcmmu_exception,
 	.handle_gpc_prop_exception = gv11b_gr_intr_handle_gpc_prop_exception,
@@ -904,7 +916,9 @@ static const struct gops_gr_falcon gb10b_ops_gr_falcon = {
 	.get_fecs_current_ctx_hi_data =
 		gb10b_gr_falcon_get_fecs_current_ctx_hi_data,
 	.init_ctx_state = gp10b_gr_falcon_init_ctx_state,
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	.get_zcull_image_size = gm20b_gr_falcon_get_zcull_image_size,
+#endif /* CONFIG_NVGPU_GRAPHICS && CONFIG_NVGPU_ZCULL */
 	.fecs_host_int_enable = gb10b_gr_falcon_fecs_host_int_enable,
 	.read_fecs_ctxsw_status0 = gm20b_gr_falcon_read_status0_fecs_ctxsw,
 	.read_fecs_ctxsw_status1 = gm20b_gr_falcon_read_status1_fecs_ctxsw,
@@ -992,6 +1006,7 @@ static const struct gops_gr gb10b_ops_gr = {
 	.pre_process_sm_exception = gr_gv11b_pre_process_sm_exception,
 	.set_bes_crop_debug3 = NULL,
 	.set_bes_crop_debug4 = gb10b_gr_set_gpcs_rops_crop_debug4,
+	.set_tex_in_dbg = gb10b_gr_intr_set_tex_in_dbg,
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gb10b_gr_get_egpc_base,
@@ -1079,6 +1094,7 @@ static const struct gops_nvdec gb10b_ops_nvdec = {
 };
 
 static const struct gops_nvjpg gb10b_ops_nvjpg = {
+#ifdef CONFIG_NVGPU_NON_FUSA
 	.base_addr = gb10b_nvjpg_base_addr,
 	.falcon2_base_addr = gb10b_nvjpg_falcon2_base_addr,
 	.setup_boot_config = gb10b_nvjpg_setup_boot_config,
@@ -1095,6 +1111,9 @@ static const struct gops_nvjpg gb10b_ops_nvjpg = {
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 	.dump_engine_status = nvgpu_nvjpg_dump_status,
 	.get_nvjpg_fw = gb10b_nvjpg_fw,
+#else
+	.is_nvjpg_not_supported = true,
+#endif
 };
 
 static const struct gops_class gb10b_ops_gpu_class = {
@@ -1107,7 +1126,9 @@ static const struct gops_class gb10b_ops_gpu_class = {
 	.is_valid_nvenc = gb10b_class_is_valid_nvenc,
 	.is_valid_ofa = gb10b_class_is_valid_ofa,
 	.is_valid_nvdec = gb10b_class_is_valid_nvdec,
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.is_valid_nvjpg = gb10b_class_is_valid_nvjpg,
+#endif
 };
 
 static const struct gops_fb_ecc gb10b_ops_fb_ecc = {
@@ -1247,7 +1268,9 @@ static const struct gops_cg gb10b_ops_cg = {
 	.slcg_nvenc_load_gating_prod = gb10b_slcg_nvenc_load_gating_prod,
 	.slcg_ofa_load_gating_prod = gb10b_slcg_ofa_load_gating_prod,
 	.slcg_nvdec_load_gating_prod = gb10b_slcg_nvdec_load_gating_prod,
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.slcg_nvjpg_load_gating_prod = gb10b_slcg_nvjpg_load_gating_prod,
+#endif
 	.slcg_xal_ep_load_gating_prod = gb10b_slcg_xal_ep_load_gating_prod,
 	.blcg_bus_load_gating_prod = gb10b_blcg_bus_load_gating_prod,
 	.blcg_ce_load_gating_prod = gb10b_blcg_ce_load_gating_prod,
@@ -1264,7 +1287,9 @@ static const struct gops_cg gb10b_ops_cg = {
 	.blcg_nvenc_load_gating_prod = gb10b_blcg_nvenc_load_gating_prod,
 	.blcg_ofa_load_gating_prod = gb10b_blcg_ofa_load_gating_prod,
 	.blcg_nvdec_load_gating_prod = gb10b_blcg_nvdec_load_gating_prod,
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.blcg_nvjpg_load_gating_prod = gb10b_blcg_nvjpg_load_gating_prod,
+#endif
 	.elcg_ce_load_gating_prod = gb10b_elcg_ce_load_gating_prod,
 	.blcg_xal_ep_load_gating_prod = gb10b_blcg_xal_ep_load_gating_prod,
 };
@@ -1688,9 +1713,6 @@ static const struct gops_pmu gb10b_ops_pmu = {
 		 */
 	/* Basic init ops */
 	.pmu_early_init = nvgpu_pmu_early_init,
-#ifdef CONFIG_NVGPU_POWER_PG
-	.pmu_restore_golden_img_state = nvgpu_pmu_restore_golden_img_state,
-#endif
 	.is_pmu_supported = ga10b_is_pmu_supported,
 	.falcon_base_addr = gb10b_pmu_falcon_base_addr,
 	.falcon2_base_addr = gb10b_pmu_falcon2_base_addr,
@@ -1832,6 +1854,7 @@ static const struct gops_regops gb10b_ops_regops = {
 		gb10b_get_hwpm_pma_trigger_register_offset_allowlist,
 	.get_smpc_register_offset_allowlist = gb10b_get_smpc_register_offset_allowlist,
 	.get_cau_register_offset_allowlist = gb10b_get_cau_register_offset_allowlist,
+	.get_hes_register_offset_allowlist = gb10b_get_hes_register_offset_allowlist,
 	.get_hwpm_perfmon_register_ranges = gb10b_get_hwpm_perfmon_register_ranges,
 	.get_hwpm_router_register_ranges = gb10b_get_hwpm_router_register_ranges,
 	.get_hwpm_pma_channel_register_ranges = gb10b_get_hwpm_pma_channel_register_ranges,
@@ -1843,6 +1866,7 @@ static const struct gops_regops gb10b_ops_regops = {
 	.get_hes_register_ranges = gb10b_get_hes_register_ranges,
 	.get_hwpm_mm_register_ranges = gb10b_get_hwpm_mm_register_ranges,
 	.is_hwpm_pma_reg_context_switched = gb10b_is_hwpm_pma_reg_context_switched,
+	.init_reg_op_type_per_register_type = gb10b_init_reg_op_type_per_register_type,
 };
 #endif
 
@@ -1915,6 +1939,7 @@ static const struct gops_perf gb10b_ops_perf = {
 	.update_cau_dg_map_status_mask = gb10b_update_cau_dg_map_status_mask,
 	.get_pma_cblock_instance_count = gb10b_perf_get_pma_cblock_instance_count,
 	.get_pma_channel_count = gb10b_perf_get_pma_channel_count,
+	.get_ctx_switched_pma_channel_count = ga10b_perf_get_ctx_switched_pma_channel_count,
 	.get_pma_channels_per_cblock = gb10b_perf_get_pma_channels_per_cblock,
 	.reset_pm_trigger_masks = gb10b_perf_reset_pm_trigger_masks,
 	.enable_pm_trigger = gb10b_perf_enable_pm_trigger,
@@ -1939,6 +1964,9 @@ static const struct gops_perf gb10b_ops_perf = {
 	.get_num_cwd_hems = gb10b_perf_get_num_cwd_hems,
 	.update_sys_hem_cwd_dg_map_mask = gb10b_perf_update_sys_hem_cwd_dg_map_mask,
 	.get_gpc_tpc0_cau0_dg_idx = gb10b_perf_get_gpc_tpc0_cau0_dg_idx,
+	.write_hwpm_register = ga10b_perf_write_hwpm_register,
+	.read_hwpm_register = ga10b_perf_read_hwpm_register,
+	.pma_stream_preparation = gb10b_perf_pma_stream_preparation,
 };
 #endif
 
@@ -1992,7 +2020,7 @@ static const struct gops_bus gb10b_ops_bus = {
 
 static const struct gops_ptimer gb10b_ops_ptimer = {
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
-	.read_ptimer = gk20a_read_ptimer,
+	.read_ptimer = ga10b_func_read_ptimer,
 	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
 #endif
 #ifdef CONFIG_NVGPU_PROFILER
@@ -2090,12 +2118,16 @@ static const struct gops_fuse gb10b_ops_fuse = {
 	.is_opt_feature_override_disable = ga10b_fuse_is_opt_feature_override_disable,
 	.fuse_status_opt_fbio = ga10b_fuse_status_opt_fbio,
 	.fuse_status_opt_fbp = ga10b_fuse_status_opt_fbp,
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	.fuse_status_opt_emc = ga10b_fuse_status_opt_emc,
+#endif
 	.fuse_status_opt_l2_fbp = ga10b_fuse_status_opt_l2_fbp,
 	.fuse_status_opt_tpc_gpc = ga10b_fuse_status_opt_tpc_gpc,
 	.fuse_status_opt_pes_gpc = ga10b_fuse_status_opt_pes_gpc,
 	.fuse_status_opt_rop_gpc = ga10b_fuse_status_opt_rop_gpc,
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	.fuse_ctrl_opt_tpc_gpc = ga10b_fuse_ctrl_opt_tpc_gpc,
+#endif
 	.fuse_opt_sec_debug_en = ga10b_fuse_opt_sec_debug_en,
 	.fuse_opt_priv_sec_en = ga10b_fuse_opt_priv_sec_en,
 	.fuse_opt_sm_ttu_en = NULL,
@@ -2176,7 +2208,9 @@ static const struct gops_grmgr gb10b_ops_grmgr = {
 #else
 	.init_gr_manager = nvgpu_init_gr_manager,
 #endif
+#ifdef CONFIG_NVGPU_MIG
 	.setup_ltc_partition = gb10b_grmgr_setup_ltc_partition,
+#endif
 	.setup_fbp_id_mapping = gb10b_grmgr_setup_fbp_id_mapping,
 	.load_timestamp_prod = ga10b_grmgr_load_smc_arb_timestamp_prod,
 	.discover_gpc_ids = ga10b_grmgr_discover_gpc_ids,
@@ -2252,9 +2286,11 @@ int gb10b_init_hal(struct gk20a *g)
 	gops->gr.fecs_trace = gb10b_ops_gr_fecs_trace;
 #endif /* CONFIG_NVGPU_FECS_TRACE */
 	gops->gr.setup = gb10b_ops_gr_setup;
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS)
 	gops->gr.zbc = gb10b_ops_gr_zbc;
+#if defined(CONFIG_NVGPU_ZCULL)
 	gops->gr.zcull = gb10b_ops_gr_zcull;
+#endif /* CONFIG_NVGPU_ZCULL */
 #endif /* CONFIG_NVGPU_GRAPHICS */
 #ifdef CONFIG_NVGPU_DEBUGGER
 	gops->gr.hwpm_map = gb10b_ops_gr_hwpm_map;
@@ -2488,13 +2524,16 @@ int gb10b_init_hal(struct gk20a *g)
 #endif
 
 #ifdef CONFIG_NVGPU_COMPRESSION
-	if (nvgpu_is_hypervisor_mode(g)) {
+	if (g->numa_node_id == 1) {
+		/*
+		 * Disable compression on node-1.
+		 * Tracking bug: 4823763.
+		 */
 		nvgpu_set_enabled(g, NVGPU_SUPPORT_COMPRESSION, false);
 	} else {
 		nvgpu_set_enabled(g, NVGPU_SUPPORT_COMPRESSION, true);
 	}
 
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_COMPRESSION, true);
 	g->cbc_use_raw_mode = true;
 
 	/* PLC is not supported in GB10B */

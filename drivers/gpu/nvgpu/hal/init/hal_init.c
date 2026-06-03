@@ -14,9 +14,7 @@
 #include "hal_tu104.h"
 #include "hal_ga100.h"
 #endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
 #include "hal_gb10b.h"
-#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 #include "hal/init/hal_gb20c.h"
@@ -34,11 +32,13 @@ int nvgpu_init_hal(struct gk20a *g)
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 
 	switch (ver) {
+#ifdef CONFIG_NVGPU_SUPPORT_GA10B
 	case NVGPU_GPUID_GA10B:
 		if (ga10b_init_hal(g) != 0) {
 			err = -ENODEV;
 		}
 		break;
+#endif
 #if defined(CONFIG_NVGPU_SUPPORT_GV11B) && defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	case NVGPU_GPUID_GV11B:
 		if (gv11b_init_hal(g) != 0) {
@@ -63,16 +63,16 @@ int nvgpu_init_hal(struct gk20a *g)
 
 #endif
 
-#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+	case NVGPU_GPUID_GB10B:
 		nvgpu_log_info(g, "gb10b detected");
 		if (gb10b_init_hal(g) != 0) {
 			nvgpu_err(g, "hal init failed");
 			return -ENODEV;
 		}
 		break;
-#endif
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 	case NVGPU_GPUID_GB20B:
 	case NVGPU_GPUID_GB20C:

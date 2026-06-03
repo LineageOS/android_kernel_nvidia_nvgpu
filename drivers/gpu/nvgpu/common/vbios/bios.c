@@ -12,6 +12,9 @@
 #include "bios_sw_gv100.h"
 #include "bios_sw_tu104.h"
 
+#if defined(CONFIG_NVGPU_GB20C)
+#include "bios_sw_gb20c.h"
+#endif
 static void nvgpu_bios_parse_bit(struct gk20a *g, u32 offset);
 
 #ifdef CONFIG_NVGPU_DGPU
@@ -47,11 +50,15 @@ int nvgpu_bios_preos_wait_for_halt(struct gk20a *g,
 bool nvgpu_bios_check_dgpu(struct gk20a *g, u32 ver)
 {
 	bool is_supported;
+	(void)g;
 
 	switch (ver) {
 
 	case NVGPU_GPUID_GV100:
 	case NVGPU_GPUID_TU104:
+#if defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+#endif
 #if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GA100:
 #endif
@@ -69,46 +76,48 @@ bool nvgpu_bios_check_dgpu(struct gk20a *g, u32 ver)
 u32  nvgpu_bios_get_vbios_version(struct gk20a *g)
 {
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
-	u32 vbios_version;
+	u32 vbios_version = 0;
 
-	switch (ver) {
+	if (g->bios != NULL) {
+		switch (ver) {
 
-	case NVGPU_GPUID_GV100:
-	case NVGPU_GPUID_TU104:
-		if (nvgpu_platform_is_silicon(g)) {
-			vbios_version = g->bios->vbios_version;
-		} else {
-			vbios_version = 0;
+		case NVGPU_GPUID_GV100:
+		case NVGPU_GPUID_TU104:
+#if defined(CONFIG_NVGPU_GB20C)
+		case NVGPU_GPUID_GB20C:
+#endif
+			if (nvgpu_platform_is_silicon(g)) {
+				vbios_version = g->bios->vbios_version;
+			}
+			break;
+
+		default:
+			break;
 		}
-		break;
-
-	default:
-		vbios_version = 0;
-		break;
 	}
-
 	return vbios_version;
 }
 
 u8  nvgpu_bios_get_vbios_oem_version(struct gk20a *g)
 {
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
-	u8 vbios_oem_version;
+	u8 vbios_oem_version = 0;
 
-	switch (ver) {
+	if (g->bios != NULL) {
+		switch (ver) {
 
-	case NVGPU_GPUID_GV100:
-	case NVGPU_GPUID_TU104:
-		if (nvgpu_platform_is_silicon(g)) {
-			vbios_oem_version = g->bios->vbios_oem_version;
-		} else {
-			vbios_oem_version = 0;
+		case NVGPU_GPUID_GV100:
+		case NVGPU_GPUID_TU104:
+			if (nvgpu_platform_is_silicon(g)) {
+				vbios_oem_version = g->bios->vbios_oem_version;
+			} else {
+				vbios_oem_version = 0;
+			}
+			break;
+
+		default:
+			break;
 		}
-		break;
-
-	default:
-		vbios_oem_version = 0;
-		break;
 	}
 
 	return vbios_oem_version;
@@ -118,23 +127,29 @@ struct bit_token *nvgpu_bios_get_bit_token(struct gk20a *g, u8 token_id)
 {
 	struct bit_token *token = NULL;
 
-	switch (token_id) {
-	case NVGPU_BIOS_CLOCK_TOKEN:
-		token = g->bios->clock_token;
-		break;
+	if (g->bios != NULL) {
+		switch (token_id) {
+		case NVGPU_BIOS_CLOCK_TOKEN:
+			token = g->bios->clock_token;
+			break;
 
-	case NVGPU_BIOS_PERF_TOKEN:
-		token = g->bios->perf_token;
-		break;
+		case NVGPU_BIOS_PERF_TOKEN:
+			token = g->bios->perf_token;
+			break;
 
-	case NVGPU_BIOS_VIRT_TOKEN:
-		token = g->bios->virt_token;
-		break;
+		case NVGPU_BIOS_VIRT_TOKEN:
+			token = g->bios->virt_token;
+			break;
 
-	default:
-		token = NULL;
-		break;
+		default:
+			token = NULL;
+			break;
+		}
 	}
+
+	if (token == NULL)
+		nvgpu_err(g, "token_id %d returned NULL", token_id);
+
 	return token;
 }
 
@@ -186,6 +201,22 @@ int nvgpu_bios_sw_init(struct gk20a *g)
 		err = tu104_bios_verify_devinit(g);
 		break;
 #endif
+#endif
+#if defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+		/*
+		 * Call bios init in this case statement to skip
+		 * nvgpu_falcon_sw_free() if there is an error.
+		 */
+		nvgpu_gb20c_bios_sw_init(g, g->bios);
+
+		if ((g->bios)->init != NULL)
+			err = g->bios->init(g);
+
+		if (err != 0)
+			goto clean_bios;
+
+		return err;
 #endif
 	default:
 		goto clean_bios;
@@ -665,25 +696,40 @@ void *nvgpu_bios_get_perf_table_ptrs(struct gk20a *g,
 	u8 *perf_table_ptr = NULL;
 	u8 data_size = 4;
 
-	if (ptoken != NULL) {
+	if (g == NULL) {
+		nvgpu_err(g, "g is NULL");
+		return NULL;
+	}
 
-		if (ptoken->token_id == TOKEN_ID_VIRT_PTRS) {
-			perf_table_id_offset =
-				*((u16 *)((uintptr_t)g->bios->data +
-					  ptoken->data_ptr +
-					  (U16(table_id) *
-					   U16(PERF_PTRS_WIDTH_16))));
-			data_size = PERF_PTRS_WIDTH_16;
-		} else {
-			perf_table_id_offset =
-				*((u32 *)((uintptr_t)g->bios->data +
-					  ptoken->data_ptr +
-					  (U16(table_id) *
-					   U16(PERF_PTRS_WIDTH))));
-			data_size = PERF_PTRS_WIDTH;
-		}
+	if (g->bios == NULL) {
+		nvgpu_err(g, "g->bios is NULL");
+		return NULL;
+	}
+
+	if (g->bios->data == NULL) {
+		nvgpu_err(g, "g->bios->data is NULL");
+		return NULL;
+	}
+
+	if (ptoken == NULL) {
+		nvgpu_err(g, "ptoken is NULL for table_id %d", table_id);
+		return NULL;
+	}
+
+	if (ptoken->token_id == TOKEN_ID_VIRT_PTRS) {
+		perf_table_id_offset =
+			*((u16 *)((uintptr_t)g->bios->data +
+				  ptoken->data_ptr +
+				  (U16(table_id) *
+				   U16(PERF_PTRS_WIDTH_16))));
+		data_size = PERF_PTRS_WIDTH_16;
 	} else {
-		return (void *)perf_table_ptr;
+		perf_table_id_offset =
+			*((u32 *)((uintptr_t)g->bios->data +
+				  ptoken->data_ptr +
+				  (U16(table_id) *
+				   U16(PERF_PTRS_WIDTH))));
+		data_size = PERF_PTRS_WIDTH;
 	}
 
 	if (table_id < (ptoken->data_size/data_size)) {

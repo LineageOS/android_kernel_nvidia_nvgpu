@@ -49,6 +49,9 @@ struct clk_avfs_fll_objs {
 	u8 lut_num_entries;
 	u16 max_min_freq_mhz;
 	u8 freq_margin_vfe_idx;
+	struct boardobjgrpmask_e32 unicast_nafll_dev_mask;
+	struct boardobjgrpmask_e32 broadcast_nafll_dev_mask;
+	bool b_die1_all_gpc_floorswept;
 };
 
 typedef int fll_lut_broadcast_slave_register(struct gk20a *g,
@@ -74,21 +77,6 @@ struct fll_device {
 	bool b_dvco_1x;
 	struct boardobjgrpmask_e32 lut_prog_broadcast_slave_mask;
 	fll_lut_broadcast_slave_register *lut_broadcast_slave_register;
-};
-
-/*
- * V2.0 VBIOS Structure containing the global properties and boardobjgrp for NAFLL devices
- */
-struct clk_avfs_fll_objs_v20 {
-	struct boardobjgrp_e32 super;
-	struct boardobjgrpmask_e32 lut_prog_master_mask;
-	u32 lut_step_size_uv;
-	u32 lut_min_voltage_uv;
-	u8 lut_num_entries;
-	u16 max_min_freq_mhz;
-	struct boardobjgrpmask_e32 unicast_nafll_dev_mask;
-	struct boardobjgrpmask_e32 broadcast_nafll_dev_mask;
-	bool b_die1_all_gpc_floorswept;
 };
 
 /*

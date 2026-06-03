@@ -180,8 +180,10 @@ struct nvgpu_posix_fault_inj_container {
 	struct nvgpu_posix_fault_inj engine_get_fast_ce_fi;
 	struct nvgpu_posix_fault_inj nvgpu_gk20a_busy_fi;
 	struct nvgpu_posix_fault_inj nvgpu_is_enabled_fi;
+	struct nvgpu_posix_fault_inj nvgpu_iommuable_fi;
 	struct nvgpu_posix_fault_inj nvgpu_mdesc_length_fi;
 	struct nvgpu_posix_fault_inj gk20a_ioctl_ctrl_fi;
+	struct nvgpu_posix_fault_inj channel_set_preemption_mode_fi;
 	struct nvgpu_posix_fault_inj nvgpu_ptimer_scale_fi;
 	struct nvgpu_posix_fault_inj nvgpu_checker_run_pass_fi;
 	struct nvgpu_posix_fault_inj nvgpu_checker_run_fail_fi;
@@ -193,7 +195,7 @@ struct nvgpu_posix_fault_inj_container {
 	struct nvgpu_posix_fault_inj iofunc_client_info_pp_fi;
 	struct nvgpu_posix_fault_inj nvdvms_resmgr_get_vm_state_fi;
 	struct nvgpu_posix_fault_inj resmgr_get_vm_state_fi;
-	struct nvgpu_posix_fault_inj nvgpu_channel_open;
+	struct nvgpu_posix_fault_inj nvgpu_channel_open_fi;
 	struct nvgpu_posix_fault_inj nvgpu_channel_open_chid_fi;
 	struct nvgpu_posix_fault_inj nvgpu_gpfifo_params;
 	struct nvgpu_posix_fault_inj nvgpu_gpfifo_alloc;
@@ -244,6 +246,7 @@ struct nvgpu_posix_fault_inj_container {
 	struct nvgpu_posix_fault_inj nvgpu_hw_checker_fail_checker_fi;
 	struct nvgpu_posix_fault_inj munmap_device_io_fi;
 	struct nvgpu_posix_fault_inj nvgpu_hw_checker_fail_report_checker_fi;
+	struct nvgpu_posix_fault_inj nvgpu_tpc_mask_in_gpc_fi;
 	struct nvgpu_posix_fault_inj nvgpu_hw_checker_fail_overflow_checker_fi;
 	struct nvgpu_posix_fault_inj nvgpu_dt_read_fi;
 	struct nvgpu_posix_fault_inj nvgpu_sys_get_platform_quickturn_fi;
@@ -254,6 +257,18 @@ struct nvgpu_posix_fault_inj_container {
 	struct nvgpu_posix_fault_inj nvgpu_ivm_unmap_fi;
 	struct nvgpu_posix_fault_inj nvgpu_nvlink_prot_fi;
 	struct nvgpu_posix_fault_inj nvgpu_ivm_unreserve_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_ba_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_irq_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_cmd_fi;
+	struct nvgpu_posix_fault_inj pci_device_write_cmd_fi;
+	struct nvgpu_posix_fault_inj pci_device_find_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_vid_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_did_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_ssvid_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_ssid_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_revid_fi;
+	struct nvgpu_posix_fault_inj pci_device_read_ccode_fi;
+	struct nvgpu_posix_fault_inj pci_device_attach_fi;
 	struct nvgpu_posix_fault_inj nvlinkSync_fi;
 };
 

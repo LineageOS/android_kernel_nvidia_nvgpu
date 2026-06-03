@@ -27,12 +27,6 @@ struct nvgpu_channel;
 struct nvgpu_gr_obj_ctx_golden_image;
 struct nvgpu_priv_addr_map;
 
-#ifdef CONFIG_NVGPU_GRAPHICS
-#define NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP		BIT32(1)
-#endif
-#ifdef CONFIG_NVGPU_CILP
-#define NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP		BIT32(2)
-#endif
 #ifdef CONFIG_NVGPU_VPR
 #define NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR			BIT32(3)
 #endif

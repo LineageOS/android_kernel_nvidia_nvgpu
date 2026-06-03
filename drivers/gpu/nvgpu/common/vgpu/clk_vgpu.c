@@ -9,6 +9,7 @@
 
 #include "clk_vgpu.h"
 #include "common/vgpu/ivc/comm_vgpu.h"
+#include "os/linux/debug_clk_gb20c.h"
 
 static unsigned long vgpu_clk_get_rate(struct gk20a *g, u32 api_domain)
 {
@@ -282,6 +283,54 @@ int vgpu_clk_cap_rate(struct gk20a *g, unsigned long rate)
 		nvgpu_err(g, "%s failed - %d", __func__, err);
 		return err;
 	}
+
+	return 0;
+}
+
+int vgpu_pto_counter_get_freq(struct gk20a *g, const struct pto_counter_regs *regs, u64 *freq_hz)
+{
+	struct tegra_vgpu_cmd_msg msg = {};
+	struct tegra_vgpu_get_pto_counter_freq_params *p = &msg.params.get_pto_counter_freq;
+	int err = 0;
+	u32 counter_type;
+
+	nvgpu_log_fn(g, " ");
+
+	if (!g || !regs)
+		return -EINVAL;
+
+	if (!freq_hz)
+		return -EINVAL;
+
+	/* Map register addresses to counter types */
+	if (regs->cfg == 0x00132a74) { /* GPC counter */
+		counter_type = TEGRA_VGPU_CLK_GPC;
+	} else if (regs->cfg == 0x00136e74) { /* SYS counter */
+		counter_type = TEGRA_VGPU_CLK_SYS;
+	} else if (regs->cfg == 0x00137574) { /* NVD counter */
+		counter_type = TEGRA_VGPU_CLK_NVD;
+	} else if (regs->cfg == 0x00136878) { /* UPROC counter */
+		counter_type = TEGRA_VGPU_CLK_UPROC;
+	} else {
+		nvgpu_err(g, "unknown PTO counter register 0x%x", regs->cfg);
+		return -EINVAL;
+	}
+
+	msg.cmd = TEGRA_VGPU_CMD_GET_PTO_COUNTER_FREQ;
+	msg.handle = vgpu_get_handle(g);
+	p->counter_type = counter_type;
+
+	err = vgpu_comm_sendrecv(g, &msg);
+	err = err ? err : msg.ret;
+	if (err) {
+		nvgpu_err(g, "%s failed - %d", __func__, err);
+		return err;
+	}
+
+	*freq_hz = p->frequency_hz;
+
+	nvgpu_log(g, gpu_dbg_info, "PTO counter type %u frequency: %llu Hz",
+		  counter_type, *freq_hz);
 
 	return 0;
 }

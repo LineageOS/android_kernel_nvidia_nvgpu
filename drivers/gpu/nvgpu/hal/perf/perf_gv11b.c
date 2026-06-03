@@ -16,12 +16,19 @@
 
 #define PMM_ROUTER_OFFSET	0x200U
 
-bool gv11b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id)
+int gv11b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id,
+					bool *overflow_status, struct nvgpu_tsg *tsg,
+					bool is_ctx_resident)
 {
 	const u32 st = perf_pmasys_control_membuf_status_overflowed_f();
+
+	(void)tsg;
+	(void)is_ctx_resident;
 	(void)pma_channel_id;
 
-	return st == (nvgpu_readl(g, perf_pmasys_control_r()) & st);
+	*overflow_status = (st == (nvgpu_readl(g, perf_pmasys_control_r()) & st));
+
+	return 0;
 }
 
 u32 gv11b_perf_get_membuf_pending_bytes(struct gk20a *g, u32 pma_channel_id)
@@ -41,12 +48,15 @@ void gv11b_perf_set_membuf_handled_bytes(struct gk20a *g, u32 pma_channel_id,
 	}
 }
 
-void gv11b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id)
+int gv11b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id,
+				     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 engine_status;
 	u32 num_unread_bytes;
 
 	(void)pma_channel_id;
+	(void)tsg;
+	(void)is_ctx_resident;
 
 	engine_status = nvgpu_readl(g, perf_pmasys_enginestatus_r());
 	WARN_ON(0U ==
@@ -59,14 +69,19 @@ void gv11b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id)
 	if (num_unread_bytes != 0U) {
 		nvgpu_writel(g, perf_pmasys_mem_bump_r(), num_unread_bytes);
 	}
+
+	return 0;
 }
 
-void gv11b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
-			      u64 buf_addr)
+int gv11b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
+			    u64 buf_addr, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 addr_lo;
 	u32 addr_hi;
+
 	(void)pma_channel_id;
+	(void)tsg;
+	(void)is_ctx_resident;
 
 	addr_lo = u64_lo32(buf_addr);
 	addr_hi = u64_hi32(buf_addr);
@@ -75,22 +90,34 @@ void gv11b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
 	nvgpu_writel(g, perf_pmasys_outbaseupper_r(),
 		perf_pmasys_outbaseupper_ptr_f(addr_hi));
 	nvgpu_writel(g, perf_pmasys_outsize_r(), size);
+
+	return 0;
 }
 
-void gv11b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id)
+int gv11b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id,
+			     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	(void)pma_channel_id;
+	(void)tsg;
+	(void)is_ctx_resident;
 
 	nvgpu_writel(g, perf_pmasys_outbase_r(), 0);
 	nvgpu_writel(g, perf_pmasys_outbaseupper_r(),
 			perf_pmasys_outbaseupper_ptr_f(0));
 	nvgpu_writel(g, perf_pmasys_outsize_r(), 0);
+
+	return 0;
 }
 
-void gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id, u64 buf_addr)
+int gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id,
+					 u64 buf_addr, struct nvgpu_tsg *tsg,
+					 bool is_ctx_resident)
 {
 	u32 addr_lo;
-	(void)pma_channel_id;
+
+	(void) pma_channel_id;
+	(void) tsg;
+	(void) is_ctx_resident;
 
 	/*
 	 * For mem bytes addr, the upper 8 bits of the 40bit VA is taken
@@ -103,13 +130,18 @@ void gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id, 
 
 	nvgpu_writel(g, perf_pmasys_mem_bytes_addr_r(),
 		perf_pmasys_mem_bytes_addr_ptr_f(addr_lo));
+
+	return 0;
 }
 
 int gv11b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
-			      u64 bytes_consumed, bool update_available_bytes,
-			      u64 *put_ptr, bool *overflowed)
+			     u64 bytes_consumed, bool update_available_bytes,
+			     u64 *put_ptr, bool *overflowed, struct nvgpu_tsg *tsg,
+			     bool is_ctx_resident, u32 *ctx_bytes_available)
 {
 	u32 val;
+
+	(void)ctx_bytes_available;
 
 	if (bytes_consumed != 0U) {
 		nvgpu_writel(g, perf_pmasys_mem_bump_r(), (u32)bytes_consumed);
@@ -127,7 +159,8 @@ int gv11b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
 	}
 
 	if (overflowed) {
-		*overflowed = g->ops.perf.get_membuf_overflow_status(g, pma_channel_id);
+		(void)g->ops.perf.get_membuf_overflow_status(g, pma_channel_id,
+			overflowed, tsg, is_ctx_resident);
 	}
 
 	return 0;
@@ -395,12 +428,14 @@ const u32 *gv11b_perf_get_hwpm_fbp_perfmon_regs(u32 *count)
 	return hwpm_fbp_perfmon_regs;
 }
 
-void gv11b_perf_set_pmm_register(struct gk20a *g, u32 offset, u32 val,
-		u32 num_chiplets, u32 chiplet_stride, u32 num_perfmons)
+int gv11b_perf_set_pmm_register(struct gk20a *g, u32 offset, u32 val,
+			       u32 num_chiplets, u32 chiplet_stride, u32 num_perfmons,
+			       struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 perfmon_index = 0;
 	u32 chiplet_index = 0;
 	u32 reg_offset = 0;
+	int ret = 0;
 
 	for (chiplet_index = 0; chiplet_index < num_chiplets; chiplet_index++) {
 		for (perfmon_index = 0; perfmon_index < num_perfmons;
@@ -408,9 +443,16 @@ void gv11b_perf_set_pmm_register(struct gk20a *g, u32 offset, u32 val,
 			reg_offset = offset + perfmon_index *
 				perf_pmmsys_perdomain_offset_v() +
 				chiplet_index * chiplet_stride;
-			nvgpu_writel(g, reg_offset, val);
+			ret = g->ops.perf.write_hwpm_register(g, reg_offset, val,
+							       tsg, is_ctx_resident, U32_MAX);
+			if (ret != 0) {
+				nvgpu_err(g, "Write to 0x%x failed with err - %d", reg_offset, ret);
+				return ret;
+			}
 		}
 	}
+
+	return ret;
 }
 
 void gv11b_perf_get_num_hwpm_perfmon(struct gk20a *g, u32 *num_sys_perfmon,
@@ -466,19 +508,26 @@ void gv11b_perf_get_num_hwpm_perfmon(struct gk20a *g, u32 *num_sys_perfmon,
 	*num_gpc_perfmon = perfmon_index;
 }
 
-void gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g, u32 gr_instance_id)
+int gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g, u32 gr_instance_id,
+				       struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 count;
 	const u32 *perfmon_regs;
 	u32 i;
+	int ret = 0;
+
 	(void)gr_instance_id;
 
 	perfmon_regs = g->ops.perf.get_hwpm_sys_perfmon_regs(&count);
 
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
-			g->ops.perf.get_pmmsys_per_chiplet_offset(),
-			g->num_sys_perfmon);
+		ret = g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
+						  g->ops.perf.get_pmmsys_per_chiplet_offset(),
+						  g->num_sys_perfmon, tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g, "Programming SYS perfmon reg failed with err - %d", ret);
+			return ret;
+		}
 	}
 
 	/*
@@ -489,38 +538,66 @@ void gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g, u32 gr_instance_id)
 	perfmon_regs = g->ops.perf.get_hwpm_fbp_perfmon_regs(&count);
 
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
-			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			g->num_fbp_perfmon);
+		ret = g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
+						  g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+						  g->num_fbp_perfmon, tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g, "Programming FBP perfmon reg failed with err - %d", ret);
+			return ret;
+		}
 	}
 
 	perfmon_regs = g->ops.perf.get_hwpm_gpc_perfmon_regs(&count);
 
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
-			g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-			g->num_gpc_perfmon);
+		ret = g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
+						  g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+						  g->num_gpc_perfmon, tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g, "Programming GPC perfmon reg failed with err - %d", ret);
+			return ret;
+		}
 	}
 
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
-void gv11b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
+int gv11b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id,
+				     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
+	int ret = 0;
+
 	(void)gr_instance_id;
-	g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(0), 0xFFFFFFFFU,
-		1U, g->ops.perf.get_pmmsys_per_chiplet_offset(),
-		g->num_sys_perfmon);
-	g->ops.perf.set_pmm_register(g, perf_pmmfbp_engine_sel_r(0), 0xFFFFFFFFU,
-		nvgpu_fbp_get_num_fbps(g->fbp),
-		g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-		g->num_fbp_perfmon);
-	g->ops.perf.set_pmm_register(g, perf_pmmgpc_engine_sel_r(0), 0xFFFFFFFFU,
-		nvgpu_gr_config_get_gpc_count(nvgpu_gr_get_config_ptr(g)),
-		g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-		g->num_gpc_perfmon);
+
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(0), 0xFFFFFFFFU,
+					  1U, g->ops.perf.get_pmmsys_per_chiplet_offset(),
+					  g->num_sys_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming SYS engine select failed with err - %d", ret);
+		return ret;
+	}
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmfbp_engine_sel_r(0), 0xFFFFFFFFU,
+					  nvgpu_fbp_get_num_fbps(g->fbp),
+					  g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+					  g->num_fbp_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming FBP engine select failed with err - %d", ret);
+		return ret;
+	}
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmgpc_engine_sel_r(0), 0xFFFFFFFFU,
+					nvgpu_gr_config_get_gpc_count(nvgpu_gr_get_config_ptr(g)),
+					g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+					g->num_gpc_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming GPC engine select failed with err - %d", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 void gv11b_perf_pma_stream_enable(struct gk20a *g, u32 pma_channel_id,
@@ -544,25 +621,42 @@ void gv11b_perf_pma_stream_enable(struct gk20a *g, u32 pma_channel_id,
 	nvgpu_writel(g, perf_pmasys_control_r(), reg_val);
 }
 
-void gv11b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id)
+int gv11b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id,
+				   struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
+	int ret = 0;
+
 	(void)gr_instance_id;
 
-	g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
-		g->ops.perf.get_pmmsys_per_chiplet_offset(),
-		g->num_sys_perfmon);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
+					  g->ops.perf.get_pmmsys_per_chiplet_offset(),
+					  g->num_sys_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming SYS control reg failed with err - %d", ret);
+		return ret;
+	}
 
-	g->ops.perf.set_pmm_register(g, perf_pmmfbp_fbps_control_r(0U), 0U, 1U,
-		g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-		g->num_fbp_perfmon);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmfbp_fbps_control_r(0U), 0U, 1U,
+					  g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+					  g->num_fbp_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming FBP control reg failed with err - %d", ret);
+		return ret;
+	}
 
-	g->ops.perf.set_pmm_register(g, perf_pmmgpc_gpcs_control_r(0U), 0U, 1U,
-		g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-		g->num_gpc_perfmon);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmgpc_gpcs_control_r(0U), 0U, 1U,
+					  g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+					  g->num_gpc_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming GPC control reg failed with err - %d", ret);
+		return ret;
+	}
 
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
 static int poll_for_pmm_router_idle(struct gk20a *g, u32 offset, u32 timeout_ms)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+#include <nvidia/conftest.h>
+
 #include <linux/reboot.h>
 #include <nvgpu/errata.h>
 #include <linux/dma-mapping.h>
@@ -26,6 +28,7 @@
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/cic_rm.h>
 #include <nvgpu/power_features/cg.h>
+#include <nvgpu/power_features/pg.h>
 #include <nvgpu/pmu/pmuif/pg.h>
 
 #include "platform_gk20a.h"
@@ -194,7 +197,9 @@ static void nvgpu_init_vars(struct gk20a *g)
 
 	nvgpu_set_enabled(g, NVGPU_HAS_SYNCPOINTS, platform->has_syncpoints);
 
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_NVS, true);
+#ifdef CONFIG_NVS_PRESENT
+	nvgpu_set_enabled(g, NVGPU_SUPPORT_NVS, platform->has_scheduling_domains);
+#endif
 }
 
 static void nvgpu_init_max_comptag(struct gk20a *g)
@@ -301,10 +306,12 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 		platform->enable_fgpg : false;
 	g->sysclk_slowdown_enabled = nvgpu_platform_is_silicon(g) ?
 		platform->enable_sysclk_slowdown : false;
-	g->elcg_engine_bitmask = g->elcg_enabled ?
-		CG_ELCG_ALL_ENGINE_ENABLED_MASK : 0;
-	g->fgpg_engine_bitmask = g->fgpg_enabled ?
-		PG_FGPG_ALL_ENGINE_ENABLED_BITMASK : 0;
+	/**
+	 * Setting ELCG and FGPG bitmasks to 0 initially as they are updated
+	 * in the RPC function.
+	 */
+	g->elcg_engine_bitmask = 0;
+	g->fgpg_engine_bitmask = 0;
 
 	/* disable devfreq for pre-silicon */
 	if (!nvgpu_platform_is_silicon(g)) {
@@ -354,9 +361,12 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 		 * suspend/resume and can lead to ACR failure on resume
 		 * as it expects GPU to be reset on every resume.
 		 */
-		if (!of_property_read_bool(dev->of_node, "power-domains")) {
+#if defined(NV_OF_PROPERTY_PRESENT) /* Linux v6.3 */
+		if (!of_property_present(dev->of_node, "power-domains"))
+#else
+		if (!of_property_read_bool(dev->of_node, "power-domains"))
+#endif
 			platform->can_railgate_init = false;
-		}
 
 		nvgpu_set_enabled(g, NVGPU_CAN_RAILGATE,
 				platform->can_railgate_init);
@@ -384,6 +394,10 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 			g->elpg_enabled = false;
 			g->aelpg_enabled = false;
 			g->can_elpg = false;
+			g->nvdec_elpg_enabled = false;
+			g->nvenc_elpg_enabled = false;
+			g->ofa_elpg_enabled = false;
+			g->can_vid_elpg = false;
 		} else {
 			g->elpg_enabled =
 				nvgpu_platform_is_silicon(g) ? platform->enable_elpg : false;
@@ -391,10 +405,14 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 				nvgpu_platform_is_silicon(g) ? platform->enable_aelpg : false;
 			g->can_elpg =
 				nvgpu_platform_is_silicon(g) ? platform->can_elpg_init : false;
-#ifdef CONFIG_NVGPU_GB20C
-			g->can_elpg =
-				platform->can_elpg_init; // for nvgpu-next pre-sil
-#endif
+			g->nvdec_elpg_enabled =
+				nvgpu_platform_is_silicon(g) ? platform->enable_nvdec_elpg : false;
+			g->nvenc_elpg_enabled =
+				nvgpu_platform_is_silicon(g) ? platform->enable_nvenc_elpg : false;
+			g->ofa_elpg_enabled =
+				nvgpu_platform_is_silicon(g) ? platform->enable_ofa_elpg : false;
+			g->can_vid_elpg =
+				nvgpu_platform_is_silicon(g) ? platform->can_vid_elpg_init : false;
 		}
 		g->mscg_enabled =
 			nvgpu_platform_is_silicon(g) ? platform->enable_mscg : false;
@@ -411,6 +429,24 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 			g->elpg_ms_enabled =
 				nvgpu_platform_is_silicon(g) ?
 					platform->enable_elpg_ms : false;
+			g->can_gpc_rg =
+				nvgpu_platform_is_silicon(g) ?
+					platform->can_gpc_rg_init : false;
+			if (g->can_gpc_rg) {
+				nvgpu_set_enabled(g, NVGPU_GPC_RG_ENABLED,
+						platform->enable_gpc_rg);
+				g->gpc_rg_enabled =
+					nvgpu_platform_is_silicon(g) ?
+						platform->enable_gpc_rg : false;
+			}
+		}
+		if (g->can_vid_elpg) {
+			nvgpu_set_enabled(g, NVGPU_NVDEC_ELPG_ENABLED,
+						platform->enable_nvdec_elpg);
+			nvgpu_set_enabled(g, NVGPU_NVENC_ELPG_ENABLED,
+						platform->enable_nvenc_elpg);
+			nvgpu_set_enabled(g, NVGPU_OFA_ELPG_ENABLED,
+						platform->enable_ofa_elpg);
 		}
 		/*
 		 * NVDCLK FLCG is enabled when atleast
@@ -535,6 +571,14 @@ int nvgpu_probe(struct gk20a *g,
 	if (err)
 		return err;
 	l->dev_nodes_created = true;
+
+#ifdef CONFIG_NVGPU_CILP
+	g->disable_cilp_preemption = false;
+	g->disable_cilp_preemption = of_property_read_bool(np, "disable-cilp-preemption");
+	if (g->disable_cilp_preemption == true) {
+		nvgpu_log_info(g, "compute preemption mode: CILP is disabled");
+	}
+#endif /* CONFIG_NVGPU_CILP */
 
 	/*
 	 * Note that for runtime suspend to work the clocks have to be setup

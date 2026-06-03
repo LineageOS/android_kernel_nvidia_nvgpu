@@ -26,11 +26,14 @@
 u32 ga10b_channel_count(struct gk20a *g)
 {
 	u32 num_channels = 0U;
-	/* Limit number of channels, avoids unnecessary memory allocation */
 	nvgpu_log(g, gpu_dbg_info, "Number of channels supported by hw = %u",
 		BIT32(runlist_channel_config_num_channels_log2_2k_v()));
 
+#if defined(CONFIG_NVGPU_NON_FUSA) && !defined(NVGPU_HVRTOS)
+	num_channels = BIT32(runlist_channel_config_num_channels_log2_2k_v());
+#else
 	num_channels = nvgpu_channel_get_synpoints(g);
+#endif
 	nvgpu_log(g, gpu_dbg_info, "Number of channels supported by sw = %u",
 		num_channels);
 

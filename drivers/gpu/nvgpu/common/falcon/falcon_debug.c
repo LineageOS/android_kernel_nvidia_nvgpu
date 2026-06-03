@@ -120,6 +120,7 @@ static int falcon_update_debug_buffer_from_dmem(struct nvgpu_falcon *flcn,
 	struct nvgpu_falcon_dbg_buf *debug_buffer = &flcn->debug_buffer;
 	u32 first_read_size     = 0;
 	u32 second_read_size    = 0;
+	u32 offset_read_sz      = 0U;
 
 	/*
 	 * Align read offset, since reading DMEM only works with 32-bit words.
@@ -140,8 +141,11 @@ static int falcon_update_debug_buffer_from_dmem(struct nvgpu_falcon *flcn,
 	}
 
 	if (first_read_size > 0) {
-		if (read_offset_aligned + first_read_size >
-			debug_buffer->buffer_size) {
+		if (!nvgpu_safe_add_u32_return(read_offset_aligned, first_read_size, &offset_read_sz)) {
+			nvgpu_err(g, "Overflow : read_offset_aligned/first_read_size is larger");
+			return -EOVERFLOW;
+		}
+		if (offset_read_sz > debug_buffer->buffer_size) {
 			nvgpu_err(g,
 				"Invalid read (first read) from print buffer attempted!");
 			return -EINVAL;
@@ -299,6 +303,7 @@ int nvgpu_falcon_dbg_buf_display(struct nvgpu_falcon *flcn)
 			u8 *tmp_buf   = NULL;
 			u8 *curr_data = NULL;
 			u32  buf_size  = 0;
+			u32 chunk_len = 0U;
 
 			if (is_line_split) {
 				/* Logic to concat the split line into a temp buffer */
@@ -306,7 +311,16 @@ int nvgpu_falcon_dbg_buf_display(struct nvgpu_falcon *flcn)
 					strlen((char *)&buffer_data[debug_buffer->read_offset]);
 				u32 second_chunk_len = (u32)strlen((char *)&buffer_data[0]);
 
-				buf_size = first_chunk_len + second_chunk_len + 1;
+				if (!nvgpu_safe_add_u32_return(first_chunk_len,
+						second_chunk_len, &chunk_len)) {
+					nvgpu_err(g, "Arithmetic Overflow");
+					return -EOVERFLOW;
+				}
+				if (!nvgpu_safe_add_u32_return(chunk_len, 1U, &buf_size)) {
+					nvgpu_err(g, "Arithmetic Overflow");
+					return -EOVERFLOW;
+				}
+
 				tmp_buf  = nvgpu_kzalloc(g, buf_size);
 
 				if (tmp_buf == NULL) {

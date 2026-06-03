@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
@@ -17,7 +17,7 @@ kernel_module(
         "**/Makefile.*",
         "Makefile",
     ]) + [
-        "//nvidia-oot/scripts/conftest:conftest_headers",
+        "//ootm/nvidia-public/scripts/conftest:conftest_headers",
         "//nvgpu:nvsched.sources",
         "//nvgpu:nvgpu.headers",
     ],
@@ -26,6 +26,6 @@ kernel_module(
     ],
     kernel_build = "//nvidia-build/kleaf:tegra_android",
     deps = [
-        "//nvidia-oot:nvoot",
+        "//ootm/nvidia-public:nvoot",
    ],
 )

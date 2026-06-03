@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -201,6 +201,13 @@
 #define pbdma_status_sched_chan_status_chsw_load_v()               (0x00000006U)
 #define pbdma_status_sched_chan_status_chsw_switch_v()             (0x00000007U)
 #define pbdma_status_sched_next_tsgid_v(r)               (((r) >> 16U) & 0xfffU)
+#define pbdma_channel_r(i)\
+		(nvgpu_safe_add_u32(0x00040120U, nvgpu_safe_mult_u32((i), 2048U)))
+#define pbdma_channel_gfid_v(r)                           (((r) >> 16U) & 0x3fU)
+#define pbdma_next_channel_r(i)\
+		(nvgpu_safe_add_u32(0x00040124U, nvgpu_safe_mult_u32((i), 2048U)))
+#define pbdma_next_channel_valid_v(r)                      (((r) >> 13U) & 0x1U)
+#define pbdma_next_channel_gfid_v(r)                      (((r) >> 16U) & 0x3fU)
 #define pbdma_cfg0_r(i)\
 		(nvgpu_safe_add_u32(0x00040104U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_cfg0__size_1_v()                                     (0x0000000eU)

@@ -12,11 +12,9 @@ struct nvgpu_fecs_method_op;
 struct nvgpu_fecs_host_intr_status;
 struct nvgpu_gr_falcon_query_sizes;
 
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_falcon_get_fw_name(struct gk20a *g, const char **ucode_name, u32 falcon_id);
 void gm20b_gr_falcon_fecs_ctxsw_clear_mailbox(struct gk20a *g,
 					u32 reg_index, u32 clear_val);
-#endif
 u32 gm20b_gr_falcon_read_mailbox_fecs_ctxsw(struct gk20a *g, u32 reg_index);
 void gm20b_gr_falcon_fecs_host_clear_intr(struct gk20a *g, u32 fecs_intr);
 u32 gm20b_gr_falcon_fecs_host_intr_status(struct gk20a *g,
@@ -54,11 +52,9 @@ int gm20b_gr_falcon_get_zcull_image_size(struct gk20a *g,
 #endif
 u32 gm20b_gr_falcon_read_status0_fecs_ctxsw(struct gk20a *g);
 u32 gm20b_gr_falcon_read_status1_fecs_ctxsw(struct gk20a *g);
-#ifdef CONFIG_NVGPU_GRAPHICS
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 				struct nvgpu_fecs_method_op op);
-#endif
 #endif
 #ifdef CONFIG_NVGPU_GR_FALCON_NON_SECURE_BOOT
 void gm20b_gr_falcon_load_ctxsw_ucode_header(struct gk20a *g,

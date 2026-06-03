@@ -22,9 +22,7 @@
 #include "acr_sw_ga100.h"
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
 #include "acr_sw_gb10b.h"
-#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 #include "acr_sw_gb20c.h"
@@ -39,7 +37,6 @@ bool nvgpu_acr_is_lsb_v3_supported(struct gk20a *g)
 	return g->acr->is_acr_lsb_v3_enabled;
 }
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
 static int nvgpu_acr_wait_for_init(struct gk20a *g, signed int timeoutms)
 {
 	u32 intr_stat = 0;
@@ -86,7 +83,7 @@ int nvgpu_next_acr_wait_for_completion(struct gk20a *g,
 	wpr_address_lo = u64_lo32(acr_sysmem_desc_addr);
 	wpr_address_hi = u64_hi32(acr_sysmem_desc_addr);
 
-	completion = nvgpu_acr_wait_for_init(g, timeout);
+	completion = nvgpu_acr_wait_for_init(g, (s32)timeout);
 	if (completion != 0) {
 		nvgpu_err(g, "flcn-%d: HS ucode boot timed out, limit: %d ms",
 				flcn_id, timeout);
@@ -111,16 +108,6 @@ int nvgpu_next_acr_wait_for_completion(struct gk20a *g,
 
 exit:
 	return completion;
-}
-#endif
-
-/* TODO: Redundant, if no ACR specific suspend functionality */
-void nvgpu_acr_suspend(struct gk20a *g)
-{
-	if (g->acr == NULL) {
-		nvgpu_err(g, "ACR GSP not initialized");
-		return;
-	}
 }
 
 void nvgpu_acr_deinit(struct gk20a *g)
@@ -269,9 +256,10 @@ int nvgpu_acr_init(struct gk20a *g)
 		break;
 #endif /* CONFIG_NVGPU_NON_FUSA */
 #endif
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+	case NVGPU_GPUID_GB10B:
 		/*
 		 * Firmware is stored in soc specific path for T264
 		 * Hence NVGPU_REQUEST_FIRMWARE_NO_WARN is used instead
@@ -280,7 +268,6 @@ int nvgpu_acr_init(struct gk20a *g)
 		g->acr->fw_load_flag = NVGPU_REQUEST_FIRMWARE_NO_WARN;
 		nvgpu_gb10b_acr_sw_init(g, g->acr);
 		break;
-#endif
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 	case NVGPU_GPUID_GB20C:
 		/*

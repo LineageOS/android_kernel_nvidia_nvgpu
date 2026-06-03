@@ -17,6 +17,8 @@
 #include <nvgpu/gr/fecs_trace.h>
 #include <nvgpu/gr/gr_utils.h>
 
+#define FECS_TRACE_INVALID_VM	0xffffffffU
+
 static void nvgpu_gr_fecs_trace_periodic_polling(void *arg);
 
 int nvgpu_gr_fecs_trace_add_context(struct gk20a *g, u32 context_ptr,
@@ -26,13 +28,13 @@ int nvgpu_gr_fecs_trace_add_context(struct gk20a *g, u32 context_ptr,
 	struct nvgpu_fecs_trace_context_entry *entry;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_ctxsw,
-		"adding hash entry context_ptr=%x -> pid=%d, vmid=%d",
+		"adding hash entry context_ptr=%x -> pid=%d, vmid=%u",
 		context_ptr, pid, vmid);
 
 	entry = nvgpu_kzalloc(g, sizeof(*entry));
 	if (entry == NULL) {
 		nvgpu_err(g,
-			"can't alloc new entry for context_ptr=%x pid=%d vmid=%d",
+			"can't alloc new entry for context_ptr=%x pid=%d vmid=%u",
 			context_ptr, pid, vmid);
 		return -ENOMEM;
 	}
@@ -99,7 +101,7 @@ void nvgpu_gr_fecs_trace_find_pid(struct gk20a *g, u32 context_ptr,
 			entry) {
 		if (entry->context_ptr == context_ptr) {
 			nvgpu_log(g, gpu_dbg_ctxsw,
-				"found context_ptr=%x -> pid=%d, vmid=%d",
+				"found context_ptr=%x -> pid=%d, vmid=%u",
 				entry->context_ptr, entry->pid, entry->vmid);
 			*pid = entry->pid;
 			*vmid = entry->vmid;
@@ -110,7 +112,7 @@ void nvgpu_gr_fecs_trace_find_pid(struct gk20a *g, u32 context_ptr,
 	nvgpu_mutex_release(&trace->list_lock);
 
 	*pid = 0;
-	*vmid = 0xffffffffU;
+	*vmid = FECS_TRACE_INVALID_VM;
 }
 
 int nvgpu_gr_fecs_trace_init(struct gk20a *g)
@@ -357,7 +359,6 @@ int nvgpu_gr_fecs_trace_ring_read(struct gk20a *g, int index,
 	struct nvgpu_gr_fecs_trace *trace = g->fecs_trace;
 	pid_t cur_pid = 0, new_pid = 0;
 	u32 cur_vmid = 0U, new_vmid = 0U;
-	u32 vmid = 0U;
 	int count = 0;
 
 	struct nvgpu_fecs_trace_record *r =
@@ -386,7 +387,7 @@ int nvgpu_gr_fecs_trace_ring_read(struct gk20a *g, int index,
 		nvgpu_gr_fecs_trace_find_pid(g, r->context_ptr,
 			&trace->context_list, &cur_pid, &cur_vmid);
 	} else {
-		cur_vmid = 0xffffffffU;
+		cur_vmid = FECS_TRACE_INVALID_VM;
 		cur_pid = 0;
 	}
 
@@ -394,7 +395,7 @@ int nvgpu_gr_fecs_trace_ring_read(struct gk20a *g, int index,
 		nvgpu_gr_fecs_trace_find_pid(g, r->new_context_ptr,
 			&trace->context_list, &new_pid, &new_vmid);
 	} else {
-		new_vmid = 0xffffffffU;
+		new_vmid = FECS_TRACE_INVALID_VM;
 		new_pid = 0;
 	}
 
@@ -464,7 +465,8 @@ int nvgpu_gr_fecs_trace_ring_read(struct gk20a *g, int index,
 		count++;
 	}
 
-	nvgpu_gr_fecs_trace_wake_up(g, (int)vmid);
+	nvgpu_gr_fecs_trace_wake_up(g,
+		(cur_vmid != FECS_TRACE_INVALID_VM ? (int)cur_vmid : 0));
 	return count;
 }
 

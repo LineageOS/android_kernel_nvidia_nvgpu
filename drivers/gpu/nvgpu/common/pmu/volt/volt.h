@@ -8,6 +8,17 @@
 #include <nvgpu/boardobjgrp_e32.h>
 #include <common/pmu/boardobj/ucode_boardobj_inf.h>
 
+/*
+* Macros for defining the array indices for the 6 voltage limits -
+* relLimit, altRelLimit, ovLimit, vminLimit, vCritLow, VcritHigh.
+*/
+#define CTRL_VOLT_RAIL_VOLT_DELTA_REL_LIM_IDX     0x00U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_ALT_REL_LIM_IDX 0x01U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_OV_LIM_IDX      0x02U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_VMIN_LIM_IDX    0x03U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_VCRIT_LOW_IDX   0x04U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_VCRIT_HIGH_IDX  0x05U
+
 #define CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES	0x06U
 #define CTRL_VOLT_PWM_ACCUMULATOR_TYPE_COUNT 	0x1
 

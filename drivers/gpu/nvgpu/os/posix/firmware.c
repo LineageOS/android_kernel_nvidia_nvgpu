@@ -15,9 +15,11 @@
 #if defined(__QNX__)
 #define NVGPU_UNITTEST_UCODE_PATH_GV11B "/gv11b/"
 #define NVGPU_UNITTEST_UCODE_PATH_GA10B "/ga10b/"
+#define NVGPU_UNITTEST_UCODE_PATH_GB10B "/gb10b/"
 #else
 #define NVGPU_UNITTEST_UCODE_PATH_GV11B "/firmware/gv11b/"
 #define NVGPU_UNITTEST_UCODE_PATH_GA10B "/firmware/ga10b/"
+#define NVGPU_UNITTEST_UCODE_PATH_GB10B "/firmware/gb10b/"
 #endif
 
 static int nvgpu_ucode_load(struct gk20a *g, const char *path,
@@ -119,6 +121,8 @@ struct nvgpu_firmware *nvgpu_request_firmware(struct gk20a *g,
 
 	if (strcmp(g->name, "ga10b") == 0) {
 		full_path_len += strlen(NVGPU_UNITTEST_UCODE_PATH_GA10B);
+	} else if (strcmp(g->name, "gb10b") == 0) {
+		full_path_len += strlen(NVGPU_UNITTEST_UCODE_PATH_GB10B);
 	} else {
 		full_path_len += strlen(NVGPU_UNITTEST_UCODE_PATH_GV11B);
 	}
@@ -131,6 +135,8 @@ struct nvgpu_firmware *nvgpu_request_firmware(struct gk20a *g,
 
 	if (strcmp(g->name, "ga10b") == 0) {
 		strcat(full_path, NVGPU_UNITTEST_UCODE_PATH_GA10B);
+	} else if (strcmp(g->name, "gb10b") == 0) {
+		strcat(full_path, NVGPU_UNITTEST_UCODE_PATH_GB10B);
 	} else {
 		strcat(full_path, NVGPU_UNITTEST_UCODE_PATH_GV11B);
 	}

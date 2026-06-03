@@ -52,6 +52,13 @@ struct nvgpu_avfsvinobjs {
 	struct boardobjgrpmask_e32 naffl_adc_devices_mask;
 };
 
+struct nvgpu_avfs_adcobjs {
+	struct boardobjgrp_e32 super;
+	u8 version;
+	bool vin_is_disable_allowed;
+	struct boardobjgrpmask_e32 naffl_adc_devices_mask;
+};
+
 struct clk_adc_device {
 	struct pmu_board_obj super;
 	u8 id;
@@ -65,6 +72,7 @@ struct clk_adc_device {
 	bool devinit_enabled;
 	// Interfaces
 	adc_device_state_load  *state_load;
+	// fuse rev check not needed for V30 ADC
 	adc_device_cal_fuse_rev_check *cal_fuse_rev_check;
 };
 
@@ -74,7 +82,7 @@ struct adc_device_model_10 {
 };
 
 struct avfs_adcobjs_grp_model_10 {
-	struct nvgpu_avfsvinobjs super;
+	struct nvgpu_avfs_adcobjs super;
 	struct boardobjgrp model10;
 };
 
@@ -86,35 +94,6 @@ struct avfs_adcobjs_model_10 {
 struct nvgpu_avfs_adcobjs_v20 {
 	struct avfs_adcobjs_model_10 super;
 	struct nv_ctrl_clk_adc_devices_info_data_v20 data;
-};
-
-struct ctrl_boardobj_interface {
-	u8 rsvd;
-};
-
-struct ctrl_boardobj_info_interface_model {
-	struct ctrl_boardobj_interface super;
-};
-
-struct ctrl_boardobj_info_iface_model_10 {
-	struct ctrl_boardobj_info_interface_model super;
-};
-
-struct ctrl_clk_adc_device_info_data_model_10 {
-	struct ctrl_boardobj_info_iface_model_10 model10;
-};
-
-struct ctrl_clk_adc_device_info_data_v30 {
-	struct ctrl_clk_adc_device_info_data_model_10 super;
-	s8 offset;
-	s8 gain;
-	s8 course_offset;
-	s8 course_gain;
-	s8 low_temp_low_volt_err;	/* read from fuse */
-	s8 low_temp_hi_volt_err;	/* read from fuse */
-	s8 hi_temp_low_volt_err;	/* read from fuse */
-	s8 hi_temp_hi_volt_err;		/* read from fuse */
-	s8 adc_code_correction_offset;
 };
 
 struct ctrl_clk_adc_device_v30 {

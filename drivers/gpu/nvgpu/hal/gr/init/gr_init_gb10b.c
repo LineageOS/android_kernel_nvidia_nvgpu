@@ -31,6 +31,7 @@ u32 gb10b_gr_init_get_ctx_spill_size(struct gk20a *g)
 		  gr_gpc0_swdx_rm_spill_buffer_size_256b_byte_granularity_v());
 }
 
+#ifdef CONFIG_NVGPU_GFXP
 u32 gb10b_gr_init_get_ctx_betacb_size(struct gk20a *g)
 {
 	u32 cb_default_size, cb_gfxp_default_size;
@@ -41,6 +42,7 @@ u32 gb10b_gr_init_get_ctx_betacb_size(struct gk20a *g)
 	return nvgpu_safe_add_u32(cb_default_size,
 		nvgpu_safe_sub_u32(cb_gfxp_default_size, cb_default_size));
 }
+#endif
 
 static void gb10b_gr_init_patch_rtv_cb(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx,
@@ -135,8 +137,9 @@ void gb10b_gr_init_get_access_map(struct gk20a *g,
 				   u32 *gr_access_map_num_entries)
 {
 	/* Update it based on last_index */
-	static u32 gr_access_map_gb10b[37];
+	static u32 gr_access_map_gb10b[37U];
 	u32 last_index = 0U;
+	u32 i;
 
 	/* This list must be sorted (low to high in terms of address values) */
 	gr_access_map_gb10b[last_index++] = ltc_ltcs_ltss_tstg_set_mgmt0_r();
@@ -154,59 +157,25 @@ void gb10b_gr_init_get_access_map(struct gk20a *g,
 	gr_access_map_gb10b[last_index++] =
 		gr_gpcs_pri_swdx_config_r();
 
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_ctrl_r(0);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_ctrl_r(1);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_ctrl_r(2);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_ctrl_r(3);
-
-	if (gr_gpcs_pri_swdx_tc_bundle_ctrl__size_1_v() != 4) {
+	if (gr_gpcs_pri_swdx_tc_bundle_ctrl__size_1_v() != 4U) {
 		nvgpu_err(g, "Update the entries for "
 				"NV_PGRAPH_PRI_GPCS_SWDX_TC_BUNDLE_CTRL");
+	}
+	for (i = 0U; i < 4U; ++i) {
+		gr_access_map_gb10b[last_index++] =
+			gr_gpcs_pri_swdx_tc_bundle_ctrl_r(i);
 	}
 
 	gr_access_map_gb10b[last_index++] =
 		gr_gpcs_pri_swdx_tc_bundle_lazyval_ctrl_r(0);
 
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(0);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(1);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(2);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(3);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(4);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(5);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(6);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(7);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(8);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(9);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(10);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(11);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(12);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(13);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(14);
-	gr_access_map_gb10b[last_index++] =
-		gr_gpcs_pri_swdx_tc_bundle_addr_r(15);
-
-	if (gr_gpcs_pri_swdx_tc_bundle_addr__size_1_v() != 16) {
+	if (gr_gpcs_pri_swdx_tc_bundle_addr__size_1_v() != 16U) {
 		nvgpu_err(g, "Update the entries for "
 				"NV_PGRAPH_PRI_GPCS_SWDX_TC_BUNDLE_ADDR");
+	}
+	for (i = 0U; i < 16U; ++i) {
+		gr_access_map_gb10b[last_index++] =
+			gr_gpcs_pri_swdx_tc_bundle_addr_r(i);
 	}
 
 	gr_access_map_gb10b[last_index++] =

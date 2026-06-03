@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
+
 #ifndef NVGPU_VGPU_H
 #define NVGPU_VGPU_H
 
@@ -32,6 +33,8 @@ struct vgpu_priv_data {
 };
 
 struct vgpu_priv_data *vgpu_get_priv_data(struct gk20a *g);
+
+u32 vgpu_get_vmid(struct gk20a *g);
 
 static inline u64 vgpu_get_handle(struct gk20a *g)
 {

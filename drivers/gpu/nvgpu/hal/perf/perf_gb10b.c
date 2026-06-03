@@ -316,16 +316,23 @@ const u32 *gb10b_perf_get_hwpm_fbp_perfmon_regs(u32 *count)
 	return hwpm_fbp_perfmon_regs;
 }
 
-bool gb10b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id)
+int gb10b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id,
+					  bool *overflow_status, struct nvgpu_tsg *tsg,
+					  bool is_ctx_resident)
 {
 	const u32 st =
 		perf_pmasys_channel_status_membuf_status_overflowed_f();
 
+	(void)tsg;
+	(void)is_ctx_resident;
+
 	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
 
-	return st == (nvgpu_readl(g,
+	*overflow_status = (st == (nvgpu_readl(g,
 			perf_pmasys_channel_status_r(PMA_CBLOCK_IDX(pma_channel_id),
-						     PMA_CBLOCK_CH_IDX(pma_channel_id))) & st);
+						     PMA_CBLOCK_CH_IDX(pma_channel_id))) & st));
+
+	return 0;
 }
 
 u32 gb10b_perf_get_membuf_pending_bytes(struct gk20a *g, u32 pma_channel_id)
@@ -350,59 +357,111 @@ void gb10b_perf_set_membuf_handled_bytes(struct gk20a *g, u32 pma_channel_id,
 	}
 }
 
-void gb10b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id)
+int gb10b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id,
+				     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
+	int err;
 	u32 num_unread_bytes;
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
+	u32 reg_offset, reg_val;
 
 	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
 
-	nvgpu_writel(g,
-		perf_pmasys_channel_control_user_r(cblock_idx, channel_idx),
-		perf_pmasys_channel_control_user_membuf_clear_status_doit_f());
+	reg_offset = perf_pmasys_channel_control_user_r(cblock_idx, channel_idx);
+	reg_val = perf_pmasys_channel_control_user_membuf_clear_status_doit_f();
+	nvgpu_writel(g, reg_offset, reg_val);
 
-	num_unread_bytes = nvgpu_readl(g,
-		perf_pmasys_channel_mem_bytes_r(cblock_idx, channel_idx));
-	if (num_unread_bytes != 0U) {
-		nvgpu_writel(g,
-			perf_pmasys_channel_mem_bump_r(cblock_idx, channel_idx),
-			num_unread_bytes);
+	reg_offset = perf_pmasys_channel_mem_bytes_r(cblock_idx, channel_idx);
+
+	err = g->ops.perf.read_hwpm_register(g, reg_offset, &num_unread_bytes, tsg,
+				is_ctx_resident, U32_MAX);
+	if (err != 0) {
+		nvgpu_err(g, " Reading from PMA SYS channel reg failed with err - %d", err);
+		goto label_fail;
 	}
+	if (num_unread_bytes != 0U) {
+		reg_offset = perf_pmasys_channel_mem_bump_r(cblock_idx, channel_idx);
+		reg_val = num_unread_bytes;
+		nvgpu_writel(g, reg_offset, reg_val);
+	}
+label_fail:
+	return err;
 }
 
-void gb10b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
-			      u64 buf_addr)
+int gb10b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
+			    u64 buf_addr, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
-	u32 addr_hi, addr_lo;
+	u32 addr_hi, addr_lo, reg_offset, reg_val;
+	int err;
 
 	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
 
 	addr_lo = u64_lo32(buf_addr);
 	addr_hi = u64_hi32(buf_addr);
 
-	nvgpu_writel(g,
-		perf_pmasys_channel_outbase_r(cblock_idx, channel_idx), addr_lo);
-	nvgpu_writel(g,
-		perf_pmasys_channel_outbaseupper_r(cblock_idx, channel_idx),
-		perf_pmasys_channel_outbaseupper_ptr_f(addr_hi));
-	nvgpu_writel(g,
-		perf_pmasys_channel_outsize_r(cblock_idx, channel_idx), size);
+	reg_offset = perf_pmasys_channel_outbase_r(cblock_idx, channel_idx);
+	addr_lo = addr_lo >> 5U;
+	reg_val = perf_pmasys_channel_outbase_ptr_f(addr_lo);
+	err = g->ops.perf.write_hwpm_register(g, reg_offset, reg_val, tsg,
+		is_ctx_resident, U32_MAX);
+	if (err != 0) {
+		nvgpu_err(g,
+		" Writing to PMA SYS channel outbase reg. failed with err - %d", err);
+		goto label_fail;
+	}
+
+	if (is_ctx_resident == false) {
+		reg_offset = perf_pmasys_channel_mem_head_r(cblock_idx, channel_idx);
+		err = g->ops.perf.write_hwpm_register(g, reg_offset, reg_val, tsg,
+							is_ctx_resident, U32_MAX);
+		if (err != 0) {
+			nvgpu_err(g,
+				"Writing to PMA SYS channel mem head failed with err - %d", err);
+			goto label_fail;
+		}
+	}
+
+	reg_offset = perf_pmasys_channel_outbaseupper_r(cblock_idx, channel_idx);
+	reg_val = perf_pmasys_channel_outbaseupper_ptr_f(addr_hi);
+	err = g->ops.perf.write_hwpm_register(g, reg_offset, reg_val, tsg,
+						is_ctx_resident, U32_MAX);
+	if (err != 0) {
+		nvgpu_err(g,
+			"Writing to PMA SYS channel outbase upper reg. failed with err - %d", err);
+		goto label_fail;
+	}
+
+	reg_offset = perf_pmasys_channel_outsize_r(cblock_idx, channel_idx);
+	size = size >> 5U;
+	reg_val = perf_pmasys_channel_outsize_numbytes_f(size);
+	err = g->ops.perf.write_hwpm_register(g, reg_offset, reg_val, tsg, is_ctx_resident,
+						U32_MAX);
+	if (err != 0) {
+		nvgpu_err(g, "Writing to PMA SYS channel outsize reg. failed with err - %d", err);
+		goto label_fail;
+	}
+
+label_fail:
+	return err;
 }
 
-void gb10b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id)
+int gb10b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id,
+			     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
-	gb10b_perf_enable_membuf(g, pma_channel_id, 0U, (u64)0U);
+	return g->ops.perf.enable_membuf(g, pma_channel_id, 0U, (u64)0U,
+					tsg, is_ctx_resident);
 }
 
-void gb10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id,
-					   u64 buf_addr)
+int gb10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id,
+					  u64 buf_addr, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
-	u32 addr_lo;
+	u32 addr_lo, reg_offset, reg_val;
+	int err;
 
 	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
 
@@ -415,8 +474,18 @@ void gb10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id,
 	buf_addr = buf_addr >> perf_pmasys_channel_mem_bytes_addr_ptr_b();
 	addr_lo = nvgpu_safe_cast_u64_to_u32(buf_addr);
 
-	nvgpu_writel(g, perf_pmasys_channel_mem_bytes_addr_r(cblock_idx, channel_idx),
-			perf_pmasys_channel_mem_bytes_addr_ptr_f(addr_lo));
+	reg_offset = perf_pmasys_channel_mem_bytes_addr_r(cblock_idx, channel_idx);
+	reg_val = perf_pmasys_channel_mem_bytes_addr_ptr_f(addr_lo);
+
+	err = g->ops.perf.write_hwpm_register(g, reg_offset, reg_val, tsg, is_ctx_resident,
+						U32_MAX);
+	if (err != 0) {
+		nvgpu_err(g,
+		"Writing to PMA SYS channel mem bytes reg. failed with err - %d", err);
+		return err;
+	}
+
+	return 0;
 }
 
 int gb10b_perf_init_inst_block(struct gk20a *g, u32 pma_channel_id,
@@ -469,12 +538,16 @@ void gb10b_perf_deinit_inst_block(struct gk20a *g, u32 pma_channel_id)
 }
 
 int gb10b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
-			      u64 bytes_consumed, bool update_available_bytes,
-			      u64 *put_ptr, bool *overflowed)
+			u64 bytes_consumed, bool update_available_bytes,
+			u64 *put_ptr, bool *overflowed, struct nvgpu_tsg *tsg,
+			bool is_ctx_resident, u32 *ctx_bytes_available)
 {
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
 	u32 val;
+	int err = 0;
+
+	(void)ctx_bytes_available;
 
 	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
 
@@ -496,14 +569,15 @@ int gb10b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
 
 	if (put_ptr) {
 		*put_ptr = (u64)nvgpu_readl(g,
-			perf_pmasys_channel_mem_head_r(cblock_idx, channel_idx));
+					perf_pmasys_channel_mem_head_r(cblock_idx, channel_idx));
 	}
 
 	if (overflowed) {
-		*overflowed = g->ops.perf.get_membuf_overflow_status(g, pma_channel_id);
+		(void)g->ops.perf.get_membuf_overflow_status(g, pma_channel_id,
+							overflowed, tsg, is_ctx_resident);
 	}
 
-	return 0;
+	return err;
 }
 
 void gb10b_perf_pma_stream_enable(struct gk20a *g, u32 pma_channel_id,
@@ -576,20 +650,32 @@ static void gb10b_update_gpc_dg_map_status_mask(struct gk20a *g, u32 gr_instance
 						u32 max_num_perfmons, u32 *dgmap_mask,
 						u32 dgmap_mask_size);
 
-void gb10b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id)
+int gb10b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id,
+				   struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 dgmap_status_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
 	u32 *gpc_dg_map_mask;
 	u32 gpc_dg_map_mask_size;
+	int ret = 0;
 
-	g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
-		g->ops.perf.get_pmmsys_per_chiplet_offset(),
-		g->num_sys_perfmon);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
+					  g->ops.perf.get_pmmsys_per_chiplet_offset(),
+					  g->num_sys_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g,
+			"Programming SYS control failed with err - %d", ret);
+		return ret;
+	}
 
-	g->ops.perf.set_pmm_register(g, perf_pmmfbp_fbps_control_r(0U), 0U, 1U,
-		g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-		g->num_fbp_perfmon);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmfbp_fbps_control_r(0U), 0U, 1U,
+					  g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+					  g->num_fbp_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g,
+			"Programming FBP control failed with err - %d", ret);
+		return ret;
+	}
 
 	/* Allocate buffers to capture dg map mask for GPC, FBP chiplet */
 	gpc_dg_map_mask_size = nvgpu_safe_mult_u32(dgmap_status_reg_count, num_gpc);
@@ -597,16 +683,23 @@ void gb10b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id)
 	nvgpu_assert(gpc_dg_map_mask != NULL);
 	gb10b_update_gpc_dg_map_status_mask(g, gr_instance_id, num_gpc, 0x0U, g->num_gpc_perfmon,
 					    gpc_dg_map_mask, gpc_dg_map_mask_size);
-	g->ops.perf.set_pmm_register_for_chiplet_range(g, perf_pmmgpc_control_r(0x0U), 0U, 0U,
-						       num_gpc,
-						       g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-						       g->num_gpc_perfmon, gpc_dg_map_mask,
-						       gpc_dg_map_mask_size);
+	ret = g->ops.perf.set_pmm_register_for_chiplet_range(g, perf_pmmgpc_control_r(0x0U),
+							0U, 0U, num_gpc,
+							g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+							g->num_gpc_perfmon, gpc_dg_map_mask,
+							gpc_dg_map_mask_size, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g,
+			"Programming GPC control failed with err - %d", ret);
+		return ret;
+	}
 	nvgpu_kfree(g, gpc_dg_map_mask);
 
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
 u32 gb10b_perf_get_pmmfbprouter_per_chiplet_offset(void)
@@ -1026,9 +1119,10 @@ int gb10b_perf_wait_for_idle_pmm_routers(struct gk20a *g, u32 gr_instance_id, u3
 	return 0;
 }
 
-void gb10b_perf_program_pmm_register_for_chiplet_range(struct gk20a *g,
+int gb10b_perf_program_pmm_register_for_chiplet_range(struct gk20a *g,
 		u32 offset, u32 val, u32 start_chiplet, u32 num_chiplets,
-		u32 chiplet_stride, u32 *dg_map_mask)
+		u32 chiplet_stride, u32 *dg_map_mask, struct nvgpu_tsg *tsg,
+		bool is_ctx_resident)
 {
 	u32 dgmap_reg_count =
 		perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
@@ -1037,16 +1131,25 @@ void gb10b_perf_program_pmm_register_for_chiplet_range(struct gk20a *g,
 	u32 max_chiplet_index = start_chiplet + num_chiplets;
 	u32 reg_offset = 0;
 	u32 index = 0;
+	int ret = 0;
 
 	for (chiplet_index = start_chiplet; chiplet_index < max_chiplet_index; chiplet_index++) {
 		for_each_set_bit(perfmon_index, (const unsigned long *)&dg_map_mask[index],
 				BITS_PER_BYTE * sizeof(dg_map_mask[index])) {
 			reg_offset = offset + (perfmon_index * perf_pmmsys_perdomain_offset_v()) +
-				(chiplet_index * chiplet_stride);
-			nvgpu_writel(g, reg_offset, val);
+						(chiplet_index * chiplet_stride);
+			ret = g->ops.perf.write_hwpm_register(g, reg_offset, val,
+							       tsg, is_ctx_resident, U32_MAX);
+			if (ret != 0) {
+				nvgpu_err(g, "Write to 0x%8x failed , is ctx resident - %u",
+					 reg_offset, is_ctx_resident);
+				return ret;
+			}
 		}
 		index+= dgmap_reg_count;
 	}
+
+	return ret;
 }
 
 /*
@@ -1135,10 +1238,12 @@ void gb10b_update_sys_dg_map_status_mask(struct gk20a *g, u32 gr_instance_id, u3
 		sys_dg_map_mask[0] |= BIT32(perf_sys_streaming_dg_id_nvenc0_v() +
 						gpu_instance->nvenc_devs[i]->inst_id);
 	}
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	for (i = 0; i < gpu_instance->num_nvjpg; i++) {
 		sys_dg_map_mask[0] |= BIT32(perf_sys_streaming_dg_id_nvjpg_v() +
 						gpu_instance->nvjpg_devs[i]->inst_id);
 	}
+#endif
 }
 
 /*
@@ -1223,11 +1328,12 @@ void gb10b_update_cau_dg_map_status_mask(struct gk20a *g, u32 gr_instance_id, u3
 	}
 }
 
-void
+int
 gb10b_perf_set_pmm_register_for_chiplet_range(struct gk20a *g, u32 offset, u32 val,
-					      u32 start_chiplet, u32 num_chiplets,
-					      u32 chiplet_stride, u32 num_perfmons,
-					      u32 *dg_map_mask, u32 dg_map_mask_size)
+					     u32 start_chiplet, u32 num_chiplets,
+					     u32 chiplet_stride, u32 num_perfmons,
+					     u32 *dg_map_mask, u32 dg_map_mask_size,
+					     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 dg_map_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 dg_reg_idx, dg_bit_pos, dg_map_mask_idx;
@@ -1235,6 +1341,7 @@ gb10b_perf_set_pmm_register_for_chiplet_range(struct gk20a *g, u32 offset, u32 v
 	u32 chiplet_index;
 	u32 max_chiplet_index = nvgpu_safe_add_u32(start_chiplet, num_chiplets);
 	u32 reg_offset;
+	int ret = 0;
 
 	for (chiplet_index = start_chiplet; chiplet_index < max_chiplet_index; chiplet_index++) {
 		for (perfmon_index = 0U; perfmon_index < num_perfmons; perfmon_index++) {
@@ -1262,9 +1369,17 @@ gb10b_perf_set_pmm_register_for_chiplet_range(struct gk20a *g, u32 offset, u32 v
 							nvgpu_safe_mult_u32(chiplet_index,
 									    chiplet_stride));
 			reg_offset = nvgpu_safe_add_u32(reg_offset, offset);
-			nvgpu_writel(g, reg_offset, val);
+			ret = g->ops.perf.write_hwpm_register(g, reg_offset, val,
+								tsg, is_ctx_resident, U32_MAX);
+			if (ret != 0) {
+				nvgpu_err(g, "Write to 0x%8x failed , is ctx resident - %u",
+					 reg_offset, is_ctx_resident);
+				return ret;
+			}
 		}
 	}
+
+	return ret;
 }
 
 /*
@@ -1277,8 +1392,8 @@ gb10b_perf_set_pmm_register_for_chiplet_range(struct gk20a *g, u32 offset, u32 v
  * 3. Validate that the pma channel to DG mapping is reflected in router by
  *    reading status registers.
  */
-int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id,
-					u32 pma_channel_id, bool dg_enable)
+int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id,
+				       bool dg_enable, bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
@@ -1307,10 +1422,12 @@ int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id,
 		"num_gpc: %u, start_gpc: %u, num_fbp: %u, start_fbp: %u",
 		num_gpc, start_gpc, num_fbp, start_fbp);
 
-	/* Wait for Pmm routers to be idle before we program secure config for DGs. */
-	err = g->ops.perf.wait_for_idle_pmm_routers(g, gr_instance_id, pma_channel_id);
-	if (err != 0) {
-		return err;
+	if (is_ctx_resident == true) {
+		/* Wait for Pmm routers to be idle before we program secure config for DGs. */
+		err = g->ops.perf.wait_for_idle_pmm_routers(g, gr_instance_id, pma_channel_id);
+		if (err != 0) {
+			return err;
+		}
 	}
 
 	sys_dg_map_mask = &(g->sys_partition_dg_map[gr_instance_id][0]);
@@ -1364,18 +1481,26 @@ int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id,
 	g->ops.perf.update_sys_dg_map_status_mask(g, gr_instance_id, sys_dg_map_mask);
 	nvgpu_log(g, gpu_dbg_prof, "gr_instance_id: %u, sys_dg_map_mask[0]: 0x%X",
 						gr_instance_id, sys_dg_map_mask[0]);
-	g->ops.perf.program_sys_pmm_secure_config(g,
+	err = g->ops.perf.program_sys_pmm_secure_config(g,
 			perf_pmmsys_secure_config_r(0U), config_val,
-			sys_dg_map_mask[0]);
+			sys_dg_map_mask[0], tsg, is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Secure config progamming for SYS partition failed");
+		goto label_fail;
+	}
 
 	/* FBP */
 	gb10b_update_fbp_dg_map_status_mask(num_fbp, 0x0U, g->num_fbp_perfmon,
 			fbp_dg_map_mask, fbp_dg_map_mask_size);
-	gb10b_perf_program_pmm_register_for_chiplet_range(g,
+	err = gb10b_perf_program_pmm_register_for_chiplet_range(g,
 			perf_pmmfbp_secure_config_r(0U),
 			config_val, start_fbp, num_fbp,
 			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			fbp_dg_map_mask);
+			fbp_dg_map_mask, tsg, is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Secure config progamming for FBP partition failed");
+		goto label_fail;
+	}
 
 	for (i = 0; i < num_fbp; i++) {
 		nvgpu_log(g, gpu_dbg_prof, "gr_instance_id: %u, fbp_dg_map_mask[%u]: 0x%X",
@@ -1386,11 +1511,15 @@ int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id,
 	/* GPC */
 	gb10b_update_gpc_dg_map_status_mask(g, gr_instance_id, num_gpc, 0x0U, g->num_gpc_perfmon,
 			gpc_dg_map_mask, gpc_dg_map_mask_size);
-	gb10b_perf_program_pmm_register_for_chiplet_range(g,
+	err = gb10b_perf_program_pmm_register_for_chiplet_range(g,
 			perf_pmmgpc_secure_config_r(0U),
 			config_val, start_gpc, num_gpc,
 			g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-			gpc_dg_map_mask);
+			gpc_dg_map_mask, tsg, is_ctx_resident);
+	if (err != 0) {
+		nvgpu_err(g, "Secure config progamming for GPC partition failed");
+		goto label_fail;
+	}
 
 	for (i = 0; i < num_gpc; i++) {
 		nvgpu_log(g, gpu_dbg_prof, "gr_instance_id: %u, gpc_dg_map_mask[%u]: 0x%X",
@@ -1403,23 +1532,30 @@ int gb10b_set_secure_config_for_hwpm_dg(struct gk20a *g, u32 gr_instance_id,
 		g->ops.priv_ring.read_pri_fence(g);
 	}
 
-	/* SYS */
-	err = poll_dgmap_status_sys_perfmons_mapped(g, sys_dg_map_mask,
-			sys_dg_map_mask_size, dg_enable);
-	if (err != 0) {
-		goto label_fail;
-	}
+	if (is_ctx_resident == true) {
+		/* SYS */
+		err = poll_dgmap_status_sys_perfmons_mapped(g, sys_dg_map_mask,
+							   sys_dg_map_mask_size, dg_enable);
+		if (err != 0) {
+			goto label_fail;
+		}
 
-	/* GPC */
-	err = poll_dgmap_status_gpc_perfmons_mapped(g, gpc_dg_map_mask,
-			gpc_dg_map_mask_size, dg_enable, gr_instance_id);
-	if (err != 0) {
-		goto label_fail;
-	}
+		/* GPC */
+		err = poll_dgmap_status_gpc_perfmons_mapped(g, gpc_dg_map_mask,
+							gpc_dg_map_mask_size, dg_enable,
+							gr_instance_id);
+		if (err != 0) {
+			goto label_fail;
+		}
 
-	/* FBP */
-	err = poll_dgmap_status_fbp_perfmons_mapped(g, fbp_dg_map_mask,
-			fbp_dg_map_mask_size, dg_enable, gr_instance_id);
+		/* FBP */
+		err = poll_dgmap_status_fbp_perfmons_mapped(g, fbp_dg_map_mask,
+							fbp_dg_map_mask_size, dg_enable,
+							gr_instance_id);
+		if (err != 0) {
+			goto label_fail;
+		}
+	}
 
 label_fail:
 	nvgpu_kfree(g, fbp_dg_map_mask);
@@ -1451,22 +1587,39 @@ static const u32 *gb10b_perf_get_cwd_hem_regs(u32 *count)
 	return cwd_hem_regs;
 }
 
-u32 gb10b_perf_get_num_cwd_hems(void)
+u32 gb10b_perf_get_num_cwd_hems(struct gk20a *g)
 {
-	return perf_hem_sys0_secure_config__size_1_v();
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+	u32 num_hems = perf_hem_sys0_secure_config__size_1_v();
+
+	if (ver == NVGPU_GPUID_GB10B_NEXT) {
+		num_hems = 1U;
+	}
+
+	return num_hems;
 }
 
-static void gb10b_perf_set_cwd_hem_registers(struct gk20a *g, u32 offset, u32 val,
-				u32 start_hem_idx, u32 num_hems)
+static int gb10b_perf_set_cwd_hem_registers(struct gk20a *g, u32 offset, u32 val,
+					   u32 start_hem_idx, u32 num_hems,
+					   bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 hem_index;
 	u32 reg_offset = 0;
 	u32 last_hem_index = start_hem_idx + num_hems;
+	int ret = 0;
 
 	for (hem_index = start_hem_idx; hem_index < last_hem_index; hem_index++) {
 		reg_offset = offset + hem_index * perf_hem_sys0_perhem_offset_v();
-		nvgpu_writel(g, reg_offset, val);
+		ret = g->ops.perf.write_hwpm_register(g, reg_offset, val, tsg,
+						       is_ctx_resident, U32_MAX);
+		if (ret != 0) {
+			nvgpu_err(g, "Write to 0x%8x failed - ctx resident - %u",
+				 reg_offset, is_ctx_resident);
+			break;
+		}
 	}
+
+	return ret;
 }
 
 static u32 gb10b_get_tpc_logical_id(struct gk20a *g, u32 tpc_cnt, u32 gpc_phy_id, u32 tpc_phy_idx)
@@ -1487,10 +1640,10 @@ static u32 gb10b_get_tpc_logical_id(struct gk20a *g, u32 tpc_cnt, u32 gpc_phy_id
 	return U32_MAX;
 }
 
-static void
+static int
 gb10b_perf_set_cau_registers(struct gk20a *g, u32 gr_instance_id, u32 offset, u32 val,
-				u32 start_gpc, u32 num_gpc, u32 gpc_stride,
-				u32 tpc_stride, u32 *dg_map_mask)
+			    u32 start_gpc, u32 num_gpc, u32 gpc_stride, u32 tpc_stride, u32 *dg_map_mask,
+			    bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 dgmap_reg_count =
 		perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
@@ -1499,6 +1652,7 @@ gb10b_perf_set_cau_registers(struct gk20a *g, u32 gr_instance_id, u32 offset, u3
 	u32 gpc_log_idx, gpc_phy_idx;
 	u32 tpc_log_idx, tpc_phy_idx;
 	u32 reg_offset, num_tpc;
+	int ret = 0;
 
 	for (gpc_log_idx = start_gpc; gpc_log_idx < max_gpc_index; gpc_log_idx++) {
 		gpc_phy_idx = nvgpu_grmgr_get_gr_gpc_phys_id(g, gr_instance_id,
@@ -1527,18 +1681,28 @@ gb10b_perf_set_cau_registers(struct gk20a *g, u32 gr_instance_id, u32 offset, u3
 							(tpc_log_idx * tpc_stride);
 			nvgpu_log(g, gpu_dbg_prof, "dg_idx: %u, reg_offset: 0x%08x: val: 0x%08x",
 					dg_idx, reg_offset, val);
-			nvgpu_writel(g, reg_offset, val);
+			ret = g->ops.perf.write_hwpm_register(g, reg_offset, val, tsg,
+							       is_ctx_resident, U32_MAX);
+			if (ret != 0) {
+				nvgpu_err(g, "Write to 0x%8x failed - ctx resident - %u",
+					 reg_offset, is_ctx_resident);
+				return ret;
+			}
 		}
 	}
+
+	return ret;
 }
 
-void gb10b_perf_reset_cwd_hem_registers(struct gk20a *g, u32 gr_instance_id)
+int gb10b_perf_reset_cwd_hem_registers(struct gk20a *g, u32 gr_instance_id,
+				      bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	const u32 *regs;
 	u32 i, count;
 	u32 start_hem_idx = 0U;
 	u32 num_gpu_instances = g->mig.num_gpu_instances;
-	u32 num_cwd_hems = g->ops.perf.get_num_cwd_hems();
+	u32 num_cwd_hems = g->ops.perf.get_num_cwd_hems(g);
+	int ret = 0;
 
 	regs = gb10b_perf_get_cwd_hem_regs(&count);
 	/**
@@ -1560,13 +1724,19 @@ void gb10b_perf_reset_cwd_hem_registers(struct gk20a *g, u32 gr_instance_id)
 	}
 
 	for (i = 0U; i < count; i++) {
-		gb10b_perf_set_cwd_hem_registers(g, regs[i], 0U, start_hem_idx,
-				num_cwd_hems);
+		ret = gb10b_perf_set_cwd_hem_registers(g, regs[i], 0U, start_hem_idx,
+						      num_cwd_hems, is_ctx_resident, tsg);
+		if (ret != 0) {
+			nvgpu_err(g, "CWD HEM register prog failed for - 0x%8x", regs[i]);
+			return ret;
+		}
 	}
 
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return ret;
 }
 
 u32 gb10b_perf_get_gpc_tpc0_cau0_dg_idx(void)
@@ -1575,7 +1745,8 @@ u32 gb10b_perf_get_gpc_tpc0_cau0_dg_idx(void)
 }
 
 int gb10b_perf_set_secure_config_for_cau(struct gk20a *g, u32 gr_instance_id,
-					 u32 pma_channel_id, bool dg_enable)
+					u32 pma_channel_id, bool dg_enable,
+					bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 dgmap_status_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
@@ -1594,9 +1765,12 @@ int gb10b_perf_set_secure_config_for_cau(struct gk20a *g, u32 gr_instance_id,
 	start_gpc = nvgpu_grmgr_get_gr_gpc_logical_id(g, gr_instance_id, 0x0U);
 
 	nvgpu_log(g, gpu_dbg_prof, "num_gpc: %u, start_gpc: %u", num_gpc, start_gpc);
-	err = gb10b_perf_wait_for_idle_pmm_gpc_routers(g, gr_instance_id, pma_channel_id);
-	if (err != 0) {
-		return err;
+
+	if (is_ctx_resident == true) {
+		err = gb10b_perf_wait_for_idle_pmm_gpc_routers(g, gr_instance_id, pma_channel_id);
+		if (err != 0) {
+			return err;
+		}
 	}
 
 	gpc_dg_map_mask_size = dgmap_status_reg_count * num_gpc;
@@ -1636,9 +1810,14 @@ int gb10b_perf_set_secure_config_for_cau(struct gk20a *g, u32 gr_instance_id,
 	g->ops.perf.update_cau_dg_map_status_mask(g, gr_instance_id, num_gpc, cau_dg_idx,
 			gr_gpc0_tpc0_cau_secure_config__size_1_v(), gpc_dg_map_mask,
 			gpc_dg_map_mask_size);
-	gb10b_perf_set_cau_registers(g, gr_instance_id, gr_gpc0_tpc0_cau_secure_config_r(0U),
-			config_val, start_gpc, num_gpc, proj_gpc_stride_v(),
-			proj_tpc_in_gpc_stride_v(), gpc_dg_map_mask);
+	err = gb10b_perf_set_cau_registers(g, gr_instance_id, gr_gpc0_tpc0_cau_secure_config_r(0U),
+					  config_val, start_gpc, num_gpc, proj_gpc_stride_v(),
+					  proj_tpc_in_gpc_stride_v(), gpc_dg_map_mask,
+					  is_ctx_resident, tsg);
+	if (err != 0) {
+		nvgpu_err(g, "CAU secure config progamming for GPC partition failed");
+		goto label_fail;
+	}
 
 	for (i = 0; i < num_gpc; i++) {
 		nvgpu_log(g, gpu_dbg_prof,
@@ -1653,9 +1832,12 @@ int gb10b_perf_set_secure_config_for_cau(struct gk20a *g, u32 gr_instance_id,
 	}
 
 	/* GPC */
-	err = poll_dgmap_status_gpc_perfmons_mapped(g, gpc_dg_map_mask, gpc_dg_map_mask_size,
-			dg_enable, gr_instance_id);
+	if (is_ctx_resident == true) {
+		err = poll_dgmap_status_gpc_perfmons_mapped(g, gpc_dg_map_mask, gpc_dg_map_mask_size,
+							   dg_enable, gr_instance_id);
+	}
 
+label_fail:
 	nvgpu_kfree(g, gpc_dg_map_mask);
 
 	return err;
@@ -1667,6 +1849,7 @@ void gb10b_perf_update_sys_hem_cwd_dg_map_mask(struct gk20a *g, u32 gr_instance_
 {
 	/* g->mig.num_gpu_instances includes physical gpu instance +  "N" mig instances */
 	u32 num_mig_instances = g->mig.num_gpu_instances - 0x1U;
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 
 	if (g->mig.num_gpu_instances > 0x1U) {
 		if (nvgpu_grmgr_get_support_gfx(g, gr_instance_id) == true) {
@@ -1677,16 +1860,21 @@ void gb10b_perf_update_sys_hem_cwd_dg_map_mask(struct gk20a *g, u32 gr_instance_
 			sys_dg_map_mask[0] = NV_PERF_SYS_PARTITION_HEMCWD1;
 		}
 		/* HEM's are equally distributed across MIG instances */
-		*num_hems = g->ops.perf.get_num_cwd_hems() / num_mig_instances;
+		*num_hems = g->ops.perf.get_num_cwd_hems(g) / num_mig_instances;
 	} else {
-		sys_dg_map_mask[0] = NV_PERF_SYS_PARTITION_ALL_HEMS;
-		*num_hems = g->ops.perf.get_num_cwd_hems();
+		if (ver == NVGPU_GPUID_GB10B_NEXT) {
+			sys_dg_map_mask[0] = NV_PERF_SYS_PARTITION_HEMCWD0;
+		} else {
+			sys_dg_map_mask[0] = NV_PERF_SYS_PARTITION_ALL_HEMS;
+		}
+		*num_hems = g->ops.perf.get_num_cwd_hems(g);
 		*start_hem_idx = 0U;
 	}
 }
 
 int gb10b_perf_set_secure_config_for_cwd_hem(struct gk20a *g, u32 gr_instance_id,
-					     u32 pma_channel_id, bool dg_enable)
+					    u32 pma_channel_id, bool dg_enable,
+					    bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 dgmap_status_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
@@ -1697,9 +1885,11 @@ int gb10b_perf_set_secure_config_for_cwd_hem(struct gk20a *g, u32 gr_instance_id
 	u32 config_val = 0;
 	int err;
 
-	err = gb10b_perf_wait_for_idle_pmm_sys_routers(g, pma_channel_id);
-	if (err != 0) {
-		return err;
+	if (is_ctx_resident == true) {
+		err = gb10b_perf_wait_for_idle_pmm_sys_routers(g, pma_channel_id);
+		if (err != 0) {
+			return err;
+		}
 	}
 
 	sys_dg_map_mask_size = dgmap_status_reg_count * 0x1U;
@@ -1743,21 +1933,25 @@ int gb10b_perf_set_secure_config_for_cwd_hem(struct gk20a *g, u32 gr_instance_id
 		  gr_instance_id, sys_dg_map_mask[0], num_hems, start_hem_idx);
 
 	/* CWD unit resides only in SYS chiplet. */
-	gb10b_perf_set_cwd_hem_registers(g, perf_hem_sys0_secure_config_r(0),
-			config_val, start_hem_idx, num_hems);
+	err = gb10b_perf_set_cwd_hem_registers(g, perf_hem_sys0_secure_config_r(0),
+					      config_val, start_hem_idx, num_hems,
+					      is_ctx_resident, tsg);
 
 	/* Makes sure writes to all the chiplets are completed. */
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
 
-	err = poll_dgmap_status_sys_perfmons_mapped(g, sys_dg_map_mask,
-			sys_dg_map_mask_size, dg_enable);
+	if (is_ctx_resident == true) {
+		err = poll_dgmap_status_sys_perfmons_mapped(g, sys_dg_map_mask,
+							   sys_dg_map_mask_size, dg_enable);
+	}
 
 	return err;
 }
 
-void gb10b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
+int gb10b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id,
+				     struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 dgmap_status_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
@@ -1766,16 +1960,24 @@ void gb10b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 	u32 start_fbp = nvgpu_grmgr_get_fbp_logical_id(g, gr_instance_id, 0x0U);
 	u32 *gpc_dg_map_mask;
 	u32 gpc_dg_map_mask_size;
+	int ret = 0;
 
-	g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(0x0U),
-				   U32_MAX, 0x1U,
-				   g->ops.perf.get_pmmsys_per_chiplet_offset(),
-				   g->num_sys_perfmon);
-	g->ops.perf.set_pmm_register_for_chiplet_range(g,
-			perf_pmmfbp_engine_sel_r(0x0U),
-			U32_MAX, start_fbp, num_fbp,
-			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			g->num_fbp_perfmon, NULL, 0);
+	ret = g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(0x0U),
+					  U32_MAX, 0x1U,
+					  g->ops.perf.get_pmmsys_per_chiplet_offset(),
+					  g->num_sys_perfmon, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming SYS engine select failed with err - %d", ret);
+		return ret;
+	}
+	ret = g->ops.perf.set_pmm_register_for_chiplet_range(g,	perf_pmmfbp_engine_sel_r(0x0U),
+						U32_MAX, start_fbp, num_fbp,
+						g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+						g->num_fbp_perfmon, NULL, 0U, tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming FBP engine select failed with err - %d", ret);
+		return ret;
+	}
 
 	/* Allocate buffers to capture dg map mask for GPC, FBP chiplet */
 	gpc_dg_map_mask_size = nvgpu_safe_mult_u32(dgmap_status_reg_count, num_gpc);
@@ -1784,30 +1986,42 @@ void gb10b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 	gb10b_update_gpc_dg_map_status_mask(g, gr_instance_id, num_gpc, 0x0U, g->num_gpc_perfmon,
 					    gpc_dg_map_mask, gpc_dg_map_mask_size);
 
-	g->ops.perf.set_pmm_register_for_chiplet_range(g,
-			perf_pmmgpc_engine_sel_r(0x0U),
-			U32_MAX, start_gpc, num_gpc,
-			g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-			g->num_gpc_perfmon, gpc_dg_map_mask, gpc_dg_map_mask_size);
+	ret = g->ops.perf.set_pmm_register_for_chiplet_range(g,
+					perf_pmmgpc_engine_sel_r(0x0U),
+					U32_MAX, start_gpc, num_gpc,
+					g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+					g->num_gpc_perfmon, gpc_dg_map_mask, gpc_dg_map_mask_size,
+					tsg, is_ctx_resident);
+	if (ret != 0) {
+		nvgpu_err(g, "Programming GPC engine select failed with err - %d", ret);
+		return ret;
+	}
 	nvgpu_kfree(g, gpc_dg_map_mask);
 
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		/* Read back to ensure all writes are complete */
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
-void gb10b_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
-			u32 gr_instance_id, u32 reservation_id)
+int gb10b_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
+			u32 gr_instance_id, u32 reservation_id,
+			struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	(void) gr_instance_id;
 	(void) reservation_id;
+	(void) is_ctx_resident;
+	(void) tsg;
 
 	nvgpu_writel(g, perf_pmasys_command_slice_trigger_mask_secure0_r(pma_channel_id), 0U);
+
+	return 0;
 }
 
 static void gb10b_perf_enable_pm_hes_trigger(struct gk20a *g, u32 gr_instance_id,
-					     u32 pma_channel_id, bool event)
+		u32 pma_channel_id, bool event)
 {
 	u32 reg_val = nvgpu_readl(g,
 			perf_pmasys_command_slice_trigger_mask_secure0_r(pma_channel_id));
@@ -1830,26 +2044,44 @@ static void gb10b_perf_enable_pm_hes_trigger(struct gk20a *g, u32 gr_instance_id
 	nvgpu_writel(g, perf_pmasys_command_slice_trigger_mask_secure0_r(pma_channel_id), reg_val);
 }
 
-void gb10b_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id,
-									u32 reservation_id)
+int gb10b_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id,
+	u32 reservation_id, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	(void) reservation_id;
+	(void) tsg;
+	(void) is_ctx_resident;
 
 	gb10b_perf_enable_pm_hes_trigger(g, gr_instance_id, pma_channel_id, false);
+
+	return 0;
 }
 
-void gb10b_perf_enable_hes_event_trigger(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id)
+int gb10b_perf_enable_hes_event_trigger(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id,
+	struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
+	(void) tsg;
+	(void) is_ctx_resident;
+
 	gb10b_perf_enable_pm_hes_trigger(g, gr_instance_id, pma_channel_id, true);
+
+	return 0;
 }
 
-void gb10b_perf_enable_pma_trigger(struct gk20a *g, u32 pma_channel_id)
+int gb10b_perf_enable_pma_trigger(struct gk20a *g, u32 pma_channel_id, struct nvgpu_tsg *tsg,
+		bool is_ctx_resident)
 {
 	u32 reg_val = nvgpu_readl(g,
 			perf_pmasys_command_slice_trigger_mask_secure0_r(pma_channel_id));
 
+	(void) tsg;
+	(void) is_ctx_resident;
+
+	nvgpu_log(g, gpu_dbg_prof, "pma_channel_id: %u", pma_channel_id);
+
 	reg_val |= BIT(perf_pmasys_engine_index_pma_v());
 	nvgpu_writel(g, perf_pmasys_command_slice_trigger_mask_secure0_r(pma_channel_id), reg_val);
+
+	return 0;
 }
 
 u32 gb10b_perf_get_hwpm_fbp_fbpgs_ltcs_base_addr(void)
@@ -1887,7 +2119,8 @@ u32 gb10b_perf_get_hwpm_fbpsrouter_base_addr(void)
 	return perf_pmmfbp_fbpsrouter_base_v();
 }
 
-void gb10b_perf_reset_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
+int gb10b_perf_reset_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id,
+				      struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 dgmap_status_reg_count = perf_pmmsysrouter_user_dgmap_status_secure__size_1_v();
 	u32 i, count;
@@ -1898,22 +2131,32 @@ void gb10b_perf_reset_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 	u32 start_fbp = nvgpu_grmgr_get_fbp_logical_id(g, gr_instance_id, 0x0U);
 	u32 *gpc_dg_map_mask;
 	u32 gpc_dg_map_mask_size;
+	int ret = 0;
 
 	perfmon_regs = g->ops.perf.get_hwpm_sys_perfmon_regs(&count);
 
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
-			g->ops.perf.get_pmmsys_per_chiplet_offset(),
-			g->num_sys_perfmon);
+		ret = g->ops.perf.set_pmm_register(g, perfmon_regs[i], 0U, 1U,
+						  g->ops.perf.get_pmmsys_per_chiplet_offset(),
+						  g->num_sys_perfmon, tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g, "Resetting SYS perfmon reg failed with err - %d", ret);
+			return ret;
+		}
 	}
 
 	perfmon_regs = g->ops.perf.get_hwpm_fbp_perfmon_regs(&count);
 
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register_for_chiplet_range(g,
-			perfmon_regs[i], 0x0U, start_fbp, num_fbp,
-			g->ops.perf.get_pmmfbp_per_chiplet_offset(),
-			g->num_fbp_perfmon, NULL, 0);
+		ret = g->ops.perf.set_pmm_register_for_chiplet_range(g,
+						perfmon_regs[i], 0x0U, start_fbp, num_fbp,
+						g->ops.perf.get_pmmfbp_per_chiplet_offset(),
+						g->num_fbp_perfmon, NULL, 0, tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g,
+				"Programming FBP perfmon regs failed with err - %d", ret);
+			return ret;
+		}
 	}
 
 	perfmon_regs = g->ops.perf.get_hwpm_gpc_perfmon_regs(&count);
@@ -1925,10 +2168,15 @@ void gb10b_perf_reset_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 	gb10b_update_gpc_dg_map_status_mask(g, gr_instance_id, num_gpc, 0x0U, g->num_gpc_perfmon,
 					    gpc_dg_map_mask, gpc_dg_map_mask_size);
 	for (i = 0U; i < count; i++) {
-		g->ops.perf.set_pmm_register_for_chiplet_range(g,
-			perfmon_regs[i], 0x0U, start_gpc, num_gpc,
-			g->ops.perf.get_pmmgpc_per_chiplet_offset(),
-			g->num_gpc_perfmon, gpc_dg_map_mask, gpc_dg_map_mask_size);
+		ret = g->ops.perf.set_pmm_register_for_chiplet_range(g,
+					perfmon_regs[i], 0x0U, start_gpc, num_gpc,
+					g->ops.perf.get_pmmgpc_per_chiplet_offset(),
+					g->num_gpc_perfmon, gpc_dg_map_mask, gpc_dg_map_mask_size,
+					tsg, is_ctx_resident);
+		if (ret != 0) {
+			nvgpu_err(g, "Programming FBP perfmon regs failed with err - %d", ret);
+			return ret;
+		}
 	}
 	nvgpu_kfree(g, gpc_dg_map_mask);
 
@@ -1936,6 +2184,8 @@ void gb10b_perf_reset_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 		/* Read back to ensure all writes are complete */
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
 int gb10b_perf_alloc_mem_for_sys_partition_dg_map(struct gk20a *g)
@@ -1980,16 +2230,26 @@ alloc_failed:
  * bit positions of perfmons that are available based on
  * gpu instance id.
  */
-void gb10b_perf_program_sys_pmm_secure_config(struct gk20a *g, u32 offset, u32 val, u32 dg_map_mask)
+int gb10b_perf_program_sys_pmm_secure_config(struct gk20a *g, u32 offset,
+	u32 val, u32 dg_map_mask, struct nvgpu_tsg *tsg, bool is_ctx_resident)
 {
 	u32 reg_offset = 0U;
 	u32 i;
+	int ret;
 
 	for_each_set_bit(i, (const unsigned long *)&dg_map_mask,
 			BITS_PER_BYTE * sizeof(dg_map_mask)) {
 		reg_offset = offset + (i * perf_pmmsys_perdomain_offset_v());
-		nvgpu_writel(g, reg_offset, val);
+		ret = g->ops.perf.write_hwpm_register(g, reg_offset, val,
+						       tsg, is_ctx_resident, U32_MAX);
+		if (ret != 0) {
+			nvgpu_err(g, "Write to 0x%8x failed , is ctx resident - %u",
+				 reg_offset, is_ctx_resident);
+			return ret;
+		}
 	}
+
+	return ret;
 }
 void gb10b_perf_get_tpc_perfmon_range(u32 *perfmon_start_idx,
 					u32 *perfmon_end_idx)
@@ -2058,14 +2318,16 @@ u32 gb10b_perf_get_hs_credit_per_sys_pipe_for_hes(struct gk20a *g)
 /*
  * Program the HS credits per chiplet index of a chiplet type.
  */
-void gb10b_perf_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
-			u32 pma_channel_id, u32 chiplet_type,
-			u32 chiplet_local_index, u32 num_of_credits)
+int gb10b_perf_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
+					u32 pma_channel_id, u32 chiplet_type,
+					u32 chiplet_local_index, u32 num_of_credits,
+					bool is_ctx_resident, struct nvgpu_tsg *tsg)
 {
 	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
 	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
 	u32 logical_id, pmmrouter_stride, offset = 0U;
 	u32 val;
+	int ret = 0;
 
 	if (chiplet_type == NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC) {
 		pmmrouter_stride = perf_pmmgpcrouter_extent_v() - perf_pmmgpcrouter_base_v() + 1U;
@@ -2086,16 +2348,31 @@ void gb10b_perf_set_hs_credit_per_chiplet(struct gk20a *g, u32 gr_instance_id,
 	} else {
 		/* This invalid state should have been pruned at caller itself */
 		nvgpu_assert(1);
-		return;
+		goto label;
 	}
 
-	val = nvgpu_readl(g, offset);
+	ret = g->ops.perf.read_hwpm_register(g, offset, &val,
+					    tsg, is_ctx_resident, U32_MAX);
+	if (ret != 0) {
+		nvgpu_err(g, "Read from 0x%8x failed , is ctx resident - %u",
+			 offset, is_ctx_resident);
+		goto label;
+	}
 	val = set_field(val, perf_pmmgpc_gpc0_config_value_m(),
 			perf_pmmgpc_gpc0_config_value_f(num_of_credits));
-	nvgpu_writel(g, offset, val);
+	ret = g->ops.perf.write_hwpm_register(g, offset, val, tsg,
+					       is_ctx_resident,
+					       perf_pmmgpc_gpc0_config_value_m());
+	if (ret != 0) {
+		nvgpu_err(g, "Write to 0x%8x failed , is ctx resident - %u",
+			 offset, is_ctx_resident);
+		goto label;
+	}
 
 	nvgpu_log(g, gpu_dbg_prof, "gr_instance_id: %u, offset: 0X%X, val: 0X%X",
-					gr_instance_id,	offset, val);
+		 gr_instance_id, offset, val);
+label:
+	return ret;
 }
 
 void gb10b_perf_set_pma_stream_gfid(struct gk20a *g, u32 pma_channel_id, u32 gfid)
@@ -2109,4 +2386,48 @@ void gb10b_perf_set_pma_stream_gfid(struct gk20a *g, u32 pma_channel_id, u32 gfi
 bool gb10b_perf_is_perfmon_simulated(void)
 {
 	return false;
+}
+
+int gb10b_perf_pma_stream_preparation(struct gk20a *g, u32 pma_channel_id, bool flag,
+	struct nvgpu_tsg *tsg, bool is_ctx_resident)
+{
+	u32 cblock_idx = PMA_CBLOCK_IDX(pma_channel_id);
+	u32 channel_idx = PMA_CBLOCK_CH_IDX(pma_channel_id);
+	u32 reg_val, reg;
+	int ret;
+
+	nvgpu_assert(pma_channel_id < g->ops.perf.get_pma_channel_count(g));
+
+	reg = perf_pmasys_channel_config_secure_r(cblock_idx, channel_idx);
+
+	ret = g->ops.perf.read_hwpm_register(g, reg, &reg_val,
+					    tsg, is_ctx_resident, U32_MAX);
+	if (ret != 0) {
+		nvgpu_err(g, "Read from 0x%8x failed , is ctx resident - %u",
+			 reg, is_ctx_resident);
+		goto label;
+	}
+
+	if (flag) {
+		reg_val =
+		set_field(reg_val,
+			perf_pmasys_channel_config_secure_skip_idle_between_xactions_m(),
+			perf_pmasys_channel_config_secure_skip_idle_between_xactions_enable_f());
+	} else {
+		reg_val =
+		set_field(reg_val,
+			perf_pmasys_channel_config_secure_skip_idle_between_xactions_m(),
+			perf_pmasys_channel_config_secure_skip_idle_between_xactions_disable_f());
+	}
+	ret = g->ops.perf.write_hwpm_register(g, reg, reg_val, tsg,
+					       is_ctx_resident,
+					       U32_MAX);
+	if (ret != 0) {
+		nvgpu_err(g, "Write to 0x%8x failed , is ctx resident - %u",
+			 reg, is_ctx_resident);
+		goto label;
+	}
+
+label:
+	return ret;
 }

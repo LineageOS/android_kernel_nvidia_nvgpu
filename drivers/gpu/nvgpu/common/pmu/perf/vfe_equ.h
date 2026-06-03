@@ -23,7 +23,7 @@ struct vfe_equs {
 struct vfe_equ {
 	struct pmu_board_obj super;
 	u8 var_idx;
-	u8 equ_idx_next;
+	u16 equ_idx_next;
 	u8 output_type;
 	u32 out_range_min;
 	u32 out_range_max;
@@ -37,18 +37,20 @@ struct vfe_equ {
 
 struct vfe_equ_compare {
 	struct vfe_equ super;
+	u8 pad[4];
 	u8 func_id;
 	bool b_is_criteria_equ;
-	u8 equ_idx_true;
-	u8 equ_idx_false;
-	u32 criteria;
+	u16 equ_idx_true;
+	u16 equ_idx_false;
+	union ctrl_perf_vfe_equ_compare_criteria criteria;
 };
 
 struct vfe_equ_minmax {
 	struct vfe_equ super;
+	u8 pad[4];
 	bool b_max;
-	u8 equ_idx0;
-	u8 equ_idx1;
+	u16 equ_idx0;
+	u16 equ_idx1;
 };
 
  // Type-Specific Parameter DWORD 0 - Type = _QUADRATIC_N
@@ -73,10 +75,11 @@ struct vfe_equ_minmax {
 #define CTRL_PERF_VFE_EQU_QUADRATIC_N_6_COEFF_COUNT       0x06U
 #define CTRL_PERF_VFE_EQU_QUADRATIC_N_10_COEFF_COUNT      0x0AU
 
-#define CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT     0x03U
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT     0x0AU
 
 struct vfe_equ_quadratic {
 	struct vfe_equ super;
+	u8 pad[1];
 	u32 coeffs[CTRL_PERF_VFE_EQU_QUADRATIC_COEFF_COUNT];
 };
 
@@ -90,17 +93,9 @@ struct vbios_vfe_param_3x {
 	u32 value;
 }__attribute__((packed));
 
-struct ctrl_perf_vfe_param {
-	u8 param_type;
-	union {
-		u32 literal_value;
-		u8 var_idx;
-		u16 equ_idx;
-	} param;
-};
-
 struct vfe_equ_quadratic_n {
 	struct vfe_equ super;
+	u8 pad[4];
 	struct ctrl_perf_vfe_param args[CTRL_PERF_VFE_EQU_QUADRATIC_N_10_ARG_COUNT];
 	u8 arg_count;
 	struct ctrl_perf_vfe_param coeffs[CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT];

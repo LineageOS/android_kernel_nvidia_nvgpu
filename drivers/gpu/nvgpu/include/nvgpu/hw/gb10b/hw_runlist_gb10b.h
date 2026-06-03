@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -77,6 +77,7 @@
 #define runlist_engine_status1_r(i)\
 		(nvgpu_safe_add_u32(0x00000204U, nvgpu_safe_mult_u32((i), 64U)))
 #define runlist_engine_status1_gfid_v(r)                   (((r) >> 0U) & 0x3fU)
+#define runlist_engine_status1_next_gfid_v(r)              (((r) >> 8U) & 0x3fU)
 #define runlist_engine_status1_gfid_valid_v(r)             (((r) >> 30U) & 0x1U)
 #define runlist_engine_status_debug_r(i)\
 		(nvgpu_safe_add_u32(0x00000228U, nvgpu_safe_mult_u32((i), 64U)))

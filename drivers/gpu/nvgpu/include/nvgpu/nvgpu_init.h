@@ -217,7 +217,7 @@ int nvgpu_finalize_poweron(struct gk20a *g);
  * -# Suspend the FIFO subsystem using gops_fifo.fifo_suspend() and store any error that occurs.
  * -# If GSP stress test is enabled and not on a discrete GPU, halt the GSP
  *    stress test using nvgpu_gsp_stress_test_halt() and store any error that occurs.
- * -# If GSP scheduler is supported, suspend the GSP scheduler using nvgpu_gsp_sched_suspend().
+ * -# Suspend the GSP using nvgpu_gsp_suspend().
  * -# Free any software state associated with the GPU's falcons using nvgpu_falcons_sw_free().
  * -# If running on a discrete GPU, suspend the CE app using gops_ce.ce_app_suspend().
  * -# If running on a discrete GPU and the operation to deinitialize the BIOS

@@ -152,7 +152,7 @@ int ga10b_gr_intr_handle_compute_sw_method(struct gk20a *g, u32 addr,
 		g->ops.gr.set_bes_crop_debug4(g, data);
 		return 0;
 	case gr_compute_method_set_tex_in_dbg_v():
-		gv11b_gr_intr_set_tex_in_dbg(g, data);
+		g->ops.gr.set_tex_in_dbg(g, data);
 		return 0;
 	case gr_compute_method_set_skedcheck_v():
 		gv11b_gr_intr_set_skedcheck(g, data);
@@ -242,7 +242,7 @@ int ga10b_gr_intr_handle_gfx_sw_method(struct gk20a *g, u32 addr,
 		g->ops.gr.set_bes_crop_debug4(g, data);
 		return 0;
 	case gr_graphics_method_set_tex_in_dbg_v():
-		gv11b_gr_intr_set_tex_in_dbg(g, data);
+		g->ops.gr.set_tex_in_dbg(g, data);
 		return 0;
 	case gr_graphics_method_set_skedcheck_v():
 		gv11b_gr_intr_set_skedcheck(g, data);

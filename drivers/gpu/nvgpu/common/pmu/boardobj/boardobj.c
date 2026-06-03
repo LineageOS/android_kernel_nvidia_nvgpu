@@ -67,7 +67,7 @@ int pmu_board_obj_construct_super(struct gk20a *g,
 	obj->allocated = true;
 	obj->g = g;
 	obj->type = obj_tmp->type;
-	obj->idx = CTRL_BOARDOBJ_IDX_INVALID;
+	obj->idx = CTRL_BOARDOBJ_IDX_INVALID_16BIT;
 	obj->type_mask =
 			BIT32(obj->type) | obj_tmp->type_mask;
 	obj->implements = implements_super;
@@ -82,7 +82,7 @@ u8 pmu_board_obj_get_type(void *obj)
 	return (((struct pmu_board_obj *)(obj))->type);
 }
 
-u8 pmu_board_obj_get_idx(void *obj)
+u16 pmu_board_obj_get_idx(void *obj)
 {
 	return (((struct pmu_board_obj *)(obj))->idx);
 }

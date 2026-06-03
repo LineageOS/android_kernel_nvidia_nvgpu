@@ -60,6 +60,12 @@ struct vgpu_priv_data *vgpu_get_priv_data(struct gk20a *g)
 	return NULL;
 }
 
+u32 vgpu_get_vmid(struct gk20a *g)
+{
+	(void)g;
+	return 0U;
+}
+
 int vgpu_ivc_send(struct vgpu_ivc *ivc, void *data, u32 size)
 {
 	(void)ivc;

@@ -434,6 +434,7 @@ static const struct gating_desc gb10b_slcg_nvenc_1[] = {
 };
 
 /* slcg nvjpg */
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static const struct gating_desc gb10b_slcg_nvjpg_0[] = {
 	{.addr = 0x009c0134U, .prod = 0x00180140U, .disable = 0x0003fffeU},
 	{.addr = 0x009c8134U, .prod = 0x00180140U, .disable = 0x0003fffeU},
@@ -454,6 +455,7 @@ static const struct gating_desc gb10b_slcg_nvjpg_1[] = {
 	{.addr = 0x009c09dcU, .prod = 0x00000000U, .disable = 0x00000002U},
 	{.addr = 0x009c89dcU, .prod = 0x00000000U, .disable = 0x00000002U},
 };
+#endif
 
 /* slcg ofa */
 static const struct gating_desc gb10b_slcg_ofa_0[] = {
@@ -483,7 +485,9 @@ static const struct gating_desc gb10b_blcg_nvenc_1[] = {
 	{.addr = 0x001ccf20U, .prod = 0x000ac042U, .disable = 0x00000000U},
 };
 
+
 /* blcg nvjpg */
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static const struct gating_desc gb10b_blcg_nvjpg_0[] = {
 	{.addr = 0x009c09d8U, .prod = 0x00000042U, .disable = 0x00000000U},
 };
@@ -492,6 +496,7 @@ static const struct gating_desc gb10b_blcg_nvjpg_1[] = {
 	{.addr = 0x009c09d8U, .prod = 0x00000042U, .disable = 0x00000000U},
 	{.addr = 0x009c89d8U, .prod = 0x00000042U, .disable = 0x00000000U},
 };
+#endif
 
 /* blcg ofa */
 static const struct gating_desc gb10b_blcg_ofa_0[] = {
@@ -1062,6 +1067,7 @@ void gb10b_blcg_nvenc_load_gating_prod(struct gk20a *g,
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gb10b_blcg_nvjpg_load_gating_prod(struct gk20a *g,
 	u32 inst_id, bool prod)
 {
@@ -1091,6 +1097,7 @@ void gb10b_blcg_nvjpg_load_gating_prod(struct gk20a *g,
 		}
 	}
 }
+#endif
 
 void gb10b_blcg_ofa_load_gating_prod(struct gk20a *g,
 	u32 inst_id, bool prod)
@@ -1173,6 +1180,7 @@ void gb10b_slcg_nvenc_load_gating_prod(struct gk20a *g,
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gb10b_slcg_nvjpg_load_gating_prod(struct gk20a *g,
 	u32 inst_id, bool prod)
 {
@@ -1203,6 +1211,7 @@ void gb10b_slcg_nvjpg_load_gating_prod(struct gk20a *g,
 		}
 	}
 }
+#endif
 
 void gb10b_slcg_ofa_load_gating_prod(struct gk20a *g,
 	u32 inst_id, bool prod)

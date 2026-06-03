@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
@@ -40,12 +40,12 @@ static void nvgpu_dma_flags_to_str(struct gk20a *g, unsigned long flags, char *b
 
 	memset(buf, 0, NVGPU_DMA_STR_SIZE);
 
-#define APPEND_FLAG(flag, str_flag)					\
-	do {								\
-		if (flags & flag) {					\
-			strncat(buf, str_flag, bytes_available);	\
-			bytes_available -= strlen(str_flag);		\
-		}							\
+#define APPEND_FLAG(flag, str_flag)							\
+	do {										\
+		if (flags & flag) {							\
+			snprintf(buf + strlen(buf), bytes_available, "%s", str_flag);	\
+			bytes_available -= strlen(str_flag);				\
+		}									\
 	} while (false)
 
 	APPEND_FLAG(NVGPU_DMA_NO_KERNEL_MAPPING,    "NO_KERNEL_MAPPING ");

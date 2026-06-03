@@ -10,33 +10,17 @@
 #include <nvgpu/pmu/boardobjgrp_classes.h>
 #include <nvgpu/string.h>
 #include <nvgpu/pmu/clk/clk.h>
-
+#include <nvgpu/pmu/volt.h>
 #include "common/pmu/clk/ucode_clk_inf.h"
 #include "common/pmu/clk/clk.h"
 #include "common/pmu/clk/clk_fll.h"
 #include "common/pmu/clk/clk_domain.h"
+#include "common/pmu/volt/volt.h"
+
 #include "clk_vf_rel.h"
 #include "clk_prop_top_rel.h"
 
-#define VBIOS_CLOCKS_TABLE_1X_HAL_NUM_CLOCK_ENTRIES                         0x0F
-#define VBIOS_CLOCKS_TABLE_1X_NUM_HALS                                      0x0A
-#define VBIOS_CLOCKS_TABLE_1X_NUM_FACTORY_OC_CLK_DOMAINS                    0x02
-#define VBIOS_CLOCKS_TABLE_1X_NUM_FACTORY_OC_VPSTATE_IDXS                   0x02
-#define VBIOS_CLOCKS_TABLE_1X_NUM_CPMU_CPLUT_MAPPINGS                       0x10
-
 typedef u8 VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE;
-/*!
- * Enumeration of clock domain types.
- */
-#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_LOGICAL                   0x0
-#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_PHYSICAL_WITH_LOGICAL     0x1
-#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_PHYSICAL                  0x2
-#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_TYPE_INVALID                   0x0FF
-
-/*!
- * Invalid index of clock domain.
- */
-#define VBIOS_CLOCKS_TABLE_1X_HAL_CLK_DOMAIN_IDX_INVALID                   0x0FFU
 
 #define VBIOS_CLOCKS_TABLE_1X_HAL_CPMU_CPLUT_CLK_REL_MAPPING_RESERVED      \
 		{ CLKWHICH_DEFAULT, CLKWHICH_DEFAULT }
@@ -68,7 +52,7 @@ union vbios_clocks_table_1x_hal_clk_domain_data {
  * Structure representing the HAL enumeration of a CLK_DOMAIN from the Clocks
  * Table Domains
  */
-struct vbios_clocks_table_1x_hal_clock_entry {
+struct vbios_clocks_table_1x_hal_clock_entry_rel {
 	NV_PMU_CLK_CLKWHICH                               domain;
 	bool                                              bNoiseAwareCapable;
 	u8                                                clkVFCurveCount;
@@ -109,7 +93,7 @@ struct vbios_clocks_table_1x_hal_factory_oc_vpstate_entry {
  */
 struct vbios_clocks_table_1x_hal {
 	u8 nvClocksHAL;
-	struct vbios_clocks_table_1x_hal_clock_entry
+	struct vbios_clocks_table_1x_hal_clock_entry_rel
 		domains[VBIOS_CLOCKS_TABLE_1X_HAL_NUM_CLOCK_ENTRIES];
 	struct vbios_clocks_table_1x_hal_factory_oc_clocks_entry
 		factoryOCDomains[VBIOS_CLOCKS_TABLE_1X_NUM_FACTORY_OC_CLK_DOMAINS];
@@ -154,7 +138,7 @@ struct vbios_clocks_table_1x_hal vbiosClocks1XClocksHALs[1] = {
 // forward declaration
 static u32 clkPropTopRel1xRatioCalcRatioInverse(struct gk20a *g, u32 ratio);
 
-static s32 devinitClocksTableHALTranslate_1X(struct gk20a *g,
+static s32 devinitClocksTableHALTranslate_1X_rel(struct gk20a *g,
 		u8 clocksHal, struct vbios_clocks_table_1x_hal **ppClocksHAL)
 {
 	// We only support one HAL type
@@ -164,6 +148,23 @@ static s32 devinitClocksTableHALTranslate_1X(struct gk20a *g,
 	}
 	*ppClocksHAL = &vbiosClocks1XClocksHALs[0];
 	return 0;
+}
+
+static NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID
+clkPropTopRelTranslateClkWhichToClkId(NV_PMU_CLK_CLKWHICH domain)
+{
+	u32 i;
+	NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID clkId =
+		NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID_INVALID;
+
+	for (i = 0; i < VBIOS_CLOCKS_TABLE_1X_HAL_NUM_CLOCK_ENTRIES; i++) {
+		if (vbiosClocks1XClocksHALs[0].domains[i].domain == domain) {
+			clkId = vbiosClocks1XClocksHALs[0].domains[i].cpmuClkId;
+			break;
+		}
+	}
+
+	return clkId;
 }
 
 static s32 clkPropTopRelIfaceModel10Construct_1X(struct gk20a *g,
@@ -199,12 +200,58 @@ static s32 clkPropTopRelIfaceModel10Construct_1X(struct gk20a *g,
 	pClkPropTopRel->clkDomainIdxDst = pTmpClkPropTopRel->clkDomainIdxDst;
 	pClkPropTopRel->bBiDirectional  = pTmpClkPropTopRel->bBiDirectional;
 
-	// Todo: construct / Set BOARDOBJ interfaces. (Model10)
-
-	// Todo: Override BOARDOBJ_IFACE_MODEL_10 function pointers
-
 done:
 
+	return status;
+}
+
+static s32 clkPropTopRel_PmuDataInit_SUPER(struct gk20a *g,
+			struct pmu_board_obj *pBoardObj,
+			struct nv_pmu_boardobj *pPmuData)
+{
+	s32 status = 0;
+	struct nv_pmu_clk_clk_prop_top_rel_boardobj_set *pPropTopRelSet = NULL;
+	struct clk_prop_top_rel  *pPropTopRel = NULL;
+
+	(void)g;
+
+	pPmuData->type = pBoardObj->type;
+
+	pPropTopRel    = (struct clk_prop_top_rel  *)pBoardObj;
+	pPropTopRelSet = (struct nv_pmu_clk_clk_prop_top_rel_boardobj_set *)pPmuData;
+
+	// Set CLK_PROP_TOP_REL-specific data.
+	pPropTopRelSet->clkDomainIdxSrc = pPropTopRel->clkDomainIdxSrc;
+	pPropTopRelSet->clkDomainIdxDst = pPropTopRel->clkDomainIdxDst;
+	pPropTopRelSet->bBiDirectional  = pPropTopRel->bBiDirectional;
+
+	return status;
+}
+
+static s32 clkPropTopRel_PmuDataInit_1X_RATIO(struct gk20a *g,
+			struct pmu_board_obj *pBoardObj,
+			struct nv_pmu_boardobj *pPmuData)
+{
+	struct clk_prop_top_rel_1x_ratio_boardobj_set *pRel1xRatioSet =
+		(struct clk_prop_top_rel_1x_ratio_boardobj_set *)pPmuData;
+	struct clk_prop_top_rel_1x_ratio *pRel1xRatio = (struct clk_prop_top_rel_1x_ratio *)pBoardObj;
+	s32 status = 0;
+
+	// Call CLK_PROP_TOP_REL super class.
+	status = clkPropTopRel_PmuDataInit_SUPER(g, pBoardObj, pPmuData);
+	if (status != 0)
+	{
+		nvgpu_err(g,
+			"Error initializing CLK_PROP_TOP_REL_1X PMU data: status=%d",
+			status);
+		goto clkPropTopRelIfaceModel10PmuDataInit_1X_RATIO_exit;
+	}
+
+	// Set type-specific parameters.
+	pRel1xRatioSet->ratio        = pRel1xRatio->ratio;
+	pRel1xRatioSet->ratioInverse = pRel1xRatio->ratioInverse;
+
+clkPropTopRelIfaceModel10PmuDataInit_1X_RATIO_exit:
 	return status;
 }
 
@@ -230,7 +277,8 @@ static s32 clkPropTopRelIfaceModel10Construct_1X_RATIO(struct gk20a *g,
 	}
 	pRel1xRatio = (struct clk_prop_top_rel_1x_ratio *) *ppBoardObj;
 
-	// Todo Set BoardObj interfaces to 1X_RATIO
+	// Set BoardObj interfaces to 1X_RATIO
+	pRel1xRatio->super.super.super.super.pmudatainit = clkPropTopRel_PmuDataInit_1X_RATIO;
 
 	// Set type-specific parameters.
 	pRel1xRatio->ratio        = pRel1xRatioTmp->ratio;
@@ -239,6 +287,31 @@ static s32 clkPropTopRelIfaceModel10Construct_1X_RATIO(struct gk20a *g,
 
 done:
 
+	return status;
+}
+
+static s32 clkPropTopRel_PmuDataInit_1X_VOLT(struct gk20a *g,
+			struct pmu_board_obj *pBoardObj,
+			struct nv_pmu_boardobj *pPmuData)
+{
+	struct clk_prop_top_rel_1x_volt_boardobj_set *pRel1xVoltSet =
+		(struct clk_prop_top_rel_1x_volt_boardobj_set *)pPmuData;
+	struct clk_prop_top_rel_1x_volt *pRel1xVolt = (struct clk_prop_top_rel_1x_volt *)pBoardObj;
+	s32 status = 0;
+
+	// Call CLK_PROP_TOP_REL super class.
+	status = clkPropTopRel_PmuDataInit_SUPER(g, pBoardObj, pPmuData);
+	if (status != 0) {
+		nvgpu_err(g,
+			"Error initializing CLK_PROP_TOP_REL_1X PMU data: status=%d",
+			status);
+		goto clkPropTopRelIfaceModel10PmuDataInit_1X_VOLT_exit;
+	}
+
+	// Set type-specific parameters.
+	pRel1xVoltSet->voltRailIdx = pRel1xVolt->voltRailIdx;
+
+clkPropTopRelIfaceModel10PmuDataInit_1X_VOLT_exit:
 	return status;
 }
 
@@ -265,7 +338,8 @@ static s32 clkPropTopRelIfaceModel10Construct_1X_VOLT(struct gk20a *g,
 
 	pRel1xVolt = (struct clk_prop_top_rel_1x_volt *) *ppBoardObj;
 
-	// Todo: Set BOARDOBJ interfaces.
+	// Set BOARDOBJ interfaces.
+	pRel1xVolt->super.super.super.super.pmudatainit = clkPropTopRel_PmuDataInit_1X_VOLT;
 
 	// Set type-specific parameters.
 	pRel1xVolt->voltRailIdx = pRel1xVoltTmp->voltRailIdx;
@@ -345,7 +419,7 @@ static s32 devinit_get_clk_prop_top_rel_table(struct gk20a *g,
 	nvgpu_pmu_dbg(g, " ");
 
 	// Get Clocks HAL. We only support one type.
-	status = devinitClocksTableHALTranslate_1X(g,
+	status = devinitClocksTableHALTranslate_1X_rel(g,
 				NV2080_CTRL_CLK_CLK_DOMAIN_HAL_GB20Y,
 				&pClocksHal);
 	if (status != 0) {
@@ -552,13 +626,77 @@ done:
 	return status;
 }
 
+static s32 clk_prop_top_rel_pmudatainit(struct gk20a *g,
+		struct boardobjgrp *pboardobjgrp,
+		struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
+{
+	struct nv_pmu_clk_clk_prop_top_rel_boardobjgrp_set_header *pPropTopRelsSet =
+	(struct nv_pmu_clk_clk_prop_top_rel_boardobjgrp_set_header *)pboardobjgrppmu;
+	struct nvgpu_clk_prop_top_rels *pPropTopRels = (struct nvgpu_clk_prop_top_rels *)pboardobjgrp;
+	s32 status = 0;
+	u32 i;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	status = boardobjgrp_pmu_data_init_e255(g, pboardobjgrp, pboardobjgrppmu);
+	if (status != 0) {
+		nvgpu_err(g, "Error updating pmu boardobjgrp for Clk_prop_top_rel. status - %d",
+				status);
+		goto done;
+	}
+
+	// Set PCLK_PROP_TOP_RELS-specific data
+	pPropTopRelsSet->tableRelTupleCount = pPropTopRels->tableRelTupleCount;
+
+	for (i = 0; i < NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TABLE_REL_TUPLE_MAX; i++) {
+		pPropTopRelsSet->tableRelTuple[i] = pPropTopRels->tableRelTuple[i];
+	}
+
+	pPropTopRelsSet->cpmuRelTupleCount = pPropTopRels->cpmuRelTupleCount;
+
+	for (i = 0; i < NV2080_CTRL_CLK_CLK_PROP_TOP_REL_CPMU_REL_TUPLE_MAX; i++) {
+		pPropTopRelsSet->cpmuRelTuple[i] = pPropTopRels->cpmuRelTuple[i];
+	}
+
+done:
+	nvgpu_pmu_dbg(g, " Done");
+
+	return status;
+}
+
+static s32 clk_prop_top_rel_pmudata_instget(struct gk20a *g,
+		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
+		struct nv_pmu_boardobj **pmu_obj,
+		u16 idx)
+{
+	struct nv_pmu_clk_clk_prop_top_rel_boardobj_grp_set  *pgrp_set =
+		(struct nv_pmu_clk_clk_prop_top_rel_boardobj_grp_set *)
+		(void *)pmuboardobjgrp;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	/* check whether pmuboardobjgrp has a valid boardobj in index */
+	if (((u32)BIT(idx) &
+		pgrp_set->hdr.data.super.obj_mask.super.data[0]) == 0U) {
+		return -EINVAL;
+	}
+
+	*pmu_obj = (struct nv_pmu_boardobj *)
+		&pgrp_set->objects[idx].data.obj;
+	nvgpu_pmu_dbg(g, " Done");
+
+	return 0;
+}
+
 s32 clk_prop_top_rel_sw_setup(struct gk20a *g)
 {
 	s32 status = 0;
 	struct nvgpu_clk_prop_top_rels *clkproptoprelobjs = NULL;
+	struct boardobjgrp *pboardobjgrp = NULL;
 	u8 version;
 	u8 *prop_table_ptr = NULL;
 
+	nvgpu_pmu_dbg(g, " ");
 	prop_table_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
 			nvgpu_bios_get_bit_token(g, NVGPU_BIOS_CLOCK_TOKEN),
 			CLOCK_PROP_TOP_REL_TABLE);
@@ -580,6 +718,15 @@ s32 clk_prop_top_rel_sw_setup(struct gk20a *g)
 		goto done;
 	}
 
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->clk_pmu->clk_top_relobjs->super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_prop_top_rel boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_prop_top_rel boardobjgrp for first time");
+
 	status = nvgpu_boardobjgrp_construct_e255(g,
 			&g->pmu->clk_pmu->clk_top_relobjs->super);
 	if (status != 0) {
@@ -589,7 +736,22 @@ s32 clk_prop_top_rel_sw_setup(struct gk20a *g)
 		goto done;
 	}
 
+	// construct and set the boardobj class ID
 	clkproptoprelobjs = g->pmu->clk_pmu->clk_top_relobjs;
+	pboardobjgrp = &g->pmu->clk_pmu->clk_top_relobjs->super.super;
+	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, CLK_CLK_PROP_TOP_REL);
+
+	// Construct the RPC call Set interface.
+	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
+			clk, CLK, clk_prop_top_rel, CLK_PROP_TOP_REL);
+	if (status != 0) {
+		nvgpu_err(g,
+			"Error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - %d",
+			status);
+		goto done;
+	}
+	pboardobjgrp->pmudatainit = clk_prop_top_rel_pmudatainit;
+	pboardobjgrp->pmudatainstget  = clk_prop_top_rel_pmudata_instget;
 
 	status = devinit_get_clk_prop_top_rel_table(g, prop_table_ptr,
 				clkproptoprelobjs);
@@ -601,13 +763,27 @@ s32 clk_prop_top_rel_sw_setup(struct gk20a *g)
 	}
 
 done:
+	nvgpu_pmu_dbg(g, " done status %x", status);
 	return status;
 }
 
 s32 clk_prop_top_rel_pmu_setup(struct gk20a *g)
 {
-	/* todo: implement sending to PMU */
-	return -EINVAL;
+	s32 status;
+	struct boardobjgrp *pboardobjgrp = NULL;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	pboardobjgrp = &g->pmu->clk_pmu->clk_top_relobjs->super.super;
+
+	if (!pboardobjgrp->bconstructed) {
+		return -EINVAL;
+	}
+
+	status = pboardobjgrp->pmuinithandle(g, pboardobjgrp);
+
+	nvgpu_pmu_dbg(g, " done status %d", status);
+	return status;
 }
 
 s32 clk_prop_top_rel_init_pmupstate(struct gk20a *g)
@@ -675,4 +851,85 @@ static u32 clkPropTopRel1xRatioCalcRatioInverse(struct gk20a *g, u32 ratio)
 
 clkPropTopRel1xRatioCalcRatioInverse_exit:
 	return ratioInverse;
+}
+
+s32 get_gpc_to_sys_clk_freq_ratio_percent(struct gk20a *g, u32 *ratio)
+{
+	struct nvgpu_clk_pmupstate *pclk;
+	struct clk_prop_top_rel *pClkPropTopRel;
+	struct clk_prop_top_rel_1x_ratio *pRatio;
+	NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID srcId;
+	NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID dstId;
+	u16 idx;
+	s32 status = -EINVAL;
+
+	// Sanity checks
+	if (g == NULL) {
+		nvgpu_err(g, "g is NULL");
+		goto done;
+	}
+
+	nvgpu_log_info(g, " ");
+
+	pclk = g->pmu->clk_pmu;
+	if (pclk == NULL) {
+		nvgpu_err(g, "g->pmu->clk_pmu is NULL");
+		goto done;
+	}
+	if (pclk->clk_top_relobjs == NULL) {
+		nvgpu_err(g, "clk_top_relobjs is NULL");
+		goto done;
+	}
+
+	//
+	// get the source and desitnation HAL IDs used in
+	// the propagation topology relationship objects for
+	// the GPC and SYS clock domains
+	srcId = clkPropTopRelTranslateClkWhichToClkId(CLKWHICH_GPCCLK);
+	dstId = clkPropTopRelTranslateClkWhichToClkId(CLKWHICH_XBARCLK);
+
+	if (srcId == NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID_INVALID
+		|| dstId == NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID_INVALID) {
+		nvgpu_err(g, "Translation of clock domain to HAL ID failed.");
+		goto done;
+	}
+
+	status = 0;
+	*ratio = 0;
+	//
+	// Loop through the prog_top_rel objects to find
+	// the object with a frequency ratio relationship
+	// between GPC and SYS clocks.
+	BOARDOBJGRP_FOR_EACH(&(pclk->clk_top_relobjs->super.super),
+		struct clk_prop_top_rel *, pClkPropTopRel, idx) {
+
+		//
+		// Check if object is the ratio type we are looking for
+		// and has the propagation relationship of GPC clock -> SYS clock
+		if ((pmu_board_obj_get_type(pClkPropTopRel) ==
+			NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_RATIO)
+			&& pClkPropTopRel->clkDomainIdxSrc == srcId
+			&& pClkPropTopRel->clkDomainIdxDst == dstId) {
+
+			pRatio = (struct clk_prop_top_rel_1x_ratio *) pClkPropTopRel;
+			//
+			// Convert FXP 16.16 to integer with percentage
+			// as a whole number. I.e. range 1 to 100.
+			// Add 0.005 (327 in FXP 16.16 format) to round up.
+			*ratio = (((pRatio->ratio) + 327U) * 100U) / (1U << 16);
+			nvgpu_log_info(g, "Frequency ratio relationship found for GPC to SYS clock: %d%%",
+				*ratio);
+			break;
+		}
+	}
+
+	// if a ratio relationship not found, default to 90 %.
+	if (*ratio == 0) {
+		*ratio = 90;
+		nvgpu_log_info(g, "Frequency ratio relationship not found for GPC to SYS clock, defaulting to %d%%",
+			*ratio);
+	}
+
+done:
+	return status;
 }

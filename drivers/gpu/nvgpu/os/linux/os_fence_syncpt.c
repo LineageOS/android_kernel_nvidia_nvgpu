@@ -95,7 +95,7 @@ int nvgpu_os_fence_get_syncpts(
 	return 0;
 }
 
-u32 nvgpu_os_fence_syncpt_get_num_syncpoints(
+int nvgpu_os_fence_syncpt_get_num_syncpoints(
 	struct nvgpu_os_fence_syncpt *fence)
 {
 	return nvgpu_nvhost_fence_num_pts(fence->fence->priv);

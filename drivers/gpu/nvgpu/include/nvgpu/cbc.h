@@ -148,7 +148,37 @@ int nvgpu_cbc_init_support(struct gk20a *g);
  * @return None.
  */
 void nvgpu_cbc_remove_support(struct gk20a *g);
-int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt);
+
+/**
+ * @brief Scrubs CBC memory associated with the provided nvgpu SGT.
+ *
+ * This function converts the provided nvgpu scatter-gather table entries into
+ * IOVA addresses and then calls @ref nvgpu_scrub_cbc_mem_iova
+ * to scrub the associated CBC memory.
+ *
+ * @param g          [in] The GPU driver struct.
+ * @param nvgpu_sgt  [in] NVGPU's scatter-gather table for the memory region.
+ *
+ * @return 0 if successful, < 0 on error.
+ */
+s32 nvgpu_scrub_cbc_mem_nvgpu_sgt(struct gk20a *g, struct nvgpu_sgt *nvgpu_sgt);
+
+/**
+ * @brief Scrubs CBC memory associated with the provided IOVA range.
+ *
+ * This function uses the GPU's Copy Engine (CE) to scrub the CBC memory
+ * associated with the specified IOVA range. It utilizes @ref nvgpu_ce_execute_ops
+ * with CBC scrubbing mode to clear the compression bit cache entries in hardware.
+ *
+ * @param g     [in] The GPU driver struct.
+ * @param iova  [in] The I/O virtual address of the memory region.
+ * @param size  [in] Size of the memory region in bytes.
+ *
+ * @return 0 if successful, < 0 on error:
+ *         -EINVAL if parameters are invalid
+ *         Other error codes from nvgpu_ce_execute_ops()
+ */
+s32 nvgpu_scrub_cbc_mem_iova(struct gk20a *g, u64 iova, u64 size);
 
 /**
  * @brief This function is used to initialize compbit backing store support.

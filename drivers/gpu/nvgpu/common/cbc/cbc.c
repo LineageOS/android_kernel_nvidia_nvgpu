@@ -127,7 +127,6 @@ static int nvgpu_scrub_cbc_mem_no_iommu(struct gk20a *g, struct nvgpu_sgt *nvgpu
 	u64 spa;
 	int err;
 
-
 	nvgpu_sgt_for_each_sgl(sgl, nvgpu_sgt) {
 		if (last_fence != NULL) {
 			nvgpu_fence_put(last_fence);
@@ -157,30 +156,57 @@ static int nvgpu_scrub_cbc_mem_no_iommu(struct gk20a *g, struct nvgpu_sgt *nvgpu
 }
 #endif
 
-/*
- * Submit a CE Fill command with scrub enabled to zero out both the physical
- * pages and corresponding cbc backing storage.
- */
-int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt)
+s32 nvgpu_scrub_cbc_mem_iova(struct gk20a *g, u64 iova, u64 size)
 {
 #ifdef CONFIG_NVGPU_COMPRESSION_RAW
-	struct nvgpu_fence_type *fence_out = NULL;
-	struct nvgpu_sgt *nvgpu_sgt = NULL;
-	const u32 buffer_scrub_value = 0U;
-	void *sgl = NULL;
-	u32 ce_ctx_id;
-	u64 size = 0;
 	int err = 0;
-	u64 iova;
+	u32 ce_ctx_id;
+	const u32 buffer_scrub_value = 0U;
+	struct nvgpu_fence_type *fence_out = NULL;
 
 	ce_ctx_id = g->mm.cbc.ce_ctx_id;
 	if (ce_ctx_id == NVGPU_CE_INVAL_CTX_ID) {
 		return -EINVAL;
 	}
 
-	nvgpu_sgt = nvgpu_linux_sgt_create(g, sgt);
-	if (!nvgpu_sgt) {
-		return -ENOMEM;
+	nvgpu_log(g, gpu_dbg_ce, "SCRUB memory start (iova) 0x%16llx size 0x%16llx",
+			iova, size);
+	err = nvgpu_ce_execute_ops(g,
+				   ce_ctx_id,
+				   iova,
+				   size,
+				   buffer_scrub_value,
+				   &fence_out);
+	if (fence_out != NULL)
+		err = nvgpu_cbc_scrub_fence_wait(g, fence_out);
+
+	return err;
+#else
+	/* scrub is not supported */
+	(void)g;
+	(void)iova;
+	(void)size;
+	return -ENOSYS;
+#endif
+}
+
+/*
+ * Submit a CE Fill command with scrub enabled to zero out both the physical
+ * pages and corresponding cbc backing storage.
+ */
+s32 nvgpu_scrub_cbc_mem_nvgpu_sgt(struct gk20a *g, struct nvgpu_sgt *nvgpu_sgt)
+{
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+	int err = 0;
+	void *sgl = NULL;
+	u32 ce_ctx_id;
+	u64 iova = 0UL;
+	u64 entry_size = 0UL;
+	u64 size = 0;
+
+	ce_ctx_id = g->mm.cbc.ce_ctx_id;
+	if (ce_ctx_id == NVGPU_CE_INVAL_CTX_ID) {
+		return -EINVAL;
 	}
 
 	if (!nvgpu_iommuable(g)) {
@@ -195,30 +221,21 @@ int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt)
 	iova = nvgpu_sgt_get_gpu_addr(g, nvgpu_sgt, nvgpu_sgt->sgl, NULL);
 	/* Find the total buffer size */
 	nvgpu_sgt_for_each_sgl(sgl, nvgpu_sgt) {
-		size += nvgpu_sgt_get_length(nvgpu_sgt, sgl);
+		entry_size = nvgpu_sgt_get_length(nvgpu_sgt, sgl);
+		if (size > U64_MAX - entry_size) {
+			nvgpu_err(g, "CBC scrub size overflow: current=0x%llx, adding=0x%llx",
+					  size, entry_size);
+			nvgpu_sgt_free(g, nvgpu_sgt);
+			return -EOVERFLOW;
+		}
+		size += entry_size;
 	}
 
-	nvgpu_log(g, gpu_dbg_ce, "SCRUB memory start (iova) 0x%16llx size 0x%16llx",
-		   iova, size);
-	err = nvgpu_ce_execute_ops(g,
-				   ce_ctx_id,
-				   iova,
-				   size,
-				   buffer_scrub_value,
-				   &fence_out);
-	nvgpu_sgt_free(g, nvgpu_sgt);
-	if (err != 0) {
-		nvgpu_err(g,
-			  "Failed nvgpu_ce_execute_ops[%d]", err);
-		return err;
-	}
-
-	if (fence_out != NULL)
-		err = nvgpu_cbc_scrub_fence_wait(g, fence_out);
+	err = nvgpu_scrub_cbc_mem_iova(g, iova, size);
 
 	return err;
 #else
-	(void)sgt;
+	(void)nvgpu_sgt;
 	(void)g;
 	/* scrub is not supported */
 	return -ENOSYS;

@@ -31,6 +31,9 @@ struct nvgpu_pmu_fgpg_ctrl;
 /* TBD: QT or else ? */
 #define PMU_PG_IDLE_THRESHOLD			15000U
 #define PMU_PG_POST_POWERUP_IDLE_THRESHOLD	1000000U
+/* Can be defined by VBIOS. Hardcode before VBIOS is supported */
+#define PMU_PG_IDLE_THRESHOLD_GPC_RG				30000U
+#define PMU_PG_POST_POWERUP_IDLE_THRESHOLD_GPC_RG	2000000U
 
 #define PMU_PG_LPWR_FEATURE_RPPG 0x0U
 #define PMU_PG_LPWR_FEATURE_MSCG 0x1U
@@ -53,7 +56,6 @@ struct nvgpu_pmu_fgpg_ctrl;
 /* State of golden image */
 enum {
 	GOLDEN_IMG_NOT_READY = 0,
-	GOLDEN_IMG_SUSPEND,
 	GOLDEN_IMG_READY,
 };
 
@@ -69,14 +71,27 @@ struct nvgpu_pmu_pg {
 	u32 disallow_state;
 	u32 elpg_ms_stat;
 	u32 elpg_ms_disallow_state;
+	u32 gpc_rg_stat;
+	u32 gpc_rg_disallow_state;
+	u32 nvdec_elpg_stat;
+	u32 nvdec_elpg_disallow_state;
+	u32 nvenc_elpg_stat;
+	u32 nvenc_elpg_disallow_state;
+	u32 ofa_elpg_stat;
+	u32 ofa_elpg_disallow_state;
 #define PMU_ELPG_ENABLE_ALLOW_DELAY_MSEC	1U /* msec */
 	struct nvgpu_pg_init pg_init;
 	struct nvgpu_mutex pg_mutex; /* protect pg-RPPG/MSCG enable/disable */
 	struct nvgpu_mutex elpg_mutex; /* protect elpg enable/disable */
 	struct nvgpu_mutex elpg_ms_mutex; /* protect elpg_ms enable/disable */
+	struct nvgpu_mutex gpc_rg_mutex; /* protect gpc_rg enable/disable */
+	struct nvgpu_mutex nvdec_elpg_mutex; /* protect nvdec_elpg enable/disable */
+	struct nvgpu_mutex nvenc_elpg_mutex; /* protect nvenc_elpg enable/disable */
+	struct nvgpu_mutex ofa_elpg_mutex; /* protect ofa_elpg enable/disable */
 	/* disable -1, enable +1, <=0 elpg disabled, > 0 elpg enabled */
 	int elpg_refcnt;
 	int elpg_ms_refcnt;
+	int gpc_rg_refcnt;
 	u32 aelpg_param[5];
 	bool zbc_ready;
 	bool zbc_save_done;
@@ -128,6 +143,8 @@ struct nvgpu_pmu_pg {
 		struct nv_pmu_rpc_header *rpc,
 		struct rpc_handler_payload *rpc_payload);
 	int (*init_send)(struct gk20a *g, struct nvgpu_pmu *pmu, u8 pg_engine_id);
+	int (*pre_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
+	int (*post_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
 	u32 (*pmu_get_pg_buf_gpu_va)(struct gk20a *g, struct nvgpu_pmu *pmu,
 			u32 buf_id);
 	u32 (*pmu_get_pg_buf_gpu_va_hi)(struct gk20a *g, struct nvgpu_pmu *pmu,
@@ -139,6 +156,8 @@ struct nvgpu_pmu_pg {
 		struct nvgpu_pmu_fgpg_ctrl *fgpg, u8 ctrl_id);
 	int (*priv_blocker_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
 	int (*process_pg_event)(struct gk20a *g, void *pmumsg);
+	int (*pmu_pg_threshold_update)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u8 pg_engine_id);
 	int (*pmu_pg_sfm_update)(struct gk20a *g, struct nvgpu_pmu *pmu,
 		u8 pg_engine_id, bool enable);
 	int (*cg_elcg_get_entry_count) (struct gk20a *g, struct nvgpu_pmu *pmu,
@@ -193,7 +212,6 @@ int nvgpu_pmu_pg_sw_setup(struct gk20a *g, struct nvgpu_pmu *pmu,
 	struct nvgpu_pmu_pg *pg);
 void nvgpu_pmu_pg_destroy(struct gk20a *g, struct nvgpu_pmu *pmu,
 	struct nvgpu_pmu_pg *pg);
-int nvgpu_pmu_restore_golden_img_state(struct gk20a *g);
 
 /* PG enable/disable */
 int nvgpu_pmu_reenable_elpg(struct gk20a *g);
@@ -201,8 +219,13 @@ int nvgpu_pmu_enable_elpg(struct gk20a *g);
 int nvgpu_pmu_disable_elpg(struct gk20a *g);
 int nvgpu_pmu_enable_elpg_ms(struct gk20a *g);
 int nvgpu_pmu_disable_elpg_ms(struct gk20a *g);
+int nvgpu_pmu_enable_gpc_rg(struct gk20a *g);
+int nvgpu_pmu_disable_gpc_rg(struct gk20a *g);
+int nvgpu_pmu_enable_vid_elpg(struct gk20a *g, u8 pg_vid_engine_id);
+int nvgpu_pmu_disable_vid_elpg(struct gk20a *g, u8 pg_vid_engine_id);
 
 int nvgpu_pmu_pg_global_enable(struct gk20a *g, bool enable_pg);
+int nvgpu_pmu_pg_vid_enable(struct gk20a *g, bool enable_pg, u8 pg_vid_engine_id);
 
 int nvgpu_pmu_get_pg_stats(struct gk20a *g, u32 pg_engine_id,
 	struct pmu_pg_stats_data *pg_stat_data);

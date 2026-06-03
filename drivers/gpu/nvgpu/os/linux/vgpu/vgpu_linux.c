@@ -245,3 +245,8 @@ int vgpu_init_hal_os(struct gk20a *g)
 {
 	return 0;
 }
+
+u32 vgpu_get_vmid(struct gk20a *g)
+{
+	return gk20a_get_vmid(g);
+}

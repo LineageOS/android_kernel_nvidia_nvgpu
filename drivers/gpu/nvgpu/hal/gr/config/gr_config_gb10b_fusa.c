@@ -24,7 +24,7 @@
 /*244 config specific */
 #define  NVGPU_SKYLINE_SUPPORTED_GPC_TPC_MASK_2    0x244
 /* The singleton tpc is derived from the second GPC */
-#define  NVGPU_SKYLINE_SUPPORTED_SINGLETON_MASK_2  0x2
+#define  NVGPU_SKYLINE_SUPPORTED_SINGLETON_MASK_2  0x40
 /* This is the only supported skyline mask */
 #define  NVGPU_SKYLINE_SUPPORTED_MASK  0x432
 

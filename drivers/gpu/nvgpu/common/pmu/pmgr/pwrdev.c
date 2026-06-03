@@ -13,7 +13,7 @@
 static int _pwr_device_pmudata_instget(struct gk20a *g,
 			struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 			struct nv_pmu_boardobj **pmu_obj,
-			u8 idx)
+			u16 idx)
 {
 	struct nv_pmu_pmgr_pwr_device_desc_table *ppmgrdevice =
 		(struct nv_pmu_pmgr_pwr_device_desc_table *)pmuboardobjgrp;

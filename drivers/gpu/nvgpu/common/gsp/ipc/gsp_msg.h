@@ -75,6 +75,12 @@ union nvgpu_gsp_acr_msg {
 	struct nvgpu_gsp_acr_msg_bootstrap_engine msg_engine;
 };
 
+struct nvgpu_gsp_vm_sched_msg_rl_event {
+	u8 msg_type;
+	u32 gfid;
+	u32 runlist_id;
+};
+
 struct nv_flcn_msg_gsp {
 	struct gsp_hdr hdr;
 	union {
@@ -82,6 +88,7 @@ struct nv_flcn_msg_gsp {
 		struct nvgpu_gsp_domain_msg_no_of_domains no_of_domains;
 		struct nvgpu_gsp_domain_msg_active_domain active_domain;
 		union nvgpu_gsp_acr_msg acr_msg;
+		struct nvgpu_gsp_vm_sched_msg_rl_event rl_event;
 	} msg;
 };
 

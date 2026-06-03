@@ -1668,8 +1668,21 @@ static u64 nvgpu_buddy_balloc_pte(struct nvgpu_allocator *na, u64 len,
 	addr = balloc_do_alloc(a, order, pte_size);
 
 	if (addr != 0ULL) {
+		u64 order_len = balloc_order_to_len(a, order);
+
+		/* Check for overflow in allocation statistics before updating */
+		if ((a->bytes_alloced > (U64_MAX - len)) ||
+		    (a->bytes_alloced_real > (U64_MAX - order_len))) {
+			/* Overflow would occur - treat as allocation failure */
+			alloc_dbg(balloc_owner(a), "Alloc failed: statistics overflow");
+			/* Need to free the allocated block since we're failing */
+			balloc_free_buddy(a, addr);
+			alloc_unlock(na);
+			return 0;
+		}
+
 		a->bytes_alloced += len;
-		a->bytes_alloced_real += balloc_order_to_len(a, order);
+		a->bytes_alloced_real += order_len;
 		alloc_dbg(balloc_owner(a),
 			"Alloc 0x%-10llx %3lld:0x%-10llx pte_size=%s",
 			addr, order, len,

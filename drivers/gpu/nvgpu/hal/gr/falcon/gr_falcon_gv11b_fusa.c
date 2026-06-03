@@ -154,7 +154,7 @@ void gv11b_gr_falcon_fecs_host_int_enable(struct gk20a *g)
 
 	nvgpu_writel(g, gr_fecs_host_int_enable_r(),
 		     gr_fecs_host_int_enable_ctxsw_intr0_enable_f() |
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 		     gr_fecs_host_int_enable_ctxsw_intr1_enable_f() |
 #endif
 		     gr_fecs_host_int_enable_fault_during_ctxsw_enable_f() |

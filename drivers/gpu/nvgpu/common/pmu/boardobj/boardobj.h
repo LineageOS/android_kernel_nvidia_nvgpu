@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_BOARDOBJ_H
@@ -21,7 +21,7 @@ struct pmu_board_obj {
 	struct gk20a *g;
 
 	u8 type; /*type of the device*/
-	u8 idx;  /*index of boardobj within in its group*/
+	u16 idx;  /*index of boardobj within in its group*/
 	/* true if allocated in constructor. destructor should free */
 	bool allocated;
 	u32 type_mask; /*mask of types this boardobjimplements*/
@@ -113,6 +113,6 @@ boardobj_from_node(struct nvgpu_list_node *node)
 };
 
 u8 pmu_board_obj_get_type(void *obj);
-u8 pmu_board_obj_get_idx(void *obj);
+u16 pmu_board_obj_get_idx(void *obj);
 
 #endif /* NVGPU_BOARDOBJ_H */

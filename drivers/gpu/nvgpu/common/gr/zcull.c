@@ -17,6 +17,8 @@ int nvgpu_gr_zcull_init(struct gk20a *g, struct nvgpu_gr_zcull **gr_zcull,
 {
 	struct nvgpu_gr_zcull *zcull;
 	int err = 0;
+	u32 zbc_tpc_count = 0;
+	u32 gpc_tpc_count = 0;
 
 	nvgpu_log(g, gpu_dbg_gr, "size = %u", size);
 
@@ -33,19 +35,47 @@ int nvgpu_gr_zcull_init(struct gk20a *g, struct nvgpu_gr_zcull **gr_zcull,
 	zcull->aliquot_width = nvgpu_gr_config_get_tpc_count(config) * 16U;
 	zcull->aliquot_height = 16;
 
-	zcull->width_align_pixels =
-		nvgpu_gr_config_get_tpc_count(config) * 16U;
+	if (!nvgpu_safe_mult_u32_return(nvgpu_gr_config_get_tpc_count(config), 16U,
+		 &zcull->width_align_pixels)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto exit;
+	}
+
 	zcull->height_align_pixels = 32;
 
 	zcull->aliquot_size =
 		zcull->aliquot_width * zcull->aliquot_height;
 
+	if (!nvgpu_safe_mult_u32_return(nvgpu_gr_config_get_zcb_count(config),
+			256U, &zbc_tpc_count)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto exit;
+	}
+
+	if (!nvgpu_safe_mult_u32_return(zbc_tpc_count,
+			nvgpu_gr_config_get_tpc_count(config),
+				&zbc_tpc_count)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto exit;
+	}
+
+	if (!nvgpu_safe_mult_u32_return(nvgpu_gr_config_get_gpc_count(config),
+		 nvgpu_gr_config_get_gpc_tpc_count(config, 0U), &gpc_tpc_count)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto exit;
+	}
+
 	/* assume no floor sweeping since we only have 1 tpc in 1 gpc */
-	zcull->pixel_squares_by_aliquots =
-		nvgpu_gr_config_get_zcb_count(config) * 16U * 16U *
-		nvgpu_gr_config_get_tpc_count(config) /
-		(nvgpu_gr_config_get_gpc_count(config) *
-		 nvgpu_gr_config_get_gpc_tpc_count(config, 0U));
+	if (gpc_tpc_count != 0) {
+		zcull->pixel_squares_by_aliquots = zbc_tpc_count / gpc_tpc_count;
+	} else {
+		err = -EINVAL;
+		goto exit;
+	}
 
 exit:
 	*gr_zcull = zcull;
@@ -79,11 +109,17 @@ int nvgpu_gr_zcull_init_hw(struct gk20a *g,
 	u32 num_gpcs = nvgpu_get_litter_value(g, GPU_LIT_NUM_GPCS);
 	u32 num_tpc_per_gpc = nvgpu_get_litter_value(g,
 						GPU_LIT_NUM_TPC_PER_GPC);
-	u32 zcull_alloc_num = num_gpcs * num_tpc_per_gpc;
+	u32 zcull_alloc_num;
 	u32 map_tile_count;
 	int ret = 0;
 
 	nvgpu_log(g, gpu_dbg_gr, " ");
+
+	if (!nvgpu_safe_mult_u32_return(num_gpcs, num_tpc_per_gpc,
+			&zcull_alloc_num)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
 
 	if (nvgpu_gr_config_get_map_tiles(gr_config) == NULL) {
 		return -1;

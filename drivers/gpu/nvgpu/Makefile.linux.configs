@@ -54,6 +54,9 @@ CONFIG_NVGPU_MIG := y
 # Enable gv11b support
 CONFIG_NVGPU_SUPPORT_GV11B := y
 
+# Enable ga10b support
+CONFIG_NVGPU_SUPPORT_GA10B := y
+
 # Set config for OOT module build
 ifeq ($(CONFIG_TEGRA_OOT_MODULE),m)
 CONFIG_TEGRA_HOST1X_NEXT := m
@@ -108,6 +111,12 @@ CONFIG_NVGPU_CYCLESTATS := y
 # allows tracking context switches on GR engine, as well as
 # identifying processes that submitted work.
 CONFIG_NVGPU_FECS_TRACE := y
+
+# Enable support for the NVGPU Multimedia Tracing. In this mode,
+# timestamps for contexts loaded on Multimedia engines will be collected.
+# This allows tracking context switches on Multimedia engines, as well as
+# identifying processes that submitted work.
+CONFIG_NVGPU_MULTIMEDIA_TRACE := y
 
 # Enable support in GK20A for the nvhost (host1x) dma engine hardware
 # that includes things like hardware syncpts. This requires
@@ -271,6 +280,9 @@ endif
 ifeq ($(CONFIG_NVGPU_SUPPORT_GV11B),y)
 ccflags-y += -DCONFIG_NVGPU_SUPPORT_GV11B
 endif
+ifeq ($(CONFIG_NVGPU_SUPPORT_GA10B),y)
+ccflags-y += -DCONFIG_NVGPU_SUPPORT_GA10B
+endif
 ifeq ($(CONFIG_NVGPU_REMAP),y)
 ccflags-y += -DCONFIG_NVGPU_REMAP
 endif
@@ -291,6 +303,9 @@ ccflags-y += -DCONFIG_NVGPU_CYCLESTATS
 endif
 ifeq ($(CONFIG_NVGPU_FECS_TRACE),y)
 ccflags-y += -DCONFIG_NVGPU_FECS_TRACE
+endif
+ifeq ($(CONFIG_NVGPU_MULTIMEDIA_TRACE),y)
+ccflags-y += -DCONFIG_NVGPU_MULTIMEDIA_TRACE
 endif
 ifeq ($(CONFIG_TEGRA_GK20A_NVHOST),y)
 ccflags-y += -DCONFIG_TEGRA_GK20A_NVHOST

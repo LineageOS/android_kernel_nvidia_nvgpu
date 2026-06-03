@@ -106,8 +106,12 @@ NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_SYNCFD_NONE
 CONFIG_NVGPU_GRAPHICS                := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_GRAPHICS
 
+ifneq ($(NVGPU_HVRTOS),1)
 CONFIG_NVGPU_SUPPORT_GV11B           := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_SUPPORT_GV11B
+CONFIG_NVGPU_SUPPORT_GA10B           := 1
+NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_SUPPORT_GA10B
+endif
 
 # Enable gsp scheduler for normal build
 ifneq ($(NVGPU_HVRTOS),1)
@@ -125,6 +129,9 @@ endif
 CONFIG_NVGPU_TSG_SHARING        := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_TSG_SHARING
 
+CONFIG_NVGPU_CILP               := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_CILP
+
 # Error reporting needs to be supported in qnx-safety, qnx-standard, linux.
 # In qnx-standard, nvgpu makefile is used for RM SERVER. Since iGPU is in
 # pass through mode in all three platforms, EPL libraries should not be
@@ -135,6 +142,12 @@ NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_ENABLE_MISC_EC
 endif
 CONFIG_NVGPU_COMPRESSION             := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_COMPRESSION
+
+ifneq ($(profile),$(filter $(profile),safety_debug safety_release))
+ifneq ($(NVGPU_HVRTOS),1)
+NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_COMPRESSION_RAW
+endif
+endif
 
 ifeq ($(profile),$(filter $(profile),safety_debug safety_release))
 
@@ -274,8 +287,6 @@ NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_PROFILER
 CONFIG_NVGPU_RECOVERY           := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_RECOVERY
 
-CONFIG_NVGPU_CILP               := 1
-NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_CILP
 
 CONFIG_NVGPU_GFXP               := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_GFXP

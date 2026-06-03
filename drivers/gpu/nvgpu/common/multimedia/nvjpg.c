@@ -19,6 +19,9 @@
 #include <nvgpu/gsp.h>
 #include <nvgpu/fuse.h>
 #include "multimedia_priv.h"
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+#include "multimedia_trace_priv.h"
+#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_multimedia.h>
@@ -49,6 +52,18 @@ s32 nvgpu_nvjpg_sw_init(struct gk20a *g)
 
 	for (inst_id = 0; inst_id < NVJPG_INST_MAX; inst_id++) {
 		g->nvjpg->nvjpg_riscv[inst_id] = &g->nvjpg_riscv[inst_id];
+
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+		err = nvgpu_multimedia_alloc_trace_buf_mem(g, &g->nvjpg->trace_buf_mem[inst_id]);
+		if (err != 0) {
+			nvgpu_err(g, "nvjpg trace buffer alloc failed:%x", err);
+		}
+#endif
+	}
+
+	if (nvgpu_is_vf(g)) {
+		/* VF is enabled, engine will be booted from server */
+		goto done;
 	}
 
 	if (nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY)) {
@@ -86,7 +101,12 @@ s32 nvgpu_nvjpg_sw_deinit(struct gk20a *g)
 	struct nvgpu_nvjpg *nvjpg = g->nvjpg;
 
 	nvgpu_log(g, gpu_dbg_mme, " ");
-	if (!nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY)) {
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	for (u32 inst_id = 0; inst_id < NVJPG_INST_MAX; inst_id++) {
+		nvgpu_multimedia_free_trace_buf_mem(g, &g->nvjpg->trace_buf_mem[inst_id]);
+	}
+#endif
+	if (!nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY) && !nvgpu_is_vf(g)) {
 		/* Priv sec is enabled, Engine will be secure booted by ACR */
 		nvgpu_dma_free(g, &nvjpg->nvjpg_mem_desc);
 	}

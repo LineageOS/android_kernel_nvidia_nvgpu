@@ -2,128 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
-#include <nvgpu/channel.h>
-#include <nvgpu/runlist.h>
 #include <nvgpu/error_notifier.h>
-#include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/vgpu.h>
 
-#include "common/vgpu/ivc/comm_vgpu.h"
 #include "channel_vgpu.h"
-
-void vgpu_channel_bind(struct nvgpu_channel *ch)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_config_params *p =
-			&msg.params.channel_config;
-	int err;
-	struct gk20a *g = ch->g;
-
-	nvgpu_log_info(g, "bind channel %d", ch->chid);
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_BIND;
-	msg.handle = vgpu_get_handle(ch->g);
-	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-
-	nvgpu_smp_wmb();
-	nvgpu_atomic_set(&ch->bound, true);
-}
-
-void vgpu_channel_unbind(struct nvgpu_channel *ch)
-{
-	struct gk20a *g = ch->g;
-
-	nvgpu_log_fn(g, " ");
-
-	if (nvgpu_atomic_cmpxchg(&ch->bound, true, false)) {
-		struct tegra_vgpu_cmd_msg msg;
-		struct tegra_vgpu_channel_config_params *p =
-				&msg.params.channel_config;
-		int err;
-
-		msg.cmd = TEGRA_VGPU_CMD_CHANNEL_UNBIND;
-		msg.handle = vgpu_get_handle(ch->g);
-		p->handle = ch->virt_ctx;
-		err = vgpu_comm_sendrecv(g, &msg);
-		WARN_ON(err || msg.ret);
-	}
-
-}
-
-int vgpu_channel_alloc_inst(struct gk20a *g, struct nvgpu_channel *ch)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_hwctx_params *p = &msg.params.channel_hwctx;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_ALLOC_HWCTX;
-	msg.handle = vgpu_get_handle(g);
-	p->id = ch->chid;
-	p->runlist_id = ch->runlist->id;
-	p->pid = (u64)ch->pid;
-	err = vgpu_comm_sendrecv(g, &msg);
-	if (err || msg.ret) {
-		nvgpu_err(g, "fail");
-		return -ENOMEM;
-	}
-
-	ch->virt_ctx = p->handle;
-	nvgpu_log_fn(g, "done");
-	return 0;
-}
-
-void vgpu_channel_free_inst(struct gk20a *g, struct nvgpu_channel *ch)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_hwctx_params *p = &msg.params.channel_hwctx;
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_FREE_HWCTX;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-}
-
-void vgpu_channel_enable(struct gk20a *g, u32 runlist_id, u32 chid)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_config_params *p =
-			&msg.params.channel_config;
-	struct nvgpu_channel *ch = &g->fifo.channel[chid];
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_ENABLE;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-}
-
-void vgpu_channel_disable(struct gk20a *g, u32 runlist_id, u32 chid)
-{
-	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_channel_config_params *p =
-			&msg.params.channel_config;
-	struct nvgpu_channel *ch = &g->fifo.channel[chid];
-	int err;
-
-	nvgpu_log_fn(g, " ");
-
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_DISABLE;
-	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(g, &msg);
-	WARN_ON(err || msg.ret);
-}
 
 u32 vgpu_channel_count(struct gk20a *g)
 {
@@ -177,4 +59,11 @@ void vgpu_channel_abort_cleanup(struct gk20a *g, u32 chid)
 	nvgpu_channel_set_unserviceable(ch);
 	g->ops.channel.abort_clean_up(ch);
 	nvgpu_channel_put(ch);
+}
+
+int vgpu_channel_get_vmid(struct nvgpu_channel *ch, u32 *vmid)
+{
+	*vmid = vgpu_get_vmid(ch->g);
+
+	return 0;
 }

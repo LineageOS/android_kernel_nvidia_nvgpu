@@ -36,6 +36,19 @@ s32 thermChannelIfaceModel10Construct_ESTIMATION_V10
     // pModel10->pmuDataInit   = _thermChannelIfaceModel10PmuDataInit_ESTIMATION_V10;
     // Override super-class interfaces
     // pChEstimation10->super.super.super.stateInit = _thermChannelStateInit_ESTIMATION_V10;
+
+    // CRITICAL FIX: Copy base thermal channel data from input
+    pChEstimation10->super.super.bScaling            = pChTemp->super.super.bScaling;
+    pChEstimation10->super.super.scaling             = pChTemp->super.super.scaling;
+    pChEstimation10->super.super.offsetSW            = pChTemp->super.super.offsetSW;
+    pChEstimation10->super.super.bBounds             = pChTemp->super.super.bBounds;
+    pChEstimation10->super.super.temp_min            = pChTemp->super.super.temp_min;
+    pChEstimation10->super.super.temp_max            = pChTemp->super.super.temp_max;
+    pChEstimation10->super.super.tempSim.bSupported  = pChTemp->super.super.tempSim.bSupported;
+    pChEstimation10->super.super.tempSim.bEnabled    = pChTemp->super.super.tempSim.bEnabled;
+    pChEstimation10->super.super.tempSim.targetTemp  = pChTemp->super.super.tempSim.targetTemp;
+    pChEstimation10->super.super.chType              = pChTemp->super.super.chType;
+
     // Set THERM_CHANNEL_ESTIMATION_V10 specific parameters.
     pChEstimation10->thermChannelIdx1 = pChTemp->thermChannelIdx1;
     pChEstimation10->thermChannelIdx2 = pChTemp->thermChannelIdx2;

@@ -173,6 +173,33 @@ bool gb10b_gr_intr_is_valid_sw_method(struct gk20a *g, u32 class_num, u32 offset
 	return ret;
 }
 
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_GRAPHICS)
+void gb10b_gr_intr_set_tex_in_dbg(struct gk20a *g, u32 data)
+{
+	u32 val;
+	u32 flag;
+	u32 gpcs_tpcs_sm_l1tag_ctrl_reg_addr;
+
+	nvgpu_log_fn(g, " ");
+
+	gpcs_tpcs_sm_l1tag_ctrl_reg_addr = g->ops.gr.get_gpcs_tpcs_sm_l1tag_ctrl_reg();
+
+	val = nvgpu_readl(g, gpcs_tpcs_sm_l1tag_ctrl_reg_addr);
+	flag = (data &
+		NVC397_SET_TEX_IN_DBG_SM_L1TAG_CTRL_CACHE_SURFACE_LD) != 0U
+		? 1U : 0U;
+	val = set_field(val, gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_ld_m(),
+			gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_ld_f(flag));
+	flag = (data &
+		NVC397_SET_TEX_IN_DBG_SM_L1TAG_CTRL_CACHE_SURFACE_ST) != 0U
+		? 1U : 0U;
+
+	val = set_field(val, gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_st_m(),
+			gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_st_f(flag));
+	nvgpu_writel(g, gpcs_tpcs_sm_l1tag_ctrl_reg_addr, val);
+}
+#endif
+
 int gb10b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 			u32 class_num, u32 offset, u32 data)
 {
@@ -1596,12 +1623,16 @@ bool gb10b_gr_intr_handle_exceptions(struct gk20a *g, bool *is_gpc_exception)
 
 void gb10b_gr_intr_enable_hww_exceptions(struct gk20a *g)
 {
-	/* Enable rastwod exception. */
-	nvgpu_writel(g, gr_rstr2d_hww_esr_r(),
-		gr_rstr2d_hww_esr_en_enable_f() |
-		gr_rstr2d_hww_esr_reset_active_f());
+	if (nvgpu_support_gfx_with_numa(g) ||
+		nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 
-	gv11b_gr_intr_enable_hww_exceptions(g);
+		/* Enable rastwod exception. */
+		nvgpu_writel(g, gr_rstr2d_hww_esr_r(),
+			gr_rstr2d_hww_esr_en_enable_f() |
+			gr_rstr2d_hww_esr_reset_active_f());
+
+		gv11b_gr_intr_enable_hww_exceptions(g);
+	}
 }
 
 void gb10b_gr_intr_enable_exceptions(struct gk20a *g,

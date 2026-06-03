@@ -166,8 +166,10 @@ u32 gb10b_gr_falcon_get_compute_preemption_mode(struct gk20a *g)
 		return NVGPU_PREEMPTION_MODE_COMPUTE_WFI;
 	case gr_fecs_ctxsw_interface_ctl_fe_compute_preemption_control_cta_v():
 		return NVGPU_PREEMPTION_MODE_COMPUTE_CTA;
+#ifdef CONFIG_NVGPU_CILP
 	case gr_fecs_ctxsw_interface_ctl_fe_compute_preemption_control_cilp_v():
 		return NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
+#endif
 	default:
 		nvgpu_err(g, "invalid compute preemption mode %u",
 				compute_preemption_control);
@@ -198,6 +200,7 @@ defined(CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING)
 	case NVGPU_GR_FALCON_METHOD_START_SMPC_GLOBAL_MODE:
 	case NVGPU_GR_FALCON_METHOD_STOP_SMPC_GLOBAL_MODE:
 #endif
+	case NVGPU_PRI_FECS_METHOD_PUSH_ADR_CONTEXT_RESET:
 		op->method.data = NVGPU_NULL_METHOD_DATA;
 		break;
 	default:
@@ -385,8 +388,10 @@ int gb10b_gr_intr_handle_fecs_error(struct gk20a *g,
 				struct nvgpu_gr_isr_data *isr_data)
 {
 	int ret = 0;
+#ifdef CONFIG_NVGPU_FECS_TRACE
 	u32 mailbox_value;
 	u32 mailbox_id = NVGPU_GR_FALCON_FECS_CTXSW_MAILBOX4;
+#endif
 	struct nvgpu_fecs_host_intr_status *fecs_host_intr;
 	u32 gr_fecs_intr = isr_data->fecs_intr;
 
@@ -424,18 +429,18 @@ int gb10b_gr_intr_handle_fecs_error(struct gk20a *g,
 		ret = 0;
 	}
 
+#ifdef CONFIG_NVGPU_FECS_TRACE
 	if (fecs_host_intr->ctxsw_intr2 != 0U) {
 		mailbox_value = g->ops.gr.falcon.read_fecs_ctxsw_mailbox(g,
 								mailbox_id);
-#ifdef CONFIG_NVGPU_FECS_TRACE
 		if (mailbox_value ==
 			g->ops.gr.fecs_trace.get_buffer_full_mailbox_val()) {
 			nvgpu_info(g, "ctxsw intr2 set by ucode, "
 					"timestamp buffer full");
 			nvgpu_gr_fecs_trace_reset_buffer(g);
 		}
-#endif
 	}
+#endif
 	ret |= gv11b_gr_intr_handle_fecs_error(g, ch_ptr, isr_data);
 	return ret;
 }
@@ -444,7 +449,7 @@ void gb10b_gr_falcon_fecs_host_int_enable(struct gk20a *g)
 {
 	nvgpu_writel(g, gr_fecs_host_int_enable_r(),
 		gr_fecs_host_int_enable_ctxsw_intr0_enable_f() |
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 		gr_fecs_host_int_enable_ctxsw_intr1_enable_f() |
 #endif
 		gr_fecs_host_int_enable_ctxsw_intr2_enable_f() |

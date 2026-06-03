@@ -188,6 +188,7 @@ void nvgpu_pmu_remove_support(struct gk20a *g, struct nvgpu_pmu *pmu)
 #endif
 		nvgpu_mutex_destroy(&pmu->isr_mutex);
 		nvgpu_mutex_destroy(&pmu->ptcb_queue_mutex);
+		nvgpu_mutex_destroy(&pmu->get_status_lock);
 		if (g->ops.pmu.ecc_free != NULL) {
 			g->ops.pmu.ecc_free(g);
 		}
@@ -206,9 +207,18 @@ static void nvgpu_pmu_disable_features(struct gk20a *g)
 		g->elpg_enabled = false;
 		g->aelpg_enabled = false;
 		g->elpg_ms_enabled = false;
+		g->gpc_rg_enabled = false;
+		g->can_vid_elpg = false;
+		g->nvdec_elpg_enabled = false;
+		g->nvenc_elpg_enabled = false;
+		g->ofa_elpg_enabled = false;
 #endif
 		nvgpu_set_enabled(g, NVGPU_PMU_PERFMON, false);
 		nvgpu_set_enabled(g, NVGPU_ELPG_MS_ENABLED, false);
+		nvgpu_set_enabled(g, NVGPU_GPC_RG_ENABLED, false);
+		nvgpu_set_enabled(g, NVGPU_NVDEC_ELPG_ENABLED, false);
+		nvgpu_set_enabled(g, NVGPU_NVENC_ELPG_ENABLED, false);
+		nvgpu_set_enabled(g, NVGPU_OFA_ELPG_ENABLED, false);
 #if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
 		nvgpu_set_enabled(g, NVGPU_PMU_PSTATE, false);
 #endif
@@ -260,6 +270,7 @@ int nvgpu_pmu_early_init(struct gk20a *g)
 
 	nvgpu_mutex_init(&pmu->isr_mutex);
 	nvgpu_mutex_init(&pmu->ptcb_queue_mutex);
+	nvgpu_mutex_init(&pmu->get_status_lock);
 
 	if (!g->ops.pmu.is_pmu_supported(g)) {
 		nvgpu_pmu_disable_features(g);
@@ -271,6 +282,7 @@ int nvgpu_pmu_early_init(struct gk20a *g)
 	if (err != 0) {
 		nvgpu_mutex_destroy(&pmu->isr_mutex);
 		nvgpu_mutex_destroy(&pmu->ptcb_queue_mutex);
+		nvgpu_mutex_destroy(&pmu->get_status_lock);
 		if (g->ops.pmu.ecc_free != NULL) {
 			g->ops.pmu.ecc_free(g);
 		}

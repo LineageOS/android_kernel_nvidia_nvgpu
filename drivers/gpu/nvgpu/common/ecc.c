@@ -43,7 +43,7 @@ int nvgpu_ecc_counter_init(struct gk20a *g,
 		return -ENOMEM;
 	}
 
-	(void)strncpy(stat->name, name, NVGPU_ECC_STAT_NAME_MAX_SIZE - 1U);
+	(void)snprintf(stat->name, NVGPU_ECC_STAT_NAME_MAX_SIZE, "%s", name);
 	nvgpu_ecc_stat_add(g, stat);
 	*statp = stat;
 	return 0;

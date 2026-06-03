@@ -1,6 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/channel.h>
 #include <nvgpu/engines.h>
@@ -21,6 +20,87 @@
 #define NVENC_RUNQUE			3U	/* pbdma 3 */
 
 /*
+ * When SW moves force_ctx_reload bit to a channel, then, in order to avoid
+ * ctx_reload bit being set on two channels accidentally by HW, follow the
+ * specific sequence on enabling the channels after ctx_reload is set forcefully.
+ * (bug: 4249285 #15)
+ *
+ * ctx_reload is moved to a channel forcefully when a channel is closed/unbound
+ * - disable all the channels.
+ * - preempt tsg and wait for preemption to complete.
+ * - forcefully move ctx_reload bit to another channel if the channel being closed
+ *   had ctx_reload bit set.
+ * - remove the channel being closed from tsg->ch_list.
+ * - Enable all channels but the channel having the forced ctx_reload bit set.
+ * - trigger tsg preemption but do not wait for preemption to complete.
+ *   - There is no preempt_trigger HAL available with vGPU/VF. To make it simpler,
+ *     for all configurations: pass-through and vGPU/VF, trigger preempt and wait
+ *     for preemption to complete.
+ * - Enable the channel having forced ctx_reload bit set.
+ *
+ * In the above sequence with TSG Sharing, it is possible, other process has kept
+ * the TSG disabled while one of the processes closes the channel which had ctx_reload
+ * bit set, therefore, execute the channel enablement sequence from above bullets
+ * when TSG is enabled again.
+ */
+static void gv11b_tsg_enable_with_force_ctx_reload(struct nvgpu_tsg *tsg)
+{
+	struct gk20a *g = tsg->g;
+	struct nvgpu_channel *ch;
+	struct nvgpu_channel *last_ch = NULL;
+	struct nvgpu_channel *force_ctx_reload_ch = NULL;
+
+	nvgpu_log_fn(g, " ");
+
+	/* enable all channels but the one with ctx_reload set. */
+	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
+		if (nvgpu_atomic_read(&ch->bound) == 1) {
+			struct nvgpu_channel_hw_state hw_state;
+
+			g->ops.channel.read_state(g, ch->runlist->id, ch->chid, &hw_state);
+			if (hw_state.ctx_reload) {
+				if (force_ctx_reload_ch != NULL) {
+					nvgpu_err(g,
+					"tsg: (%u) has more than one channel with ctx_reload set",
+					tsg->tsgid);
+					goto done;
+				}
+				force_ctx_reload_ch = ch;
+			} else {
+				nvgpu_channel_enable(ch);
+				last_ch = ch;
+			}
+		} else {
+			nvgpu_log_info(g, "tsg: %u, skipped enabling unbound channel: %u",
+				       tsg->tsgid, ch->chid);
+		}
+	}
+
+	if (last_ch != NULL) {
+		g->ops.usermode.ring_doorbell(g, last_ch->runlist->id, last_ch->chid);
+	}
+
+	if (force_ctx_reload_ch != NULL) {
+		/*
+		 * Recommended sequence is to trigger preempt and not necessarily
+		 * wait for preemption to complete. However, wait for preemption
+		 * to complete to make implementation across pass-through
+		 * and vGPU/VF simpler.
+		 */
+		nvgpu_tsg_preempt(g, tsg);
+
+		// now enable the channel with ctx_reload set.
+		nvgpu_channel_enable(force_ctx_reload_ch);
+
+		g->ops.usermode.ring_doorbell(g,
+				force_ctx_reload_ch->runlist->id, force_ctx_reload_ch->chid);
+	}
+
+done:
+	nvgpu_log_fn(g, "done");
+}
+
+/*
  * TSG enable sequence applicable for Volta and onwards
  * Must always be called with tsg->ch_list_lock held.
  */
@@ -29,6 +109,18 @@ void gv11b_tsg_enable(struct nvgpu_tsg *tsg)
 	struct gk20a *g = tsg->g;
 	struct nvgpu_channel *ch;
 	struct nvgpu_channel *last_ch = NULL;
+
+	/*
+	 * if ctx_reload was set forcefully on a channel within TSG, follow a
+	 * special sequence. This is done here as TSG enable may not happen
+	 * immediately after force ctx_reload if tsg disable count was non-zero.
+	 * Therefore, when TSG enable can occur, follow this special sequence
+	 * when ctx_reload was forcefully set on a channel and return.
+	 */
+	if (tsg->has_force_ctx_reload_set) {
+		tsg->has_force_ctx_reload_set = false;
+		return gv11b_tsg_enable_with_force_ctx_reload(tsg);
+	}
 
 	nvgpu_log_fn(g, " ");
 

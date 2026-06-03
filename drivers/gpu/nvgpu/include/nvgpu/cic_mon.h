@@ -388,7 +388,6 @@ int nvgpu_cic_mon_get_err_desc(struct gk20a *g, u32 hw_unit_id,
 int nvgpu_cic_mon_report_err_safety_services(struct gk20a *g,
 		u32 err_id);
 
-#ifndef CONFIG_NVGPU_MON_PRESENT
 /**
  * @brief Get the number of HW modules supported by CIC.
  *
@@ -404,7 +403,6 @@ int nvgpu_cic_mon_report_err_safety_services(struct gk20a *g,
  * @retval -EINVAL if CIC is not initialized.
  */
 int nvgpu_cic_mon_get_num_hw_modules(struct gk20a *g);
-#endif
 
 #ifdef CONFIG_NVGPU_MON_PRESENT
 /**
@@ -613,7 +611,6 @@ void nvgpu_cic_mon_intr_stall_unit_config(struct gk20a *g, u32 unit, bool enable
 void nvgpu_cic_mon_intr_nonstall_unit_config(struct gk20a *g, u32 unit, bool enable);
 #endif
 
-#ifndef CONFIG_NVGPU_MON_PRESENT
 /**
  * @brief Disable/Pause the stalling interrupts.
  *
@@ -656,7 +653,6 @@ void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g, u64 intr_mask);
  * - Release the spinlock g->mc.intr_lock.
  */
 void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g, u64 intr_mask);
-#endif
 
 #ifdef CONFIG_NVGPU_NON_FUSA
 void nvgpu_cic_mon_intr_enable(struct gk20a *g);

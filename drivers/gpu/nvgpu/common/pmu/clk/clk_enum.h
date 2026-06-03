@@ -31,5 +31,6 @@ struct nvgpu_clk_enums {
 s32 clk_enum_init_pmupstate(struct gk20a *g);
 void clk_enum_free_pmupstate(struct gk20a *g);
 s32 clk_enum_sw_setup(struct gk20a *g);
+s32 clk_enum_pmu_setup(struct gk20a *g);
 
 #endif	/* #ifndef NVGPU_CLK_ENUM_H */

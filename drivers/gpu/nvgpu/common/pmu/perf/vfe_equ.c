@@ -20,16 +20,19 @@
 #include "perf.h"
 
 static int vfe_equ_node_depending_mask_combine(struct gk20a *g,
-		struct boardobjgrp *pboardobjgrp, u8 equ_idx,
+		struct boardobjgrp *pboardobjgrp, u16 equ_idx,
 		struct boardobjgrpmask *pmask_dst)
 {
 	int status = 0;
 	struct vfe_equ *tmp_vfe_equ;
 
-	while (equ_idx != CTRL_BOARDOBJ_IDX_INVALID) {
+	while (equ_idx != CTRL_BOARDOBJ_IDX_INVALID_16BIT) {
 		tmp_vfe_equ = (struct vfe_equ *)(void *)
 				BOARDOBJGRP_OBJ_GET_BY_IDX(
 						pboardobjgrp, equ_idx);
+		if (tmp_vfe_equ == NULL) {
+			break;
+		}
 		status = tmp_vfe_equ->mask_depending_build(g, pboardobjgrp ,
 				tmp_vfe_equ);
 		if (status != 0) {
@@ -56,8 +59,11 @@ static int vfe_equ_build_depending_mask_minmax(struct gk20a *g,
 {
 	struct vfe_equ_minmax *pequ_mm =
 			(struct vfe_equ_minmax *)(void *)pvfe_equ;
-	int status;
+	int status = 0;
 
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return status;
+	}
 	status = vfe_equ_node_depending_mask_combine(g, pboardobjgrp,
 			pequ_mm->equ_idx0, &pvfe_equ->mask_depending_vars.super);
 	if (status != 0) {
@@ -80,10 +86,17 @@ static int vfe_equ_build_depending_mask_super(struct gk20a *g,
 {
 	struct vfe_var *tmp_vfe_var;
 	struct boardobjgrp *pboardobjgrp =
-			&g->pmu->perf_pmu->vfe_varobjs.super.super;
+		&g->pmu->perf_pmu->vfe_varobjs.super.super;
+
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return 0;
+	}
 
 	tmp_vfe_var = (struct vfe_var *)(void *)BOARDOBJGRP_OBJ_GET_BY_IDX(
 			pboardobjgrp, pvfe_equ->var_idx);
+	if (tmp_vfe_var == NULL) {
+		return 0;
+	}
 
 	pvfe_equ->mask_depending_vars = tmp_vfe_var->mask_depending_vars;
 
@@ -97,6 +110,10 @@ static int vfe_equ_build_depending_mask_compare(struct gk20a *g,
 	struct vfe_equ_compare *pequ_cmp =
 			(struct vfe_equ_compare *)(void *)pvfe_equ;
 	int status;
+
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return 0;
+	}
 
 	status = vfe_equ_build_depending_mask_super(g, pvfe_equ);
 	if (status != 0) {
@@ -123,11 +140,76 @@ static int vfe_equ_build_depending_mask_compare(struct gk20a *g,
 	return status;
 }
 
+static int vfe_equ_mask_depending_build_quad_n_internel(struct gk20a *g,
+	struct boardobjgrp *pboardobjgrp, struct vfe_equ *pvfe_equ,
+	struct ctrl_perf_vfe_param *param)
+{
+	struct vfe_var *pvfe_var;
+	struct boardobjgrp *pboardobjgrp_vfe_var;
+	int status = 0;
+
+	pboardobjgrp_vfe_var = &g->pmu->perf_pmu->vfe_varobjs.super.super;
+	switch (param->param_type) {
+	case CTRL_PERF_VFE_PARAMS_TYPE_LITERAL_CONSTANT:
+		break;
+	case CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX:
+		pvfe_var = (struct vfe_var *)
+			BOARDOBJGRP_OBJ_GET_BY_IDX(pboardobjgrp_vfe_var,
+				param->param.var_idx);
+		status = nvgpu_boardobjmask_or(&(pvfe_equ->mask_depending_vars.super),
+				&(pvfe_equ->mask_depending_vars.super),
+				&(pvfe_var->mask_depending_vars.super));
+		break;
+	case CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX:
+		status = vfe_equ_node_depending_mask_combine(g,
+				pboardobjgrp, param->param.equ_idx,
+				&(pvfe_equ->mask_depending_vars.super));
+		break;
+	default:
+		 break;
+	}
+
+	return status;
+}
+
+static int vfe_equ_build_depending_mask_quad_n(struct gk20a *g,
+	struct boardobjgrp *pboardobjgrp,  struct vfe_equ *pvfe_equ)
+{
+	struct vfe_equ_quadratic_n *vfe_equ_quad_n =
+		(struct vfe_equ_quadratic_n *)pvfe_equ;
+	u32 i = 0U;
+	int status = 0;
+	struct ctrl_perf_vfe_param *param;
+
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return 0;
+	}
+
+	for (i = 0; i < vfe_equ_quad_n->arg_count; i++) {
+		param = &vfe_equ_quad_n->args[i];
+		status = vfe_equ_mask_depending_build_quad_n_internel(g,
+				pboardobjgrp, pvfe_equ, param);
+	}
+
+	for (i = 0; i < vfe_equ_quad_n->coeff_count; i++) {
+		param = &vfe_equ_quad_n->coeffs[i];
+		status = vfe_equ_mask_depending_build_quad_n_internel(g,
+				pboardobjgrp, pvfe_equ, param);
+	}
+
+	return status;
+}
+
 static int vfe_equ_build_depending_mask_quad(struct gk20a *g,
 		struct boardobjgrp *pboardobjgrp,
 		struct vfe_equ *pvfe_equ)
 {
 	(void)pboardobjgrp;
+
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return 0;
+	}
+
 	return vfe_equ_build_depending_mask_super(g, pvfe_equ);
 }
 
@@ -138,6 +220,10 @@ static int vfe_equ_build_depending_mask_equ_scalar(struct gk20a *g,
 	struct vfe_equ_scalar *pequ_escalar =
 			(struct vfe_equ_scalar *)(void *)pvfe_equ;
 	int status;
+
+	if (!nvgpu_boardobjmask_iszero(&pvfe_equ->mask_depending_vars.super)) {
+		return 0;
+	}
 
 	status = vfe_equ_build_depending_mask_super(g, pvfe_equ);
 	if (status != 0) {
@@ -162,7 +248,7 @@ static int vfe_equ_dependency_mask_build(struct gk20a *g,
 	int status = 0;
 	struct vfe_equ *tmp_vfe_equ;
 	struct vfe_var *tmp_vfe_var;
-	u8 index_1, index_2;
+	u16 index_1 = 0, index_2 = 0;
 	struct pmu_board_obj *obj_tmp_1 = NULL, *obj_tmp_2 = NULL;
 	struct boardobjgrp *pboardobjgrp_equ = &(pvfe_equs->super.super);
 	struct boardobjgrp *pboardobjgrp_var = &(pvfe_vars->super.super);
@@ -179,6 +265,8 @@ static int vfe_equ_dependency_mask_build(struct gk20a *g,
 			return status;
 		}
 	}
+
+	index_1 = 0;
 	/* Initialize mask_dependent_vars */
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp_equ, struct pmu_board_obj*,
 			obj_tmp_1, index_1) {
@@ -206,7 +294,7 @@ static int vfe_equs_pmudatainit(struct gk20a *g,
 {
 	int status = 0;
 
-	status = boardobjgrp_pmu_data_init_e255(g, pboardobjgrp, pboardobjgrppmu);
+	status = boardobjgrp_pmudatainit_e2048(g, pboardobjgrp, pboardobjgrppmu);
 	if (status != 0) {
 		nvgpu_err(g, "error updating pmu boardobjgrp for vfe equ 0x%x",
 			  status);
@@ -220,13 +308,13 @@ done:
 static int vfe_equs_pmudata_instget(struct gk20a *g,
 				     struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 				     struct nv_pmu_boardobj **pmu_obj,
-				     u8 idx)
+				     u16 idx)
 {
 	struct nv_pmu_perf_vfe_equ_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_perf_vfe_equ_boardobj_grp_set *)(void *)pmuboardobjgrp;
 
 	/* check whether pmuboardobjgrp has a valid boardobj in index */
-	if (idx >= CTRL_BOARDOBJGRP_E255_MAX_OBJECTS) {
+	if (idx >= CTRL_BOARDOBJGRP_E2048_MAX_OBJECTS) {
 		return -EINVAL;
 	}
 
@@ -286,7 +374,7 @@ static int vfe_equ_construct_super(struct gk20a *g,
 
 	*obj = (struct pmu_board_obj *)(void *)pvfeequ;
 
-	status = boardobjgrpmask_e32_init(&pvfeequ->mask_depending_vars, NULL);
+	status = boardobjgrpmask_e255_init(&pvfeequ->mask_depending_vars, NULL);
 	pvfeequ->super.pmudatainit =
 			vfe_equ_pmudatainit_super;
 
@@ -320,6 +408,7 @@ static int vfe_equ_pmudatainit_compare(struct gk20a *g,
 	pset->equ_idx_true = pvfe_equ_compare->equ_idx_true;
 	pset->equ_idx_false = pvfe_equ_compare->equ_idx_false;
 	pset->criteria = pvfe_equ_compare->criteria;
+	pset->b_is_criteria_equ = pvfe_equ_compare->b_is_criteria_equ;
 
 	return status;
 }
@@ -355,7 +444,7 @@ static int vfe_equ_construct_compare(struct gk20a *g,
 	pvfeequ->equ_idx_true = ptmpequ->equ_idx_true;
 	pvfeequ->equ_idx_false = ptmpequ->equ_idx_false;
 	pvfeequ->criteria = ptmpequ->criteria;
-
+	pvfeequ->b_is_criteria_equ = ptmpequ->b_is_criteria_equ;
 
 	return status;
 }
@@ -477,15 +566,47 @@ static int vfe_equ_construct_quadratic(struct gk20a *g,
 	return status;
 }
 
+static int vfe_equ_pmudatainit_quadratic_n(struct gk20a *g,
+					  struct pmu_board_obj *obj,
+					  struct nv_pmu_boardobj *pmu_obj)
+{
+	int status = 0;
+	struct vfe_equ_quadratic_n *pvfe_equ_quadratic_n;
+	struct nv_pmu_vfe_equ_quadratic_n *pset;
+	u32 i;
+
+	status = vfe_equ_pmudatainit_super(g, obj, pmu_obj);
+	if (status != 0) {
+		return status;
+	}
+
+	pvfe_equ_quadratic_n = (struct vfe_equ_quadratic_n *)(void *)obj;
+
+	pset = (struct nv_pmu_vfe_equ_quadratic_n *)(void *)pmu_obj;
+
+	pset->arg_count = pvfe_equ_quadratic_n->arg_count;
+	pset->coeff_count = pvfe_equ_quadratic_n->coeff_count;
+
+	for (i = 0; i < pset->arg_count; i++) {
+		pset->args[i] = pvfe_equ_quadratic_n->args[i];
+	}
+
+	for (i = 0; i < pset->coeff_count; i++) {
+		pset->coeffs[i] = pvfe_equ_quadratic_n->coeffs[i];
+	}
+
+	return status;
+}
+
+
 static int vfe_equ_construct_quadratic_n(struct gk20a *g,
 				       struct pmu_board_obj **obj,
 				       size_t size, void *pargs)
 {
-	/* TODO : Fix needed for quadratic_n*/
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
-	struct vfe_equ_quadratic *pvfeequ;
-	struct vfe_equ_quadratic *ptmpequ =
-			(struct vfe_equ_quadratic *)pargs;
+	struct vfe_equ_quadratic_n *pvfeequ;
+	struct vfe_equ_quadratic_n *ptmpequ =
+			(struct vfe_equ_quadratic_n *)pargs;
 	int status = 0;
 	u32 i;
 
@@ -499,15 +620,48 @@ static int vfe_equ_construct_quadratic_n(struct gk20a *g,
 		return -EINVAL;
 	}
 
-	pvfeequ = (struct vfe_equ_quadratic *)(void *)*obj;
+	pvfeequ = (struct vfe_equ_quadratic_n *)(void *)*obj;
 	pvfeequ->super.mask_depending_build =
-			vfe_equ_build_depending_mask_quad;
+			vfe_equ_build_depending_mask_quad_n;
 
 	pvfeequ->super.super.pmudatainit =
-			vfe_equ_pmudatainit_quadratic;
+			vfe_equ_pmudatainit_quadratic_n;
 
-	for (i = 0; i < CTRL_PERF_VFE_EQU_QUADRATIC_COEFF_COUNT; i++) {
-		pvfeequ->coeffs[i] = ptmpequ->coeffs[i];
+	pvfeequ->arg_count = ptmpequ->arg_count;
+	pvfeequ->coeff_count = ptmpequ->coeff_count;
+	for (i = 0; i < ptmpequ->arg_count; i++) {
+		/*Fix needed */
+		(void)memset((u8 *)&pvfeequ->args[i], 0xee,
+				sizeof(struct ctrl_perf_vfe_param));
+	}
+
+	for (i = 0; i < ptmpequ->arg_count; i++) {
+		//pvfeequ->args[i] = ptmpequ->args[i];
+		pvfeequ->args[i].param_type = ptmpequ->args[i].param_type;
+		if (pvfeequ->args[i].param_type == CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX) {
+			pvfeequ->args[i].param.var_idx = ptmpequ->args[i].param.var_idx;
+		} else if (pvfeequ->args[i].param_type == CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX) {
+			pvfeequ->args[i].param.equ_idx = ptmpequ->args[i].param.equ_idx;
+		} else {
+			pvfeequ->args[i].param.literal_value = ptmpequ->args[i].param.literal_value;
+		}
+	}
+	for (i = 0; i < ptmpequ->coeff_count; i++) {
+		/* Fix needed */
+		(void)memset((u8 *)&pvfeequ->coeffs[i], 0xee,
+				sizeof(struct ctrl_perf_vfe_param));
+	}
+
+	for (i = 0; i < ptmpequ->coeff_count; i++) {
+		//pvfeequ->coeffs[i] = ptmpequ->coeffs[i];
+		pvfeequ->coeffs[i].param_type = ptmpequ->coeffs[i].param_type;
+		if (pvfeequ->coeffs[i].param_type == CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX) {
+			pvfeequ->coeffs[i].param.var_idx = ptmpequ->coeffs[i].param.var_idx;
+		} else if (pvfeequ->coeffs[i].param_type == CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX) {
+			pvfeequ->coeffs[i].param.equ_idx = ptmpequ->coeffs[i].param.equ_idx;
+		} else {
+			pvfeequ->coeffs[i].param.literal_value = ptmpequ->coeffs[i].param.literal_value;
+		}
 	}
 
 	return status;
@@ -663,15 +817,14 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 	u8 *rd_offset_ptr = NULL;
 	u32 index = 0;
 	struct vfe_equ *pequ;
-	u8 i, param_idx;
+	u8 i;
+	u16 param_idx;
 	u8 equ_type = 0;
 	u8 cmp_func = 0U;
 	u8 equ_id = 0;
-	u32 szfmt;
 	bool done = false;
-	u32 hdrszfmt = 0;
 	u16 equ_count = 0U;
-	union {
+	union equ_data{
 		struct pmu_board_obj obj;
 		struct vfe_equ super;
 		struct vfe_equ_compare compare;
@@ -679,6 +832,7 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 		struct vfe_equ_quadratic quadratic;
 		struct vfe_equ_scalar scalar;
 		struct vfe_equ_quadratic_n quadratic_n;
+		u8 pad[144];
 	} equ_data;
 
 	vfeequs_tbl_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
@@ -691,29 +845,29 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 	}
 
 	nvgpu_memcpy((u8 *)&vfeequs_tbl_header, vfeequs_tbl_ptr,
-			VBIOS_VFE_3X_HEADER_SIZE_0E);
-	if (vfeequs_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_0E) {
-		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_0E;
+			VBIOS_VFE_3X_HEADER_SIZE_13);
+	if (vfeequs_tbl_header.header_size >= VBIOS_VFE_3X_HEADER_SIZE_13) {
 		nvgpu_memcpy((u8 *)&vfeequs_tbl_header,
-				vfeequs_tbl_ptr, hdrszfmt);
+				vfeequs_tbl_ptr, sizeof(struct vbios_vfe_3x_header_struct));
 	} else {
-		nvgpu_err(g, "Invalid VFE Table Header size\n");
+		nvgpu_err(g, "Invalid VFE Table Header size: %d",
+			vfeequs_tbl_header.header_size);
 		status = -EINVAL;
 		goto done;
 	}
 
-	if (vfeequs_tbl_header.vfe_equ_entry_size ==
+	if (vfeequs_tbl_header.vfe_equ_entry_size <
 			VBIOS_VFE_3X_EQU_ENTRY_SIZE_19) {
-		szfmt = VBIOS_VFE_3X_EQU_ENTRY_SIZE_19;
-	} else {
-		nvgpu_err(g, "Invalid VFE EQU entry size\n");
+		nvgpu_err(g, "Invalid VFE EQU entry size: %d",
+			vfeequs_tbl_header.vfe_equ_entry_size);
 		status = -EINVAL;
 		goto done;
 	}
 
-	vfeequs_tbl_entry_ptr = vfeequs_tbl_ptr + hdrszfmt +
+	vfeequs_tbl_entry_ptr = vfeequs_tbl_ptr + vfeequs_tbl_header.header_size +
 		(vfeequs_tbl_header.vfe_var_entry_count *
 		 vfeequs_tbl_header.vfe_var_entry_size);
+	pvfeequobjs->b_vfe_equ_16bit_idx_supported = true;
 	equ_count = ((vfeequs_tbl_header.vfe_equ_entry_count) |
 			(vfeequs_tbl_header.vfe_equ_entry_count_hi8bytes << 8U));
 	for (index = 0; index < equ_count; index++) {
@@ -723,12 +877,12 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 		rd_offset_ptr = vfeequs_tbl_entry_ptr +
 			(index * vfeequs_tbl_header.vfe_equ_entry_size);
 
-		nvgpu_memcpy((u8 *)&equ, rd_offset_ptr, szfmt);
+		nvgpu_memcpy((u8 *)&equ, rd_offset_ptr,
+			sizeof(struct vbios_vfe_3x_equ_entry_struct));
 
 		equ_data.super.var_idx = (u8)equ.var_idx;
 		equ_data.super.equ_idx_next =
-			(equ.equ_idx_next == VBIOS_VFE_3X_EQU_ENTRY_IDX_INVALID) ?
-			CTRL_BOARDOBJ_IDX_INVALID : (u8)equ.equ_idx_next;
+			(u16)((equ.equ_idx_next) | (equ.equ_idx_next_high_8bits << 8));
 		equ_data.super.out_range_min = equ.out_range_min;
 		equ_data.super.out_range_max = equ.out_range_max;
 
@@ -814,6 +968,7 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_DISABLED:
 			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_FXP:
 			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX_FXP:
+				(void) memset(&equ_data, 0, sizeof(union equ_data));
 				continue;
 				break;
 
@@ -829,12 +984,10 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 				equ_data.minmax.b_max = BIOS_GET_FIELD(bool, equ.param0,
 					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT) &&
 					(VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT_MAX != 0U);
-				equ_data.minmax.equ_idx0 = BIOS_GET_FIELD(u8,
-					equ.param0,
-					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_0);
-				equ_data.minmax.equ_idx1 = BIOS_GET_FIELD(u8,
-					equ.param0,
-					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_1);
+				equ_data.minmax.equ_idx0 = (equ.param0 & 0xFF) |
+							((equ.param1 & 0xFF) << 8);
+				equ_data.minmax.equ_idx1 = ((equ.param0 & 0xFF00) >> 8) |
+							(equ.param1 & 0xFF00);
 				break;
 
 			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_COMPARE:
@@ -865,13 +1018,16 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 				if (status != 0) {
 					goto done;
 				}
-				equ_data.compare.equ_idx_true = BIOS_GET_FIELD(u8,
-					equ.param1,
-					VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_TRUE);
-				equ_data.compare.equ_idx_false = BIOS_GET_FIELD(u8,
-					equ.param1,
-					VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_FALSE);
-				equ_data.compare.criteria = equ.param0;
+				equ_data.compare.b_is_criteria_equ = equ.param3 & (1 << 4);
+				equ_data.compare.equ_idx_true = (equ.param1 & 0xFF) |
+								((equ.param2 & 0xFF) << 8);
+				equ_data.compare.equ_idx_false = ((equ.param1 & 0xFF00) >> 8) |
+								((equ.param2 & 0xFF00));
+				if (equ_data.compare.b_is_criteria_equ) {
+					equ_data.compare.criteria.equidx = (u16)equ.param0;
+				} else {
+					equ_data.compare.criteria.literalvalue = equ.param0;
+				}
 				break;
 
 		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_EQUATION_SCALAR:
@@ -889,7 +1045,7 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 			equ_id  = BIOS_GET_FIELD(u8, equ.param0,
 					VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR);
 			vfe_equ_quadratic_n_convert_to_internal_id(equ_id, &equ_data.quadratic_n);
-			param_idx = BIOS_GET_FIELD(u8, equ.param0,
+			param_idx = BIOS_GET_FIELD(u16, equ.param0,
 					VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_PARAM_START_IDX);
 			for (i = 0; i < equ_data.quadratic_n.arg_count; i++) {
 				equ_data.quadratic_n.args[i] = pmu_perf->vfe_paramsobjs[param_idx];
@@ -923,7 +1079,7 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 		}
 
 		status = boardobjgrp_objinsert(&pvfeequobjs->super.super,
-					       (struct pmu_board_obj *)pequ, (u8)index);
+					       (struct pmu_board_obj *)pequ, (u16)index);
 		if (status != 0) {
 			nvgpu_err(g, "error adding vfe_equ boardobj %d", index);
 			status = -EINVAL;
@@ -941,6 +1097,15 @@ int perf_vfe_equ_sw_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct vfe_equs *pvfeequobjs;
 	struct vfe_vars *pvfevarobjs;
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->perf_pmu->vfe_equobjs.super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "perf vfe_equ boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing perf vfe_equ boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e2048(g,
 			&g->pmu->perf_pmu->vfe_equobjs.super);

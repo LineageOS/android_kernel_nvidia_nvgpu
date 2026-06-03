@@ -282,6 +282,12 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 
 	g->ch_wdt_init_limit_ms = platform->ch_wdt_init_limit_ms;
 
+	err = nvgpu_init_soc_vars(g);
+	if (err) {
+		nvgpu_err(g, "init soc vars failed");
+		return err;
+	}
+
 	/* Initialize the platform interface. */
 	err = platform->probe(dev);
 	if (err) {

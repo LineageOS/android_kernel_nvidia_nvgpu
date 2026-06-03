@@ -14,12 +14,15 @@
 #include <nvgpu/pmu/pmu_pg.h>
 #include <nvgpu/pmu/fw.h>
 #include <nvgpu/pmu/seq.h>
+#include <nvgpu/pmu/cmd.h>
 #include <nvgpu/pmu/pmu_model_20.h>
 #include <nvgpu/pmu/pmuif/init.h>
 #include <nvgpu/pmu/pmuif/cmn.h>
 #include <nvgpu/pmu/pmuif/cmdmgmt.h>
 #include <nvgpu/io.h>
 #include <nvgpu/hw/gk20a/hw_pwr_gk20a.h>
+#include <nvgpu/pmu/clk/clk.h>
+#include "../clk/clk.h"
 
 static int pmu_payload_extract(struct nvgpu_pmu *pmu, struct pmu_sequence *seq)
 {
@@ -388,6 +391,8 @@ static s32 pmu_handle_event_ptcb(struct nvgpu_pmu *pmu, struct pmu_msg *msg,
 	s32 err = 0;
 	struct gk20a *g = pmu->g;
 
+	(void)msg;
+
 	nvgpu_log_fn(g, " ");
 
 	switch (pmu_rpc->event_rpc.hdr.unit_id) {
@@ -398,7 +403,7 @@ static s32 pmu_handle_event_ptcb(struct nvgpu_pmu *pmu, struct pmu_msg *msg,
 	case PMU_UNIT_PERF:
 		if (g->ops.pmu_perf.handle_pmu_perf_event != NULL) {
 			err = g->ops.pmu_perf.handle_pmu_perf_event(g,
-				(void *)&msg->hdr);
+				(void *)pmu_rpc);
 		} else {
 			WARN_ON(true);
 		}
@@ -600,6 +605,7 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 	struct gk20a *g = pmu->g;
 	struct pmu_fw_ver_ops *fw_ops = &g->pmu->fw->ops;
 	union pmu_init_msg_pmu *init;
+	u32 client_mask = 0;
 	int err = 0;
 
 	nvgpu_log_fn(g, " ");
@@ -609,6 +615,14 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 	(void)memset((void *)msg, 0x0, sizeof(struct pmu_msg));
 
 	init = fw_ops->get_init_msg_ptr(&(msg->msg.init));
+
+	if (pmu->is_pmu_ucode_model_20) {
+		err = nvgpu_pmu_wait_fw_driver_register_ready(g);
+		if (err != 0) {
+			nvgpu_err(g, "PMU not moved to register_ready state");
+			goto exit;
+		}
+	}
 
 	err = nvgpu_pmu_queues_init(g, init, &pmu->queues,
 			nvgpu_pmu_super_surface_mem(g, pmu,
@@ -629,15 +643,15 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 
 	/* For PMU 2.0 no isr from riscv. Start driver register */
 	if (pmu->is_pmu_ucode_model_20) {
-		err = nvgpu_pmu_wait_fw_driver_register_ready(g);
-		if (err != 0) {
-			nvgpu_err(g, "PMU not moved to register_ready state");
-			goto exit;
-		}
-
 		nvgpu_pmu_set_fw_ready(g, pmu, true);
 
-		err = nvgpu_pmu_driver_register_send(g, register_start);
+		if (g->can_elpg) {
+			client_mask |= PMU_DRIVER_REGISTER_CLIENT_PG;
+		}
+		if (nvgpu_is_enabled(g, NVGPU_PMU_PSTATE)) {
+			client_mask |= PMU_DRIVER_REGISTER_CLIENT_PSTATE;
+		}
+		err = nvgpu_pmu_driver_register_send(g, register_start, client_mask);
 		if (err != 0) {
 			nvgpu_err(g, "Failed sending driver register start");
 			goto exit;
@@ -646,7 +660,7 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 		nvgpu_pmu_fw_state_change(g, pmu, PMU_FW_STATE_INIT_RECEIVED, true);
 		/* In case pmu_pg_task not running, send driver register complete */
 		if (!g->can_elpg) {
-			err = nvgpu_pmu_driver_register_send(g, register_complete);
+			err = nvgpu_pmu_driver_register_send(g, register_complete, 0);
 			if (err != 0) {
 				nvgpu_err(g, "Failed sending driver register complete");
 				goto exit;
@@ -682,7 +696,6 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 		nvgpu_pmu_set_fw_ready(g, pmu, true);
 
 		nvgpu_pmu_fw_state_change(g, pmu, PMU_FW_STATE_INIT_RECEIVED, true);
-
 	}
 
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
@@ -799,6 +812,10 @@ static void pmu_rpc_handler(struct gk20a *g, struct nv_pmu_rpc_header rpc,
 {
 	struct nvgpu_pmu *pmu = g->pmu;
 
+	if (PMU_PSTATE_RPC_UNIT_ID(rpc.unit_id)) {
+		pmu->pmu_unit_rpc_pending[rpc.unit_id] = false;
+	}
+
 	switch (rpc.unit_id) {
 	case PMU_UNIT_ACR:
 		nvgpu_pmu_lsfm_rpc_handler(g, rpc_payload);
@@ -813,7 +830,7 @@ static void pmu_rpc_handler(struct gk20a *g, struct nv_pmu_rpc_header rpc,
 		}
 		break;
 	case PMU_UNIT_CLK:
-		nvgpu_pmu_dbg(g, "reply PMU_UNIT_CLK");
+		nvgpu_pmu_clk_rpc_handler(g, &rpc);
 		break;
 	case PMU_UNIT_PERF:
 		nvgpu_pmu_dbg(g, "reply PMU_UNIT_PERF");
@@ -845,6 +862,14 @@ static void pmu_rpc_handler(struct gk20a *g, struct nv_pmu_rpc_header rpc,
 			nvgpu_pmu_dbg(g, "registerEvent %d",
 			((struct pmu_rpc_struct_driver_register_event *)
 			rpc_payload->rpc_buff)->registerEvent);
+		}
+		break;
+	case PMU_UNIT_PERF_CF:
+		nvgpu_pmu_dbg(g, "reply PMU_UNIT_PERF_CF");
+		if (rpc.function == (u8)NV_PMU_RPC_ID_PERF_CF_LOAD) {
+			nvgpu_pmu_dbg(g, "Perf CF load rpc received");
+			pmu->perf_cf->perf_cf_metadata->perf_cf_top_metadata.perf_cf_top_state =
+				PERF_CF_LOAD_RPC_COMPLETED;
 		}
 		break;
 	default:

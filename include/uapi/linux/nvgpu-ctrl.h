@@ -2,6 +2,15 @@
  * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
+/* Legacy node:   /dev/nvhost-ctrl-gpu device
+ * New hierarchy: /dev/nvgpu/igpu0/ctrl
+ *
+ * This device serves as the core control node for NvGPU. From this node
+ * one can query GPU device information, instantiate GPU device objects
+ * (TSGs, address spaces, etc), and do various other non-context specific
+ * things.
+ */
+
 #ifndef _UAPI__LINUX_NVGPU_CTRL_H__
 #define _UAPI__LINUX_NVGPU_CTRL_H__
 
@@ -9,70 +18,514 @@
 
 #define NVGPU_GPU_IOCTL_MAGIC 'G'
 
-/* return zcull ctx size */
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_ZCULL_GET_CTX_SIZE IOCTL: NVGPU_GPU_IOCTL_ZCULL_GET_CTX_SIZE
+ * @brief Returns the Z-cull context size.
+ *
+ * This IOCTL retrieves the size of the Z-cull context buffer required for the GPU.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_zcull_get_ctx_size_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_ZCULL_GET_INFO
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_GET_CTX_SIZE
+ * @brief Header struct for @ref NVGPURM_INTF_ZCULL_GET_CTX_SIZE.
+ */
 struct nvgpu_gpu_zcull_get_ctx_size_args {
+	/**
+	 * @brief Z-cull context size in bytes
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Required Z-cull context buffer size</dd>
+	 * </dl>
+	 */
 	__u32 size;
 };
 
-/* return zcull info */
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_ZCULL_GET_INFO IOCTL: NVGPU_GPU_IOCTL_ZCULL_GET_INFO
+ * @brief Returns Z-cull configuration information.
+ *
+ * This IOCTL retrieves detailed Z-cull configuration parameters for the GPU.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_zcull_get_info_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_ZCULL_GET_CTX_SIZE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_GET_INFO
+ * @brief Header struct for @ref NVGPURM_INTF_ZCULL_GET_INFO.
+ */
 struct nvgpu_gpu_zcull_get_info_args {
+	/**
+	 * @brief Width alignment requirement in pixels
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Required width alignment for Z-cull buffers</dd>
+	 * </dl>
+	 */
 	__u32 width_align_pixels;
+
+	/**
+	 * @brief Height alignment requirement in pixels
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Required height alignment for Z-cull buffers</dd>
+	 * </dl>
+	 */
 	__u32 height_align_pixels;
+
+	/**
+	 * @brief Number of pixel squares per aliquot
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Pixel squares organized per aliquot unit</dd>
+	 * </dl>
+	 */
 	__u32 pixel_squares_by_aliquots;
+
+	/**
+	 * @brief Total number of aliquots
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Total aliquot count for Z-cull organization</dd>
+	 * </dl>
+	 */
 	__u32 aliquot_total;
+
+	/**
+	 * @brief Region byte multiplier
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Multiplier for calculating region memory requirements</dd>
+	 * </dl>
+	 */
 	__u32 region_byte_multiplier;
+
+	/**
+	 * @brief Size of region header in bytes
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Header size for each Z-cull region</dd>
+	 * </dl>
+	 */
 	__u32 region_header_size;
+
+	/**
+	 * @brief Size of subregion header in bytes
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Header size for each Z-cull subregion</dd>
+	 * </dl>
+	 */
 	__u32 subregion_header_size;
+
+	/**
+	 * @brief Subregion width alignment requirement in pixels
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Required width alignment for Z-cull subregions</dd>
+	 * </dl>
+	 */
 	__u32 subregion_width_align_pixels;
+
+	/**
+	 * @brief Subregion height alignment requirement in pixels
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Required height alignment for Z-cull subregions</dd>
+	 * </dl>
+	 */
 	__u32 subregion_height_align_pixels;
+
+	/**
+	 * @brief Number of subregions
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Total count of Z-cull subregions</dd>
+	 * </dl>
+	 */
 	__u32 subregion_count;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_ZBC_SET_TABLE
+ * @ingroup NVGPURM_INTF_ZBC_QUERY_TABLE
+ * @{
+ */
+
+/**
+ * @brief Size of ZBC color value array.
+ *
+ * Defines the number of 32-bit elements in the ZBC color value arrays
+ * for both displayable surface and L2 cache clear operations.
+ */
 #define NVGPU_ZBC_COLOR_VALUE_SIZE	4
+
+/**
+ * @brief Invalid ZBC type.
+ *
+ * Used to indicate an invalid or unspecified ZBC table entry type.
+ */
 #define NVGPU_ZBC_TYPE_INVALID		0
+
+/**
+ * @brief ZBC color buffer clear type.
+ *
+ * Specifies that the ZBC table entry is for color buffer clear operations.
+ */
 #define NVGPU_ZBC_TYPE_COLOR		1
+
+/**
+ * @brief ZBC depth buffer clear type.
+ *
+ * Specifies that the ZBC table entry is for depth buffer clear operations.
+ */
 #define NVGPU_ZBC_TYPE_DEPTH		2
+
+/**
+ * @brief ZBC stencil buffer clear type.
+ *
+ * Specifies that the ZBC table entry is for stencil buffer clear operations.
+ */
 #define NVGPU_ZBC_TYPE_STENCIL		3
 
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_ZBC_SET_TABLE IOCTL: NVGPU_GPU_IOCTL_ZBC_SET_TABLE
+ * @brief Sets Zero-Bandwidth Clear table entry.
+ *
+ * This IOCTL configures a ZBC table entry.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_zbc_set_table_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid ZBC type or format
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_ZBC_QUERY_TABLE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ZBC_SET_TABLE
+ * @brief Header struct for @ref NVGPURM_INTF_ZBC_SET_TABLE.
+ */
 struct nvgpu_gpu_zbc_set_table_args {
+	/**
+	 * @brief Color clear values for displayable surface
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Color values array for displayable surface clear</dd>
+	 * </dl>
+	 */
 	__u32 color_ds[NVGPU_ZBC_COLOR_VALUE_SIZE];
+
+	/**
+	 * @brief Color clear values for L2 cache
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Color values array for L2 cache clear</dd>
+	 * </dl>
+	 */
 	__u32 color_l2[NVGPU_ZBC_COLOR_VALUE_SIZE];
+
+	/**
+	 * @brief Depth clear value
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Depth buffer clear value</dd>
+	 * </dl>
+	 */
 	__u32 depth;
+
+	/**
+	 * @brief Stencil clear value
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Stencil buffer clear value</dd>
+	 * </dl>
+	 */
 	__u32 stencil;
+
+	/**
+	 * @brief Buffer format
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Format specification for the clear operation</dd>
+	 * </dl>
+	 */
 	__u32 format;
-	__u32 type;	/* color, depth or stencil */
+
+	/**
+	 * @brief ZBC clear type
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Type of clear operation (color, depth, or stencil)</dd>
+	 * </dl>
+	 *
+	 * Range: @c #NVGPU_ZBC_TYPE_COLOR, @c #NVGPU_ZBC_TYPE_DEPTH,
+	 * @c #NVGPU_ZBC_TYPE_STENCIL
+	 */
+	__u32 type;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_ZBC_QUERY_TABLE IOCTL: NVGPU_GPU_IOCTL_ZBC_QUERY_TABLE
+ * @brief Queries Zero-Bandwidth Clear table entry.
+ *
+ * This IOCTL retrieves an IOCTL entry at a specified index.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_zbc_query_table_args</td>
+ *   <td>@c #nvgpu_gpu_zbc_query_table_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid index or table entry
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_ZBC_SET_TABLE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ZBC_QUERY_TABLE
+ * @brief Header struct for @ref NVGPURM_INTF_ZBC_QUERY_TABLE.
+ */
 struct nvgpu_gpu_zbc_query_table_args {
+	/**
+	 * @brief Color clear values for displayable surface
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Color values array for displayable surface clear</dd>
+	 * </dl>
+	 */
 	__u32 color_ds[NVGPU_ZBC_COLOR_VALUE_SIZE];
+
+	/**
+	 * @brief Color clear values for L2 cache
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Color values array for L2 cache clear</dd>
+	 * </dl>
+	 */
 	__u32 color_l2[NVGPU_ZBC_COLOR_VALUE_SIZE];
+
+	/**
+	 * @brief Depth clear value
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Depth buffer clear value</dd>
+	 * </dl>
+	 */
 	__u32 depth;
+
+	/**
+	 * @brief Stencil clear value
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Stencil buffer clear value</dd>
+	 * </dl>
+	 */
 	__u32 stencil;
+
+	/**
+	 * @brief Reference count
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Number of references to this ZBC table entry</dd>
+	 * </dl>
+	 */
 	__u32 ref_cnt;
+
+	/**
+	 * @brief Buffer format
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Format specification for the clear operation</dd>
+	 * </dl>
+	 */
 	__u32 format;
-	__u32 type;		/* color, depth or stencil */
-	__u32 index_size;	/* [out] size, [in] index */
+
+	/**
+	 * @brief ZBC clear type
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Type of clear operation (color, depth, or stencil)</dd>
+	 * </dl>
+	 *
+	 * Range: @c #NVGPU_ZBC_TYPE_COLOR, @c #NVGPU_ZBC_TYPE_DEPTH,
+	 * @c #NVGPU_ZBC_TYPE_STENCIL
+	 */
+	__u32 type;
+
+	/**
+	 * @brief Table index and size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>ZBC table index to query</dd>
+	 *   <dt>[out]</dt><dd>Size of ZBC table</dd>
+	 * </dl>
+	 */
+	__u32 index_size;
 };
 
 
-/* This contains the minimal set by which the userspace can
-   determine all the properties of the GPU */
+/**
+ * @ingroup NVGPURM_INTF_GET_CHARACTERISTICS
+ * @{
+ */
+
+/**
+ * @brief GPU architecture and implementation identifiers.
+ *
+ * This contains the minimal set by which userspace can determine all the
+ * properties of the GPU. The chip ID is constructed by combining the
+ * architecture and implementation values: chip_id = arch | impl.
+ */
+
+/**
+ * @brief Kepler GK100 architecture identifier.
+ */
 #define NVGPU_GPU_ARCH_GK100	0x000000E0
+
+/**
+ * @brief Maxwell GM200 architecture identifier.
+ */
 #define NVGPU_GPU_ARCH_GM200	0x00000120
+
+/**
+ * @brief Pascal GP100 architecture identifier.
+ */
 #define NVGPU_GPU_ARCH_GP100	0x00000130
+
+/**
+ * @brief Volta GV110 architecture identifier.
+ */
 #define NVGPU_GPU_ARCH_GV110	0x00000150
+
+/**
+ * @brief Volta GV100 architecture identifier.
+ */
 #define NVGPU_GPU_ARCH_GV100	0x00000140
 
+/**
+ * @brief Kepler GK20A implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GK20A	0x0000000A
+
+/**
+ * @brief Maxwell GM204 implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GM204	0x00000004
+
+/**
+ * @brief Maxwell GM206 implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GM206	0x00000006
+
+/**
+ * @brief Maxwell GM20B implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GM20B	0x0000000B
+
+/**
+ * @brief Maxwell GM20B_B implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GM20B_B	0x0000000E
+
+/**
+ * @brief Pascal GP104 implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GP104	0x00000004
+
+/**
+ * @brief Pascal GP106 implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GP106	0x00000006
+
+/**
+ * @brief Pascal GP10B implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GP10B	0x0000000B
+
+/**
+ * @brief Volta GV11B implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GV11B	0x0000000B
+
+/**
+ * @brief Volta GV100 implementation identifier.
+ */
 #define NVGPU_GPU_IMPL_GV100	0x00000000
+
+/** @} */
 
 /**
  * @ingroup NVGPURM_LINUX_IOCTL_CTRL
@@ -337,7 +790,7 @@ struct nvgpu_gpu_zbc_query_table_args {
 /**
  * @brief Usermode submit channels are supported.
  *
- * @sa @c #NVGPU_ALLOC_GPFIFO_EX_FLAGS_USERMODE_SUPPORT
+ * @sa @c #NVGPU_CHANNEL_SETUP_BIND_FLAGS_USERMODE_SUPPORT
  */
 #define NVGPU_GPU_FLAGS_SUPPORT_USERMODE_SUBMIT				NVGPU_BIT64(30)
 
@@ -456,6 +909,11 @@ struct nvgpu_gpu_zbc_query_table_args {
 #define NVGPU_GPU_FLAGS_SUPPORT_ZBC					NVGPU_BIT64(44)
 
 /**
+ * @brief HES CWD binding support.
+ */
+#define NVGPU_GPU_FLAGS_SUPPORT_CWD_HES					NVGPU_BIT64(45)
+
+/**
  * @brief Profiler V2 device objects are supported.
  *
  * @remark Not supported in safety
@@ -538,7 +996,7 @@ struct nvgpu_gpu_zbc_query_table_args {
  *
  * @remark Multiprocess TSG sharing is not available in safety.
  *
- * @sa @ref NVGPURM_INTF_TSG_OPEN_TSG
+ * @sa @ref NVGPURM_INTF_OPEN_TSG
  * @sa @ref NVGPURM_INTF_TSG_GET_SHARE_TOKEN
  * @sa @ref NVGPURM_INTF_TSG_REVOKE_SHARE_TOKEN
  */
@@ -1071,7 +1529,7 @@ struct nvgpu_gpu_characteristics {
 	 * Possible mask bits:
 	 * - @c #NVGPU_COMPUTE_PREEMPTION_MODE_WFI
 	 * - @c #NVGPU_COMPUTE_PREEMPTION_MODE_CTA
-	 * - @c #NVGPU_COMPUTE_PREEMPTION_MODE_CILP (not in safety)
+	 * - @c #NVGPU_COMPUTE_PREEMPTION_MODE_CILP (Not in Orin SoC safety)
 	 */
 	__u32 compute_preemption_mode_flags;
 
@@ -1257,6 +1715,34 @@ struct nvgpu_gpu_characteristics {
 	 */
 	__u64 device_instance_id;
 
+	/*
+	 * @brief Maximum number of channels supported for a runlist. Currently
+	 * used as a global limit.
+	 *
+	 * This limit is provided in CHANNEL_CONFIG register. nvgpu should be
+	 * able to create these many number of channels without any software
+	 * restrictions.
+	 *
+	 * Earlier, nvgpu had restricted this limit based on number of
+	 * syncpoints available. Number of syncpoints available for
+	 * GPU usage will likely be lesser than this limit. However,
+	 * userspace can create more number of channels without
+	 * syncpoints.
+	 *
+	 * Currently this limit is used by nvgpu globally for all runlists of
+	 * all supported engines. In future, this limit can be maintained
+	 * per runlist.
+	 */
+	__u32 hw_num_channels;
+
+	/*
+	 * @brief Maximum number of syncpoints available in the GPU pool.
+	 *
+	 * Platforms have different number of syncpoints available. These are
+	 * used by the userspace during channel creation based on need.
+	 */
+	__u32 gpu_num_syncpts;
+
 	/* Notes:
 	   - This struct can be safely appended with new fields. However, always
 	     keep the structure size multiple of 8 and make sure that the binary
@@ -1306,43 +1792,310 @@ struct nvgpu_gpu_get_characteristics {
 	__u64 gpu_characteristics_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ
+ * @ingroup NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE
+ * @{
+ */
+
+/**
+ * @brief No compression bits.
+ *
+ * Indicates that no compression is used.
+ */
 #define NVGPU_GPU_COMPBITS_NONE		0
+
+/**
+ * @brief GPU compression bits.
+ *
+ * Indicates that GPU-based compression is used.
+ */
 #define NVGPU_GPU_COMPBITS_GPU		(1 << 0)
+
+/**
+ * @brief CDEH compression bits.
+ *
+ * Indicates that CDE (Color decompression engine) in horizontal format is used.
+ */
 #define NVGPU_GPU_COMPBITS_CDEH		(1 << 1)
+
+/**
+ * @brief CDEV compression bits.
+ *
+ * Indicates that CDE (Color decompression engine) in horizontal format is used.
+ */
 #define NVGPU_GPU_COMPBITS_CDEV		(1 << 2)
 
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ IOCTL: NVGPU_GPU_IOCTL_PREPARE_COMPRESSIBLE_READ
+ * @brief Prepares a compressible buffer for reading.
+ *
+ * This IOCTL prepares a compressible surface for read operations by setting up
+ * compression metadata and synchronization. It handles the decompression setup
+ * and provides synchronization mechanisms to ensure the buffer is ready for
+ * GPU read operations.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_prepare_compressible_read_args</td>
+ *   <td>@c #nvgpu_gpu_prepare_compressible_read_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer handle or parameters
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ
+ * @brief Header struct for @ref NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ.
+ */
 struct nvgpu_gpu_prepare_compressible_read_args {
-	__u32 handle;			/* in, dmabuf fd */
+	/**
+	 * @brief Buffer handle
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>DMA-buf file descriptor of the buffer</dd>
+	 * </dl>
+	 */
+	__u32 handle;
+
 	union {
-		__u32 request_compbits;	/* in */
-		__u32 valid_compbits;	/* out */
+		/**
+		 * @brief Requested compression bits
+		 *
+		 * <dl>
+		 *   <dt>[in]</dt><dd>Requested compression configuration</dd>
+		 * </dl>
+		 */
+		__u32 request_compbits;
+
+		/**
+		 * @brief Valid compression bits
+		 *
+		 * <dl>
+		 *   <dt>[out]</dt><dd>Actual compression configuration available</dd>
+		 * </dl>
+		 */
+		__u32 valid_compbits;
 	};
-	__u64 offset;			/* in, within handle */
-	__u64 compbits_hoffset;		/* in, within handle */
-	__u64 compbits_voffset;		/* in, within handle */
-	__u32 width;			/* in, in pixels */
-	__u32 height;			/* in, in pixels */
-	__u32 block_height_log2;	/* in */
-	__u32 submit_flags;		/* in (NVGPU_SUBMIT_GPFIFO_FLAGS_) */
+
+	/**
+	 * @brief Buffer offset
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Offset within the buffer handle</dd>
+	 * </dl>
+	 */
+	__u64 offset;
+
+	/**
+	 * @brief Compression bits horizontal offset
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Horizontal offset for compression metadata within handle</dd>
+	 * </dl>
+	 */
+	__u64 compbits_hoffset;
+
+	/**
+	 * @brief Compression bits vertical offset
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Vertical offset for compression metadata within handle</dd>
+	 * </dl>
+	 */
+	__u64 compbits_voffset;
+
+	/**
+	 * @brief Surface width
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Width of the surface in pixels</dd>
+	 * </dl>
+	 */
+	__u32 width;
+
+	/**
+	 * @brief Surface height
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Height of the surface in pixels</dd>
+	 * </dl>
+	 */
+	__u32 height;
+
+	/**
+	 * @brief Block height log2
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Log2 of block height for tiled surfaces</dd>
+	 * </dl>
+	 */
+	__u32 block_height_log2;
+
+	/**
+	 * @brief Submit flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>GPFIFO submission flags</dd>
+	 * </dl>
+	 */
+	__u32 submit_flags;
+
 	union {
 		struct {
+			/**
+			 * @brief Syncpoint ID
+			 */
 			__u32 syncpt_id;
+
+			/**
+			 * @brief Syncpoint value
+			 */
 			__u32 syncpt_value;
 		};
+
+		/**
+		 * @brief Fence file descriptor
+		 */
 		__s32 fd;
-	} fence;			/* in/out */
-	__u32 zbc_color;		/* out */
-	__u32 reserved;		/* must be zero */
-	__u64 scatterbuffer_offset;	/* in, within handle */
-	__u32 reserved2[2];		/* must be zero */
+	} fence;
+
+	/**
+	 * @brief ZBC color index
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Zero-bandwidth clear color index</dd>
+	 * </dl>
+	 */
+	__u32 zbc_color;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
+	__u32 reserved;
+
+	/**
+	 * @brief Scatter buffer offset
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Offset for scatter buffer within handle</dd>
+	 * </dl>
+	 */
+	__u64 scatterbuffer_offset;
+
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
+	__u32 reserved2[2];
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE IOCTL: NVGPU_GPU_IOCTL_MARK_COMPRESSIBLE_WRITE
+ * @brief Marks a compressible buffer after writing.
+ *
+ * This IOCTL marks a compressible surface after write operations are complete.
+ * It updates the compression metadata to reflect the current state of the
+ * buffer and ensures proper compression tag management for subsequent
+ * operations.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_mark_compressible_write_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer handle or parameters
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE
+ * @brief Header struct for @ref NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE.
+ */
 struct nvgpu_gpu_mark_compressible_write_args {
-	__u32 handle;			/* in, dmabuf fd */
-	__u32 valid_compbits;		/* in */
-	__u64 offset;			/* in, within handle */
-	__u32 zbc_color;		/* in */
-	__u32 reserved[3];		/* must be zero */
+	/**
+	 * @brief Buffer handle
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>DMA-buf file descriptor of the buffer</dd>
+	 * </dl>
+	 */
+	__u32 handle;
+
+	/**
+	 * @brief Valid compression bits
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Compression configuration to mark as valid</dd>
+	 * </dl>
+	 */
+	__u32 valid_compbits;
+
+	/**
+	 * @brief Buffer offset
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Offset within the buffer handle</dd>
+	 * </dl>
+	 */
+	__u64 offset;
+
+	/**
+	 * @brief ZBC color index
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zero-bandwidth clear color index</dd>
+	 * </dl>
+	 */
+	__u32 zbc_color;
+
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
+	__u32 reserved[3];
 };
 
 /**
@@ -1547,18 +2300,46 @@ struct nvgpu_alloc_as_args {
 	__u32 padding[6];
 };
 
-/*
- * Size of share token.
+/**
+ * @ingroup NVGPURM_INTF_OPEN_TSG
+ * @{
+ */
+
+/**
+ * @brief Size of TSG share token.
  *
- * With multi-process TSG sharing, this token is created by
- * concatenating: 64b source device instance identifier and
- * 64b token that identifies the TSG sharing between the
- * source and target device instances.
+ *  @remark Currently, this token is created by concatenating:
+ * - 64-bit source device instance identifier
+ * - 64-bit token that identifies the TSG sharing between the source and target device instances
+ *
+ * Total size is 16 bytes (128 bits).
+ * The caller should treat the share token as an opaque string of bytes.
  */
 #define NVGPU_TSG_SHARE_TOKEN_SIZE		((size_t)16U)
 
-/*
- * NVGPU_GPU_IOCTL_OPEN_TSG - create/share TSG ioctl.
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_OPEN_TSG
+ * @{
+ */
+
+/**
+ * @brief Share existing TSG hardware resources.
+ *
+ * Specify that the newly created TSG file descriptor will map to existing
+ * hardware TSG resources rather than allocating new ones. This flag is used
+ * for multi-process TSG sharing.
+ */
+#define NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE	((__u32)1U << 0U)
+
+/** @} */
+
+/* Arguments for NVGPU_GPU_IOCTL_OPEN_TSG */
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_OPEN_TSG IOCTL: NVGPU_GPU_IOCTL_OPEN_TSG
+ * @brief Opens a TSG (Task Submission Group).
  *
  * This IOCTL allocates one of the available TSG for user when called
  * without share token specified. When called with share token specified,
@@ -1574,30 +2355,67 @@ struct nvgpu_alloc_as_args {
  * This is used for a security check when creating a TSG share token with
  * nvgpu_tsg_get_share_token.
  *
- * return 0 on success, -1 on error.
- * retval EINVAL if invalid parameters are specified (if TSG_FLAGS_SHARE
- *               is set but source_device_instance_id and/or share token
- *               are zero or TSG_FLAGS_SHARE is not set but other
- *               arguments are non-zero).
- * retval EINVAL if share token doesn't exist or is expired.
+ * @remark TSG fd returned by this ioctl should be used to issue ioctls of group
+ * @ref NVGPURM_LINUX_IOCTL_TSG
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_open_tsg_args</td>
+ *   <td>@c #nvgpu_gpu_open_tsg_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- If share token doesn't exist or is expired.
+ * - @c EINVAL --- If invalid parameters are specified (if @c #NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE
+ *                 is set but source_device_instance_id and/or share token are zero or
+ *                 TSG_FLAGS_SHARE is not set but other arguments are non-zero).
+ * - @c ENOMEM --- Insufficient memory to create TSG
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
  */
 
-/*
- * Specify that the newly created TSG fd will map to existing hardware
- * TSG resources.
+/**
+ * @ingroup NVGPURM_INTF_OPEN_TSG
+ * @brief Header struct for @ref NVGPURM_INTF_OPEN_TSG.
  */
-#define NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE	((__u32)1U << 0U)
-
-/* Arguments for NVGPU_GPU_IOCTL_OPEN_TSG */
 struct nvgpu_gpu_open_tsg_args {
-	__u32 tsg_fd;		/* out: tsg fd */
-	__u32 flags;		/* in: NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_* */
+	/**
+	 * @brief TSG file descriptor
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>File descriptor for the created or shared TSG</dd>
+	 * </dl>
+	 */
+	__u32 tsg_fd;
 
-	/*
-	 * in: share token obtained from
-	 * NVGPU_TSG_IOCTL_GET_SHARE_TOKEN. Ignored when
-	 * NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE
-	 * is unset.
+	/**
+	 * @brief TSG creation flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Flags controlling TSG creation or sharing</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_*
+	 */
+	__u32 flags;
+
+	/**
+	 * @brief Share token for TSG sharing
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>When @c #NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE is set, share token
+	 *    obtained from a previous call to NVGPU_TSG_IOCTL_GET_SHARE_TOKEN.
+	 *    Ignored otherwise.</dd>
+	 * </dl>
 	 */
 	__u8 share_token[NVGPU_TSG_SHARE_TOKEN_SIZE];
 };
@@ -1863,70 +2681,345 @@ struct nvgpu_gpu_get_rop_masks_args {
 	__u64 mask_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_GPC_LOCAL_TO_PHYSICAL_MAP IOCTL: NVGPU_GPU_IOCTL_GET_GPC_LOCAL_TO_PHYSICAL_MAP
+ * @brief Gets GPC local-to-physical index mapping.
+ *
+ * This IOCTL retrieves the mapping from local GPC indexes to physical GPC
+ * indexes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_gpc_physical_map_args</td>
+ *   <td>@c #nvgpu_gpu_get_gpc_physical_map_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>Physical GPC mapping array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_GPC_LOCAL_TO_PHYSICAL_MAP
+ * @brief Header struct for @ref NVGPURM_INTF_GET_GPC_LOCAL_TO_PHYSICAL_MAP.
+ */
 struct nvgpu_gpu_get_gpc_physical_map_args {
-	/* [in] GPC logical-map-buffer size. It must be
-	 * sizeof(__u32) * popcnt(gpc_mask)
+	/**
+	 * @brief GPC mapping buffer size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>GPC mapping buffer size. Must be sizeof(__u32) * popcnt(gpc_mask)</dd>
+	 * </dl>
 	 */
 	__u32 map_buf_size;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* [out] pointer to array of u32 entries.
-	 * For each entry, index=local gpc index and value=physical gpc index.
+	/**
+	 * @brief Pointer to physical GPC mapping buffer
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Pointer to array of u32 entries. For each entry,
+	 *     index=local gpc index and value=physical gpc index.</dd>
+	 * </dl>
 	 */
 	__u64 physical_gpc_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_GPC_LOCAL_TO_LOGICAL_MAP IOCTL: NVGPU_GPU_IOCTL_GET_GPC_LOCAL_TO_LOGICAL_MAP
+ * @brief Gets GPC local-to-logical index mapping.
+ *
+ * This IOCTL retrieves the mapping from local GPC indexes to logical GPC
+ * indexes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_gpc_logical_map_args</td>
+ *   <td>@c #nvgpu_gpu_get_gpc_logical_map_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>Logical GPC mapping array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_GPC_LOCAL_TO_LOGICAL_MAP
+ * @brief Header struct for @ref NVGPURM_INTF_GET_GPC_LOCAL_TO_LOGICAL_MAP.
+ */
 struct nvgpu_gpu_get_gpc_logical_map_args {
-	/* [in] GPC logical-map-buffer size. It must be
-	 * sizeof(__u32) * popcnt(gpc_mask)
+	/**
+	 * @brief GPC mapping buffer size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>GPC logical mapping buffer size. Must be sizeof(__u32) * popcnt(gpc_mask)</dd>
+	 * </dl>
 	 */
 	__u32 map_buf_size;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* [out] pointer to array of u32 entries.
-	 * For each entry, index=local gpc index and value=logical gpc index.
+	/**
+	 * @brief Pointer to logical GPC mapping buffer
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Pointer to array of u32 entries. For each entry,
+	 *     index=local gpc index and value=logical gpc index.</dd>
+	 * </dl>
 	 */
 	__u64 logical_gpc_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_FBP_LOCAL_TO_PHYSICAL_MAP IOCTL: NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_PHYSICAL_MAP
+ * @brief Gets FBP local-to-physical index mapping.
+ *
+ * This IOCTL retrieves the mapping from local FBP indexes to physical FBP
+ * indexes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_physical_map_args</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_physical_map_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>Physical FBP mapping array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_LOCAL_TO_PHYSICAL_MAP
+ * @brief Header struct for @ref NVGPURM_INTF_GET_FBP_LOCAL_TO_PHYSICAL_MAP.
+ */
 struct nvgpu_gpu_get_fbp_physical_map_args {
-	/* [in] FBP logical-map-buffer size. It must be
-	 * sizeof(__u32) * popcnt(fbp_mask)
+	/**
+	 * @brief FBP mapping buffer size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>FBP mapping buffer size. Must be sizeof(__u32) * popcnt(fbp_mask)</dd>
+	 * </dl>
 	 */
 	__u32 map_buf_size;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* [out] pointer to array of u32 entries.
-	 * For each entry, index=local fbp index and value=physical fbp index.
+	/**
+	 * @brief Pointer to physical FBP mapping buffer
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Pointer to array of u32 entries. For each entry,
+	 *     index=local fbp index and value=physical fbp index.</dd>
+	 * </dl>
 	 */
 	__u64 physical_fbp_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_FBP_LOCAL_TO_LOGICAL_MAP IOCTL: NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_LOGICAL_MAP
+ * @brief Gets FBP local-to-logical index mapping.
+ *
+ * This IOCTL retrieves the mapping from local FBP indexes to logical FBP
+ * indexes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_logical_map_args</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_logical_map_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>Logical FBP mapping array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_LOCAL_TO_LOGICAL_MAP
+ * @brief Header struct for @ref NVGPURM_INTF_GET_FBP_LOCAL_TO_LOGICAL_MAP.
+ */
 struct nvgpu_gpu_get_fbp_logical_map_args {
-	/* [in] FBP logical-map-buffer size. It must be
-	 * sizeof(__u32) * popcnt(fbp_mask)
+	/**
+	 * @brief FBP mapping buffer size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>FBP logical mapping buffer size. Must be sizeof(__u32) * popcnt(fbp_mask)</dd>
+	 * </dl>
 	 */
 	__u32 map_buf_size;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* [out] pointer to array of u32 entries.
-	 * For each entry, index=local fbp index and value=logical fbp index.
+	/**
+	 * @brief Pointer to logical FBP mapping buffer
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Pointer to array of u32 entries. For each entry,
+	 *     index=local fbp index and value=logical fbp index.</dd>
+	 * </dl>
 	 */
 	__u64 logical_fbp_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_OPEN_CHANNEL IOCTL: NVGPU_GPU_IOCTL_OPEN_CHANNEL
+ * @brief Opens a GPU channel for command submission.
+ *
+ * This IOCTL creates a new GPU channel that can be used to submit work
+ * to the GPU. Channels are the fundamental mechanism for applications
+ * to communicate with GPU engines and submit command buffers for execution.
+ *
+ * @remark Channel fd returned by this ioctl should be used to issue ioctls of group
+ * @ref NVGPURM_LINUX_IOCTL_CHANNEL
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_open_channel_args</td>
+ *   <td>@c #nvgpu_gpu_open_channel_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid runlist ID
+ * - @c ENOMEM --- Insufficient memory to create channel
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_OPEN_CHANNEL
+ * @brief Header struct for @ref NVGPURM_INTF_OPEN_CHANNEL.
+ */
 struct nvgpu_gpu_open_channel_args {
 	union {
-		__s32 channel_fd; /* deprecated: use out.channel_fd instead */
+		/**
+		 * @brief Channel file descriptor (deprecated)
+		 *
+		 * @deprecated Use out.channel_fd instead
+		 */
+		__s32 channel_fd;
+
 		struct {
-			 /* runlist_id is the runlist for the
-			  * channel. Basically, the runlist specifies the target
-			  * engine(s) for which the channel is
-			  * opened. Runlist_id -1 is synonym for the primary
-			  * graphics runlist. */
+			/**
+			 * @brief Runlist identifier
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Runlist ID specifying the target engine(s).
+			 *     Value -1 is synonym for the primary graphics runlist.</dd>
+			 * </dl>
+			 */
 			__s32 runlist_id;
 		} in;
+
 		struct {
+			/**
+			 * @brief Channel file descriptor
+			 *
+			 * <dl>
+			 *   <dt>[out]</dt><dd>File descriptor for the created channel</dd>
+			 * </dl>
+			 */
 			__s32 channel_fd;
 		} out;
 	};
@@ -2038,33 +3131,301 @@ struct nvgpu_gpu_l2_fb_args {
 	__u32 reserved;
 } __packed;
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_SET_MMU_DEBUG_MODE IOCTL: NVGPU_GPU_IOCTL_SET_MMUDEBUG_MODE
+ * @brief Sets MMU debug mode.
+ *
+ * This IOCTL enables or disables MMU debug mode for the GPU. When MMU debug
+ * mode is enabled, additional debugging information is available for memory
+ * management unit operations and faults. This is primarily used for
+ * development and debugging purposes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_mmu_debug_mode_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid state parameter
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_MMU_DEBUG_MODE
+ * @brief Header struct for @ref NVGPURM_INTF_SET_MMU_DEBUG_MODE.
+ */
 struct nvgpu_gpu_mmu_debug_mode_args {
+	/**
+	 * @brief Debug mode state
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>0 to disable MMU debug mode, 1 to enable</dd>
+	 * </dl>
+	 */
 	__u32 state;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_SET_SM_DEBUG_MODE IOCTL: NVGPU_GPU_IOCTL_SET_SM_DEBUG_MODE
+ * @brief Sets SM debug mode.
+ *
+ * This IOCTL enables or disables SM (Streaming Multiprocessor) debug mode
+ * for a specific channel. When SM debug mode is enabled, additional debugging
+ * capabilities are available for shader debugging and profiling. This allows
+ * fine-grained control over which SMs are affected by debug operations.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_sm_debug_mode_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid channel file descriptor or SM mask
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_SM_DEBUG_MODE
+ * @brief Header struct for @ref NVGPURM_INTF_SET_SM_DEBUG_MODE.
+ */
 struct nvgpu_gpu_sm_debug_mode_args {
+	/**
+	 * @brief Channel file descriptor
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>File descriptor of the channel to apply debug mode to</dd>
+	 * </dl>
+	 */
 	int channel_fd;
+
+	/**
+	 * @brief Enable debug mode
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>1 to enable SM debug mode, 0 to disable</dd>
+	 * </dl>
+	 */
 	__u32 enable;
+
+	/**
+	 * @brief SM mask
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Bitmask specifying which SMs to apply debug mode to</dd>
+	 * </dl>
+	 */
 	__u64 sms;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_WAIT_FOR_PAUSE
+ * @brief Warp state information structure.
+ */
 struct warpstate {
+	/**
+	 * @brief Valid warps bitmask
+	 *
+	 * 128-bit bitmask indicating which warps are valid
+	 */
 	__u64 valid_warps[2];
+
+	/**
+	 * @brief Trapped warps bitmask
+	 *
+	 * 128-bit bitmask indicating which warps are trapped
+	 */
 	__u64 trapped_warps[2];
+
+	/**
+	 * @brief Paused warps bitmask
+	 *
+	 * 128-bit bitmask indicating which warps are paused
+	 */
 	__u64 paused_warps[2];
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_WAIT_FOR_PAUSE IOCTL: NVGPU_GPU_IOCTL_WAIT_FOR_PAUSE
+ * @brief Waits for GPU to reach pause state.
+ *
+ * This IOCTL waits for the GPU to reach a paused state and returns warp
+ * state information. This is typically used during debugging operations
+ * to synchronize with GPU execution and examine the state of warps.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_wait_pause_args</td>
+ *   <td>@c #nvgpu_gpu_wait_pause_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Operation not supported/implemented
+ * - @c ENOMEM --- Memory allocation failed
+ * - @c EINVAL --- Invalid warp state pointer
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_WAIT_FOR_PAUSE
+ * @brief Header struct for @ref NVGPURM_INTF_WAIT_FOR_PAUSE.
+ */
 struct nvgpu_gpu_wait_pause_args {
+	/**
+	 * @brief Pointer to warp state
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to warpstate structure to receive state information</dd>
+	 *   <dt>[out]</dt><dd>Warp state information</dd>
+	 * </dl>
+	 */
 	__u64 pwarpstate;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_TPC_EXCEPTION_EN_STATUS IOCTL: NVGPU_GPU_IOCTL_GET_TPC_EXCEPTION_EN_STATUS
+ * @brief Gets TPC exception enable status.
+ *
+ * This IOCTL retrieves the current TPC (Texture Processing Cluster) exception
+ * enable status. It returns a bitmask indicating which SMs have TPC exceptions
+ * enabled for debugging purposes.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_tpc_exception_en_status_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_TPC_EXCEPTION_EN_STATUS
+ * @brief Header struct for @ref NVGPURM_INTF_GET_TPC_EXCEPTION_EN_STATUS.
+ */
 struct nvgpu_gpu_tpc_exception_en_status_args {
+	/**
+	 * @brief TPC exception enable SM mask
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Bitmask indicating which SMs have TPC exceptions enabled</dd>
+	 * </dl>
+	 */
 	__u64 tpc_exception_en_sm_mask;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_NUM_VSMS IOCTL: NVGPU_GPU_IOCTL_NUM_VSMS
+ * @brief Gets the number of virtual SMs.
+ *
+ * This IOCTL retrieves the number of virtual Streaming Multiprocessors (SMs)
+ * available in the current GPU configuration.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_num_vsms</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_NUM_VSMS
+ * @brief Header struct for @ref NVGPURM_INTF_NUM_VSMS.
+ */
 struct nvgpu_gpu_num_vsms {
+	/**
+	 * @brief Number of virtual SMs
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Number of virtual Streaming Multiprocessors</dd>
+	 * </dl>
+	 */
 	__u32 num_vsms;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
 
@@ -2346,24 +3707,124 @@ struct nvgpu_gpu_get_buffer_info_args {
 	};
 };
 
+/**
+ * @ingroup NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO
+ * @{
+ */
+
+/**
+ * @brief Maximum number of CPU-GPU time correlation samples.
+ *
+ * Defines the maximum number of timestamp correlation samples that can be
+ * retrieved in a single ioctl call.
+ */
 #define NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_MAX_COUNT		16
+
+/**
+ * @brief TSC (Time Stamp Counter) clock source.
+ *
+ * Specifies that the CPU timestamp should use the Time Stamp Counter as
+ * the clock source for correlation samples.
+ */
 #define NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_SRC_ID_TSC		1
+
+/**
+ * @brief OS time clock source.
+ *
+ * Specifies that the CPU timestamp should use the operating system time
+ * as the clock source for correlation samples.
+ */
 #define NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_SRC_ID_OSTIME	2
 
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO
+ * @brief CPU-GPU time correlation sample.
+ */
 struct nvgpu_gpu_get_cpu_time_correlation_sample {
-	/* gpu timestamp value */
+	/**
+	 * @brief CPU timestamp value
+	 *
+	 * CPU timestamp in the format specified by source_id
+	 */
 	__u64 cpu_timestamp;
-	/* raw GPU counter (PTIMER) value */
+
+	/**
+	 * @brief GPU timestamp value
+	 *
+	 * Raw GPU counter (PTIMER) value in nanoseconds
+	 */
 	__u64 gpu_timestamp;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO IOCTL: NVGPU_GPU_IOCTL_GET_CPU_TIME_CORRELATION_INFO
+ * @brief Gets CPU-GPU time correlation samples.
+ *
+ * This IOCTL retrieves synchronized CPU and GPU timestamp pairs to enable
+ * correlation between CPU and GPU timelines.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_cpu_time_correlation_info_args</td>
+ *   <td>@c #nvgpu_gpu_get_cpu_time_correlation_info_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid source ID or count
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO
+ * @brief Header struct for @ref NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO.
+ */
 struct nvgpu_gpu_get_cpu_time_correlation_info_args {
-	/* timestamp pairs */
+	/**
+	 * @brief Timestamp sample pairs
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Array of CPU-GPU timestamp correlation samples</dd>
+	 * </dl>
+	 */
 	struct nvgpu_gpu_get_cpu_time_correlation_sample samples[
 		NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_MAX_COUNT];
-	/* number of pairs to read */
+
+	/**
+	 * @brief Number of sample pairs to read
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Number of timestamp pairs to retrieve</dd>
+	 * </dl>
+	 *
+	 * Range: [1, @c NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_MAX_COUNT]
+	 */
 	__u32 count;
-	/* cpu clock source id */
+
+	/**
+	 * @brief CPU clock source ID
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Specifies which CPU clock source to use</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_SRC_ID_TSC,
+	 * @c NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_SRC_ID_OSTIME
+	 */
 	__u32 source_id;
 };
 
@@ -2465,6 +3926,9 @@ struct nvgpu_gpu_get_gpu_time_args {
 /** @brief Engine type: NVJPG */
 #define NVGPU_GPU_ENGINE_ID_NVJPG 8
 
+/** @brief Engine type MAX */
+#define NVGPU_GPU_ENGINE_ID_MAX 9
+
 /**
  * @}
  */
@@ -2562,110 +4026,346 @@ struct nvgpu_gpu_get_engine_info_args {
 	__u64 engine_info_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_ALLOC_VIDMEM
+ * @{
+ */
+
+/**
+ * @brief Allocate contiguous video memory.
+ *
+ * Requests that the video memory allocation be physically contiguous.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_CONTIGUOUS		(1U << 0)
 
-/* CPU access and coherency flags (3 bits). Use CPU access with care,
- * BAR resources are scarce. */
+/**
+ * @brief CPU access and coherency flags.
+ *
+ * These flags control CPU access to the allocated video memory.
+ * Use CPU access with care, as BAR resources are scarce.
+ */
+
+/**
+ * @brief CPU not mappable.
+ *
+ * The allocated video memory cannot be mapped to CPU address space.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_CPU_NOT_MAPPABLE	(0U << 1)
+
+/**
+ * @brief CPU write-combine access.
+ *
+ * The allocated video memory can be mapped to CPU with write-combine caching.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_CPU_WRITE_COMBINE	(1U << 1)
+
+/**
+ * @brief CPU cached access.
+ *
+ * The allocated video memory can be mapped to CPU with full caching.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_CPU_CACHED		(2U << 1)
+
+/**
+ * @brief CPU access mode mask.
+ *
+ * Mask for extracting CPU access mode bits from the flags.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_CPU_MASK		(7U << 1)
 
+/**
+ * @brief Allocate in Video Protected Region (VPR).
+ *
+ * Requests that the video memory be allocated in the VPR for secure content.
+ */
 #define NVGPU_GPU_ALLOC_VIDMEM_FLAG_VPR			(1U << 4)
 
-/* Allocation of device-specific local video memory. Returns dmabuf fd
- * on success. */
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_ALLOC_VIDMEM IOCTL: NVGPU_GPU_IOCTL_ALLOC_VIDMEM
+ * @brief Allocates device-specific local video memory.
+ *
+ * This IOCTL allocates local video memory on discrete GPUs. The allocation
+ * returns a DMA-buf file descriptor that can be used for mapping and sharing
+ * the allocated memory. Various allocation options are available including
+ * contiguous allocation, CPU access modes, and VPR (Video Protected Region)
+ * support.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_alloc_vidmem_args</td>
+ *   <td>@c #nvgpu_gpu_alloc_vidmem_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid size, alignment, or flags
+ * - @c ENOMEM --- Insufficient video memory
+ * - @c ENODEV --- GPU not ready or not a discrete GPU
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark This IOCTL is only supported on discrete GPUs with local video memory.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_ALLOC_VIDMEM
+ * @brief Header struct for @ref NVGPURM_INTF_ALLOC_VIDMEM.
+ */
 struct nvgpu_gpu_alloc_vidmem_args {
 	union {
+		/**
+		 * @brief Input arguments
+		 */
 		struct {
-			/* Size for allocation. Must be a multiple of
-			 * small page size. */
+			/**
+			 * @brief Size for allocation
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Size in bytes. Must be a multiple of small page size.</dd>
+			 * </dl>
+			 */
 			__u64 size;
 
-			/* NVGPU_GPU_ALLOC_VIDMEM_FLAG_* */
+			/**
+			 * @brief Allocation flags
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Allocation control flags</dd>
+			 * </dl>
+			 *
+			 * Range: @c NVGPU_GPU_ALLOC_VIDMEM_FLAG_*
+			 */
 			__u32 flags;
 
-			/* Informational mem tag for resource usage
-			 * tracking. */
+			/**
+			 * @brief Memory tag for tracking
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Informational memory tag for resource usage tracking</dd>
+			 * </dl>
+			 */
 			__u16 memtag;
 
+			/**
+			 * @brief Reserved field
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Must be zero</dd>
+			 * </dl>
+			 */
 			__u16 reserved0;
 
-			/* GPU-visible physical memory alignment in
-			 * bytes.
+			/**
+			 * @brief GPU-visible physical memory alignment
 			 *
-			 * Alignment must be a power of two. Minimum
-			 * alignment is the small page size, which 0
-			 * also denotes.
-			 *
-			 * For contiguous and non-contiguous
-			 * allocations, the start address of the
-			 * physical memory allocation will be aligned
-			 * by this value.
-			 *
-			 * For non-contiguous allocations, memory is
-			 * internally allocated in round_up(size /
-			 * alignment) contiguous blocks. The start
-			 * address of each block is aligned by the
-			 * alignment value. If the size is not a
-			 * multiple of alignment (which is ok), the
-			 * last allocation block size is (size %
-			 * alignment).
-			 *
-			 * By specifying the big page size here and
-			 * allocation size that is a multiple of big
-			 * pages, it will be guaranteed that the
-			 * allocated buffer is big page size mappable.
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Alignment in bytes. Must be a power of two.
+			 *     Minimum alignment is the small page size. 0 denotes minimum alignment.
+			 *     For contiguous and non-contiguous allocations, the start address
+			 *     will be aligned by this value. For non-contiguous allocations,
+			 *     memory is allocated in aligned blocks.</dd>
+			 * </dl>
 			 */
 			__u32 alignment;
 
+			/**
+			 * @brief Reserved fields
+			 *
+			 * <dl>
+			 *   <dt>[in]</dt><dd>Must be zero</dd>
+			 * </dl>
+			 */
 			__u32 reserved1[3];
 		} in;
 
+		/**
+		 * @brief Output arguments
+		 */
 		struct {
+			/**
+			 * @brief DMA-buf file descriptor
+			 *
+			 * <dl>
+			 *   <dt>[out]</dt><dd>File descriptor for the allocated video memory buffer</dd>
+			 * </dl>
+			 */
 			__s32 dmabuf_fd;
 		} out;
 	};
 };
 
-/* Memory clock */
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_RANGE
+ * @ingroup NVGPURM_INTF_CLK_GET_VF_POINTS
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @ingroup NVGPURM_INTF_CLK_SET_INFO
+ * @{
+ */
+
+/**
+ * @brief Memory clock domain.
+ */
 #define NVGPU_GPU_CLK_DOMAIN_MCLK                                (0)
-/* Main graphics core clock */
+
+/**
+ * @brief Graphics core clock domain.
+ */
 #define NVGPU_GPU_CLK_DOMAIN_GPCCLK	                         (1)
 
+/** @} */
+
+/**
+ * @brief Clock frequency range information for a specific clock domain.
+ *
+ * This structure represents the supported frequency range for a clock domain.
+ * It is used to query the minimum and maximum frequencies that can be set
+ * for a particular clock domain.
+ *
+ * @ingroup NVGPURM_INTF_CLK_GET_RANGE
+ */
 struct nvgpu_gpu_clk_range {
 
-	/* Flags (not currently used) */
+	/**
+	 * @brief Flags (not currently used)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Reserved for future use</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
-	/* NVGPU_GPU_CLK_DOMAIN_* */
+	/**
+	 * @brief Clock domain identifier
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Specifies which clock domain to query</dd>
+	 * </dl>
+	 *
+	 * Range: @c #NVGPU_GPU_CLK_DOMAIN_MCLK, @c #NVGPU_GPU_CLK_DOMAIN_GPCCLK
+	 */
 	__u32 clk_domain;
+
+	/**
+	 * @brief Minimum supported frequency
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Minimum frequency in Hz for the specified clock domain</dd>
+	 * </dl>
+	 */
 	__u64 min_hz;
+
+	/**
+	 * @brief Maximum supported frequency
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Maximum frequency in Hz for the specified clock domain</dd>
+	 * </dl>
+	 */
 	__u64 max_hz;
 };
 
-/* Request on specific clock domains */
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_RANGE
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @{
+ */
+
+/**
+ * @brief Request on specific clock domains.
+ *
+ * When set, the clock operation will apply only to domains specified in
+ * the clock entries. Otherwise, the operation will apply to all clock domains.
+ */
 #define NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS		(1UL << 0)
 
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_CLK_GET_RANGE IOCTL: NVGPU_GPU_IOCTL_CLK_GET_RANGE
+ * @brief Gets clock frequency ranges.
+ *
+ * This IOCTL retrieves the supported frequency ranges for specified clock
+ * domains.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_clk_range_args</td>
+ *   <td>@c #nvgpu_gpu_clk_range_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>When requesting specific domains: clock range entries</td>
+ *   <td>Clock range entries array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid clock domain or buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_RANGE
+ * @brief Header struct for @ref NVGPURM_INTF_CLK_GET_RANGE.
+ */
 struct nvgpu_gpu_clk_range_args {
 
-	/* Flags. If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS the request will
-	   apply only to domains specified in clock entries. In this case
-	   caller must set clock domain in each entry. Otherwise, the
-	   ioctl will return all clock domains.
-	*/
+	/**
+	 * @brief Request flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is set, the request
+	 *     will apply only to domains specified in clock entries. Otherwise,
+	 *     the ioctl will return all clock domains.</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
+	/**
+	 * @brief Padding
+	 */
 	__u16 pad0;
 
-	/* in/out: Number of entries in clk_range_entries buffer. If zero,
-	   NVGPU_GPU_IOCTL_CLK_GET_RANGE will return 0 and
-	   num_entries will be set to number of clock domains.
+	/**
+	 * @brief Number of entries
+	 *
+	 * <dl>
+	 *   <dt>[in/out]</dt><dd>Number of entries in clk_range_entries buffer.
+	 *     If zero, the ioctl will return 0 and num_entries will be set to
+	 *     the number of clock domains.</dd>
+	 * </dl>
 	 */
 	__u16 num_entries;
 
-	/* in: Pointer to clock range entries in the caller's address space.
-	   size must be >= max_entries * sizeof(struct nvgpu_gpu_clk_range)
+	/**
+	 * @brief Pointer to clock range entries
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to clock range entries in the caller's address space.
+	 *     Size must be >= num_entries * sizeof(struct nvgpu_gpu_clk_range)</dd>
+	 * </dl>
 	 */
 	__u64 clk_range_entries;
 };
@@ -2674,240 +4374,983 @@ struct nvgpu_gpu_clk_vf_point {
 	__u64 freq_hz;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_CLK_GET_VF_POINTS IOCTL: NVGPU_GPU_IOCTL_CLK_GET_VF_POINTS
+ * @brief Gets clock voltage-frequency points.
+ *
+ * This IOCTL retrieves the available voltage-frequency operating points
+ * for a specified clock domain.
+ *
+ * @note clock voltage-frequency points can change in time based on thermal or other conditions.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_clk_vf_points_args</td>
+ *   <td>@c #nvgpu_gpu_clk_vf_points_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>Clock VF point entries array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid clock domain or too many entries requested
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_VF_POINTS
+ * @brief Header struct for @ref NVGPURM_INTF_CLK_GET_VF_POINTS.
+ */
 struct nvgpu_gpu_clk_vf_points_args {
 
-	/* in: Flags (not currently used) */
+	/**
+	 * @brief Flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Flags (not currently used)</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
-	/* in: NVGPU_GPU_CLK_DOMAIN_* */
+	/**
+	 * @brief Clock domain
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Clock domain identifier</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_CLK_DOMAIN_*
+	 */
 	__u32 clk_domain;
 
-	/* in/out: max number of nvgpu_gpu_clk_vf_point entries in
-	   clk_vf_point_entries.  If max_entries is zero,
-	   NVGPU_GPU_IOCTL_CLK_GET_VF_POINTS will return 0 and max_entries will
-	   be set to the max number of VF entries for this clock domain. If
-	   there are more entries than max_entries, then ioctl will return
-	   -EINVAL.
-	*/
+	/**
+	 * @brief Maximum entries
+	 *
+	 * <dl>
+	 *   <dt>[in/out]</dt><dd>Maximum number of entries stored in clk_vf_point_entries.
+	 *     If zero, the ioctl will return 0 and max_entries will be set to the
+	 *     maximum number of VF entries for this clock domain. In case the IOCTL would return
+	 *     more entries than max_entries, EINVAL is returned.</dd>
+	 * </dl>
+	 */
 	__u16 max_entries;
 
-	/* out: Number of nvgpu_gpu_clk_vf_point entries returned in
-	   clk_vf_point_entries. Number of entries might vary depending on
-	   thermal conditions.
-	*/
+	/**
+	 * @brief Number of entries returned
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Number of VF point entries returned in clk_vf_point_entries.
+	 *     The number of entries might vary depending on thermal conditions.</dd>
+	 * </dl>
+	 */
 	__u16 num_entries;
 
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* in: Pointer to clock VF point entries in the caller's address space.
-	   size must be >= max_entries * sizeof(struct nvgpu_gpu_clk_vf_point).
+	/**
+	 * @brief Pointer to VF point entries
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to clock VF point entries in the caller's address space.
+	 *     The caller-reserved size must be >= max_entries * sizeof(struct nvgpu_gpu_clk_vf_point).</dd>
+	 * </dl>
 	 */
 	__u64 clk_vf_point_entries;
 };
 
-/* Target clock requested by application*/
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @{
+ */
+
+/**
+ * @brief Target clock frequency requested by the user.
+ *
+ * This is the minimum frequency requested by the user. The programmed
+ * frequency may differ.
+ */
 #define NVGPU_GPU_CLK_TYPE_TARGET	1
-/* Actual clock frequency for the domain.
-   May deviate from desired target frequency due to PLL constraints. */
+
+/**
+ * @brief Clock frequency programmed to the HW (including PLL constraints).
+ *
+ * @remark This is called the "Actual" clock frequency as this frequency is
+ * the one that is actually programmed.
+ */
 #define NVGPU_GPU_CLK_TYPE_ACTUAL	2
-/* Effective clock, measured from hardware */
+
+/**
+ * @brief Effective clock as measured from hardware.
+ */
 #define NVGPU_GPU_CLK_TYPE_EFFECTIVE	3
 
+/** @} */
+
+/**
+ * @brief Clock frequency information for a specific clock domain.
+ *
+ * This structure contains clock frequency information for a specific clock
+ * domain. It is used as an array element in clock information requests to
+ * specify which clock domains to query and to receive the frequency data.
+ * Supports different clock types (target, actual, effective) and various
+ * clock domains.
+ *
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @ingroup NVGPURM_INTF_CLK_SET_INFO
+ */
 struct nvgpu_gpu_clk_info {
 
-	/* Flags (not currently used) */
+	/**
+	 * @brief Flags (not currently used)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Reserved for future use</dd>
+	 * </dl>
+	 */
 	__u16 flags;
 
-	/* in: When NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS set, indicates
-	   the type of clock info to be returned for this entry. It is
-	   allowed to have several entries with different clock types in
-	   the same request (for instance query both target and actual
-	   clocks for a given clock domain). This field is ignored for a
-	   SET operation. */
+	/**
+	 * @brief Clock type selector
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>When NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is set,
+	 *     indicates the type of clock info to be returned for this entry.
+	 *     Multiple entries with different clock types are allowed in the
+	 *     same request (e.g., query both target and actual clocks for a
+	 *     given clock domain). This field is ignored for SET operations.</dd>
+	 * </dl>
+	 *
+	 * Range: @c #NVGPU_GPU_CLK_TYPE_TARGET, @c #NVGPU_GPU_CLK_TYPE_ACTUAL,
+	 * @c #NVGPU_GPU_CLK_TYPE_EFFECTIVE
+	 */
 	__u16 clk_type;
 
-	/* NVGPU_GPU_CLK_DOMAIN_xxx */
+	/**
+	 * @brief Clock domain identifier
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Specifies which clock domain this entry applies to</dd>
+	 * </dl>
+	 *
+	 * Range: @c #NVGPU_GPU_CLK_DOMAIN_MCLK, @c #NVGPU_GPU_CLK_DOMAIN_GPCCLK
+	 */
 	__u32 clk_domain;
 
+	/**
+	 * @brief Clock frequency
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>For SET operations: target frequency in Hz</dd>
+	 *   <dt>[out]</dt><dd>For GET operations: frequency in Hz (type depends on clk_type)</dd>
+	 * </dl>
+	 */
 	__u64 freq_hz;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_CLK_GET_INFO IOCTL: NVGPU_GPU_IOCTL_CLK_GET_INFO
+ * @brief Gets clock frequency information.
+ *
+ * This IOCTL retrieves current clock frequency information for specified
+ * clock domains.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_clk_get_info_args</td>
+ *   <td>@c #nvgpu_gpu_clk_get_info_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>Clock info entries array (when NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS set)</td>
+ *   <td>Clock info entries array</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid clock domain, type, or buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @brief Header struct for @ref NVGPURM_INTF_CLK_GET_INFO.
+ */
 struct nvgpu_gpu_clk_get_info_args {
 
-	/* Flags. If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS the request will
-	   apply only to domains specified in clock entries. In this case
-	   caller must set clock domain in each entry. Otherwise, the
-	   ioctl will return all clock domains.
-	*/
+	/**
+	 * @brief Request flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is set, the request
+	 *     will apply only to domains specified in clock entries. Otherwise,
+	 *     the ioctl will return all clock domains.</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
-	/* in: indicates which type of clock info to be returned (see
-	   NVGPU_GPU_CLK_TYPE_xxx). If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS
-	   is defined, clk_type is specified in each clock info entry instead.
+	/**
+	 * @brief Clock type
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Indicates which type of clock info to be returned.
+	 *     If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is defined, clk_type is
+	 *     specified in each clock info entry instead.</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_CLK_TYPE_*
 	 */
 	__u16 clk_type;
 
-	/* in/out: Number of clock info entries contained in clk_info_entries.
-	   If zero, NVGPU_GPU_IOCTL_CLK_GET_INFO will return 0 and
-	   num_entries will be set to number of clock domains. Also,
-	   last_req_nr will be updated, which allows checking if a given
-	   request has completed. If there are more entries than max_entries,
-	   then ioctl will return -EINVAL.
+	/**
+	 * @brief Number of entries
+	 *
+	 * <dl>
+	 *   <dt>[in/out]</dt><dd>Number of clock info entries contained in clk_info_entries.
+	 *     If zero, the ioctl will return 0 and num_entries will be set to the
+	 *     number of clock domains.</dd>
+	 * </dl>
 	 */
 	__u16 num_entries;
 
-	/* in: Pointer to nvgpu_gpu_clk_info entries in the caller's address
-	   space. Buffer size must be at least:
-		num_entries * sizeof(struct nvgpu_gpu_clk_info)
-	   If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is set, caller should set
-	   clk_domain to be queried in  each entry. With this flag,
-	   clk_info_entries passed to an NVGPU_GPU_IOCTL_CLK_SET_INFO,
-	   can be re-used on completion for a NVGPU_GPU_IOCTL_CLK_GET_INFO.
-	   This allows checking actual_mhz.
+	/**
+	 * @brief Pointer to clock info entries
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to clock info entries in the caller's address space.
+	 *     Buffer size must be at least: num_entries * sizeof(struct nvgpu_gpu_clk_info).
+	 *     If NVGPU_GPU_CLK_FLAG_SPECIFIC_DOMAINS is set, caller should set
+	 *     clk_domain to be queried in each entry.</dd>
+	 * </dl>
 	 */
 	__u64 clk_info_entries;
 
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_CLK_SET_INFO IOCTL: NVGPU_GPU_IOCTL_CLK_SET_INFO
+ * @brief Sets clock frequency information.
+ *
+ * This IOCTL sets target clock frequencies for specified clock domains.
+ * The operation is asynchronous and returns a completion file descriptor
+ * that can be polled to determine when the clock change has completed.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_clk_set_info_args</td>
+ *   <td>@c #nvgpu_gpu_clk_set_info_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>Clock info entries array</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid clock domain, frequency, or buffer size
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_CLK_SET_INFO
+ * @brief Header struct for @ref NVGPURM_INTF_CLK_SET_INFO.
+ */
 struct nvgpu_gpu_clk_set_info_args {
 
-	/* in: Flags (not currently used). */
+	/**
+	 * @brief Flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Flags (not currently used)</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
+	/**
+	 * @brief Padding
+	 */
 	__u16 pad0;
 
-	/* Number of clock info entries contained in clk_info_entries.
-	   Must be > 0.
+	/**
+	 * @brief Number of entries
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Number of clock info entries contained in clk_info_entries.
+	 *     Must be > 0.</dd>
+	 * </dl>
 	 */
 	__u16 num_entries;
 
-	/* Pointer to clock info entries in the caller's address space. Buffer
-	   size must be at least
-		num_entries * sizeof(struct nvgpu_gpu_clk_info)
+	/**
+	 * @brief Pointer to clock info entries
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to clock info entries in the caller's address space.
+	 *     Buffer size must be at least: num_entries * sizeof(struct nvgpu_gpu_clk_info)</dd>
+	 * </dl>
 	 */
 	__u64 clk_info_entries;
 
-	/* out: File descriptor for request completion. Application can poll
-	   this file descriptor to determine when the request has completed.
-	   The fd must be closed afterwards.
+	/**
+	 * @brief Completion file descriptor
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>File descriptor for request completion. Application can poll
+	 *     this file descriptor to determine when the request has completed.
+	 *     The fd must be closed afterwards.</dd>
+	 * </dl>
 	 */
 	__s32 completion_fd;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_EVENT_FD IOCTL: NVGPU_GPU_IOCTL_GET_EVENT_FD
+ * @brief Gets an event file descriptor.
+ *
+ * This IOCTL creates an event file descriptor that can be used to receive
+ * asynchronous notifications about GPU events such as clock updates, thermal
+ * alerts, and GPU shutdown events. Applications can poll this file descriptor
+ * to handle these events appropriately.
+ * The sequence is as follows
+ * - Call this ioctl to register for a GPU event and get an event fd.
+ * - Call @c #NVGPU_EVENT_IOCTL_SET_FILTER ioctl on this event fd to set selective events other than
+ *   the default (@c #NVGPU_GPU_EVENT_VF_UPDATE).
+ * - Use this event fd with poll() system call to wait on read events (POLLIN, POLLPRI, POLLRDNORM)
+ *   and error event (POLLHUP).
+ * - If read event is present then call read() system call to get the detailed event information
+ *   in @c #nvgpu_gpu_event_info. In case of error event, suitable action should be taken by the
+ *   application e.g. closing the fd.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_event_fd_args</td>
+ *   <td>@c #nvgpu_gpu_get_event_fd_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOMEM --- Insufficient memory to create event fd
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_EVENT_FD
+ * @brief Header struct for @ref NVGPURM_INTF_GET_EVENT_FD.
+ */
 struct nvgpu_gpu_get_event_fd_args {
 
-	/* in: Flags (not currently used). */
+	/**
+	 * @brief Flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Flags (not currently used)</dd>
+	 * </dl>
+	 */
 	__u32 flags;
 
-	/* out: File descriptor for events, e.g. clock update.
-	 * On successful polling of this event_fd, application is
-	 * expected to read status (nvgpu_gpu_event_info),
-	 * which provides detailed event information
-	 * For a poll operation, alarms will be reported with POLLPRI,
-	 * and GPU shutdown will be reported with POLLHUP.
+	/**
+	 * @brief Event file descriptor
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>File descriptor for events (e.g., clock update).
+	 * </dl>
 	 */
 	__s32 event_fd;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_MEMORY_STATE IOCTL: NVGPU_GPU_IOCTL_GET_MEMORY_STATE
+ * @brief Gets GPU memory state information.
+ *
+ * This IOCTL retrieves information about the current GPU memory usage state,
+ * including available free memory.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_get_memory_state_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_MEMORY_STATE
+ * @brief Header struct for @ref NVGPURM_INTF_GET_MEMORY_STATE.
+ */
 struct nvgpu_gpu_get_memory_state_args {
-	/*
-	 * Current free space for this device; may change even when any
-	 * kernel-managed metadata (e.g., page tables or channels) is allocated
-	 * or freed. For an idle gpu, an allocation of this size would succeed.
+	/**
+	 * @brief Total free bytes
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Current free space for this device; may change even when any
+	 *     kernel-managed metadata (e.g., page tables or channels) is allocated
+	 *     or freed. For an idle GPU, an allocation of this size would succeed.</dd>
+	 * </dl>
 	 */
 	__u64 total_free_bytes;
 
-	/* For future use; must be set to 0. */
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>For future use; must be set to 0</dd>
+	 * </dl>
+	 */
 	__u64 reserved[4];
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_FBP_L2_MASKS IOCTL: NVGPU_GPU_IOCTL_GET_FBP_L2_MASKS
+ * @brief Retrieves the FBP L2 cache enable mask vector.
+ *
+ * This IOCTL retrieves the L2 cache enable mask for each Frame Buffer
+ * Partition (FBP). Each FBP has associated L2 cache units, and this call
+ * returns the enable mask indicating which L2 units are active within
+ * each FBP.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_l2_masks_args</td>
+ *   <td>@c #nvgpu_gpu_get_fbp_l2_masks_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>(none)</td>
+ *   <td>L2 mask array of type <tt>uint32_t[N]</tt> where<br>
+ *       @c N = <tt>highest_set_bit(#nvgpu_gpu_characteristics::fbp_en_mask) + 1</tt>
+ *   </td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EIO ---     Writing L2 mask buffer failed
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_L2_MASKS
+ * @brief Header struct for @ref NVGPURM_INTF_GET_FBP_L2_MASKS.
+ */
 struct nvgpu_gpu_get_fbp_l2_masks_args {
-	/* [in]  L2 mask buffer size reserved by userspace. Should be
-		 at least sizeof(__u32) * fls(fbp_en_mask) to receive LTC
-		 mask for each FBP.
-	   [out] full kernel buffer size
-	*/
+	/**
+	 * @brief L2 mask buffer size
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>L2 mask buffer size reserved by userspace. Should be
+	 *     at least sizeof(__u32) * fls(fbp_en_mask) to receive LTC mask for each FBP.</dd>
+	 *   <dt>[out]</dt><dd>Full kernel buffer size</dd>
+	 * </dl>
+	 */
 	__u32 mask_buf_size;
+
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 
-	/* [in]  pointer to L2 mask buffer. It will receive one
-		 32-bit L2 mask per FBP or 0 if FBP is not enabled or
-		 not present. This parameter is ignored if
-		 mask_buf_size is 0. */
+	/**
+	 * @brief Pointer to L2 mask buffer
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to L2 mask buffer. It will receive one 32-bit L2 mask
+	 *     per FBP or 0 if FBP is not enabled or not present. This parameter is
+	 *     ignored if mask_buf_size is 0.</dd>
+	 * </dl>
+	 */
 	__u64 mask_buf_addr;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_GET_VOLTAGE
+ * @{
+ */
+
+/**
+ * @brief Core GPU voltage.
+ */
 #define NVGPU_GPU_VOLTAGE_CORE		1
+
+/**
+ * @brief SRAM voltage.
+ */
 #define NVGPU_GPU_VOLTAGE_SRAM		2
-#define NVGPU_GPU_VOLTAGE_BUS		3	/* input to regulator */
 
+/**
+ * @brief Bus voltage.
+ */
+#define NVGPU_GPU_VOLTAGE_BUS		3
+
+/** @} */
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_VOLTAGE IOCTL: NVGPU_GPU_IOCTL_GET_VOLTAGE
+ * @brief Retrieves GPU voltage information.
+ *
+ * This IOCTL reads the current voltage levels from the GPU. Different voltage
+ * domains can be queried including core, SRAM, and bus voltages.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_get_voltage_args</td>
+ *   <td>@c #nvgpu_gpu_get_voltage_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid voltage domain
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_VOLTAGE
+ * @brief Header struct for @ref NVGPURM_INTF_GET_VOLTAGE.
+ */
 struct nvgpu_gpu_get_voltage_args {
+	/**
+	 * @brief Reserved field
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u64 reserved;
-	__u32 which;		/* in: NVGPU_GPU_VOLTAGE_* */
-	__u32 voltage;		/* uV */
+
+	/**
+	 * @brief Voltage domain selector
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Which voltage domain to query</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_VOLTAGE_*
+	 */
+	__u32 which;
+
+	/**
+	 * @brief Voltage value
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Voltage in microvolts (µV)</dd>
+	 * </dl>
+	 */
+	__u32 voltage;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_CURRENT IOCTL: NVGPU_GPU_IOCTL_GET_CURRENT
+ * @brief Retrieves GPU current consumption.
+ *
+ * This IOCTL reads the current electrical current consumption of the GPU.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_get_current_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_CURRENT
+ * @brief Header struct for @ref NVGPURM_INTF_GET_CURRENT.
+ */
 struct nvgpu_gpu_get_current_args {
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved[3];
-	__u32 currnt;		/* mA */
+
+	/**
+	 * @brief Current consumption
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Current in milliamperes (mA)</dd>
+	 * </dl>
+	 */
+	__u32 currnt;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_POWER IOCTL: NVGPU_GPU_IOCTL_GET_POWER
+ * @brief Retrieves GPU power consumption.
+ *
+ * This IOCTL reads the current power consumption of the GPU.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_get_power_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_POWER
+ * @brief Header struct for @ref NVGPURM_INTF_GET_POWER.
+ */
 struct nvgpu_gpu_get_power_args {
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved[3];
-	__u32 power;		/* mW */
+
+	/**
+	 * @brief Power consumption
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Power in milliwatts (mW)</dd>
+	 * </dl>
+	 */
+	__u32 power;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_GET_TEMPERATURE IOCTL: NVGPU_GPU_IOCTL_GET_TEMPERATURE
+ * @brief Retrieves GPU temperature.
+ *
+ * This IOCTL reads the current temperature of the GPU.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_gpu_get_temperature_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy to userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_GET_TEMPERATURE
+ * @brief Header struct for @ref NVGPURM_INTF_GET_TEMPERATURE.
+ */
 struct nvgpu_gpu_get_temperature_args {
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved[3];
-	/* Temperature in signed fixed point format SFXP24.8
-	 *    Celsius = temp_f24_8 / 256.
+
+	/**
+	 * @brief Temperature value
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt><dd>Temperature in signed fixed point format SFXP24.8.
+	 *     Convert to Celsius: temp_celsius = temp_f24_8 / 256.0</dd>
+	 * </dl>
 	 */
 	__s32 temp_f24_8;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_SET_THERM_ALERT_LIMIT IOCTL: NVGPU_GPU_IOCTL_SET_THERM_ALERT_LIMIT
+ * @brief Sets GPU thermal alert limit.
+ *
+ * This IOCTL configures the temperature threshold at which thermal alerts
+ * are triggered.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_set_therm_alert_limit_args</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid temperature value
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from userspace fails.
+ *
+ * @sa @ref NVGPURM_INTF_GET_TEMPERATURE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_THERM_ALERT_LIMIT
+ * @brief Header struct for @ref NVGPURM_INTF_SET_THERM_ALERT_LIMIT.
+ */
 struct nvgpu_gpu_set_therm_alert_limit_args {
+	/**
+	 * @brief Reserved fields
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Must be zero</dd>
+	 * </dl>
+	 */
 	__u32 reserved[3];
-	/* Temperature in signed fixed point format SFXP24.8
-	 *    Celsius = temp_f24_8 / 256.
+
+	/**
+	 * @brief Temperature alert threshold
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Temperature threshold in signed fixed point format SFXP24.8.
+	 *     Convert from Celsius: temp_f24_8 = temp_celsius * 256.0</dd>
+	 * </dl>
 	 */
 	__s32 temp_f24_8;
 };
 
-/*
- * Adjust options of deterministic channels in channel batches.
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_SET_DETERMINISTIC_OPTS IOCTL: NVGPU_GPU_IOCTL_SET_DETERMINISTIC_OPTS
+ * @brief Adjusts options of deterministic channels in channel batches.
  *
- * This supports only one option currently: relax railgate blocking by
- * "disabling" the channel.
+ * This IOCTL supports adjusting railgate blocking behavior by "disabling"
+ * channels. Open deterministic channels do not allow the GPU to railgate by
+ * default. It may be preferable to hold pre-opened channel contexts open and
+ * idle while still allowing the GPU to railgate, taking the channels back
+ * into use dynamically in userspace as an optimization.
  *
- * Open deterministic channels do not allow the GPU to railgate by default. It
- * may be preferable to hold preopened channel contexts open and idle and still
- * railgate the GPU, taking the channels back into use dynamically in userspace
- * as an optimization. This ioctl allows to drop or reacquire the requirement
- * to hold GPU power on for individual channels. If allow_railgate is set on a
- * channel, no work can be submitted to it.
+ * This ioctl allows dropping or reacquiring the requirement to hold GPU power
+ * on for individual channels. If allow_railgate is set on a channel, no work
+ * can be submitted to it.
  *
- * num_channels is updated to signify how many channels were updated
- * successfully. It can be used to test which was the first update to fail.
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_gpu_set_deterministic_opts_args</td>
+ *   <td>@c #nvgpu_gpu_set_deterministic_opts_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>Channel file descriptor array</td>
+ *   <td>(none)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL --- Invalid channel file descriptor or conflicting flags
+ * - @c ENODEV --- GPU not ready
+ * - @c EFAULT --- Copy from/to userspace fails.
+ *
+ * @remark Not supported in safety.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_SET_DETERMINISTIC_OPTS
+ * @brief Header struct for @ref NVGPURM_INTF_SET_DETERMINISTIC_OPTS.
  */
 struct nvgpu_gpu_set_deterministic_opts_args {
-	__u32 num_channels; /* in/out */
-/*
- * Set or unset the railgating reference held by deterministic channels. If
- * the channel status is already the same as the flag, this is a no-op. Both
- * of these flags cannot be set at the same time. If none are set, the state
- * is left as is.
+	/**
+	 * @brief Number of channels to update
+	 *
+	 * <dl>
+	 *   <dt>[in/out]</dt><dd>Number of channels to update. Updated to signify
+	 *     how many channels were updated successfully. Can be used to test
+	 *     which was the first update to fail.</dd>
+	 * </dl>
+	 */
+	__u32 num_channels;
+
+	/**
+	 * @brief Control flags for deterministic channel options
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Control flags specifying which railgate option to apply</dd>
+	 * </dl>
+	 *
+	 * Range: @c NVGPU_GPU_SET_DETERMINISTIC_OPTS_FLAGS_*
+	 */
+	__u32 flags;
+
+	/**
+	 * @brief Pointer to channel file descriptor array
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Pointer to an array of size num_channels containing
+	 *     valid channel file descriptors. The channels must have been previously
+	 *     set as deterministic.</dd>
+	 * </dl>
+	 */
+	__u64 channels;
+};
+
+/**
+ * @ingroup NVGPURM_INTF_SET_DETERMINISTIC_OPTS
+ * @{
+ */
+
+/**
+ * @brief Allow railgating for deterministic channels.
+ *
+ * Set or unset the railgating reference held by deterministic channels.
+ * If the channel status is already the same as the flag, this is a no-op.
+ * This flag cannot be set at the same time as DISALLOW_RAILGATING.
+ * If neither flag is set, the state is left as is.
  */
 #define NVGPU_GPU_SET_DETERMINISTIC_OPTS_FLAGS_ALLOW_RAILGATING    (1 << 0)
+
+/**
+ * @brief Disallow railgating for deterministic channels.
+ *
+ * Set or unset the railgating reference held by deterministic channels.
+ * If the channel status is already the same as the flag, this is a no-op.
+ * This flag cannot be set at the same time as ALLOW_RAILGATING.
+ * If neither flag is set, the state is left as is.
+ */
 #define NVGPU_GPU_SET_DETERMINISTIC_OPTS_FLAGS_DISALLOW_RAILGATING (1 << 1)
-	__u32 flags;        /* in */
-	/*
-	 * This is a pointer to an array of size num_channels.
-	 *
-	 * The channels have to be valid fds and be previously set as
-	 * deterministic.
-	 */
-	__u64 channels; /* in */
-};
+
+/** @} */
 
 /**
  * @ingroup NVGPURM_LINUX_IOCTL_CTRL
@@ -3116,12 +5559,28 @@ struct nvgpu_gpu_register_buffer_args {
 	__u32 flags;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_GET_CTX_SIZE
+ * @brief Command code for @ref NVGPURM_INTF_ZCULL_GET_CTX_SIZE.
+ */
 #define NVGPU_GPU_IOCTL_ZCULL_GET_CTX_SIZE \
 	_IOR(NVGPU_GPU_IOCTL_MAGIC, 1, struct nvgpu_gpu_zcull_get_ctx_size_args)
+/**
+ * @ingroup NVGPURM_INTF_ZCULL_GET_INFO
+ * @brief Command code for @ref NVGPURM_INTF_ZCULL_GET_INFO.
+ */
 #define NVGPU_GPU_IOCTL_ZCULL_GET_INFO \
 	_IOR(NVGPU_GPU_IOCTL_MAGIC, 2, struct nvgpu_gpu_zcull_get_info_args)
+/**
+ * @ingroup NVGPURM_INTF_ZBC_SET_TABLE
+ * @brief Command code for @ref NVGPURM_INTF_ZBC_SET_TABLE.
+ */
 #define NVGPU_GPU_IOCTL_ZBC_SET_TABLE	\
 	_IOW(NVGPU_GPU_IOCTL_MAGIC, 3, struct nvgpu_gpu_zbc_set_table_args)
+/**
+ * @ingroup NVGPURM_INTF_ZBC_QUERY_TABLE
+ * @brief Command code for @ref NVGPURM_INTF_ZBC_QUERY_TABLE.
+ */
 #define NVGPU_GPU_IOCTL_ZBC_QUERY_TABLE	\
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 4, struct nvgpu_gpu_zbc_query_table_args)
 /**
@@ -3130,16 +5589,28 @@ struct nvgpu_gpu_register_buffer_args {
  */
 #define NVGPU_GPU_IOCTL_GET_CHARACTERISTICS   \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 5, struct nvgpu_gpu_get_characteristics)
+/**
+ * @ingroup NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ
+ * @brief Command code for @ref NVGPURM_INTF_PREPARE_COMPRESSIBLE_READ.
+ */
 #define NVGPU_GPU_IOCTL_PREPARE_COMPRESSIBLE_READ \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 6, struct nvgpu_gpu_prepare_compressible_read_args)
+/**
+ * @ingroup NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE
+ * @brief Command code for @ref NVGPURM_INTF_MARK_COMPRESSIBLE_WRITE.
+ */
 #define NVGPU_GPU_IOCTL_MARK_COMPRESSIBLE_WRITE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 7, struct nvgpu_gpu_mark_compressible_write_args)
 /**
  * @ingroup NVGPURM_INTF_ALLOC_AS
- * @brief Command code for @ref NVGPURM_INTF_ALLOC_AS
+ * @brief Command code for @ref NVGPURM_INTF_ALLOC_AS.
  */
 #define NVGPU_GPU_IOCTL_ALLOC_AS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 8, struct nvgpu_alloc_as_args)
+/**
+ * @ingroup NVGPURM_INTF_OPEN_TSG
+ * @brief Command code for @ref NVGPURM_INTF_OPEN_TSG.
+ */
 #define NVGPU_GPU_IOCTL_OPEN_TSG \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 9, struct nvgpu_gpu_open_tsg_args)
 /**
@@ -3148,6 +5619,10 @@ struct nvgpu_gpu_register_buffer_args {
  */
 #define NVGPU_GPU_IOCTL_GET_TPC_MASKS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 10, struct nvgpu_gpu_get_tpc_masks_args)
+/**
+ * @ingroup NVGPURM_INTF_OPEN_CHANNEL
+ * @brief Command code for @ref NVGPURM_INTF_OPEN_CHANNEL.
+ */
 #define NVGPU_GPU_IOCTL_OPEN_CHANNEL \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 11, struct nvgpu_gpu_open_channel_args)
 /**
@@ -3156,14 +5631,34 @@ struct nvgpu_gpu_register_buffer_args {
  */
 #define NVGPU_GPU_IOCTL_FLUSH_L2 \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 12, struct nvgpu_gpu_l2_fb_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_MMU_DEBUG_MODE
+ * @brief Command code for @ref NVGPURM_INTF_SET_MMU_DEBUG_MODE.
+ */
 #define NVGPU_GPU_IOCTL_SET_MMUDEBUG_MODE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 14, struct nvgpu_gpu_mmu_debug_mode_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_SM_DEBUG_MODE
+ * @brief Command code for @ref NVGPURM_INTF_SET_SM_DEBUG_MODE.
+ */
 #define NVGPU_GPU_IOCTL_SET_SM_DEBUG_MODE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 15, struct nvgpu_gpu_sm_debug_mode_args)
+/**
+ * @ingroup NVGPURM_INTF_WAIT_FOR_PAUSE
+ * @brief Command code for @ref NVGPURM_INTF_WAIT_FOR_PAUSE.
+ */
 #define NVGPU_GPU_IOCTL_WAIT_FOR_PAUSE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 16, struct nvgpu_gpu_wait_pause_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_TPC_EXCEPTION_EN_STATUS
+ * @brief Command code for @ref NVGPURM_INTF_GET_TPC_EXCEPTION_EN_STATUS.
+ */
 #define NVGPU_GPU_IOCTL_GET_TPC_EXCEPTION_EN_STATUS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 17, struct nvgpu_gpu_tpc_exception_en_status_args)
+/**
+ * @ingroup NVGPURM_INTF_NUM_VSMS
+ * @brief Command code for @ref NVGPURM_INTF_NUM_VSMS.
+ */
 #define NVGPU_GPU_IOCTL_NUM_VSMS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 18, struct nvgpu_gpu_num_vsms)
 /**
@@ -3172,12 +5667,81 @@ struct nvgpu_gpu_register_buffer_args {
  */
 #define NVGPU_GPU_IOCTL_VSMS_MAPPING \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 19, struct nvgpu_gpu_vsms_mapping)
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_RESUME_FROM_PAUSE IOCTL: NVGPU_GPU_IOCTL_RESUME_FROM_PAUSE
+ * @brief Resumes GPU execution from pause state.
+ *
+ * This IOCTL resumes GPU execution after it has been paused.
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Operation not supported/implemented
+ * - @c ENODEV --- GPU not ready
+ * - @c EINVAL --- GPU not in paused state
+ *
+ * @remark Not supported in safety.
+ */
+/**
+ * @brief Command code for @ref NVGPURM_INTF_RESUME_FROM_PAUSE.
+ */
 #define NVGPU_GPU_IOCTL_RESUME_FROM_PAUSE \
 	_IO(NVGPU_GPU_IOCTL_MAGIC, 21)
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_TRIGGER_SUSPEND IOCTL: NVGPU_GPU_IOCTL_TRIGGER_SUSPEND
+ * @brief Triggers GPU suspend.
+ *
+ * This IOCTL triggers the GPU to enter a suspended state.
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Operation not supported/implemented
+ * - @c ENODEV --- GPU not ready
+ * - @c EBUSY --- GPU busy and cannot suspend
+ *
+ * @remark Not supported in safety.
+ */
+/**
+ * @brief Command code for @ref NVGPURM_INTF_TRIGGER_SUSPEND.
+ */
 #define NVGPU_GPU_IOCTL_TRIGGER_SUSPEND \
 	_IO(NVGPU_GPU_IOCTL_MAGIC, 22)
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_CTRL
+ * @defgroup NVGPURM_INTF_CLEAR_SM_ERRORS IOCTL: NVGPU_GPU_IOCTL_CLEAR_SM_ERRORS
+ * @brief Clears SM errors.
+ *
+ * This IOCTL clears any accumulated SM (Streaming Multiprocessor) errors.
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENOSYS --- Operation not supported/implemented
+ * - @c ENODEV --- GPU not ready
+ * - @c EINVAL --- Invalid parameters
+ *
+ * @remark Not supported in safety.
+ */
+/**
+ * @brief Command code for @ref NVGPURM_INTF_CLEAR_SM_ERRORS.
+ */
 #define NVGPU_GPU_IOCTL_CLEAR_SM_ERRORS \
 	_IO(NVGPU_GPU_IOCTL_MAGIC, 23)
+/**
+ * @ingroup NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO
+ * @brief Command code for @ref NVGPURM_INTF_GET_CPU_TIME_CORRELATION_INFO.
+ */
 #define NVGPU_GPU_IOCTL_GET_CPU_TIME_CORRELATION_INFO \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 24, \
 			struct nvgpu_gpu_get_cpu_time_correlation_info_args)
@@ -3195,35 +5759,91 @@ struct nvgpu_gpu_register_buffer_args {
 #define NVGPU_GPU_IOCTL_GET_ENGINE_INFO \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 26, \
 			struct nvgpu_gpu_get_engine_info_args)
+/**
+ * @ingroup NVGPURM_INTF_ALLOC_VIDMEM
+ * @brief Command code for @ref NVGPURM_INTF_ALLOC_VIDMEM.
+ */
 #define NVGPU_GPU_IOCTL_ALLOC_VIDMEM \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 27, \
 			struct nvgpu_gpu_alloc_vidmem_args)
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_RANGE
+ * @brief Command code for @ref NVGPURM_INTF_CLK_GET_RANGE.
+ */
 #define NVGPU_GPU_IOCTL_CLK_GET_RANGE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 28, struct nvgpu_gpu_clk_range_args)
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_VF_POINTS
+ * @brief Command code for @ref NVGPURM_INTF_CLK_GET_VF_POINTS.
+ */
 #define NVGPU_GPU_IOCTL_CLK_GET_VF_POINTS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 29, struct nvgpu_gpu_clk_vf_points_args)
+/**
+ * @ingroup NVGPURM_INTF_CLK_GET_INFO
+ * @brief Command code for @ref NVGPURM_INTF_CLK_GET_INFO.
+ */
 #define NVGPU_GPU_IOCTL_CLK_GET_INFO \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 30, struct nvgpu_gpu_clk_get_info_args)
+/**
+ * @ingroup NVGPURM_INTF_CLK_SET_INFO
+ * @brief Command code for @ref NVGPURM_INTF_CLK_SET_INFO.
+ */
 #define NVGPU_GPU_IOCTL_CLK_SET_INFO \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 31, struct nvgpu_gpu_clk_set_info_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_EVENT_FD
+ * @brief Command code for @ref NVGPURM_INTF_GET_EVENT_FD.
+ */
 #define NVGPU_GPU_IOCTL_GET_EVENT_FD \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 32, struct nvgpu_gpu_get_event_fd_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_MEMORY_STATE
+ * @brief Command code for @ref NVGPURM_INTF_GET_MEMORY_STATE.
+ */
 #define NVGPU_GPU_IOCTL_GET_MEMORY_STATE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 33, \
 			struct nvgpu_gpu_get_memory_state_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_VOLTAGE
+ * @brief Command code for @ref NVGPURM_INTF_GET_VOLTAGE.
+ */
 #define NVGPU_GPU_IOCTL_GET_VOLTAGE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 34, struct nvgpu_gpu_get_voltage_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_CURRENT
+ * @brief Command code for @ref NVGPURM_INTF_GET_CURRENT.
+ */
 #define NVGPU_GPU_IOCTL_GET_CURRENT \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 35, struct nvgpu_gpu_get_current_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_POWER
+ * @brief Command code for @ref NVGPURM_INTF_GET_POWER.
+ */
 #define NVGPU_GPU_IOCTL_GET_POWER \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 36, struct nvgpu_gpu_get_power_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_TEMPERATURE
+ * @brief Command code for @ref NVGPURM_INTF_GET_TEMPERATURE.
+ */
 #define NVGPU_GPU_IOCTL_GET_TEMPERATURE \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 37, struct nvgpu_gpu_get_temperature_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_L2_MASKS
+ * @brief Command code for @ref NVGPURM_INTF_GET_FBP_L2_MASKS.
+ */
 #define NVGPU_GPU_IOCTL_GET_FBP_L2_MASKS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 38, struct nvgpu_gpu_get_fbp_l2_masks_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_THERM_ALERT_LIMIT
+ * @brief Command code for @ref NVGPURM_INTF_SET_THERM_ALERT_LIMIT.
+ */
 #define NVGPU_GPU_IOCTL_SET_THERM_ALERT_LIMIT \
 		_IOWR(NVGPU_GPU_IOCTL_MAGIC, 39, \
 			struct nvgpu_gpu_set_therm_alert_limit_args)
+/**
+ * @ingroup NVGPURM_INTF_SET_DETERMINISTIC_OPTS
+ * @brief Command code for @ref NVGPURM_INTF_SET_DETERMINISTIC_OPTS.
+ */
 #define NVGPU_GPU_IOCTL_SET_DETERMINISTIC_OPTS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 40, \
 			struct nvgpu_gpu_set_deterministic_opts_args)
@@ -3263,8 +5883,16 @@ struct nvgpu_gpu_register_buffer_args {
  */
 #define NVGPU_GPU_IOCTL_GET_ROP_MASKS \
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 46, struct nvgpu_gpu_get_rop_masks_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_LOCAL_TO_PHYSICAL_MAP
+ * @brief Command code for @ref NVGPURM_INTF_GET_FBP_LOCAL_TO_PHYSICAL_MAP.
+ */
 #define NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_PHYSICAL_MAP\
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 47, struct nvgpu_gpu_get_fbp_physical_map_args)
+/**
+ * @ingroup NVGPURM_INTF_GET_FBP_LOCAL_TO_LOGICAL_MAP
+ * @brief Command code for @ref NVGPURM_INTF_GET_FBP_LOCAL_TO_LOGICAL_MAP.
+ */
 #define NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_LOGICAL_MAP\
 	_IOWR(NVGPU_GPU_IOCTL_MAGIC, 48, struct nvgpu_gpu_get_fbp_logical_map_args)
 #define NVGPU_GPU_IOCTL_LAST		\

@@ -19,7 +19,7 @@ void nvgpu_nvhost_fence_dup(struct dma_fence *f);
 struct dma_fence *nvgpu_nvhost_fence_create(struct platform_device *pdev,
 					struct nvhost_ctrl_sync_fence_info *pts,
 					u32 num_pts, const char *name);
-u32 nvgpu_nvhost_fence_num_pts(struct dma_fence *fence);
+int nvgpu_nvhost_fence_num_pts(struct dma_fence *fence);
 int nvgpu_nvhost_fence_foreach_pt(struct dma_fence *fence,
 	int (*iter)(struct nvhost_ctrl_sync_fence_info, void *),
 	void *data);

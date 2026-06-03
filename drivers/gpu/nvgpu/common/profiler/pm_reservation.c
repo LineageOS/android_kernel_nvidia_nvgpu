@@ -332,6 +332,11 @@ int nvgpu_pm_reservation_init(struct gk20a *g)
 
 		g->pm_reservations[i] = reservations;
 	}
+	if (g->ops.perf.get_ctx_switched_pma_channel_count != NULL)
+		g->num_ctx_switched_pma_channels =
+			g->ops.perf.get_ctx_switched_pma_channel_count(g);
+	else
+		g->num_ctx_switched_pma_channels = 0;
 
 	/* Create map of pri address and pm offset if necessary */
 	if (!gr->hwpm_map->init) {

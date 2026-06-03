@@ -39,7 +39,6 @@
  * - @ref nvgpu_gsp_sched_bootstrap_hs
  * - @ref nvgpu_gsp_sched_sw_init
  * - @ref nvgpu_gsp_sched_sw_deinit
- * - @ref nvgpu_gsp_sched_suspend
  * - @ref nvgpu_gsp_sched_isr
  * - @ref nvgpu_gsp_sched_bind_ctx_reg
  * - @ref nvgpu_gsp_is_ready
@@ -255,28 +254,6 @@ int nvgpu_gsp_sched_sw_init(struct gk20a *g);
  * @param [in] g  Pointer to the GPU driver structure.
  */
 void nvgpu_gsp_sched_sw_deinit(struct gk20a *g);
-
-/**
- * @brief Suspends the GSP scheduler.
- *
- * This function is responsible for suspending the GPU Scheduler Processor (GSP)
- * scheduler by marking it as not ready, freeing associated queues, and invoking
- * the suspend routine for the GSP.
- *
- * The steps performed by the function are as follows:
- * -# Check if the GSP instance within the GSP scheduler structure is NULL. If it
- *    is NULL, log an error message indicating that the GSP is not initialized
- *    and return from the function.
- * -# Set the GSP scheduler's 'gsp_ready' flag to false to indicate that the GSP
- *    scheduler is no longer ready to schedule tasks.
- * -# Call nvgpu_gsp_queues_free() to free the memory resources associated with
- *    the GSP queues.
- * -# Call nvgpu_gsp_suspend() to suspend the GSP.
- *
- * @param [in] g          Pointer to the GPU driver structure.
- * @param [in] gsp_sched  Pointer to the GSP scheduler structure.
- */
-void nvgpu_gsp_sched_suspend(struct gk20a *g, struct nvgpu_gsp_sched *gsp_sched);
 
 /**
  * @brief Sends a command to bind the context register in the GSP scheduler.

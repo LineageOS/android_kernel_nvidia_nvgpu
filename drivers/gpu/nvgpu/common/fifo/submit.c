@@ -216,14 +216,15 @@ clean_up_unlock:
 	return err;
 }
 
-static void nvgpu_submit_append_priv_cmdbuf(struct nvgpu_channel *c,
+static int nvgpu_submit_append_priv_cmdbuf(struct nvgpu_channel *c,
 		struct priv_cmd_entry *cmd)
 {
 	struct gk20a *g = c->g;
 	struct nvgpu_mem *gpfifo_mem = &c->gpfifo.mem;
 	struct nvgpu_gpfifo_entry gpfifo_entry;
 	u64 gva;
-	u32 size;
+	u32 size, put, entry_num;
+	int err = 0;
 
 	nvgpu_priv_cmdbuf_finish(g, cmd, &gva, &size);
 	g->ops.pbdma.format_gpfifo_entry(g, &gpfifo_entry, gva, size);
@@ -232,7 +233,21 @@ static void nvgpu_submit_append_priv_cmdbuf(struct nvgpu_channel *c,
 			c->gpfifo.put * (u32)sizeof(gpfifo_entry),
 			&gpfifo_entry, (u32)sizeof(gpfifo_entry));
 
-	c->gpfifo.put = (c->gpfifo.put + 1U) & (c->gpfifo.entry_num - 1U);
+	if (!nvgpu_safe_add_u32_return(c->gpfifo.put, 1U, &put)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	if (!nvgpu_safe_sub_u32_return(c->gpfifo.entry_num, 1U, &entry_num)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	c->gpfifo.put = put & entry_num;
+
+	return err;
 }
 
 static int nvgpu_submit_append_gpfifo_user_direct(struct nvgpu_channel *c,
@@ -250,8 +265,17 @@ static int nvgpu_submit_append_gpfifo_user_direct(struct nvgpu_channel *c,
 	nvgpu_speculation_barrier();
 	if (end > gpfifo_size) {
 		/* wrap-around */
-		u32 length0 = gpfifo_size - start;
-		u32 length1 = len - length0;
+		u32 length0;
+		u32 length1;
+
+		if (!nvgpu_safe_sub_u32_return(gpfifo_size, start, &length0)) {
+			nvgpu_err(g, "Arithmetic Overflow");
+			return -EOVERFLOW;
+		}
+		if (!nvgpu_safe_sub_u32_return(len, length0, &length1)) {
+			nvgpu_err(g, "Arithmetic Overflow");
+			return -EOVERFLOW;
+		}
 
 		err = g->os_channel.copy_user_gpfifo(
 				&gpfifo_cpu[start], userdata,
@@ -278,7 +302,7 @@ static int nvgpu_submit_append_gpfifo_user_direct(struct nvgpu_channel *c,
 	return 0;
 }
 
-static void nvgpu_submit_append_gpfifo_common(struct nvgpu_channel *c,
+static int nvgpu_submit_append_gpfifo_common(struct nvgpu_channel *c,
 		struct nvgpu_gpfifo_entry *src, u32 num_entries)
 {
 	struct gk20a *g = c->g;
@@ -286,9 +310,24 @@ static void nvgpu_submit_append_gpfifo_common(struct nvgpu_channel *c,
 	/* in bytes */
 	u32 gpfifo_size =
 		c->gpfifo.entry_num * (u32)sizeof(struct nvgpu_gpfifo_entry);
-	u32 len = num_entries * (u32)sizeof(struct nvgpu_gpfifo_entry);
-	u32 start = c->gpfifo.put * (u32)sizeof(struct nvgpu_gpfifo_entry);
-	u32 end = start + len; /* exclusive */
+	u32 len, start, end;
+	int err = 0;
+
+	if (!nvgpu_safe_mult_u32_return(num_entries,
+			(u32)sizeof(struct nvgpu_gpfifo_entry), &len)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	if (!nvgpu_safe_mult_u32_return(c->gpfifo.put,
+			(u32)sizeof(struct nvgpu_gpfifo_entry), &start)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	end = start + len; /* exclusive */
 
 	if (end > gpfifo_size) {
 		/* wrap-around */
@@ -301,6 +340,8 @@ static void nvgpu_submit_append_gpfifo_common(struct nvgpu_channel *c,
 	} else {
 		nvgpu_mem_wr_n(g, gpfifo_mem, start, src, len);
 	}
+
+	return err;
 }
 
 /*
@@ -313,6 +354,8 @@ static int nvgpu_submit_append_gpfifo(struct nvgpu_channel *c,
 		u32 num_entries)
 {
 	int err;
+	u32 entry_num;
+	u32 no_entry;
 
 #ifdef CONFIG_NVGPU_DGPU
 	if ((kern_gpfifo == NULL) && (c->gpfifo.pipe == NULL)) {
@@ -339,20 +382,37 @@ static int nvgpu_submit_append_gpfifo(struct nvgpu_channel *c,
 			return err;
 		}
 
-		nvgpu_submit_append_gpfifo_common(c, c->gpfifo.pipe,
+		err = nvgpu_submit_append_gpfifo_common(c, c->gpfifo.pipe,
 				num_entries);
+		if (err != 0) {
+			nvgpu_err(c->g, "nvgpu_submit_append_gpfifo_common failed to return 0");
+			return err;
+		}
 	}
 #endif
 	else {
 		/* from kernel to either sysmem or vidmem, don't need
 		 * copy_user_gpfifo so use the common path */
-		nvgpu_submit_append_gpfifo_common(c, kern_gpfifo, num_entries);
+		err = nvgpu_submit_append_gpfifo_common(c, kern_gpfifo, num_entries);
+		if (err != 0) {
+			nvgpu_err(c->g, "nvgpu_submit_append_gpfifo_common failed to return 0");
+			return err;
+		}
 	}
 
 	trace_write_pushbuffers(c, num_entries);
 
-	c->gpfifo.put = (c->gpfifo.put + num_entries) &
-		(c->gpfifo.entry_num - 1U);
+	if (!nvgpu_safe_add_u32_return(c->gpfifo.put, num_entries, &no_entry)) {
+		nvgpu_err(NULL, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	if (!nvgpu_safe_sub_u32_return(c->gpfifo.entry_num, 1U, &entry_num)) {
+		nvgpu_err(NULL, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	c->gpfifo.put = no_entry & entry_num;
 
 	return 0;
 }
@@ -367,8 +427,6 @@ static int nvgpu_submit_prepare_gpfifo_track(struct nvgpu_channel *c,
 		struct nvgpu_swprofiler *profiler,
 		bool need_deferred_cleanup)
 {
-	bool skip_buffer_refcounting = (flags &
-			NVGPU_SUBMIT_FLAGS_SKIP_BUFFER_REFCOUNTING) != 0U;
 	struct nvgpu_channel_job *job = NULL;
 	int err;
 
@@ -392,18 +450,32 @@ static int nvgpu_submit_prepare_gpfifo_track(struct nvgpu_channel *c,
 	 * empty fences that act like trivially expired waits.
 	 */
 	if (job->wait_cmd != NULL) {
-		nvgpu_submit_append_priv_cmdbuf(c, job->wait_cmd);
+		err = nvgpu_submit_append_priv_cmdbuf(c, job->wait_cmd);
+		if (err != 0) {
+			nvgpu_err(c->g, "nvgpu_submit_append_priv_cmdbuf failed to return 0");
+			goto clean_up_job;
+		}
 	}
 
 	err = nvgpu_submit_append_gpfifo(c, gpfifo, userdata, num_entries);
 	if (err != 0) {
 		goto clean_up_gpfifo_wait;
 	}
-	nvgpu_submit_append_priv_cmdbuf(c, job->incr_cmd);
-	if (c->gpfifo_sync != NULL) {
-		nvgpu_submit_append_priv_cmdbuf(c, job->gpfifo_incr_cmd);
+
+	err = nvgpu_submit_append_priv_cmdbuf(c, job->incr_cmd);
+	if (err != 0) {
+		nvgpu_err(c->g, "nvgpu_submit_append_priv_cmdbuf failed to return 0");
+		goto clean_up_gpfifo_wait;
 	}
-	err = nvgpu_channel_add_job(c, job, skip_buffer_refcounting);
+
+	if (c->gpfifo_sync != NULL) {
+		err = nvgpu_submit_append_priv_cmdbuf(c, job->gpfifo_incr_cmd);
+		if (err != 0) {
+			nvgpu_err(c->g, "nvgpu_submit_append_priv_cmdbuf failed to return 0");
+			goto clean_up_gpfifo_wait;
+		}
+	}
+	err = nvgpu_channel_add_job(c, job);
 	if (err != 0) {
 		goto clean_up_gpfifo_incr;
 	}
@@ -526,6 +598,7 @@ static int nvgpu_do_submit(struct nvgpu_channel *c,
 {
 	struct gk20a *g = c->g;
 	int err;
+	u32 reqd;
 
 #ifdef CONFIG_NVGPU_TRACE
 	trace_gk20a_channel_submit_gpfifo(g->name,
@@ -539,7 +612,12 @@ static int nvgpu_do_submit(struct nvgpu_channel *c,
 	nvgpu_log_info(g, "pre-submit put %d, get %d, size %d",
 		c->gpfifo.put, c->gpfifo.get, c->gpfifo.entry_num);
 
-	err = check_gpfifo_capacity(c, num_entries + EXTRA_GPFIFO_ENTRIES);
+	if (!nvgpu_safe_add_u32_return(num_entries, EXTRA_GPFIFO_ENTRIES, &reqd)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	err = check_gpfifo_capacity(c, reqd);
 	if (err != 0) {
 		return err;
 	}
@@ -574,8 +652,6 @@ static int nvgpu_submit_deterministic(struct nvgpu_channel *c,
 				struct nvgpu_fence_type **fence_out,
 				struct nvgpu_swprofiler *profiler)
 {
-	bool skip_buffer_refcounting = (flags &
-			NVGPU_SUBMIT_FLAGS_SKIP_BUFFER_REFCOUNTING) != 0U;
 	bool flag_fence_wait = (flags & NVGPU_SUBMIT_FLAGS_FENCE_WAIT) != 0U;
 	bool flag_fence_get = (flags & NVGPU_SUBMIT_FLAGS_FENCE_GET) != 0U;
 	bool flag_sync_fence = (flags & NVGPU_SUBMIT_FLAGS_SYNC_FENCE) != 0U;
@@ -588,12 +664,6 @@ static int nvgpu_submit_deterministic(struct nvgpu_channel *c,
 	/* sync framework on post fences would not be deterministic */
 	if (flag_fence_get && flag_sync_fence) {
 		nvgpu_info(g, "can't use sync fence in deterministic mode");
-		return -EINVAL;
-	}
-
-	/* this would be O(n) */
-	if (!skip_buffer_refcounting) {
-		nvgpu_info(g, "can't use buf refcounting in deterministic mode");
 		return -EINVAL;
 	}
 
@@ -686,8 +756,6 @@ static int nvgpu_submit_nondeterministic(struct nvgpu_channel *c,
 				struct nvgpu_fence_type **fence_out,
 				struct nvgpu_swprofiler *profiler)
 {
-	bool skip_buffer_refcounting = (flags &
-			NVGPU_SUBMIT_FLAGS_SKIP_BUFFER_REFCOUNTING) != 0U;
 	bool flag_fence_wait = (flags & NVGPU_SUBMIT_FLAGS_FENCE_WAIT) != 0U;
 	bool flag_fence_get = (flags & NVGPU_SUBMIT_FLAGS_FENCE_GET) != 0U;
 	struct gk20a *g = c->g;
@@ -713,7 +781,6 @@ static int nvgpu_submit_nondeterministic(struct nvgpu_channel *c,
 			flag_fence_get ||
 			nvgpu_is_enabled(g, NVGPU_CAN_RAILGATE) ||
 			nvgpu_is_vpr_resize_enabled() ||
-			!skip_buffer_refcounting ||
 			nvgpu_channel_wdt_enabled(c->wdt);
 
 	if (need_job_tracking) {

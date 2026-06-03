@@ -13,7 +13,7 @@
  * This typedef is for functions that get called during the access_batched()
  * operation.
  */
-typedef void (*pramin_access_batch_fn)(struct gk20a *g, u64 start, u64 words,
+typedef int (*pramin_access_batch_fn)(struct gk20a *g, u64 start, u64 words,
 				       u32 **arg);
 
 /*
@@ -84,7 +84,7 @@ static void nvgpu_pramin_access_batched(struct gk20a *g, struct nvgpu_mem *mem,
 	}
 }
 
-static void nvgpu_pramin_access_batch_rd_n(struct gk20a *g,
+static int nvgpu_pramin_access_batch_rd_n(struct gk20a *g,
 					   u64 start, u64 words, u32 **arg)
 {
 	u32 *dest_u32 = *arg;
@@ -93,10 +93,14 @@ static void nvgpu_pramin_access_batch_rd_n(struct gk20a *g,
 	while (words != 0U) {
 		words--;
 		*dest_u32++ = nvgpu_readl(g, r);
-		r += U32(sizeof(u32));
+		if (!nvgpu_safe_add_u64_return(r, U32(sizeof(u32)), &r)) {
+			nvgpu_err(g, "Arithmetic Overflow");
+			return -EOVERFLOW;
+		}
 	}
 
 	*arg = dest_u32;
+	return 0;
 }
 
 void nvgpu_pramin_rd_n(struct gk20a *g, struct nvgpu_mem *mem,
@@ -108,7 +112,7 @@ void nvgpu_pramin_rd_n(struct gk20a *g, struct nvgpu_mem *mem,
 			nvgpu_pramin_access_batch_rd_n, &dest_u32);
 }
 
-static void nvgpu_pramin_access_batch_wr_n(struct gk20a *g,
+static int nvgpu_pramin_access_batch_wr_n(struct gk20a *g,
 					   u64 start, u64 words, u32 **arg)
 {
 	u32 *src_u32 = *arg;
@@ -117,10 +121,14 @@ static void nvgpu_pramin_access_batch_wr_n(struct gk20a *g,
 	while (words != 0U) {
 		words--;
 		nvgpu_writel_relaxed(g, r, *src_u32++);
-		r += U32(sizeof(u32));
+		if (!nvgpu_safe_add_u64_return(r, U32(sizeof(u32)), &r)) {
+			nvgpu_err(g, "Arithmetic Overflow");
+			return -EOVERFLOW;
+		}
 	}
 
 	*arg = src_u32;
+	return 0;
 }
 
 void nvgpu_pramin_wr_n(struct gk20a *g, struct nvgpu_mem *mem,
@@ -132,17 +140,24 @@ void nvgpu_pramin_wr_n(struct gk20a *g, struct nvgpu_mem *mem,
 			nvgpu_pramin_access_batch_wr_n, &src_u32);
 }
 
-static void nvgpu_pramin_access_batch_set(struct gk20a *g,
+static int nvgpu_pramin_access_batch_set(struct gk20a *g,
 					  u64 start, u64 words, u32 **arg)
 {
 	u32 repeat = **arg;
 	u64 r = start;
+	int err = 0;
 
 	while (words != 0U) {
 		words--;
 		nvgpu_writel_relaxed(g, r, repeat);
-		r += U32(sizeof(u32));
+		if (!nvgpu_safe_add_u64_return(r, U32(sizeof(u32)), &r)) {
+			nvgpu_err(g, "Arithmetic Overflow");
+			err = -EOVERFLOW;
+			return err;
+		}
 	}
+
+	return err;
 }
 
 void nvgpu_pramin_memset(struct gk20a *g, struct nvgpu_mem *mem,

@@ -336,8 +336,6 @@ void gb10b_ofa_enable_irq(struct gk20a *g, u32 inst_id, bool enable)
 
 	if (g->ops.ofa.set_ecc_intr != NULL) {
 		g->ops.ofa.set_ecc_intr(g, inst_id, enable);
-	} else {
-		nvgpu_err(g, "Un-supported OFA ECC interrupt ctrl");
 	}
 }
 

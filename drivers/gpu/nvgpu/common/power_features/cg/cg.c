@@ -645,7 +645,7 @@ void nvgpu_cg_elcg_set_elcg_enabled(struct gk20a *g, bool enable)
 			 * for all engines
 			 */
 			g->elcg_engine_bitmask =
-					CG_ELCG_ALL_ENGINE_ENABLED_MASK;
+					nvgpu_cg_get_elcg_all_engine_mask(g);
 			nvgpu_cg_set_mode(g, ELCG_MODE, ELCG_AUTO);
 
 			/* If FLCG is enabled, update FLCG related feature */
@@ -672,8 +672,8 @@ void nvgpu_cg_elcg_set_elcg_enabled(struct gk20a *g, bool enable)
 			 * for all engines
 			 */
 			g->elcg_engine_bitmask = 0U;
-			nvgpu_cg_set_mode(g, ELCG_MODE, ELCG_RUN);
 			g->elcg_enabled = false;
+			nvgpu_cg_set_mode(g, ELCG_MODE, ELCG_RUN);
 
 			/* If FLCG is enabled, update FLCG related feature */
 			if (nvgpu_is_enabled(g, NVGPU_GPU_CAN_FLCG)) {
@@ -1017,7 +1017,7 @@ int nvgpu_cg_flcg_set_nvdclk_flcg_enabled(struct gk20a *g, bool enable)
 	 * if the elcg_engine_bitmask has atleast 1 video engine
 	 * ELCG enabled, we can update/modify nvdclk flcg
 	 */
-	if (g->elcg_engine_bitmask & CG_ELCG_MM_ENGINE_ENABLED_MASK) {
+	if (g->elcg_engine_bitmask & nvgpu_cg_get_elcg_mm_engine_mask(g)) {
 		if (enable) {
 			if (!g->nvdclk_flcg_enabled) {
 				change_mode = true;
@@ -1430,6 +1430,15 @@ void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
 
 			engine_bit = engine_bit << sub_feature_ids[i];
 
+			/**
+			 * Checking if the engine is supported for the target chip or not
+			 * If not, we skip the engine.
+			 */
+			if ((engine_bit & nvgpu_cg_get_elcg_all_engine_mask(g)) == 0) {
+				nvgpu_log_fn(g, "Unsupported engine %#X", sub_feature_ids[i]);
+				continue;
+			}
+
 			new_enable_status = new_engine_bitmask & engine_bit;
 
 			/**
@@ -1437,9 +1446,13 @@ void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
 			 * the engines to their correspondig HW Engine
 			 * IDs.
 			 */
-			engine_id =
-				nvgpu_elcg_sub_feature_id_to_engine_id(
-					g, sub_feature_ids[i]);
+			if (g->ops.pmu.pmu_elcg_sub_feature_id_to_engine_id != NULL) {
+				engine_id = g->ops.pmu.pmu_elcg_sub_feature_id_to_engine_id(g,
+										sub_feature_ids[i]);
+			} else {
+				engine_id = nvgpu_elcg_sub_feature_id_to_engine_id(g,
+										sub_feature_ids[i]);
+			}
 
 			if (engine_id == -1) {
 				continue;
@@ -1464,7 +1477,7 @@ void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
 		 * which do not correspond to any engine.
 		 */
 		new_engine_bitmask = new_engine_bitmask &
-				CG_ELCG_ALL_ENGINE_ENABLED_MASK;
+				nvgpu_cg_get_elcg_all_engine_mask(g);
 
 		/* If FLCG is enabled, update nvdclk flcg as well */
 		if (nvgpu_is_enabled(g, NVGPU_GPU_CAN_FLCG)) {
@@ -1472,7 +1485,7 @@ void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
 			 * if the new_engine_bitmask has atleast 1 video engine
 			 * ELCG enabled, we can enable nvdclk flcg
 			 */
-			if (new_engine_bitmask & CG_ELCG_MM_ENGINE_ENABLED_MASK) {
+			if (new_engine_bitmask & nvgpu_cg_get_elcg_mm_engine_mask(g)) {
 				if (!g->nvdclk_flcg_enabled) {
 					/*
 					 * To-Do: here, we should send rpc
@@ -1639,4 +1652,20 @@ void nvgpu_cg_elcg_ctrl_deinit(struct gk20a *g)
 	g->elcg_ctrl = NULL;
 
 	nvgpu_log_fn(g, "done");
+}
+
+u32 nvgpu_cg_get_elcg_all_engine_mask(struct gk20a *g)
+{
+	if (g->ops.pmu.pmu_elcg_all_engine_mask != NULL) {
+		return g->ops.pmu.pmu_elcg_all_engine_mask();
+	}
+	return CG_ELCG_ALL_ENGINE_ENABLED_MASK;
+}
+
+u32 nvgpu_cg_get_elcg_mm_engine_mask(struct gk20a *g)
+{
+	if (g->ops.pmu.pmu_elcg_mm_engine_mask != NULL) {
+		return g->ops.pmu.pmu_elcg_mm_engine_mask();
+	}
+	return CG_ELCG_MM_ENGINE_ENABLED_MASK;
 }

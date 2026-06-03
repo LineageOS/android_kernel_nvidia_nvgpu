@@ -99,34 +99,68 @@ void nvgpu_gr_obj_ctx_commit_inst(struct gk20a *g, struct nvgpu_mem *inst_block,
 }
 
 #if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_CILP)
+/**
+ * @brief Initialize context switch preemption mode for graphics and compute.
+ *
+ * This function initializes the preemption modes for both graphics and
+ * compute operations based on the GPU class type and context descriptor
+ * configuration. It retrieves the default preemption modes and applies
+ * specific preemption modes if GFXP or CILP preemption is requested.
+ *
+ * @param [in] g Pointer to the GPU device structure.
+ * @param [in] gr_ctx_desc Pointer to the graphics context descriptor
+ *                         structure.
+ * @param [in] class_num GPU class number indicating the type of graphics
+ *                       or compute class.
+ * @param [out] graphics_preempt_mode Pointer to store the graphics
+ *                                    preemption mode.
+ * @param [out] compute_preempt_mode Pointer to store the compute
+ *                                   preemption mode.
+ *
+ * @return None (void).
+ *
+ * Design Description:
+ * -# Invoke g->ops.gr.init.get_default_preemption_modes() to retrieve the
+ *    default graphics and compute preemption modes from the GPU.
+ * -# If CONFIG_NVGPU_GFXP is defined, check if the GPU class number
+ *    represents a valid graphics class by invoking
+ *    g->ops.gpu_class.is_valid_gfx() and verify if GFXP preemption is
+ *    forced by invoking nvgpu_gr_ctx_desc_force_preemption_gfxp().
+ * -# If both conditions in previous step are true, set the graphics
+ *    preemption mode parameter to NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP.
+ * -# If CONFIG_NVGPU_NON_FUSA and CONFIG_NVGPU_CILP are defined, check if
+ *    the GPU class number represents a valid compute class by invoking
+ *    g->ops.gpu_class.is_valid_compute() and verify if CILP preemption is
+ *    forced by invoking nvgpu_gr_ctx_desc_force_preemption_cilp().
+ * -# If both conditions in previous step are true, set the compute
+ *    preemption mode parameter to NVGPU_PREEMPTION_MODE_COMPUTE_CILP.
+ * -# Check if the compute preemption mode parameter is still zero, if so,
+ *    assign the default compute preemption mode value to it.
+ * -# Check if the graphics preemption mode parameter is still zero, if so,
+ *    assign the default graphics preemption mode value to it.
+ */
 static void nvgpu_gr_obj_ctx_init_ctxsw_preemption_mode(struct gk20a *g,
-	struct nvgpu_gr_ctx_desc *gr_ctx_desc,
-	u32 class_num, u32 flags,
+	struct nvgpu_gr_ctx_desc *gr_ctx_desc, u32 class_num,
 	u32 *graphics_preempt_mode, u32 *compute_preempt_mode)
 {
 	u32 default_graphics_preempt_mode = 0U;
 	u32 default_compute_preempt_mode = 0U;
+
+	(void)gr_ctx_desc;
+	(void)class_num;
 
 	g->ops.gr.init.get_default_preemption_modes(
 			&default_graphics_preempt_mode,
 			&default_compute_preempt_mode);
 
 #ifdef CONFIG_NVGPU_GFXP
-	if ((flags & NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP) != 0U) {
-		*graphics_preempt_mode = NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
-	}
-
 	if (g->ops.gpu_class.is_valid_gfx(class_num) &&
 			nvgpu_gr_ctx_desc_force_preemption_gfxp(gr_ctx_desc)) {
 		*graphics_preempt_mode = NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
 	}
 #endif
 
-#ifdef CONFIG_NVGPU_CILP
-	if ((flags & NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP) != 0U) {
-		*compute_preempt_mode = NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
-	}
-
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
 	if (g->ops.gpu_class.is_valid_compute(class_num) &&
 			nvgpu_gr_ctx_desc_force_preemption_cilp(gr_ctx_desc)) {
 		*compute_preempt_mode = NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
@@ -142,11 +176,54 @@ static void nvgpu_gr_obj_ctx_init_ctxsw_preemption_mode(struct gk20a *g,
 	}
 }
 
+/**
+ * @brief Initialize context switch preemption for graphics object context.
+ *
+ * This function initializes the context switch preemption settings for a
+ * graphics or compute engine. It validates the engine class, checks if the
+ * context is already initialized, determines the appropriate preemption modes,
+ * and configures them in the context.
+ *
+ * @param [in] g                Pointer to GPU device structure.
+ * @param [in] ch               Pointer to the channel structure.
+ * @param [in] config           Pointer to the GR configuration structure.
+ * @param [in] gr_ctx_desc      Pointer to the GR context descriptor structure.
+ * @param [in] gr_ctx           Pointer to the GR context structure to be
+ *                              initialized with preemption settings.
+ * @param [in] class_num        GPU class number identifying the engine type.
+ *
+ * @return 0 on success, error code on failure.
+ *
+ * Design Description:
+ * -# Check if the class number parameter is valid for compute engine by
+ *    calling g->ops.gpu_class.is_valid_compute function.
+ * -# Check if the class number parameter is valid for graphics engine by
+ *    calling g->ops.gpu_class.is_valid_gfx function.
+ * -# If both validation checks fail, indicating the engine is neither compute
+ *    nor graphics, return success immediately as preemption initialization is
+ *    not applicable.
+ * -# Check if the context is already initialized by calling
+ *    nvgpu_gr_ctx_get_ctx_initialized function with the context parameter.
+ * -# If the context is already initialized, return success immediately to
+ *    avoid redundant initialization.
+ * -# Call nvgpu_gr_obj_ctx_init_ctxsw_preemption_mode function to determine
+ *    the appropriate graphics and compute preemption modes based on the GPU
+ *    device, context descriptor, and class number parameters, storing results
+ *    in the local preemption mode variables.
+ * -# Call nvgpu_gr_obj_ctx_set_ctxsw_preemption_mode function to apply the
+ *    determined preemption modes to the context using the GPU device, channel,
+ *    configuration, context descriptor, context, class number, and preemption
+ *    mode parameters.
+ * -# Check if the preemption mode configuration returned an error.
+ * -# If an error occurred during preemption mode configuration, log the error
+ *    using nvgpu_err function and return the error code.
+ * -# Return success status indicating preemption initialization completed
+ *    successfully.
+ */
 static int nvgpu_gr_obj_ctx_init_ctxsw_preemption(struct gk20a *g,
 	struct nvgpu_channel *ch,
 	struct nvgpu_gr_config *config, struct nvgpu_gr_ctx_desc *gr_ctx_desc,
-	struct nvgpu_gr_ctx *gr_ctx,
-	u32 class_num, u32 flags)
+	struct nvgpu_gr_ctx *gr_ctx, u32 class_num)
 {
 	int err;
 	u32 graphics_preempt_mode = 0U;
@@ -161,26 +238,12 @@ static int nvgpu_gr_obj_ctx_init_ctxsw_preemption(struct gk20a *g,
 	}
 
 	if (nvgpu_gr_ctx_get_ctx_initialized(gr_ctx)) {
-#ifdef CONFIG_NVGPU_GFXP
-		if ((flags & NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP) != 0U) {
-			graphics_preempt_mode = NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
-		}
-#endif
-
-#ifdef CONFIG_NVGPU_CILP
-		if ((flags & NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP) != 0U) {
-			compute_preempt_mode = NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
-		}
-#endif
-		if (nvgpu_gr_setup_validate_preemption_mode(&graphics_preempt_mode,
-					&compute_preempt_mode, gr_ctx) == false) {
-			return 0;
-		}
-	} else {
-		nvgpu_gr_obj_ctx_init_ctxsw_preemption_mode(g, gr_ctx_desc,
-			class_num, flags, &graphics_preempt_mode,
-			&compute_preempt_mode);
+		return 0;
 	}
+
+	nvgpu_gr_obj_ctx_init_ctxsw_preemption_mode(g, gr_ctx_desc,
+		class_num, &graphics_preempt_mode,
+		&compute_preempt_mode);
 
 	err = nvgpu_gr_obj_ctx_set_ctxsw_preemption_mode(g, ch, config,
 		gr_ctx_desc, gr_ctx, class_num, graphics_preempt_mode,
@@ -1145,13 +1208,12 @@ static int nvgpu_gr_obj_ctx_alloc_buffers(struct gk20a *g,
 	struct nvgpu_gr_ctx_desc *gr_ctx_desc,
 	struct nvgpu_gr_config *config,
 	struct nvgpu_gr_ctx *gr_ctx,
-	u32 class_num, u32 flags)
+	u32 class_num)
 {
 	int err;
 
 	(void)ch;
 	(void)class_num;
-	(void)flags;
 
 	nvgpu_log(g, gpu_dbg_gr, " ");
 
@@ -1164,7 +1226,7 @@ static int nvgpu_gr_obj_ctx_alloc_buffers(struct gk20a *g,
 #if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_CILP)
 	if (ch != NULL) {
 		err = nvgpu_gr_obj_ctx_init_ctxsw_preemption(g, ch, config,
-			gr_ctx_desc, gr_ctx, class_num, flags);
+			gr_ctx_desc, gr_ctx, class_num);
 		if (err != 0) {
 			nvgpu_err(g, "fail to init preemption mode");
 			return err;
@@ -1268,7 +1330,7 @@ static int nvgpu_gr_golden_ctx_prepare_gr_ctx(
 	gr_ctx->mappings = mappings;
 
 	err = nvgpu_gr_obj_ctx_alloc_buffers(g, NULL, golden_image, gr->gr_ctx_desc,
-					     gr->config, gr_ctx, obj_class, 0);
+					     gr->config, gr_ctx, obj_class);
 	if (err != 0) {
 		nvgpu_err(g, "ctx buffers alloc failed, err=%d", err);
 		goto free_gr_subctx;
@@ -1343,15 +1405,11 @@ static int init_golden_context_image(struct gk20a *g)
 	struct nvgpu_gr_ctx gr_ctx = {};
 	int err = 0;
 
+	/*
+	 * Reinit golden context image always during nvgpu power on.
+	 * This is needed to satisfy ctxsw temporal restrictions.
+	 */
 	nvgpu_mutex_acquire(&golden_image->ctx_mutex);
-
-	/* Reinit golden context image during resume on safety build. This is
-	 * needed to satisfy ctxsw temporal restrictions. */
-#ifdef CONFIG_NVGPU_NON_FUSA
-	if (golden_image->ready) {
-		goto out;
-	}
-#endif
 
 	big_page_size = g->ops.mm.gmmu.get_default_big_page_size();
 
@@ -1398,6 +1456,19 @@ static int init_golden_context_image(struct gk20a *g)
 
 	/* This state update is needed for vGPU case */
 	golden_image->ready = true;
+
+#ifdef CONFIG_NVGPU_POWER_PG
+	/* Re-enable ELPG now that golden image has been initialized.
+	 * The PMU PG init code may already have tried to enable elpg, but
+	 * would not have been able to complete this action since the golden
+	 * image hadn't been initialized yet, so do this now.
+	 */
+	err = nvgpu_pmu_reenable_elpg(g);
+	if (err != 0) {
+		nvgpu_err(g, "fail to re-enable elpg");
+		goto unprepare_gr_ctx;
+	}
+#endif
 
 	nvgpu_log(g, gpu_dbg_gr, "Golden context image initialized!");
 
@@ -1479,11 +1550,12 @@ int nvgpu_gr_obj_ctx_alloc(struct gk20a *g,
 	bool cde, bool vpr)
 {
 	int err = 0;
+	(void)flags;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
 
 	err = nvgpu_gr_obj_ctx_alloc_buffers(g, c, golden_image, gr_ctx_desc,
-					     config, gr_ctx, class_num, flags);
+					     config, gr_ctx, class_num);
 	if (err != 0) {
 		nvgpu_err(g, "failed to alloc ctx buffers");
 		goto out;

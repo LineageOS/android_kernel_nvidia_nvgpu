@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -195,6 +195,8 @@
 				(U32(0x7U) << 24U)
 #define perf_pmasys_channel_config_user_coalesce_timeout_cycles__prod_f()\
 				(0x4000000U)
+#define perf_pmasys_channel_config_user_keep_latest_m()        (U32(0x1U) << 1U)
+#define perf_pmasys_channel_config_user_keep_latest_enable_f()            (0x2U)
 #define perf_pmasys_channel_mem_head_r(i,j)\
 		(nvgpu_safe_add_u32(nvgpu_safe_add_u32(0x002b0a34U, \
 		nvgpu_safe_mult_u32((i), 128U)), nvgpu_safe_mult_u32((j), 64U)))
@@ -365,6 +367,10 @@
 #define perf_pmasys_engine_index_pma_v()                           (0x0000000aU)
 #define perf_pmmfbp_fbpgs_ltcs_base_v()                            (0x002a8000U)
 #define perf_pmmfbp_fbpgs_ltcs_extent_v()                          (0x002a81ffU)
+#define perf_pmmsysrouter_channel_stride_v()                       (0x00000010U)
+#define perf_pmasys_channel_stride_v()                             (0x00000040U)
+#define perf_pmasys_command_slice_stride_v()                       (0x00000090U)
+#define perf_pmasys_fwd_channel_stride_v()                         (0x00000010U)
 #define perf_pmmgpc_gpcgs_gpctpca_base_v()                         (0x002a8800U)
 #define perf_pmmgpc_gpcgs_gpctpca_extent_v()                       (0x002a89ffU)
 #define perf_pmmgpc_gpcgs_gpctpcb_base_v()                         (0x002a8a00U)
@@ -393,4 +399,16 @@
 #define perf_pmmsys_sys0_config_r(i,j)\
 		(nvgpu_safe_add_u32(nvgpu_safe_add_u32(0x002b40b8U, \
 		nvgpu_safe_mult_u32((i), 32U)), nvgpu_safe_mult_u32((j), 16U)))
+#define perf_ccuprof_fbps_data_config_r(i)\
+		(nvgpu_safe_add_u32(0x000f500cU, nvgpu_safe_mult_u32((i), 128U)))
+#define perf_ccuprof_fbps_data_config__size_1_v()                  (0x00000001U)
+#define perf_ccuprof_fbps_data_config_ulc_pm_m()              (U32(0x1U) << 30U)
+#define perf_ccuprof_fbps_data_config_ulc_pm_disable_f()                  (0x0U)
+#define perf_ccuprof_fbps_data_config_ulc_pm_enable_f()            (0x40000000U)
+#define perf_ccuprof_gpcs_data_config_r(i)\
+		(nvgpu_safe_add_u32(0x000f600cU, nvgpu_safe_mult_u32((i), 128U)))
+#define perf_ccuprof_gpcs_data_config__size_1_v()                  (0x00000006U)
+#define perf_ccuprof_gpcs_data_config_ulc_pm_m()              (U32(0x1U) << 30U)
+#define perf_ccuprof_gpcs_data_config_ulc_pm_disable_f()                  (0x0U)
+#define perf_ccuprof_gpcs_data_config_ulc_pm_enable_f()            (0x40000000U)
 #endif

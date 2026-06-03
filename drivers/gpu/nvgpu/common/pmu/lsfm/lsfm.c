@@ -208,12 +208,12 @@ int nvgpu_pmu_lsfm_init(struct gk20a *g, struct nvgpu_pmu_lsfm **lsfm)
 		break;
 #endif
 
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+	case NVGPU_GPUID_GB10B:
 		/* skip lsfm_sw_init */
 		break;
-#endif
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 	case NVGPU_GPUID_GB20C:
 		/* skip lsfm_sw_init */

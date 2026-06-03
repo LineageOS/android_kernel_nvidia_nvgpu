@@ -6,6 +6,7 @@
 #include "platform_gk20a.h"
 
 #include <nvgpu/io.h>
+#include <nvgpu/soc.h>
 
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -124,8 +125,9 @@ void nvgpu_c2c_debugfs_init(struct gk20a *g)
 	struct device *dev = dev_from_gk20a(g);
 
 	// Dumping C2C regs is supported only for native
-	if (g->is_virtual)
+	if (nvgpu_is_hypervisor_mode(g)) {
 		return;
+	}
 
 	if (nvgpu_init_c2c_regions(g, dev))
 		return;

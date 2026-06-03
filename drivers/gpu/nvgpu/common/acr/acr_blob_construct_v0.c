@@ -189,7 +189,7 @@ rel_sig:
  * @brief lsfm_fill_static_lsb_hdr_info
  * Populate static LSB header information using the provided ucode image
  */
-static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
+static int lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 	u32 falcon_id, struct lsfm_managed_ucode_img_v0 *pnode)
 {
 	u32 full_app_size = 0;
@@ -220,8 +220,12 @@ static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 		pnode->ucode_img.desc->app_resident_data_offset,
 		LSF_BL_CODE_SIZE_ALIGNMENT) +
 		pnode->lsb_header.bl_code_size;
-	pnode->lsb_header.data_size = full_app_size -
-		pnode->lsb_header.ucode_size;
+	if (!nvgpu_safe_sub_u32_return(full_app_size, pnode->lsb_header.ucode_size,
+			 &pnode->lsb_header.data_size)) {
+		nvgpu_err(g, "Underflow : ucode_size is large");
+		return -EOVERFLOW;
+	}
+
 	/*
 	 * Though the BL is located at 0th offset of the image, the VA
 	 * is different to make sure that it doesn't collide the actual
@@ -241,6 +245,8 @@ static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 		pnode->lsb_header.flags |=
 			NV_FLCN_ACR_LSF_FLAG_FORCE_PRIV_LOAD_TRUE;
 	}
+
+	return 0;
 }
 
 /* Adds a ucode image to the list of managed ucode images managed. */
@@ -249,6 +255,7 @@ static int lsfm_add_ucode_img(struct gk20a *g, struct ls_flcn_mgr_v0 *plsfm,
 {
 
 	struct lsfm_managed_ucode_img_v0 *pnode;
+	int err = 0;
 
 	pnode = nvgpu_kzalloc(g, sizeof(struct lsfm_managed_ucode_img_v0));
 	if (pnode == NULL) {
@@ -268,10 +275,14 @@ static int lsfm_add_ucode_img(struct gk20a *g, struct ls_flcn_mgr_v0 *plsfm,
 		(u32)g->acr->lsf[falcon_id].is_lazy_bootstrap;
 
 	/* Fill in static LSB header info elsewhere */
-	lsfm_fill_static_lsb_hdr_info(g, falcon_id, pnode);
+	err = lsfm_fill_static_lsb_hdr_info(g, falcon_id, pnode);
+	if (err != 0) {
+		nvgpu_err(g, "lsfm_fill_static_lsb_hdr_info failed");
+		return err;
+	}
 	pnode->next = plsfm->ucode_img_list;
 	plsfm->ucode_img_list = pnode;
-	return 0;
+	return err;
 }
 
 /* Discover all managed falcon ucode images */
@@ -359,7 +370,10 @@ static int lsf_gen_wpr_requirements(struct gk20a *g, struct ls_flcn_mgr_v0 *plsf
 		wpr_offset = NVGPU_ALIGN(wpr_offset,
 			LSF_UCODE_DATA_ALIGNMENT);
 		pnode->lsb_header.ucode_off = wpr_offset;
-		wpr_offset += pnode->ucode_img.data_size;
+		if (!nvgpu_safe_add_u32_return(wpr_offset, pnode->ucode_img.data_size, &wpr_offset)) {
+			nvgpu_err(g, "Overflow : wpr_offset/data_size is large");
+			return -EOVERFLOW;
+		}
 
 		/*
 		 * For falcons that use a boot loader (BL), we append a loader
@@ -383,7 +397,11 @@ static int lsf_gen_wpr_requirements(struct gk20a *g, struct ls_flcn_mgr_v0 *plsf
 		wpr_offset = NVGPU_ALIGN(wpr_offset,
 			LSF_BL_DATA_ALIGNMENT);
 		pnode->lsb_header.bl_data_off = wpr_offset;
-		wpr_offset += pnode->lsb_header.bl_data_size;
+		if (!nvgpu_safe_add_u32_return(wpr_offset,
+				pnode->lsb_header.bl_data_size, &wpr_offset)) {
+			nvgpu_err(g, "Overflow : wpr_offset/bl_data_size is large");
+			return -EOVERFLOW;
+		}
 
 		/* Finally, update ucode surface size to include updates */
 		pnode->full_ucode_size = wpr_offset -
@@ -437,7 +455,10 @@ static int gm20b_pmu_populate_loader_cfg(struct gk20a *g,
 	 */
 	addr_base = p_lsfm->lsb_header.ucode_off;
 	g->acr->get_wpr_info(g, &wpr_inf);
-	addr_base += wpr_inf.wpr_base;
+	if (!nvgpu_safe_add_u64_return(addr_base, wpr_inf.wpr_base, &addr_base)) {
+		nvgpu_err(g, "Overflow : addr_base/wpr_base is large");
+		return -EOVERFLOW;
+	}
 	nvgpu_acr_dbg(g, "pmu loader cfg u32 addrbase %x\n", (u32)addr_base);
 	/*From linux*/
 	tmp = (addr_base +
@@ -511,7 +532,10 @@ static int gm20b_flcn_populate_bl_dmem_desc(struct gk20a *g,
 	 */
 	addr_base = p_lsfm->lsb_header.ucode_off;
 	g->acr->get_wpr_info(g, &wpr_inf);
-	addr_base += wpr_inf.wpr_base;
+	if (!nvgpu_safe_add_u64_return(addr_base, wpr_inf.wpr_base, &addr_base)) {
+		nvgpu_err(g, "Overflow : addr_base/wpr_base is large");
+		return -EOVERFLOW;
+	}
 
 	nvgpu_acr_dbg(g, "gen loader cfg %x u32 addrbase %x ID\n", (u32)addr_base,
 			p_lsfm->wpr_header.falcon_id);
@@ -659,7 +683,10 @@ static int lsfm_init_wpr_contents(struct gk20a *g, struct ls_flcn_mgr_v0 *plsfm,
 				pnode->ucode_img.data,
 				pnode->ucode_img.data_size);
 		pnode = pnode->next;
-		i++;
+		if (!nvgpu_safe_add_u32_return(i, 1U, &i)) {
+			nvgpu_err(g, "Overflow : i value exceeds U32");
+			return -EOVERFLOW;
+		}
 	}
 
 	/* Tag the terminator WPR header with an invalid falcon ID. */

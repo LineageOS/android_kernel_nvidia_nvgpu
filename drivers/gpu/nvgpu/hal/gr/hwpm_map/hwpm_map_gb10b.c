@@ -15,6 +15,10 @@
 
 #include "hwpm_map_gb10b.h"
 
+#ifdef CONFIG_NVGPU_DEBUGGER
+
+#define GNIC_CNT_PER_CPC	(5U)
+
 int gb10b_hwpm_map_add_gpc_perf_entries_to_map(struct gk20a *g,
 		struct ctxsw_buf_offset_map_entry *map,
 		struct netlist_aiv_list *regs, u32 *count, u32 *offset,
@@ -112,16 +116,12 @@ int gb10b_hwpm_map_add_pm_ucgpc_entries_to_map(struct gk20a *g,
 	u32 num_cpc;
 	u32 gnic_id;
 	u32 gnic_offset;
-	u32 gnic_per_cpc = 5;
+	u32 gnic_per_cpc;
 	u32 gnic_stride_ary_idx;
 	u32 reg_count_limit;
-	const u32 gnic_stride_array[5] = {
-		xbar_mxbar_pri_gpc0_gnic0_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
-		xbar_mxbar_pri_gpc0_gnic1_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
-		xbar_mxbar_pri_gpc0_gnic2_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
-		xbar_mxbar_pri_gpc0_gnic3_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
-		xbar_mxbar_pri_gpc0_gnic4_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
-	};
+	const u32 *gnic_stride_array = NULL;
+	u32 num_gnics;
+
 	cnt = *count;
 	off = *offset;
 	(void) mask;
@@ -129,11 +129,10 @@ int gb10b_hwpm_map_add_pm_ucgpc_entries_to_map(struct gk20a *g,
 	cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
 
 	gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc_num);
-
-	max_cpc_per_gpc = nvgpu_get_litter_value(g, GPU_LIT_NUM_CPC_PER_GPC);
-
+	g->ops.gr.hwpm_map.get_cpc_info(g, &max_cpc_per_gpc, &gnic_per_cpc,
+		&gnic_stride_array, &num_gnics);
+	nvgpu_assert((max_cpc_per_gpc * gnic_per_cpc) == num_gnics);
 	val = g->ops.fuse.fuse_status_opt_cpc_gpc(g, gpc_phys_id);
-
 	num_cpc = ~val & nvgpu_safe_sub_u32(BIT32(max_cpc_per_gpc), 1U);
 
 	/* overflow check */
@@ -214,3 +213,24 @@ int gb10b_hwpm_map_add_lrcc_entries_to_map(struct gk20a *g,
 			max_cnt, 0, num_lrc, ~U32(0U),
 			lrcc_stride, ~U32(0U));
 }
+
+void gb10b_hwpm_map_get_cpc_info(struct gk20a *g, u32 *max_cpc_per_gpc,
+		u32 *num_gnics_per_cpc, const u32 **gnic_stride_array,
+		u32 *gnic_stride)
+{
+	static const u32 arr[] = {
+		xbar_mxbar_pri_gpc0_gnic0_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
+		xbar_mxbar_pri_gpc0_gnic1_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
+		xbar_mxbar_pri_gpc0_gnic2_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
+		xbar_mxbar_pri_gpc0_gnic3_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
+		xbar_mxbar_pri_gpc0_gnic4_base_v() - xbar_mxbar_pri_gpc0_gnic0_base_v(),
+	};
+
+	(void) g;
+	*max_cpc_per_gpc = nvgpu_get_litter_value(g, GPU_LIT_NUM_CPC_PER_GPC);
+	*num_gnics_per_cpc = GNIC_CNT_PER_CPC;
+
+	*gnic_stride_array = arr;
+	*gnic_stride = ARRAY_SIZE(arr);
+}
+#endif

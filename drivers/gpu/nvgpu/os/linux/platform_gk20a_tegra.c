@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * GK20A Tegra Platform Interface
@@ -242,4 +242,11 @@ int gk20a_tegra_init_secure_alloc(struct gk20a_platform *platform)
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_VPR, true);
 #endif
 	return 0;
+}
+
+int gk20a_get_vmid(struct gk20a *g)
+{
+	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
+
+	return platform->vmid;
 }

@@ -6,7 +6,7 @@
 #include <nvgpu/types.h>
 #include <nvgpu/gk20a.h>
 #include <common/pmu/boardobj/boardobj.h>
-#include "ucode_therm_inf.h"
+#include <nvgpu/pmu/pmuif/therm_inf.h>
 #include <nvgpu/kmem.h>
 #include <nvgpu/boardobjgrp_e32.h>
 #include "therm_channel.h"

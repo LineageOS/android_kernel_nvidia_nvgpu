@@ -27,11 +27,7 @@
 #include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/grmgr.h>
-#if defined(CONFIG_NVGPU_GB10B)
 #include <nvgpu/hw/gb10b/hw_gr_gb10b.h>
-#elif
-#include <nvgpu/hw/ga10b/hw_gr_ga10b.h>
-#endif
 
 /*
  * API to get first channel from the list of all channels
@@ -212,6 +208,7 @@ int nvgpu_dbg_gpu_set_sm_dbgr_ctrl_single_step_mode(
 		struct dbg_session_gk20a *dbg_s, u32 sm_id, bool enable)
 {
 	u32 gpc, tpc, sm, offset;
+	u32 tpc_raw;
 	u32 reg_mask, reg_val;
 	u32 flags = NVGPU_REG_OP_FLAG_MODE_ALL_OR_NONE;
 	int err = 0;
@@ -276,7 +273,16 @@ int nvgpu_dbg_gpu_set_sm_dbgr_ctrl_single_step_mode(
 	}
 
 	gpc = nvgpu_gr_config_get_sm_info_gpc_index(sm_info);
-	tpc = nvgpu_gr_config_get_sm_info_tpc_index(sm_info);
+	tpc_raw = nvgpu_gr_config_get_sm_info_tpc_index(sm_info);
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "RAW TPC id %d before remapping", tpc_raw);
+	/* Remap TPC to non-PES-aware index when required by the architecture */
+	if (g->ops.gr.init.get_nonpes_aware_tpc != NULL) {
+		tpc = g->ops.gr.init.get_nonpes_aware_tpc(g, gpc, tpc_raw, gr->config);
+		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "TPC remapped to %u", tpc);
+	} else {
+		tpc = tpc_raw;
+		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "TPC remap not supported, TPC id %d", tpc);
+	}
 	sm = nvgpu_gr_config_get_sm_info_sm_index(sm_info);
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
 			"sm_id %d gpc %d tpc %d sm %d", sm_id, gpc, tpc, sm);
@@ -313,7 +319,6 @@ int nvgpu_dbg_gpu_set_sm_dbgr_ctrl_single_step_mode(
 	if (err != 0) {
 		nvgpu_err(g, "Failed to access register");
 	}
-	nvgpu_err(g, "ATUL register successfully updated");
 
 sm_info_err:
 	nvgpu_mutex_release(&g->dbg_sessions_lock);

@@ -8,5 +8,7 @@
 long vgpu_plat_clk_round_rate(struct device *dev, unsigned long rate);
 int vgpu_plat_clk_get_freqs(struct device *dev, unsigned long **freqs,
 			int *num_freqs);
+int vgpu_plat_get_clk_freqs_opp(struct device *dev, unsigned long **freqs,
+				 int *num_freqs);
 int vgpu_plat_clk_cap_rate(struct device *dev, unsigned long rate);
 #endif

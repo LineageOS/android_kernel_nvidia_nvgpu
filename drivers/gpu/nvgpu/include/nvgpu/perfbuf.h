@@ -29,10 +29,12 @@
 
 struct gk20a;
 struct perfbuf;
+struct nvgpu_tsg;
 
 int nvgpu_perfbuf_enable_locked(struct gk20a *g, u32 pma_channel_id, u64 offset,
-				u32 size);
-int nvgpu_perfbuf_disable_locked(struct gk20a *g, u32 pma_channel_id);
+			       u32 size, struct nvgpu_tsg *tsg, bool is_ctx_resident);
+int nvgpu_perfbuf_disable_locked(struct gk20a *g, u32 pma_channel_id,
+				struct nvgpu_tsg *tsg, bool is_ctx_resident);
 
 int nvgpu_perfbuf_init_vm(struct gk20a *g, u32 pma_channel_id);
 void nvgpu_perfbuf_deinit_vm(struct gk20a *g, u32 pma_channel_id);
@@ -43,9 +45,9 @@ void nvgpu_perfbuf_deinit_inst_block(struct gk20a *g,
 		struct nvgpu_mem *inst_block, u32 pma_channel_id);
 
 int nvgpu_perfbuf_update_get_put(struct gk20a *g, u32 pma_channel_id,
-				 u64 bytes_consumed, u64 *bytes_available,
-				 void *cpuva, bool wait, u64 *put_ptr,
-				 bool *overflowed);
+				u64 bytes_consumed, u64 *bytes_available, void *cpuva, bool wait,
+				u64 *put_ptr, bool *overflowed, struct nvgpu_tsg *tsg,
+				bool is_ctx_resident);
 struct perfbuf *nvgpu_perfbuf_get_perfbuf(struct gk20a *g, u32 pma_channel_id,
 						u32 *perfbuf_channel_idx);
 #endif /* CONFIG_NVGPU_DEBUGGER */

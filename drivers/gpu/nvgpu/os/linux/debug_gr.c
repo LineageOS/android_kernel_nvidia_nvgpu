@@ -241,7 +241,7 @@ static int cbc_ctrl_debug_mmap_cbc_store(struct file *f, struct vm_area_struct *
 		err = -EINVAL;
 		goto done;
 	}
-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS) /* Linux v6.3 */
+#if defined(NV_VM_FLAGS_SET_PRESENT) /* Linux v6.3 */
 	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
 			 VM_DONTDUMP | VM_PFNMAP);
 	vm_flags_clear(vma, VM_MAYWRITE);

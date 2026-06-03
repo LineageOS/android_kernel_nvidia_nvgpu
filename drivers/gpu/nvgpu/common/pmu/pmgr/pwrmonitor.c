@@ -13,7 +13,7 @@
 static int _pwr_channel_pmudata_instget(struct gk20a *g,
 			struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 			struct nv_pmu_boardobj **pmu_obj,
-			u8 idx)
+			u16 idx)
 {
 	struct nv_pmu_pmgr_pwr_channel_desc *ppmgrchannel =
 		(struct nv_pmu_pmgr_pwr_channel_desc *)pmuboardobjgrp;
@@ -40,7 +40,7 @@ static int _pwr_channel_pmudata_instget(struct gk20a *g,
 static int _pwr_channel_rels_pmudata_instget(struct gk20a *g,
 			struct nv_pmu_boardobjgrp *pmuboardobjgrp,
 			struct nv_pmu_boardobj **pmu_obj,
-			u8 idx)
+			u16 idx)
 {
 	struct nv_pmu_pmgr_pwr_chrelationship_desc *ppmgrchrels =
 		(struct nv_pmu_pmgr_pwr_chrelationship_desc *)pmuboardobjgrp;
@@ -63,7 +63,7 @@ static int _pwr_channel_rels_pmudata_instget(struct gk20a *g,
 
 static int _pwr_channel_state_init(struct gk20a *g)
 {
-	u8 indx = 0;
+	u16 indx = 0;
 	struct pwr_channel *pchannel;
 	u32 objmask =
 		g->pmgr_pmu->pmgr_monitorobjs.pwr_channels.super.objmask;
@@ -304,7 +304,7 @@ int pmgr_monitor_sw_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct pwr_channel *pchannel;
 	struct pmgr_pwr_monitor *ppwrmonitorobjs;
-	u8 indx = 0;
+	u16 indx = 0;
 
 	/* Construct the Super Class and override the Interfaces */
 	status = nvgpu_boardobjgrp_construct_e32(g,

@@ -328,9 +328,7 @@ static void ga10b_gsp_clr_intr(struct gk20a *g, u32 intr)
  */
 static void ga10b_gsp_handle_interrupts(struct gk20a *g, u32 intr)
 {
-#ifndef CONFIG_NVGPU_MON_PRESENT
 	int err = 0;
-#endif
 
 	nvgpu_log_fn(g, " ");
 	nvgpu_gsp_dbg(g, "acr_ipc_supported: stat:0x%x",
@@ -362,18 +360,18 @@ static void ga10b_gsp_handle_interrupts(struct gk20a *g, u32 intr)
 			GPU_GSP_SCHED_WDT_UNCORRECTED);
 	}
 
-#ifndef CONFIG_NVGPU_MON_PRESENT
-	/* swgen0 interrupt handle */
-	if ((intr & pgsp_falcon_irqstat_swgen0_true_f()) != 0U) {
-		nvgpu_log_info(g, "Received swgen0 gsp intr: stat:0x%x",
-			g->is_acr_ipc_supported);
-		err = nvgpu_gsp_process_message(g);
-		if (err != 0) {
-			nvgpu_err(g, "nvgpu_gsp_process_message failed err=%d",
-				err);
+	if (!g->mon_present) {
+		/* swgen0 interrupt handle */
+		if ((intr & pgsp_falcon_irqstat_swgen0_true_f()) != 0U) {
+			nvgpu_log_info(g, "Received swgen0 gsp intr: stat:0x%x",
+				g->is_acr_ipc_supported);
+			err = nvgpu_gsp_process_message(g);
+			if (err != 0) {
+				nvgpu_err(g, "nvgpu_gsp_process_message failed err=%d",
+					err);
+			}
 		}
 	}
-#endif
 
 	/* handling ecc error by extirq7 */
 	if ((intr & pgsp_falcon_irqstat_extirq7_true_f()) != 0U) {

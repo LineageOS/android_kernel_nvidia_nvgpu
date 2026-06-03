@@ -196,8 +196,12 @@ static ssize_t nvgpu_clk_arb_read_event_dev(struct file *filp, char __user *buf,
 	clk_arb_dbg(dev->session->g,
 			"filp=%p, buf=%p, size=%zu", filp, buf, size);
 
-	if ((size - *off) < sizeof(info))
-		return 0;
+	if (size > *off) {
+		if ((size - *off) < sizeof(info))
+			return 0;
+	} else {
+		return -EINVAL;
+	}
 
 	(void) memset(&info, 0, sizeof(info));
 	/* Get the oldest event from the queue */

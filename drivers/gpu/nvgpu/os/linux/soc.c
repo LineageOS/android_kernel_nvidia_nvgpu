@@ -130,7 +130,10 @@ int nvgpu_init_soc_vars(struct gk20a *g)
 			nvgpu_err(g, "failed to read vmid");
 			return err;
 		}
-		platform->phys_addr = nvgpu_tegra_hv_ipa_pa;
+
+		if (!gk20a_gpu_is_virtual(dev)) {
+			platform->phys_addr = nvgpu_tegra_hv_ipa_pa;
+		}
 	}
 	return 0;
 }

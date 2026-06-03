@@ -37,7 +37,6 @@
 #define NVGPU_FECS_UCODE_IMAGE	"fecs.bin"
 #define NVGPU_GPCCS_UCODE_IMAGE	"gpccs.bin"
 
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_falcon_get_fw_name(struct gk20a *g, const char **ucode_name, u32 falcon_id)
 {
 	nvgpu_log_fn(g, " ");
@@ -58,7 +57,6 @@ void gm20b_gr_falcon_fecs_ctxsw_clear_mailbox(struct gk20a *g,
 	nvgpu_writel(g, gr_fecs_ctxsw_mailbox_clear_r(reg_index),
 			gr_fecs_ctxsw_mailbox_clear_value_f(clear_val));
 }
-#endif
 
 u32 gm20b_gr_falcon_get_gpccs_start_reg_offset(void)
 {
@@ -1138,8 +1136,7 @@ void gm20b_gr_falcon_load_ctxsw_ucode_boot(struct gk20a *g, u32 reg_offset,
 }
 #endif
 
-#ifdef CONFIG_NVGPU_GRAPHICS
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 /* Sideband mailbox writes are done a bit differently */
 int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 		struct nvgpu_fecs_method_op op)
@@ -1169,5 +1166,4 @@ int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 
 	return ret;
 }
-#endif
 #endif

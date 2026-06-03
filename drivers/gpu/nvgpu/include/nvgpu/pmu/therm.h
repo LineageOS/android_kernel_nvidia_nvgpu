@@ -12,5 +12,6 @@ int nvgpu_pmu_therm_pmu_setup(struct gk20a *g, struct nvgpu_pmu *pmu);
 int nvgpu_pmu_therm_init(struct gk20a *g, struct nvgpu_pmu *pmu);
 void nvgpu_pmu_therm_deinit(struct gk20a *g, struct nvgpu_pmu *pmu);
 int nvgpu_pmu_therm_channel_get_curr_temp(struct gk20a *g, u32 *temp);
+int nvgpu_pmu_therm_channel_get_temperature(struct gk20a *g, s32 *temp, u8 temp_type);
 
-#endif /* NVGPU_PMU_THREM_H */
+#endif /* NVGPU_PMU_THERM_H */

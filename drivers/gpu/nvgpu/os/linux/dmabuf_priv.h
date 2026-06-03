@@ -73,7 +73,9 @@ struct gk20a_dmabuf_priv {
 
 	/* Used for retrieving the associated dmabuf from the priv */
 	struct dma_buf *dmabuf;
+	struct dma_buf_attachment *cbc_attach;
 	struct sg_table *st;
+
 	/* 'dma_buf->ops' which is a pointer to a constant struct is
 	 * altered to point to the local copy for the entire lifetime
 	 * of this existing dma-buf until the driver is shutdown or
@@ -121,5 +123,7 @@ int gk20a_dmabuf_map_private(struct dma_buf *dmabuf, struct gk20a *g,
 
 void *gk20a_dmabuf_vmap(struct dma_buf *dmabuf);
 void gk20a_dmabuf_vunmap(struct dma_buf *dmabuf, void *addr);
+
+int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt);
 
 #endif

@@ -5,9 +5,9 @@
 #ifndef NVGPU_CLK_VF_POINT_H
 #define NVGPU_CLK_VF_POINT_H
 
-int clk_vf_point_init_pmupstate(struct gk20a *g);
+s32 clk_vf_point_init_pmupstate(struct gk20a *g);
 void clk_vf_point_free_pmupstate(struct gk20a *g);
-int clk_vf_point_sw_setup(struct gk20a *g);
-int clk_vf_point_pmu_setup(struct gk20a *g);
+s32 clk_vf_point_sw_setup(struct gk20a *g);
+s32 clk_vf_point_pmu_setup(struct gk20a *g);
 
 #endif /* NVGPU_CLK_VF_POINT_H */

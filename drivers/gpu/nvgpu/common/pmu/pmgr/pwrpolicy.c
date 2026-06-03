@@ -709,7 +709,7 @@ int pmgr_policy_sw_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct pwr_policy *ppolicy;
 	struct pmgr_pwr_policy *ppwrpolicyobjs;
-	u8 indx = 0;
+	u16 indx = 0;
 
 	/* Construct the Super Class and override the Interfaces */
 	status = nvgpu_boardobjgrp_construct_e32(g,

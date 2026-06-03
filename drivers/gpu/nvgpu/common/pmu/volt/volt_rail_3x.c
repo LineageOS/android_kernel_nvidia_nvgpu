@@ -15,6 +15,14 @@
 #include "ucode_volt_inf.h"
 #include "volt_rail.h"
 
+#include "../clk/ucode_clk_inf.h"
+#include "../clk/clk_domain.h"
+#include "../clk/clk_prog.h"
+#include "../clk/clk.h"
+#include <common/pmu/clk/ucode_clk_inf.h>
+#include "../perf/perf.h"
+#include "../perf/vfe_equ.h"
+
 #define NV_PMU_PERF_RPC_VFE_EQU_MONITOR_COUNT_MAX				16U
 
 /* ------------------------ Macros ----------------------------------------- */
@@ -36,6 +44,20 @@
 // VBIOS for GB20C is not expected to have any value other than GA10X_MULTI_RAIL
 #define VBIOS_VOLTAGE_RAIL_3X_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL 		0x00
 #define VBIOS_VOLTAGE_RAIL_3X_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL 			0x01
+
+
+/*
+ * PMU voltage rail buffer layout calculation
+ * PMU firmware uses 16 bytes header despite struct size being 12 bytes
+ */
+
+#define PMU_VOLT_RAIL_HEADER_SIZE() 16
+#define PMU_VOLT_RAIL_SPACING() 96
+#define PMU_VOLT_RAIL_OFFSET(idx) (PMU_VOLT_RAIL_HEADER_SIZE() + ((idx) * PMU_VOLT_RAIL_SPACING()))
+
+/* Voltage rail indices - internal to this implementation */
+#define GPC_RAIL_IDX 0U
+#define GPM_RAIL_IDX 1U
 
 /* ------------------------ Datatypes -------------------------------------- */
 /*!
@@ -368,6 +390,7 @@ static struct voltage_rail_3x *volt_construct_volt_rail_3x(struct gk20a *g, void
 static u8 volt_rail_vbios_volt_rail_type_convert_to_internal_3x(struct gk20a *g,
 	u8 vbios_volt_rail_type)
 {
+	(void)g;
 	switch (vbios_volt_rail_type) {
 	case VBIOS_VOLT_TABLE_3X_HAL_VOLT_RAIL_TYPE_LOGICAL:
 		return CTRL_VOLT_RAIL_TYPE_2X_LOGICAL;
@@ -381,6 +404,7 @@ static u8 volt_rail_vbios_volt_rail_type_convert_to_internal_3x(struct gk20a *g,
 static u8 volt_rail_volt_domain_hal_convert_to_internal_3x(struct gk20a *g,
 	u8 vbios_volt_domain_hal)
 {
+	(void)g;
 	switch (vbios_volt_domain_hal) {
 	case VBIOS_VOLTAGE_RAIL_3X_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL:
 		return CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL;
@@ -404,6 +428,44 @@ static int volt_rail_table_hal_translate_3x(struct gk20a *g,
 
 	*volt_rail_hal_ptr = &vbios_volt_3x_volt_rails_hals[volt_rail_hal];
 	return 0;
+}
+
+static int volt_rail_clk_domain_prog_mask_init_3x(struct gk20a *g)
+{
+	struct nvgpu_clk_domains_50 *pclkdomainobjs = g->pmu->clk_pmu->clk_domainobjs_50;
+	struct boardobjgrp *pclkdomainobjs_grp = &pclkdomainobjs->super.super.super;
+	struct clk_domain_50_prog_physical *pclkdomain_50_pp;
+	struct boardobjgrpmask_e32 volt_rail_vmin_mask;
+	struct voltage_rail_3x *pvolt_rail;
+	u16 clk_dom_idx, rail_idx;
+	int status;
+
+	BOARDOBJGRP_ITERATOR(pclkdomainobjs_grp, struct clk_domain_50_prog_physical *,
+		pclkdomain_50_pp, clk_dom_idx, &pclkdomainobjs->super.progDomainsMask.super) {
+
+		status = boardobjgrpmask_e32_init(&volt_rail_vmin_mask, NULL);
+		if (status != 0) {
+			nvgpu_err(g, "Failed to initialize volt_rail_vmin_mask for clk_dom_idx: %u",
+				clk_dom_idx);
+			goto done;
+		}
+		volt_rail_vmin_mask.super.data[0] = pclkdomain_50_pp->rail_mask;
+
+		BOARDOBJGRP_ITERATOR(&(g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super),
+			struct voltage_rail_3x *, pvolt_rail, rail_idx, &volt_rail_vmin_mask.super) {
+
+			status = nvgpu_boardobjgrpmask_bit_set(&pvolt_rail->clk_domains_prog_mask.super,
+								clk_dom_idx);
+			if (status != 0) {
+				nvgpu_err(g, "Failed to set clk_domains_prog_mask for rail_idx: %u, "
+					"clk_dom_idx: %u", rail_idx, clk_dom_idx);
+				goto done;
+			}
+		}
+	}
+
+done:
+	return status;
 }
 
 int volt_get_volt_rail_table_3x(struct gk20a *g,
@@ -622,6 +684,8 @@ int volt_get_volt_rail_table_3x(struct gk20a *g,
 		}
 	}
 
+	status = volt_rail_clk_domain_prog_mask_init_3x(g);
+
 done:
 	return status;
 }
@@ -631,12 +695,12 @@ int volt_rail_obj_update_3x(struct gk20a *g,
 		struct nv_pmu_boardobj *pmu_obj)
 {
 	struct voltage_rail_3x *volt_rail_obj;
-	struct nv_pmu_volt_volt_rail_boardobj_get_status *pstatus;
+	struct nv_pmu_volt_volt_rail_boardobj_get_status_3x *pstatus;
 
 	nvgpu_log_info(g, " ");
 
 	volt_rail_obj = (struct voltage_rail_3x *)(void *)obj;
-	pstatus = (struct nv_pmu_volt_volt_rail_boardobj_get_status *)
+	pstatus = (struct nv_pmu_volt_volt_rail_boardobj_get_status_3x *)
 		(void *)pmu_obj;
 
 	if (pstatus->super.type != volt_rail_obj->super.type) {
@@ -656,6 +720,7 @@ int volt_rail_volt_dev_register_3x(struct gk20a *g, struct voltage_rail_3x
 	*pvolt_rail, u8 volt_dev_idx, u8 operation_type)
 {
 	int status = 0;
+	(void)g;
 
 	if (operation_type == CTRL_VOLT_DEVICE_OPERATION_TYPE_DEFAULT) {
 		if (pvolt_rail->volt_dev_idx_default ==
@@ -694,7 +759,7 @@ exit:
 
 int volt_rail_devgrp_pmudata_instget_3x(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp, struct nv_pmu_boardobj
-	**pmu_obj, u8 idx)
+	**pmu_obj, u16 idx)
 {
 	struct nv_pmu_volt_volt_rail_3x_boardobj_grp_set *pgrp_set =
 		(struct nv_pmu_volt_volt_rail_3x_boardobj_grp_set *)
@@ -710,6 +775,200 @@ int volt_rail_devgrp_pmudata_instget_3x(struct gk20a *g,
 
 	*pmu_obj = (struct nv_pmu_boardobj *) &pgrp_set->objects[idx].data.obj;
 	nvgpu_log_info(g, " Done");
+
+	return 0;
+}
+
+static s32 nvgpu_volt_rail_set_GPC_GPM_limit(struct gk20a *g,
+	u8 rail_idx, s32 voltage_uv, u32 whichLimit)
+{
+	struct voltage_rail_3x *prail = NULL;
+	struct boardobjgrp *pboardobjgrp = NULL;
+	s32 status = 0;
+
+	/* Check if this is a 3x voltage rail system */
+	if (!g || g->pmu->volt == NULL || g->pmu->volt->volt_metadata == NULL ||
+	    g->pmu->volt->volt_metadata->volt_rail_metadata.version != CTRL_VOLT_RAIL_VERSION_30) {
+		status = -ENODEV;
+		goto done;
+	}
+
+	/* sanity check whichLimit */
+	if (whichLimit >= CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES) {
+		status = -EINVAL;
+		goto done;
+	}
+
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
+
+	prail = (struct voltage_rail_3x *) BOARDOBJGRP_OBJ_GET_BY_IDX(
+		pboardobjgrp, (u16)rail_idx);
+
+	/* Check if the specified rail is valid */
+	if (prail == NULL) {
+		status = -EINVAL;
+		goto done;
+	}
+	//
+	// PMU will do range check on final value it caclulates internally
+	// and silently perform any capping as needed.
+	prail->volt_delta_uv[whichLimit] = voltage_uv;
+	// resend board obj to PMU
+	nvgpu_pmu_dbg(g, "Sending VOLT_RAILS board objs to PMU to set volt_rail_limit  rail idx: %d. uv: %d, whichLimit idx: %d",
+		rail_idx, voltage_uv, whichLimit);
+
+	status = volt_rail_pmu_setup(g);
+	if (status != 0) {
+		nvgpu_err(g, "Failure Sending VOLT_RAILS board objs to PMU. %d", status);
+	}
+
+done:
+	return status;
+}
+
+s32 nvgpu_volt_rail_set_gpc_limit(struct gk20a *g, s32 gpc_voltage_uv, u32 whichLimit)
+{
+	return nvgpu_volt_rail_set_GPC_GPM_limit(g, GPC_RAIL_IDX, gpc_voltage_uv, whichLimit);
+}
+
+s32 nvgpu_volt_rail_set_gpm_limit(struct gk20a *g, s32 gpm_voltage_uv, u32 whichLimit)
+{
+	return nvgpu_volt_rail_set_GPC_GPM_limit(g, GPM_RAIL_IDX, gpm_voltage_uv, whichLimit);
+}
+
+/**
+ * nvgpu_volt_rail_get_GPC_GPM_VOLTAGE - Get voltage value for specified rail
+ * @g: pointer to gpu instance
+ * @pboardobjgrppmu: pointer to PMU board object group
+ * @rail_idx: rail index (GPC_RAIL_IDX or GPM_RAIL_IDX)
+ * @voltage_uv: pointer to store voltage in microvolts
+ *
+ * This function reads the current voltage value for the specified rail from PMU status data.
+ * Internal function used by wrapper functions.
+ *
+ * Returns: 0 on success, -EINVAL on error
+ */
+static int nvgpu_volt_rail_get_GPC_GPM_VOLTAGE(struct gk20a *g,
+	void *pboardobjgrppmu, u8 rail_idx, u32 *voltage_uv)
+{
+	struct nv_pmu_volt_volt_rail_3x_boardobj_grp_get_status *pgrp_get_status =
+		(struct nv_pmu_volt_volt_rail_3x_boardobj_grp_get_status *)
+		pboardobjgrppmu;
+	struct nv_pmu_volt_volt_rail_boardobj_get_status_3x *status_3x;
+	void *corrected_ptr;
+	size_t rail_offset;
+
+	if (!g || !pboardobjgrppmu || !voltage_uv)
+		return -EINVAL;
+
+	/* Initialize output value */
+	*voltage_uv = 0;
+
+	/* Check if the specified rail is valid */
+	if (((u32)BIT(rail_idx) & pgrp_get_status->hdr.data.super.obj_mask.super.data[0]) != 0U) {
+		rail_offset = PMU_VOLT_RAIL_OFFSET(rail_idx);
+		corrected_ptr = (u8 *)pboardobjgrppmu + rail_offset;
+		status_3x = (struct nv_pmu_volt_volt_rail_boardobj_get_status_3x *)corrected_ptr;
+		*voltage_uv = status_3x->curr_volt_defaultu_v;
+	}
+
+	return 0;
+}
+
+/**
+ * nvgpu_volt_rail_get_gpc_voltage - Get GPC voltage value
+ * @g: pointer to gpu instance
+ * @pboardobjgrppmu: pointer to PMU board object group
+ * @gpc_voltage_uv: pointer to store GPC voltage in microvolts
+ *
+ * This function reads the current voltage value for GPC (Rail 0) from PMU status data.
+ * Used for sysfs knob implementations.
+ *
+ * Returns: 0 on success, -EINVAL on error
+ */
+int nvgpu_volt_rail_get_gpc_voltage(struct gk20a *g,
+	void *pboardobjgrppmu, u32 *gpc_voltage_uv)
+{
+	return nvgpu_volt_rail_get_GPC_GPM_VOLTAGE(g, pboardobjgrppmu, GPC_RAIL_IDX, gpc_voltage_uv);
+}
+
+/**
+ * nvgpu_volt_rail_get_gpm_voltage - Get GPM voltage value
+ * @g: pointer to gpu instance
+ * @pboardobjgrppmu: pointer to PMU board object group
+ * @gpm_voltage_uv: pointer to store GPM voltage in microvolts
+ *
+ * This function reads the current voltage value for GPM (Rail 1) from PMU status data.
+ * Used for sysfs knob implementations.
+ *
+ * Returns: 0 on success, -EINVAL on error
+ */
+int nvgpu_volt_rail_get_gpm_voltage(struct gk20a *g,
+	void *pboardobjgrppmu, u32 *gpm_voltage_uv)
+{
+	return nvgpu_volt_rail_get_GPC_GPM_VOLTAGE(g, pboardobjgrppmu, GPM_RAIL_IDX, gpm_voltage_uv);
+}
+
+/**
+ * nvgpu_volt_rail_get_status - Get voltage rail status from PMU
+ * @g: pointer to gpu instance
+ * @pmu_status_buf: pointer to store PMU status buffer
+ *
+ * This function retrieves the latest voltage rail status from PMU and returns
+ * a pointer to the status buffer. Used for voltage rail monitoring.
+ *
+ * Returns: 0 on success, -EAGAIN if PMU not ready, -ENODEV if not 3x system, other errors
+ */
+int nvgpu_volt_rail_get_status(struct gk20a *g, void **pmu_status_buf)
+{
+	struct boardobjgrp *pboardobjgrp;
+	struct boardobjgrpmask *pboardobjgrpmask;
+	int status;
+
+	/* Check if this is a 3x voltage rail system */
+	if (g->pmu->volt == NULL || g->pmu->volt->volt_metadata == NULL ||
+	    g->pmu->volt->volt_metadata->volt_rail_metadata.version != CTRL_VOLT_RAIL_VERSION_30) {
+		return -ENODEV;
+	}
+
+	/* Get latest voltage rail status from PMU */
+	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
+	pboardobjgrpmask = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.mask.super;
+
+	status = pboardobjgrp->pmugetstatus(g, pboardobjgrp, pboardobjgrpmask);
+	if (status != 0)
+		return status;
+
+	*pmu_status_buf = pboardobjgrp->pmu.getstatus.buf;
+	if (*pmu_status_buf == NULL)
+		return -EINVAL;
+
+	return 0;
+}
+
+int volt_rail_devgrp_pmustatus_instget_3x(struct gk20a *g,
+	void *pboardobjgrppmu, struct nv_pmu_boardobj_query
+	**obj_pmu_status, u16 idx)
+{
+	struct nv_pmu_volt_volt_rail_3x_boardobj_grp_get_status *pgrp_get_status =
+		(struct nv_pmu_volt_volt_rail_3x_boardobj_grp_get_status *)
+		pboardobjgrppmu;
+	size_t rail_offset;
+	void *corrected_ptr;
+
+	(void)g;
+
+	/*check whether pmuboardobjgrp has a valid boardobj in index*/
+	if (((u32)BIT(idx) &
+		pgrp_get_status->hdr.data.super.obj_mask.super.data[0]) == 0U) {
+		return -EINVAL;
+	}
+
+	/* Calculate offset using simple macro - no hardcoded values */
+	rail_offset = PMU_VOLT_RAIL_OFFSET(idx);
+	corrected_ptr = (u8 *)pboardobjgrppmu + rail_offset;
+
+	*obj_pmu_status = (struct nv_pmu_boardobj_query *)corrected_ptr;
 
 	return 0;
 }

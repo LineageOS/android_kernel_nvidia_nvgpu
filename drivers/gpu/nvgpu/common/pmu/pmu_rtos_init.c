@@ -458,18 +458,11 @@ int nvgpu_pmu_rtos_init(struct gk20a *g)
 					goto exit;
 				}
 				nvgpu_pmu_fw_state_change(g, g->pmu, PMU_FW_STATE_STARTING, false);
-
-				/* Disable PMU boot for PMU2.0 ucode ie. gb20c*/
-				if (!g->pmu->is_pmu_ucode_model_20) {
-					err = nvgpu_acr_bootstrap_engine(g,
-						FALCON_ID_PMU_RISCV_EB, 0, 0, intr_ctrl_msg, 0);
-					if (err != 0) {
-						nvgpu_err(g, "flcn-%d: PMU ucode boot failed: %d",
-								FALCON_ID_PMU_RISCV_EB, err);
-						goto exit;
-					}
-				} else {
-					err = 0;
+				err = nvgpu_acr_bootstrap_engine(g,
+					FALCON_ID_PMU_RISCV_EB, 0, 0, intr_ctrl_msg, 0);
+				if (err != 0) {
+					nvgpu_err(g, "flcn-%d: PMU ucode boot failed: %d",
+							FALCON_ID_PMU_RISCV_EB, err);
 					goto exit;
 				}
 			} else {

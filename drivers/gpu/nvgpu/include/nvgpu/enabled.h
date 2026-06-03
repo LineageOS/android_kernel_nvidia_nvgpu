@@ -186,8 +186,12 @@ struct gk20a;
 	DEFINE_FLAG(NVGPU_PKC_LS_SIG_ENABLED,                           \
 		"PKC signature support"),                               \
 	DEFINE_FLAG(NVGPU_ELPG_MS_ENABLED, "ELPG_MS support"),          \
+	DEFINE_FLAG(NVGPU_GPC_RG_ENABLED, "GPC_RG support"),            \
 	DEFINE_FLAG(NVGPU_L2_MAX_WAYS_EVICT_LAST_ENABLED,               \
 			"Set L2 Max Ways Evict Last support"),		\
+	DEFINE_FLAG(NVGPU_NVDEC_ELPG_ENABLED, "NVDEC_ELPG support"),    \
+	DEFINE_FLAG(NVGPU_NVENC_ELPG_ENABLED, "NVENC_ELPG support"),    \
+	DEFINE_FLAG(NVGPU_OFA_ELPG_ENABLED, "OFA_ELPG support"),        \
 	DEFINE_FLAG(NVGPU_CLK_ARB_ENABLED, "CLK_ARB support"),          \
 	DEFINE_FLAG(NVGPU_SUPPORT_VAB_ENABLED, "VAB feature supported"), \
 	DEFINE_FLAG(NVGPU_SUPPORT_ROP_IN_GPC, "ROP is part of GPC"),	\
@@ -210,6 +214,8 @@ struct gk20a;
 			"Multi process TSG sharing support"),		\
 	DEFINE_FLAG(NVGPU_SUPPORT_MULTIMEDIA,				\
 			"Multimedia engine support"),			\
+	DEFINE_FLAG(NVGPU_SUPPORT_MULTIMEDIA_TRACE,			\
+			"Multimedia engine trace support"),		\
 	DEFINE_FLAG(NVGPU_SUPPORT_SEMA_BASED_GPFIFO_GET,		\
 			"Semaphore based gpfifo get update support"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_GPU_MMIO,				\

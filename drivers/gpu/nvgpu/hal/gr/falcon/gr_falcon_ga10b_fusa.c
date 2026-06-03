@@ -97,6 +97,11 @@ static void ga10b_gr_falcon_gpccs_dump_stats(struct gk20a *g)
 	u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
 	u32 gpc = 0U, offset = 0U;
 
+	if (gr_config == NULL) {
+		nvgpu_err(g, "gr_config is NULL");
+		return;
+	}
+
 	for (gpc = 0U; gpc < gpc_count; gpc++) {
 		offset = nvgpu_safe_mult_u32(gpc_stride, gpc);
 		for (i = 0U; i < gr_gpccs_ctxsw_mailbox__size_1_v(); i++) {

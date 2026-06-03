@@ -137,6 +137,7 @@
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/regops_ga100.h"
 #include "hal/regops/allowlist_ga100.h"
+#include "hal/regops/allowlist_gb10b.h"
 #endif
 #ifdef CONFIG_NVGPU_RECOVERY
 #include "hal/rc/rc_gv11b.h"
@@ -220,6 +221,7 @@
 #include "hal/gr/intr/gr_intr_ga100.h"
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/gr/hwpm_map/hwpm_map_gv100.h"
+#include "hal/gr/hwpm_map/hwpm_map_ga10b.h"
 #endif
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gm20b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gp10b.h"
@@ -603,6 +605,8 @@ static const struct gops_gr_hwpm_map ga100_ops_gr_hwpm_map = {
 	.get_active_fbpa_mask = gv100_gr_hwpm_map_get_active_fbpa_mask,
 	.add_ctxsw_buffer_gpc_perf_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
 	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
+	.add_reg_in_fecs_to_map = ga10b_hwpm_map_add_reg_in_fecs_to_map,
+	.add_reg_in_gpccs_to_map = ga10b_hwpm_map_add_reg_in_gpccs_to_map,
 };
 #endif
 
@@ -873,6 +877,7 @@ static const struct gops_gr ga100_ops_gr = {
 	.pre_process_sm_exception = gr_gv11b_pre_process_sm_exception,
 	.set_bes_crop_debug3 = gr_gp10b_set_bes_crop_debug3,
 	.set_bes_crop_debug4 = gr_gp10b_set_bes_crop_debug4,
+	.set_tex_in_dbg = gv11b_gr_intr_set_tex_in_dbg,
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gv11b_gr_get_egpc_base,
@@ -1389,9 +1394,6 @@ static const struct gops_pmu ga100_ops_pmu = {
 	.ecc_free = gv11b_pmu_ecc_free,
 	/* Init */
 	.pmu_early_init = nvgpu_pmu_early_init,
-#ifdef CONFIG_NVGPU_POWER_PG
-	.pmu_restore_golden_img_state = nvgpu_pmu_restore_golden_img_state,
-#endif
 	.pmu_rtos_init = nvgpu_pmu_rtos_init,
 	.pmu_pstate_sw_setup = nvgpu_pmu_pstate_sw_setup,
 	.pmu_pstate_pmu_setup = nvgpu_pmu_pstate_pmu_setup,
@@ -1538,6 +1540,7 @@ static const struct gops_regops ga100_ops_regops = {
 	.get_smpc_register_ranges = ga100_get_smpc_register_ranges,
 	.get_cau_register_ranges = ga100_get_cau_register_ranges,
 	.get_hwpm_perfmux_register_ranges = ga100_get_hwpm_perfmux_register_ranges,
+	.init_reg_op_type_per_register_type = gb10b_init_reg_op_type_per_register_type,
 };
 #endif
 
@@ -1629,6 +1632,8 @@ static const struct gops_perf ga100_ops_perf = {
 	.enable_hs_streaming = ga10b_perf_enable_hs_streaming,
 	.reset_hs_streaming_credits = ga10b_perf_reset_hs_streaming_credits,
 	.enable_pmasys_legacy_mode = ga10b_perf_enable_pmasys_legacy_mode,
+	.write_hwpm_register = ga10b_perf_write_hwpm_register,
+	.read_hwpm_register = ga10b_perf_read_hwpm_register,
 };
 #endif
 
@@ -1682,7 +1687,7 @@ static const struct gops_ptimer ga100_ops_ptimer = {
 	.isr = gk20a_ptimer_isr,
 #endif
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
-	.read_ptimer = gk20a_read_ptimer,
+	.read_ptimer = ga10b_func_read_ptimer,
 	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
 #endif
 #ifdef CONFIG_NVGPU_DEBUGGER

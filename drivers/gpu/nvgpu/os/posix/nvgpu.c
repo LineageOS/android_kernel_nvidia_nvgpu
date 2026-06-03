@@ -145,13 +145,27 @@ static void nvgpu_posix_load_regs(struct gk20a *g)
 	struct nvgpu_mock_iospace space;
 	struct nvgpu_posix_io_reg_space *regs;
 
+	char chip[24];
+
+	memset(chip, 0, sizeof(chip));
+	FILE *tegra_name = popen("uname -m", "r");
+
+	while (fgets(chip, sizeof(chip), tegra_name) != NULL) {
+		chip[strcspn(chip, "\n")] = '\0';
+	}
+	pclose(tegra_name);
+
 	for (i = 0; i < MOCK_REGS_LAST; i++) {
-		err = nvgpu_get_mock_reglist_ga10b(g, i, &space);
+		if (strcmp(chip, "ARMv8_nVidia-Orin") == 0) {
+			err = nvgpu_get_mock_reglist_ga10b(g, i, &space);
+		}
+		else if (strcmp(chip, "ARMv9_nVidia-Thor") == 0) {
+			err = nvgpu_get_mock_reglist_gb10b(g, i, &space);
+		}
 		if (err) {
 			nvgpu_err(g, "Unknown IO regspace: %d; ignoring.", i);
 			continue;
 		}
-
 		err = nvgpu_posix_io_add_reg_space(g, space.base, (u32)space.size);
 		nvgpu_assert(err == 0);
 
@@ -208,6 +222,7 @@ struct gk20a *nvgpu_posix_probe(void)
 	g->regs = NVGPU_POSIX_REG_BAR0 << NVGPU_POSIX_REG_SHIFT;
 	g->bar1 = NVGPU_POSIX_REG_BAR1 << NVGPU_POSIX_REG_SHIFT;
 	g->usermode_regs = NVGPU_POSIX_REG_USERMODE << NVGPU_POSIX_REG_SHIFT;
+	g->mon_present = true;
 
 	if (nvgpu_kmem_init(g) != 0) {
 		goto fail_kmem;

@@ -314,6 +314,20 @@ struct nvgpu_tsg {
 	/** To track CILP preemption save completion. */
 	nvgpu_atomic_t cilp_save_cmpl;
 	bool is_shadow_cleared;
+
+	/**
+	 * Mutex used to serialize call to nvgpu_tsg_bind_domain(). With TSG sharing,
+	 * each of the N process sharing same TSG can potentially call this concurrently.
+	 */
+	struct nvgpu_mutex nvs_domain_ptr_wr_lock;
+
+	/** During channel unbind, if the channel had it's ctx_reload
+	 * bit set, it is moved to another channel forefully, this
+	 * boolean tracks force ctx reload was done. During TSG enable,
+	 * if this is true, a slight different sequence to TSG enable
+	 * is followed and the boolean is then cleared.
+	 */
+	bool has_force_ctx_reload_set;
 };
 
 #ifdef CONFIG_NVGPU_TSG_SHARING
@@ -360,8 +374,11 @@ int nvgpu_tsg_create_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
  *
  * - Free the VEID by resetting either #sync_veid or bit from #async_veids
  *   if allocated.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ * @retval -EINVAL if veid is invalid.
  */
-void nvgpu_tsg_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
+int nvgpu_tsg_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
 				 u32 veid);
 
 /**
@@ -616,6 +633,11 @@ int nvgpu_tsg_bind_channel(struct nvgpu_tsg *tsg,
  * Make this TSG participate in the given domain, such that it can only be
  * seen by runlist HW when the domain has been scheduled in.
  *
+ * If the TSG is already bound to a scheduling domain, it cannot be bound to
+ * another scheduling domain, this is specifically needed when same TSG is
+ * shared between N processes and each process tries to bind same TSG to
+ * different scheduling domains.
+ *
  * The TSG must have no channels at this point.
  *
  * @return 0 for successful bind, < 0 for failure.
@@ -824,6 +846,35 @@ int nvgpu_tsg_set_interleave(struct nvgpu_tsg *tsg, u32 level);
  * @return S/w defined default TSG timeslice value in us.
  */
 u32 nvgpu_tsg_default_timeslice_us(struct gk20a *g);
+
+#if !defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
+/**
+ * @brief Workaround to set TSG timeslice when used with CILP preemption mode.
+ *
+ * @param g [in]		The GPU driver struct.
+ * @param timeslice_us [in]     TSG timeslice to be set.
+ *
+ * This function sets the TSG timeslice value as 2xdefault. This is work-around
+ * specifically introduced for enabling compute preemption mode: CILP in
+ * safety builds.
+ *
+ * CILP has store and restore times thus requiring higher TSG timeslice than
+ * default. user-space SW will set the TSG timeslice to 2x default timeslice
+ * based on empirical data via nvgpu_tsg_set_timeslice(). nvgpu_tsg_set_timeslice()
+ * is not enabled in safety, but to implement CILP feature, as a work-around
+ * offer an interface to set TSG timeslice.
+ *
+ * @remark No validation check for timeslice_us to be within min. and max.
+ *         values.
+ *
+ * @remark This is work-around and shall be removed when
+ *         nvgpu_tsg_set_timeslice() is supported in safety.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ * @retval -ETIMEDOUT If runlist update times out after setting TSG timeslice.
+ */
+int nvgpu_tsg_set_timeslice_for_cilp(struct nvgpu_tsg *tsg);
+#endif
 
 /**
  * @brief Allocate zero initialized memory to store SM errors.

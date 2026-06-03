@@ -432,6 +432,7 @@ static struct pci_device_id nvgpu_pci_table[] = {
 #endif
 	{}
 };
+MODULE_DEVICE_TABLE(pci, nvgpu_pci_table);
 
 #if defined(CONFIG_PCI_MSI)
 static irqreturn_t nvgpu_pci_msi_isr(int irq, void *dev_id)
@@ -615,6 +616,8 @@ static int nvgpu_pci_pm_resume(struct device *dev)
 		 */
 		dev->pm_domain = ctrl->pm_domain;
 
+		dev_pm_genpd_resume(dev);
+
 		/* wake-up system */
 		err = gk20a_busy(g);
 		if (err) {
@@ -646,10 +649,11 @@ static int nvgpu_pci_pm_suspend(struct device *dev)
 
 		/* Turn on the GPU power before saving PCI configuration */
 		pm_runtime_forbid(dev);
+		dev_pm_genpd_suspend(dev);
 
 		/*
 		 * If a PCI device is attached to a GenPD power domain,
-		 * resume_early callback in PCI framework will not be
+		 * pci_pm_resume_noirq callback in PCI framework will not be
 		 * executed during static resume. That leads to the PCI
 		 * configuration couldn't be properly restored.
 		 *

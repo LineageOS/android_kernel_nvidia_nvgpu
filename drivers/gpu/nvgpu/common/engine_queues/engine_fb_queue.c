@@ -99,7 +99,11 @@ static int engine_fb_queue_write(struct nvgpu_engine_fb_queue *queue,
 	}
 
 	/* get offset to this element entry */
-	entry_offset = offset * queue->fbq.element_size;
+	if (!nvgpu_safe_mult_u32_return(offset, queue->fbq.element_size, &entry_offset)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto exit;
+	}
 
 	/* copy cmd to super-surface */
 	nvgpu_mem_wr_n(g, queue->fbq.super_surface_mem,
@@ -394,6 +398,7 @@ int nvgpu_engine_fb_queue_pop(struct nvgpu_engine_fb_queue *queue,
 	struct pmu_hdr *hdr;
 	u32 entry_offset = 0U;
 	int err = 0;
+	u32 read_pos = 0U;
 
 	if (queue == NULL) {
 		return -EINVAL;
@@ -425,7 +430,13 @@ int nvgpu_engine_fb_queue_pop(struct nvgpu_engine_fb_queue *queue,
 	*bytes_read = 0U;
 
 	/* Check size */
-	if ((size + queue->fbq.read_position) >= queue->fbq.element_size) {
+	if (!nvgpu_safe_add_u32_return(size, queue->fbq.read_position, &read_pos)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto unlock_mutex;
+	}
+
+	if (read_pos >= queue->fbq.element_size) {
 		nvgpu_err(g,
 			"Attempt to read > than queue element size "
 			"for queue id-%d", queue->id);

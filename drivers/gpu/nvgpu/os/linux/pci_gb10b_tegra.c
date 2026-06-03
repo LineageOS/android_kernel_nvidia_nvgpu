@@ -151,7 +151,7 @@ enum gb10b_devfreq_id {
 	GB10B_DEVFREQ_SYS,
 };
 
-static struct gb10b_tegra_devfreq_dev gb10b_devfreq_arr[] = {
+static struct gb10b_tegra_devfreq_dev gb10b_devfreq_arr_socket0[] = {
 	{
 		.dev_name = "gpu-gpc",
 		.icc_name = "gpu-write",
@@ -171,7 +171,28 @@ static struct gb10b_tegra_devfreq_dev gb10b_devfreq_arr[] = {
 	{ .clk_name = "sysclk", .dev_name = "sysclk" },
 };
 
-static struct list_head gb10b_devfreq_masters;
+static struct gb10b_tegra_devfreq_dev gb10b_devfreq_arr_socket1[] = {
+	{
+		.dev_name = "gpu-gpc",
+		.icc_name = "gpu-write",
+		.bw_util = 400,
+		.perfmon_class = NVGPU_PMU_PERFMON_CLASS_GR,
+	},
+	{
+		.clk_name = "nvdclk",
+		.dev_name = "gpu-nvd",
+		.icc_name = "video-write",
+		.bw_util = 400,
+		.perfmon_class = NVGPU_PMU_PERFMON_CLASS_NVD,
+	},
+	{ .clk_name = "gpc0clk", .dev_name = "gpc0clk" },
+	{ .clk_name = "gpc1clk", .dev_name = "gpc1clk" },
+	{ .clk_name = "gpc2clk", .dev_name = "gpc2clk" },
+	{ .clk_name = "sysclk", .dev_name = "sysclk" },
+};
+
+static struct list_head gb10b_devfreq_masters_socket0;
+static struct list_head gb10b_devfreq_masters_socket1;
 
 static ssize_t bw_util_store(struct device *dev,
 			     struct device_attribute *attr,
@@ -228,8 +249,9 @@ static struct attribute_group dev_attr_group = {
 static void gb10b_tegra_clk_disable_all(struct device *dev)
 {
 	struct gk20a *g = get_gk20a(dev);
-	struct gb10b_tegra_devfreq_dev *tdev;
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
+	struct gb10b_tegra_devfreq_dev *tdev;
 	unsigned int i;
 
 	/*
@@ -239,7 +261,7 @@ static void gb10b_tegra_clk_disable_all(struct device *dev)
 	if (nvgpu_platform_is_simulation(g) || nvgpu_platform_is_fpga(g))
 		return;
 
-	for (i = 0; i < ARRAY_SIZE(gb10b_devfreq_arr); i++) {
+	for (i = 0; i < platform->devfreq_arr_size; i++) {
 		tdev = gb10b_devfreq_arr + i;
 		if (tdev->clk) {
 			clk_disable_unprepare(tdev->clk);
@@ -259,8 +281,9 @@ static void gb10b_tegra_clk_disable_all(struct device *dev)
 static int gb10b_tegra_clk_enable_all(struct device *dev)
 {
 	struct gk20a *g = get_gk20a(dev);
-	struct gb10b_tegra_devfreq_dev *tdev;
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
+	struct gb10b_tegra_devfreq_dev *tdev;
 	unsigned int i;
 	int ret;
 
@@ -271,7 +294,7 @@ static int gb10b_tegra_clk_enable_all(struct device *dev)
 	if (nvgpu_platform_is_simulation(g) || nvgpu_platform_is_fpga(g))
 		return 0;
 
-	for (i = 0; i < ARRAY_SIZE(gb10b_devfreq_arr); i++) {
+	for (i = 0; i < platform->devfreq_arr_size; i++) {
 		tdev = gb10b_devfreq_arr + i;
 		if (tdev->clk) {
 			ret = clk_prepare_enable(tdev->clk);
@@ -369,19 +392,24 @@ static int gb10b_tegra_devfreq_target(struct device *dev,
 				      unsigned long *freq,
 				      u32 flags)
 {
+	struct gk20a_platform *platform = dev_get_drvdata(dev->parent);
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
 	struct gb10b_tegra_devfreq_dev *tdev = to_tegra_devfreq(dev);
 	struct gb10b_tegra_devfreq_dev *slave, *master;
 	unsigned long master_freq = 0;
 	u32 kBps;
 	int err;
+	u64 freq_bandwidth = 0ULL;
 
 	/*
 	 * Access GPU clocks when rail gated would make
 	 * BPMP-FW directly poweron GPU power domain, which
 	 * leads to PCIe error.
 	 */
-	if (pm_runtime_suspended(dev->parent))
+	if (pm_runtime_suspended(dev->parent)) {
+		*freq = tdev->devfreq->scaling_min_freq;
 		return 0;
+	}
 
 
 	clk_set_rate(tdev->clk, *freq);
@@ -389,7 +417,15 @@ static int gb10b_tegra_devfreq_target(struct device *dev,
 
 	/* Update memory bandwidth QoS request based on current frequency */
 	if (tdev->icc_path) {
-		kBps = Bps_to_icc(*freq * GPU_BANDWIDTH * tdev->bw_util / 1000);
+		if (!nvgpu_safe_mult_u64_return((u64)*freq, GPU_BANDWIDTH, &freq_bandwidth)) {
+			nvgpu_err(NULL, "freq_bandwidth overflow");
+			return -EOVERFLOW;
+		}
+		if (!nvgpu_safe_mult_u64_return(freq_bandwidth, tdev->bw_util, &freq_bandwidth)) {
+			nvgpu_err(NULL, "freq_bandwidth overflow");
+			return -EOVERFLOW;
+		}
+		kBps = Bps_to_icc(freq_bandwidth / 1000);
 		err = icc_set_bw(tdev->icc_path, 0, kBps);
 		if (err) {
 			dev_err(dev,
@@ -446,7 +482,10 @@ static int gb10b_tegra_devfreq_get_cur_freq(struct device *dev,
 {
 	struct gb10b_tegra_devfreq_dev *tdev = to_tegra_devfreq(dev);
 
-	*freq = clk_get_rate(tdev->clk);
+	if (!pm_runtime_suspended(dev->parent))
+		*freq = clk_get_rate(tdev->clk);
+	else
+		*freq = tdev->devfreq->scaling_min_freq;
 
 	return 0;
 }
@@ -464,6 +503,13 @@ static int gb10b_tegra_devfreq_get_dev_status(struct device *dev,
 	dt = ktime_us_delta(t, tdev->last_update);
 
 	stat->total_time = dt;
+
+	if (pm_runtime_suspended(dev->parent)) {
+		stat->current_frequency = tdev->devfreq->scaling_min_freq;
+		stat->busy_time = 0;
+		tdev->last_update = t;
+		return 0;
+	}
 
 	/* Load is normalized so that value range is from 0 to 1000 */
 	nvgpu_pmu_load_query(g, &load, tdev->perfmon_class);
@@ -803,8 +849,7 @@ static void gb10b_tegra_device_release(struct device *dev)
 	;
 }
 
-static unsigned long gb10b_linux_clk_get_rate(
-					struct gk20a *g, u32 api_domain)
+static unsigned long gb10b_linux_clk_get_rate(struct gk20a *g, u32 api_domain)
 {
 	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
 	unsigned long rate = 0;
@@ -861,26 +906,31 @@ static s32 devfreq_pm_qos_read_value(struct devfreq *df, enum dev_pm_qos_req_typ
         return ret;
 }
 
-static void devfreq_get_freq_range(struct devfreq *df,
+static int devfreq_get_freq_range(struct devfreq *df,
                                    unsigned long *min_freq,
                                    unsigned long *max_freq)
 {
         s32 qos_min_freq, qos_max_freq;
+	u32 idx = 0U;
 
 #if defined(NV_DEVFREQ_HAS_FREQ_TABLE)
 	if (df->max_state == 0U) {
 		*min_freq = ULONG_MAX;
 		*max_freq = ULONG_MAX;
-		return;
+		return 0;
 	}
 
         *min_freq = df->freq_table[0];
-        *max_freq = df->freq_table[df->max_state - 1];
+		if (!nvgpu_safe_sub_u32_return(df->max_state, 1, &idx)) {
+			nvgpu_err(NULL, "idx underflow");
+			return -EOVERFLOW;
+		}
+	*max_freq = df->freq_table[idx];
 #else
 	if (df->profile->max_state == 0U) {
 		*min_freq = ULONG_MAX;
 		*max_freq = ULONG_MAX;
-		return;
+		return 0;
 	}
 
         *min_freq = df->profile->freq_table[0];
@@ -898,11 +948,16 @@ static void devfreq_get_freq_range(struct devfreq *df,
         /* Apply constraints from OPP framework */
         *min_freq = max(*min_freq, df->scaling_min_freq);
         *max_freq = min(*max_freq, df->scaling_max_freq);
+
+	return 0;
 }
 
 static int gb10b_linux_clk_set_rate(struct gk20a *g,
 				     u32 api_domain, unsigned long rate)
 {
+	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
+	struct gk20a_platform *platform = dev_get_drvdata(l->dev);
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
 	struct gb10b_tegra_devfreq_dev *tdev;
 	unsigned long min_rate = 0, max_rate = ULONG_MAX;
 	int ret = 0;
@@ -926,7 +981,12 @@ static int gb10b_linux_clk_set_rate(struct gk20a *g,
 			return -ENODEV;
 		}
 
-		devfreq_get_freq_range(tdev->devfreq, &min_rate, &max_rate);
+		ret = devfreq_get_freq_range(tdev->devfreq, &min_rate, &max_rate);
+		if (ret != 0) {
+			nvgpu_err(NULL, "devfreq_get_freq_range failed");
+			return ret;
+		}
+
 		rate = max(rate, min_rate);
 		rate = min(rate, max_rate);
 
@@ -959,7 +1019,12 @@ static int gb10b_linux_clk_set_rate(struct gk20a *g,
 		return -ENODEV;
 	}
 
-	devfreq_get_freq_range(tdev->devfreq, &min_rate, &max_rate);
+	ret = devfreq_get_freq_range(tdev->devfreq, &min_rate, &max_rate);
+	if (ret != 0) {
+		nvgpu_err(NULL, "devfreq_get_freq_range failed");
+		return ret;
+	}
+
 	rate = max(rate, min_rate);
 	rate = min(rate, max_rate);
 
@@ -1026,6 +1091,8 @@ static int gb10b_tegra_probe(struct device *dev)
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	struct gk20a *g = get_gk20a(dev);
 	struct gb10b_tegra_devfreq_dev *tdev, *gpu, *video, *slave;
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr;
+	struct list_head *gb10b_devfreq_masters;
 	struct pci_host_bridge *bridge;
 	struct device *ctrl;
 	unsigned int i;
@@ -1058,6 +1125,18 @@ static int gb10b_tegra_probe(struct device *dev)
 		node = 0;
 	}
 #endif
+	if (node) {
+		platform->devfreq_arr_size = ARRAY_SIZE(gb10b_devfreq_arr_socket0);
+		platform->devfreq_arr = gb10b_devfreq_arr_socket0;
+		platform->devfreq_masters = &gb10b_devfreq_masters_socket0;
+	} else {
+		platform->devfreq_arr_size = ARRAY_SIZE(gb10b_devfreq_arr_socket1);
+		platform->devfreq_arr = gb10b_devfreq_arr_socket1;
+		platform->devfreq_masters = &gb10b_devfreq_masters_socket1;
+	}
+
+	gb10b_devfreq_arr = platform->devfreq_arr;
+	gb10b_devfreq_masters = platform->devfreq_masters;
 
 	/*
 	 * Initialize tegra devfreq device info but skip the initialization
@@ -1065,7 +1144,7 @@ static int gb10b_tegra_probe(struct device *dev)
 	 * for GB10B_DEVFREQ_GPU device will be one of these clocks [gpc0clk,
 	 * gpc1clk, gpc2clk] based on their availability.
 	 */
-	for (i = GB10B_DEVFREQ_GPU + 1; i < ARRAY_SIZE(gb10b_devfreq_arr); i++) {
+	for (i = GB10B_DEVFREQ_GPU + 1; i < platform->devfreq_arr_size; i++) {
 		tdev = gb10b_devfreq_arr + i;
 
 		INIT_LIST_HEAD(&tdev->masters);
@@ -1164,7 +1243,7 @@ static int gb10b_tegra_probe(struct device *dev)
 	 * └── video(nvdclk)
 	 *     └── sysclk
 	 */
-	INIT_LIST_HEAD(&gb10b_devfreq_masters);
+	INIT_LIST_HEAD(gb10b_devfreq_masters);
 
 	/* Wiring the gpu clock */
 	gpu = &gb10b_devfreq_arr[GB10B_DEVFREQ_GPU];
@@ -1185,7 +1264,7 @@ static int gb10b_tegra_probe(struct device *dev)
 		if (slave->clk)
 			list_add_tail(&slave->gpu_slaves, &gpu->gpu_slaves);
 
-		list_add_tail(&gpu->masters, &gb10b_devfreq_masters);
+		list_add_tail(&gpu->masters, gb10b_devfreq_masters);
 	}
 
 	/* Wiring the video clock */
@@ -1195,7 +1274,7 @@ static int gb10b_tegra_probe(struct device *dev)
 		if (slave->clk)
 			list_add_tail(&slave->video_slaves, &video->video_slaves);
 
-		list_add_tail(&video->masters, &gb10b_devfreq_masters);
+		list_add_tail(&video->masters, gb10b_devfreq_masters);
 	}
 
 	/*
@@ -1222,7 +1301,7 @@ static int gb10b_tegra_probe(struct device *dev)
 	g->ops.clk.set_rate = gb10b_linux_clk_set_rate;
 
 	/* Register devfreq devices into devfreq framework */
-	list_for_each_entry(tdev, &gb10b_devfreq_masters, masters) {
+	list_for_each_entry(tdev, gb10b_devfreq_masters, masters) {
 		err = gb10b_tegra_devfreq_register(&tdev->dev);
 		if (err) {
 			dev_warn(dev,
@@ -1234,7 +1313,7 @@ static int gb10b_tegra_probe(struct device *dev)
 	return 0;
 
 err_probe:
-	for (i = 0; i < ARRAY_SIZE(gb10b_devfreq_arr); i++) {
+	for (i = 0; i < platform->devfreq_arr_size; i++) {
 		tdev = gb10b_devfreq_arr + i;
 		if (!tdev->clk)
 			continue;
@@ -1265,6 +1344,9 @@ static int gb10b_tegra_late_probe(struct device *dev)
 
 static int gb10b_tegra_remove(struct device *dev)
 {
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
+	struct list_head *gb10b_devfreq_masters = platform->devfreq_masters;
 	struct gb10b_tegra_devfreq_dev *tdev;
 	unsigned int i;
 
@@ -1276,7 +1358,7 @@ static int gb10b_tegra_remove(struct device *dev)
 	nvgpu_free_nvhost_dev(get_gk20a(dev));
 #endif
 
-	for (i = 0; i < ARRAY_SIZE(gb10b_devfreq_arr); i++) {
+	for (i = 0; i < platform->devfreq_arr_size; i++) {
 		tdev = gb10b_devfreq_arr + i;
 
 #if defined(CONFIG_INTERCONNECT)
@@ -1301,7 +1383,7 @@ static int gb10b_tegra_remove(struct device *dev)
 		INIT_LIST_HEAD(&tdev->thermals);
 	}
 
-	INIT_LIST_HEAD(&gb10b_devfreq_masters);
+	INIT_LIST_HEAD(gb10b_devfreq_masters);
 
 	return 0;
 }
@@ -1411,10 +1493,12 @@ exit:
 
 static int gb10b_tegra_railgate(struct device *dev)
 {
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct list_head *gb10b_devfreq_masters = platform->devfreq_masters;
 	struct gb10b_tegra_devfreq_dev *tdev;
 	int err = 0;
 
-	list_for_each_entry(tdev, &gb10b_devfreq_masters, masters) {
+	list_for_each_entry(tdev, gb10b_devfreq_masters, masters) {
 		/* Scale device to suspend frequency */
 		if (tdev->devfreq) {
 			err = devfreq_suspend_device(tdev->devfreq);
@@ -1453,6 +1537,8 @@ static int gb10b_tegra_railgate(struct device *dev)
 
 static int gb10b_tegra_unrailgate(struct device *dev)
 {
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct list_head *gb10b_devfreq_masters = platform->devfreq_masters;
 	struct gb10b_tegra_devfreq_dev *tdev;
 	int err = 0;
 
@@ -1463,7 +1549,7 @@ static int gb10b_tegra_unrailgate(struct device *dev)
 	*/
 	gb10b_tegra_clk_enable_all(dev);
 
-	list_for_each_entry(tdev, &gb10b_devfreq_masters, masters) {
+	list_for_each_entry(tdev, gb10b_devfreq_masters, masters) {
 
 		/* Scale device to resume frequency */
 		if (tdev->devfreq) {
@@ -1652,6 +1738,7 @@ static int gb10b_clk_get_freqs(struct device *dev,
 {
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
 	struct gk20a *g = platform->g;
+	struct gb10b_tegra_devfreq_dev *gb10b_devfreq_arr = platform->devfreq_arr;
 	struct gb10b_tegra_devfreq_dev *gpu;
 
 	/* make sure the devfreq GPU clk data is available */
@@ -1678,7 +1765,7 @@ struct gk20a_platform gb10b_pci_tegra_platform = {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
 	.has_syncpoints = true,
 #endif
-
+	.has_scheduling_domains = true,
 	/* ptimer src frequency in hz*/
 	.ptimer_src_freq = 31250000,
 

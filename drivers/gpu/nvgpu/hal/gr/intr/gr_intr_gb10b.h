@@ -65,11 +65,16 @@ void gb10b_gr_intr_handle_gpc_wdxps_hww(struct gk20a *g, u32 gpc,
 		u32 gpc_exception);
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gb10b_gr_intr_set_shader_exceptions(struct gk20a *g, u32 data);
-void gb10b_gr_intr_tpc_exception_sm_enable(struct gk20a *g);
 #endif
+void gb10b_gr_intr_tpc_exception_sm_enable(struct gk20a *g);
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 u64 gb10b_gr_intr_tpc_enabled_exceptions(struct gk20a *g);
 void gb10b_gr_intr_tpc_exception_sm_disable(struct gk20a *g, u32 offset);
 #endif /* CONFIG_NVGPU_DEBUGGER */
+
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_GRAPHICS)
+void gb10b_gr_intr_set_tex_in_dbg(struct gk20a *g, u32 data);
+#endif
+
 #endif /* NVGPU_GR_INTR_GB10B_H */

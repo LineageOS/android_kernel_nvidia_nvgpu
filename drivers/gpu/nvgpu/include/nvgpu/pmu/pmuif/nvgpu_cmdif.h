@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
  * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
-#ifndef NVGPU_PMUIF_NVGPU_CMDIF_H
+
+ #ifndef NVGPU_PMUIF_NVGPU_CMDIF_H
 #define NVGPU_PMUIF_NVGPU_CMDIF_H
 
 #include "cmn.h"
@@ -25,6 +26,7 @@
 #define PMU_UNIT_PMGR			U8(0x18)
 #define PMU_UNIT_VOLT			U8(0x0E)
 #define PMU_UNIT_INIT_DGPU		U8(0x0F)
+#define PMU_UNIT_PERF_CF		U8(0x1C)
 #define PMU_UNIT_LPWR_LP		U8(0x1D)
 #define PMU_UNIT_END			U8(0x23)
 #define PMU_UNIT_INVALID		U8(0xFF)

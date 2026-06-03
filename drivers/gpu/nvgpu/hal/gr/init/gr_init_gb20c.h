@@ -20,4 +20,10 @@ u32 gb20c_gr_init_get_ctx_spill_size(struct gk20a *g);
 u32 gb20c_gpcs_rops_crop_debug1_off(void);
 #endif /* CONFIG_NVGPU_GRAPHICS */
 
+#ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
+void gb20c_gr_init_get_access_map(struct gk20a *g,
+				   u32 **gr_access_map,
+				   u32 *gr_access_map_num_entries);
+#endif
+
 #endif /* NVGPU_GR_INIT_GB20C_H */

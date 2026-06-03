@@ -48,19 +48,6 @@ static void gsp_sched_get_file_names(struct gk20a *g, struct gsp_fw *gsp_ucode)
 	}
 }
 
-/* TODO: Redundant, if no gsp_sched specific suspend functionality */
-void nvgpu_gsp_sched_suspend(struct gk20a *g, struct nvgpu_gsp_sched *gsp_sched)
-{
-	struct nvgpu_gsp *gsp = gsp_sched->gsp;
-
-	nvgpu_gsp_dbg(g, " ");
-
-	if (gsp == NULL) {
-		nvgpu_err(g, "GSP not initialized");
-		return;
-	}
-}
-
 /**
  * @brief Deinitializes the GSP scheduler.
  *
@@ -83,58 +70,11 @@ void nvgpu_gsp_sched_sw_deinit(struct gk20a *g)
 	nvgpu_gsp_dbg(g, " ");
 
 	if (gsp_sched != NULL) {
+		nvgpu_gsp_debug_buf_deinit(g);
 		gsp_release_firmware(g, gsp_sched->gsp);
 		nvgpu_kfree(g, gsp_sched);
 		g->gsp_sched = NULL;
 	}
-}
-
-/**
- * @brief Waits for the GSP scheduler to become ready or until a timeout occurs.
- *
- * This function checks if the GSP scheduler is ready in a loop with a delay
- * between each check. It exits the loop if the GSP scheduler becomes ready or
- * if the specified timeout duration has elapsed.
- *
- * The steps performed by the function are as follows:
- * -# Enter a loop that continues until the GSP scheduler is ready or the timeout
- *    is reached.
- * -# Inside the loop, check if the 'gsp_ready' flag of the GSP scheduler structure
- *    is true. If it is, exit the loop as the GSP scheduler is ready.
- * -# If the timeout value is less than or equal to zero, log an error message
- *    indicating that the wait for the GSP scheduler to initialize has timed out,
- *    and return -1 to indicate a timeout error.
- * -# Call nvgpu_msleep() to sleep for a short duration to prevent busy-waiting.
- * -# Decrement the timeout value by the sleep duration.
- * -# If the loop exits because the GSP scheduler is ready, return 0 to indicate
- *    success.
- *
- * @param [in] g          Pointer to the GPU driver structure.
- * @param [in] timeoutms  The maximum time to wait for the GSP scheduler to become
- *                        ready, in milliseconds.
- *
- * @return 0 if the GSP scheduler becomes ready before the timeout.
- * @return -1 if a timeout occurs before the GSP scheduler becomes ready.
- */
-static int gsp_sched_wait_for_init(struct gk20a *g, signed int timeoutms)
-{
-	nvgpu_gsp_dbg(g, " ");
-
-	do {
-		if (nvgpu_gsp_is_ready(g)) {
-			break;
-		}
-
-		if (timeoutms <= 0) {
-			nvgpu_err(g, "gsp wait for init timedout");
-			return -1;
-		}
-
-		nvgpu_msleep(10);
-		timeoutms -= 10;
-	} while (true);
-
-	return 0;
 }
 
 int nvgpu_gsp_sched_sw_init(struct gk20a *g)
@@ -214,7 +154,7 @@ int nvgpu_gsp_sched_bootstrap_hs(struct gk20a *g)
 		g->ops.gsp.falcon_setup_boot_config(g);
 	}
 
-	status = gsp_sched_wait_for_init(g, GSP_WAIT_TIME_MS);
+	status = nvgpu_gsp_wait_for_init(g, GSP_WAIT_TIME_MS);
 	if (status != 0) {
 		nvgpu_err(g, "gsp wait for basic init failed ");
 		goto de_init;

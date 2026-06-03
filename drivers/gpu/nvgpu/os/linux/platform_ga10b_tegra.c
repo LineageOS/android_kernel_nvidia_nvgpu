@@ -278,11 +278,13 @@ static int ga10b_tegra_probe(struct device *dev)
 	struct device_node *of_chosen;
 #endif
 
+#ifdef CONFIG_TEGRA_GK20A_NVHOST
 	err = nvgpu_nvhost_syncpt_init(platform->g);
 	if (err) {
 		if (err != -ENOSYS)
 			return err;
 	}
+#endif
 
 	platform->disable_bigpage = !iommu_get_domain_for_dev(dev) &&
 		(NVGPU_CPU_PAGE_SIZE < SZ_64K);
@@ -781,6 +783,7 @@ struct gk20a_platform ga10b_tegra_platform = {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
 	.has_syncpoints = true,
 #endif
+	.has_scheduling_domains = true,
 
 	/* ptimer src frequency in hz*/
 	.ptimer_src_freq = 31250000,

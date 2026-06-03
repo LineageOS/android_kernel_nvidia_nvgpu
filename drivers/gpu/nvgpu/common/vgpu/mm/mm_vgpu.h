@@ -22,12 +22,8 @@ int vgpu_locked_gmmu_unmap(struct vm_gk20a *vm,
 				enum gk20a_mem_rw_flag rw_flag,
 				bool sparse,
 				struct vm_gk20a_mapping_batch *batch);
-int vgpu_vm_bind_channel(struct vm_gk20a *vm,
-				struct nvgpu_channel *ch);
 int vgpu_mm_fb_flush(struct gk20a *g);
-void vgpu_mm_l2_invalidate(struct gk20a *g);
 int vgpu_mm_l2_flush(struct gk20a *g, bool invalidate);
-int vgpu_mm_tlb_invalidate(struct gk20a *g, struct nvgpu_mem *pdb);
 #ifdef CONFIG_NVGPU_DEBUGGER
 void vgpu_mm_mmu_set_debug_mode(struct gk20a *g, bool enable);
 #endif

@@ -17,11 +17,10 @@ static int user_sync_build_debug_name(struct nvgpu_channel *ch,
 	struct gk20a *g = ch->g;
 	int n;
 
-	(void)strncpy(buf, g->name, capacity);
-	buf[sizeof(buf) - 1UL] = '\0';
+	(void)snprintf(buf, capacity, "%s", g->name);
 	capacity = nvgpu_safe_sub_u64(capacity, strlen(g->name));
 
-	(void)strncat(buf, "_", capacity);
+	(void)snprintf(buf + strlen(buf), capacity, "%s", "_");
 	capacity = nvgpu_safe_sub_u64(capacity, strlen("_"));
 	/*
 	 * however, nvgpu_strnadd_u32 expects capacity to include the

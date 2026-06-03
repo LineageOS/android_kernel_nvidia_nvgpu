@@ -6,11 +6,14 @@
 #define NVGPU_PERF_VF_H
 
 struct gk20a;
+struct nvgpu_tsg;
 
-void vf_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
-			u32 gr_instance_id, u32 reservation_id);
-void vf_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id,
-			u32 pma_channel_id, u32 reservation_id);
+int vf_perf_reset_pm_trigger_masks(struct gk20a *g, u32 pma_channel_id,
+	u32 gr_instance_id, u32 reservation_id, struct nvgpu_tsg *tsg,
+	bool is_ctx_resident);
+int vf_perf_enable_pm_trigger(struct gk20a *g, u32 gr_instance_id,
+	u32 pma_channel_id, u32 reservation_id, struct nvgpu_tsg *tsg,
+	bool is_ctx_resident);
 void vf_perf_deinit_inst_block(struct gk20a *g, u32 pma_channel_id);
 int vf_perf_init_inst_block(struct gk20a *g, u32 pma_channel_id,
 			u32 inst_blk_ptr, u32 aperture, u32 gfid);

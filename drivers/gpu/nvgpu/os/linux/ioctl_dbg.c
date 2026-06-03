@@ -1662,10 +1662,11 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 {
 	struct gk20a *g = dbg_s->g;
 	struct perfbuf *perfbuf;
+	bool is_ctxsw = false, is_ctx_resident;
 	u32 perfbuf_channel_idx;
 	u32 virt_size;
 	u64 result;
-	int err;
+	int err, err_2;
 
 	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
 
@@ -1723,8 +1724,21 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 		goto err_unmap;
 	}
 
+	is_ctxsw = nvgpu_profiler_get_is_ctxsw(dbg_s->prof);
+	err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, dbg_s->prof, is_ctxsw, &is_ctx_resident);
+	if (err != 0) {
+		goto err_unmap;
+	}
+
 	err = g->ops.perfbuf.perfbuf_enable(g, dbg_s->prof->pma_channel_id,
-					    args->offset, virt_size);
+					    args->offset, virt_size, dbg_s->prof->tsg,
+					    is_ctx_resident);
+	err_2 = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, dbg_s->prof, is_ctxsw);
+	if (err == 0) {
+		err = err_2;
+	}
+	nvgpu_assert(err_2 == 0);
+
 	if (err)
 		goto err_unmap;
 
@@ -2197,10 +2211,25 @@ static int gk20a_perfbuf_release_locked(struct gk20a *g,
 		struct dbg_session_gk20a *dbg_s, u64 offset)
 {
 	struct perfbuf *perfbuf;
-	int err;
+	int err, err_2;
+	bool is_ctxsw = false, is_ctx_resident;
 
 	perfbuf = nvgpu_perfbuf_get_perfbuf(g, dbg_s->prof->pma_channel_id, NULL);
-	err = g->ops.perfbuf.perfbuf_disable(g, dbg_s->prof->pma_channel_id);
+
+	is_ctxsw = nvgpu_profiler_get_is_ctxsw(dbg_s->prof);
+	err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, dbg_s->prof, is_ctxsw,
+							&is_ctx_resident);
+	if (err != 0) {
+		return err;
+	}
+
+	err = g->ops.perfbuf.perfbuf_disable(g, dbg_s->prof->pma_channel_id,
+					    dbg_s->prof->tsg, is_ctx_resident);
+	err_2 = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, dbg_s->prof, is_ctxsw);
+	if (err == 0) {
+		err = err_2;
+	}
+	nvgpu_assert(err_2 == 0);
 
 	nvgpu_vm_unmap(perfbuf->vm, offset, NULL);
 

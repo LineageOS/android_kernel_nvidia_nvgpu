@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
+#include <nvgpu/log.h>
 #include <nvgpu/vm.h>
 #include <nvgpu/vm_area.h>
 #include <nvgpu/vm_remap.h>
@@ -151,9 +152,21 @@ static int nvgpu_vm_remap_validate_vpool(struct nvgpu_vm_remap_vpool *vpool,
 				struct nvgpu_vm_remap_op *op)
 {
 	u64 first_page = op->virt_offset_in_pages;
-	u64 last_page = op->virt_offset_in_pages + op->num_pages - 1ULL;
-	u64 page_size = nvgpu_vm_remap_page_size(op);
+	u64 last_page;
+	u64 page_size;
 
+	if (!nvgpu_safe_add_u64_return(op->virt_offset_in_pages, op->num_pages,
+		 &last_page)) {
+		nvgpu_err(NULL, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	if (!nvgpu_safe_sub_u64_return(last_page, 1ULL, &last_page)) {
+		nvgpu_err(NULL, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	page_size = nvgpu_vm_remap_page_size(op);
 	if (page_size == 0) {
 		return -EINVAL;
 	}
@@ -287,7 +300,7 @@ static struct nvgpu_vm_remap_vpool *nvgpu_vm_remap_get_vpool_locked(
  * Update physical memory pool reference counts for the specified virtual
  * pool range of pages.
  */
-static void nvgpu_vm_remap_update_pool_refcounts(
+static int nvgpu_vm_remap_update_pool_refcounts(
 	struct vm_gk20a *vm,
 	struct nvgpu_vm_remap_vpool *vpool,
 	u64 first_page,
@@ -296,10 +309,19 @@ static void nvgpu_vm_remap_update_pool_refcounts(
 	bool *l2_flushed)
 {
 	u64 pgnum;
+	int err = 0;
+	u64 pages = 0U;
 
-	if (vpool->num_pages < first_page + num_pages) {
+	if (!nvgpu_safe_add_u64_return(first_page, num_pages, &pages)) {
+		nvgpu_err(NULL, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		return err;
+	}
+
+	if (vpool->num_pages < pages) {
 		nvgpu_err(gk20a_from_vm(vm), "bad vpool range; update skipped");
-		return;
+		err = -EINVAL;
+		return err;
 	}
 
 	for (pgnum = first_page; pgnum < first_page + num_pages; pgnum++) {
@@ -324,6 +346,7 @@ static void nvgpu_vm_remap_update_pool_refcounts(
 			(void) nvgpu_vm_remap_mpool_get(new_pool);
 		}
 	}
+	return err;
 }
 
 /*
@@ -507,14 +530,18 @@ static int nvgpu_vm_remap_execute_remaps(struct vm_gk20a *vm,
 	 */
 	for (i = 0; i < *num_ops; i++) {
 		op = &ops[i];
-		nvgpu_vm_remap_update_pool_refcounts(
-			vm,
-			vpool,
-			nvgpu_safe_sub_u64(op->virt_offset_in_pages,
-					vpool->base_offset_in_pages),
-			op->num_pages,
-			mpools[i],
-			l2_flushed);
+		err = nvgpu_vm_remap_update_pool_refcounts(
+				vm,
+				vpool,
+				nvgpu_safe_sub_u64(op->virt_offset_in_pages,
+						vpool->base_offset_in_pages),
+				op->num_pages,
+				mpools[i],
+				l2_flushed);
+		if (err != 0) {
+			nvgpu_err(g, "nvgpu_vm_remap_update_pool_refcounts failed to return 0");
+			break;
+		}
 	}
 
 	return err;

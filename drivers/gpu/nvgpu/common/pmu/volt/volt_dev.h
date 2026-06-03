@@ -23,6 +23,8 @@
 
 #define CTRL_VOLT_DEVICE_PSV_GATE_VOLTAGE_UV_INVALID 0xFFFFFFFF
 
+#define XTAL4X_KHZ				108000
+
 struct voltage_device {
 	struct pmu_board_obj super;
 	u8 volt_domain;

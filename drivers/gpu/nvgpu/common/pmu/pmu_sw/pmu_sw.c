@@ -36,10 +36,10 @@ void nvgpu_pmu_sw_init(struct gk20a *g, struct nvgpu_pmu *pmu)
 	case NVGPU_GPUID_GV11B:
 		break;
 	case NVGPU_GPUID_GA10B:
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
 #endif
+	case NVGPU_GPUID_GB10B:
 		nvgpu_ga10b_pmu_sw_init(g, pmu);
 		break;
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)

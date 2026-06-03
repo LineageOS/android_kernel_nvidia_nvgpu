@@ -1,36 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 // SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-#include <nvgpu/enabled.h>
-#include <nvgpu/ptimer.h>
-#include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/vgpu.h>
-#include <nvgpu/timers.h>
-#include <nvgpu/fifo.h>
 #include <nvgpu/gk20a.h>
-#include <nvgpu/channel.h>
 #include <nvgpu/clk_arb.h>
-#include <nvgpu/string.h>
-#include <nvgpu/ltc.h>
-#include <nvgpu/cbc.h>
 #include <nvgpu/fbp.h>
 #include <nvgpu/cyclestats_snapshot.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/nvgpu_init.h>
-#include <nvgpu/device.h>
-#include <nvgpu/fb.h>
 #include <nvgpu/nvs.h>
-#include <nvgpu/gin.h>
 
 #include "init_vgpu.h"
 #include "init_vf.h"
 #include "hal/vgpu/init/init_hal_vgpu.h"
-#include "common/vgpu/gr/fecs_trace_vgpu.h"
-#include "common/vgpu/fifo/fifo_vgpu.h"
 #include "common/vgpu/mm/mm_vgpu.h"
 #include "common/vgpu/gr/gr_vgpu.h"
 #include "common/vgpu/fbp/fbp_vgpu.h"
-#include "common/vgpu/ivc/comm_vgpu.h"
 
 u64 vgpu_connect(struct gk20a *g)
 {
@@ -39,7 +24,6 @@ u64 vgpu_connect(struct gk20a *g)
 	int err;
 
 	msg.cmd = TEGRA_VGPU_CMD_CONNECT;
-	p->module = TEGRA_VGPU_MODULE_GPU;
 	err = vgpu_comm_sendrecv(g, &msg);
 
 	return (err || msg.ret) ? 0 : p->handle;
@@ -62,6 +46,8 @@ void vgpu_remove_support_common(struct gk20a *g)
 			nvgpu_err(g, "g->ops.grmgr.remove_gr_manager-failed");
 		}
 	}
+
+	nvgpu_multimedia_deinit(g);
 
 	if (g->fifo.remove_support) {
 		g->fifo.remove_support(&g->fifo);
@@ -257,6 +243,12 @@ int vgpu_finalize_poweron_common(struct gk20a *g)
 	err = vgpu_init_gr_support(g);
 	if (err != 0) {
 		nvgpu_err(g, "failed to init gk20a gr");
+		return err;
+	}
+
+	err = nvgpu_multimedia_sw_init(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to init multimedia sw");
 		return err;
 	}
 

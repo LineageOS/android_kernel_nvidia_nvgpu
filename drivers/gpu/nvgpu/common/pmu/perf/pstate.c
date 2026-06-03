@@ -21,7 +21,7 @@ int perf_pstate_get_table_entry_idx(struct gk20a *g, u32 num)
 {
 	struct pstates *pstates = &(g->pmu->perf_pmu->pstatesobjs);
 	struct pstate *pstate;
-	u8 i;
+	u16 i;
 
 	nvgpu_log_info(g, "pstates = %p", pstates);
 
@@ -335,7 +335,7 @@ done:
 
 static int perf_pstate_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-		struct nv_pmu_boardobj **pmu_obj, u8 idx)
+		struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_perf_pstate_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_perf_pstate_boardobj_grp_set *)
@@ -373,10 +373,11 @@ int perf_pstate_sw_setup(struct gk20a *g)
 	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, PERF, PSTATE);
 
 	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
-			perf, PERF, pstate, PSTATE);
+			perf, PERF, pstate, VPSTATE);
+
 	if (status != 0) {
 		nvgpu_err(g,
-			"error constructing PSTATE_SET interface - 0x%x",
+			"error constructing VPSTATE_SET interface - 0x%x",
 			status);
 		goto done;
 	}
@@ -417,7 +418,7 @@ static struct pstate *perf_pstate_find(struct gk20a *g, u32 num)
 {
 	struct pstates *pstates = &(g->pmu->perf_pmu->pstatesobjs);
 	struct pstate *pstate;
-	u8 i;
+	u16 i;
 
 	BOARDOBJGRP_FOR_EACH(&pstates->super.super,
 			struct pstate *, pstate, i) {

@@ -20,45 +20,74 @@
 #include "clk_prog.h"
 #include "clk.h"
 
-static struct nvgpu_clk_domain *construct_clk_domain(struct gk20a *g,
-		void *pargs);
+#include "clk_prop_top_rel.h"
+#include "clk_vf_rel.h"
 
-static int devinit_get_clocks_table(struct gk20a *g,
-	struct nvgpu_clk_domains *pclkdomainobjs);
 
-static int clk_domain_pmudatainit_super(struct gk20a *g, struct pmu_board_obj
-	*obj,	struct nv_pmu_boardobj *pmu_obj);
+static int devinit_get_clocks_table(struct gk20a *g);
 
-struct vbios_clocks_table_1x_hal_clock_entry {
-	u32 domain;
-	bool b_noise_aware_capable;
-	u8 clk_vf_curve_count;
+// We only support two HAL types.
+static struct vbios_clocks_table vbios_clocks_table_hal_clock_entry[] ={
+	{
+		CLK_TABLE_HAL_ENTRY_GV,
+		{
+			{ CLKWHICH_GPCCLK,     true,    1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_GRAPHICS, 0x0ffU},
+			{ CLKWHICH_XBARCLK,    true,    1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_MCLK,       false,   1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_MEMORY, 0x0ffU},
+			{ CLKWHICH_SYSCLK,     true,    1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_HUBCLK,     false,   1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_NVDCLK,     true,    1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_PWRCLK,     false,   1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_DISPCLK,    false,   1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_PCIEGENCLK, false,   1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_HOSTCLK,    true,    1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU}
+		}
+	},
+	{
+		CLK_TABLE_HAL_ENTRY_GB20Y,
+		{
+			{ CLKWHICH_GPCCLK,		true,	4, NV2080_CTRL_CLK_PUBLIC_DOMAIN_GRAPHICS, 0},
+			{ CLKWHICH_XBARCLK,		true,	1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x1U},
+			{ CLKWHICH_MCLK,		false,	1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU},
+			{ CLKWHICH_NVDCLK,		true,	1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x03U},
+			{ CLKWHICH_UPROCCLK,	true,	1, NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID, 0x0ffU}
+		}
+	}
 };
 
-static struct vbios_clocks_table_1x_hal_clock_entry
-		vbiosclktbl1xhalentry_gv[] = {
-	{ CLKWHICH_GPCCLK,     true,    1, },
-	{ CLKWHICH_XBARCLK,    true,    1, },
-	{ CLKWHICH_MCLK,       false,   1, },
-	{ CLKWHICH_SYSCLK,     true,    1, },
-	{ CLKWHICH_HUBCLK,     false,   1, },
-	{ CLKWHICH_NVDCLK,     true,    1, },
-	{ CLKWHICH_PWRCLK,     false,   1, },
-	{ CLKWHICH_DISPCLK,    false,   1, },
-	{ CLKWHICH_PCIEGENCLK, false,   1, },
-	{ CLKWHICH_HOSTCLK,    true,    1, }
-};
+static struct nvgpu_clk_vf_points_status *vf_points_status;
 
-static struct vbios_clocks_table_1x_hal_clock_entry
-		vbiosclktbl1xhalentry_next[] = {
-	{ CLKWHICH_GPCCLK,		true,	4, },
-	{ CLKWHICH_XBARCLK,		true,	1, },
-	{ CLKWHICH_MCLK,		false,	1, },
-	{ CLKWHICH_NVDCLK,		true,	1, },
-	{ CLKWHICH_PWRCLK,		true,	1, }, /* Note: VBIOS and lsPMU use for uprocclk */
-};
+s32 devinitClocksTableHALTranslate_1X(struct gk20a *g,
+		u8 vbiosClocksHAL,
+		struct vbios_clocks_table **pClocksHAL)
+{
+	s32 status = 0;
+	// We only support two HAL types.
+	switch (vbiosClocksHAL) {
+	case CLK_TABLE_HAL_ENTRY_GV:
+	{
+		*pClocksHAL = &vbios_clocks_table_hal_clock_entry[0];
+		break;
+	}
+	case CLK_TABLE_HAL_ENTRY_GB20Y:
+	{
+		*pClocksHAL = &vbios_clocks_table_hal_clock_entry[1];
+		break;
+	}
+	default:
+	{
+		*pClocksHAL = NULL;
+		status = -EINVAL;
+		nvgpu_err(g, "Unsupported clock hal id: 0x%x",
+				vbiosClocksHAL);
+		break;
+	}
+	}
 
-static u32 clktranslatehalmumsettoapinumset(u32 clkhaldomains)
+	return status;
+}
+
+u32 clktranslatehalmumsettoapinumset(u32 clkhaldomains)
 {
 	u32   clkapidomains = 0;
 
@@ -89,8 +118,8 @@ static u32 clktranslatehalmumsettoapinumset(u32 clkhaldomains)
 	if ((clkhaldomains & BIT32(CLKWHICH_HUB2CLK)) != 0U) {
 		clkapidomains |= CTRL_CLK_DOMAIN_HUB2CLK;
 	}
-	if ((clkhaldomains & BIT32(CLKWHICH_PWRCLK)) != 0U) {
-		clkapidomains |= CTRL_CLK_DOMAIN_PWRCLK; /* Used for UPROCCLK. */
+	if ((clkhaldomains & BIT32(CLKWHICH_UPROCCLK)) != 0U) {
+		clkapidomains |= CTRL_CLK_DOMAIN_UPROCCLK;
 	}
 	if ((clkhaldomains & BIT32(CLKWHICH_PCIEGENCLK)) != 0U) {
 		clkapidomains |= CTRL_CLK_DOMAIN_PCIEGENCLK;
@@ -119,8 +148,8 @@ static int clk_domains_pmudatainit_3x(struct gk20a *g,
 		struct boardobjgrp *pboardobjgrp,
 		struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
 {
-	struct nv_pmu_clk_clk_domain_boardobjgrp_set_header *pset =
-		(struct nv_pmu_clk_clk_domain_boardobjgrp_set_header *)
+	struct nv_pmu_clk_clk_domain_10_boardobjgrp_set_header *pset =
+		(struct nv_pmu_clk_clk_domain_10_boardobjgrp_set_header *)
 		(void *)pboardobjgrppmu;
 	struct nvgpu_clk_domains *pdomains =
 		(struct nvgpu_clk_domains *)(void *)pboardobjgrp;
@@ -180,26 +209,9 @@ done:
 	return status;
 }
 
-static s32 clk_domains_pmudatainit_5x(struct gk20a *g,
-			struct boardobjgrp *pboardobjgrp,
-			struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
-{
-	// _mg_ Todo: This is stubbed out for now. Implement during RPC layer work.
-	s32 status = 0;
-
-	nvgpu_log_info(g, " ");
-	(void)pboardobjgrp;
-	(void)pboardobjgrppmu;
-
-
-	status = -EINVAL;
-
-	return status;
-}
-
-static int clk_domains_pmudata_instget(struct gk20a *g,
+s32 clk_domains_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-		struct nv_pmu_boardobj **pmu_obj, u8 idx)
+		struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_clk_clk_domain_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_clk_clk_domain_boardobj_grp_set *)(void *)
@@ -228,12 +240,23 @@ s32 clk_domain_sw_setup(struct gk20a *g)
 	struct clk_domain_35_master *pdomain_master_35;
 	struct clk_domain_35_slave *pdomain_slave_35;
 	struct clk_domain_35_prog *pdomain_prog_35;
-	struct clk_domain_50_prog *pdomain_prog_50;
-	struct clk_domain_50_prog_physical *pdomain_physical_50;
-	struct clk_domain_50_prog_logical *pdomain_logical_50;
-	u8 i;
+	u16 i;
+	u32 ver;
 
 	nvgpu_log_info(g, " ");
+
+	ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+	if (ver == NVGPU_GPUID_GB20C)
+		return clk_domain_sw_setup_50(g);
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->clk_pmu->clk_domainobjs->super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_domain boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_domain boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->clk_pmu->clk_domainobjs->super);
@@ -293,11 +316,10 @@ s32 clk_domain_sw_setup(struct gk20a *g)
 	(void) memset(&pclkdomainobjs->deltas, 0,
 		sizeof(struct ctrl_clk_clk_delta));
 
-	status = devinit_get_clocks_table(g, pclkdomainobjs);
+	status = devinit_get_clocks_table(g);
 	nvgpu_log_info(g, "Clocks table version: 0x%x", pclkdomainobjs->version);
 	if (status != 0)
 		goto done;
-	pdomain_prog_50 = NULL;
 
 	if (pclkdomainobjs->version == CLK_DOMAIN_BOARDOBJGRP_VERSION_35) {
 		pboardobjgrp->pmudatainit  = clk_domains_pmudatainit_3x;
@@ -365,74 +387,6 @@ s32 clk_domain_sw_setup(struct gk20a *g)
 					goto done;
 			}
 		}
-	} else if (pclkdomainobjs->version == CLK_DOMAIN_BOARDOBJGRP_VERSION_50) {
-		pboardobjgrp->pmudatainit  = clk_domains_pmudatainit_5x;
-		pboardobjgrp->pmudatainstget  = clk_domains_pmudata_instget;
-		BOARDOBJGRP_FOR_EACH(&(pclkdomainobjs->super.super),
-					 struct nvgpu_clk_domain *, pdomain, i) {
-			pdomain_physical_50 = NULL;
-			pdomain_logical_50 = NULL;
-
-			if (pdomain->super.implements(g, &pdomain->super,
-					CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG)) {
-				pdomain_prog_50 =
-					(struct clk_domain_50_prog *)(void *)pdomain;
-				status = nvgpu_boardobjgrpmask_bit_set(
-					&pclkdomainobjs->prog_domains_mask.super, i);
-				if (status != 0)
-					goto done;
-
-				/* Create the mask of clk monitors that are supported */
-				if ((pdomain_prog_50->clkmon_info.high_threshold_vfe_idx !=
-							CLK_CLKMON_VFE_INDEX_INVALID) ||
-					(pdomain_prog_50->clkmon_info.low_threshold_vfe_idx !=
-							CLK_CLKMON_VFE_INDEX_INVALID)) {
-					status = nvgpu_boardobjgrpmask_bit_set(
-							&pclkdomainobjs->clkmon_domains_mask.super, i);
-					if (status != 0) {
-						nvgpu_err(g,
-						"Error setting Clk monitor masks");
-						return status;
-					}
-				}
-			}
-
-			if (pdomain->super.implements(g, &pdomain->super,
-					CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL)) {
-				status = nvgpu_boardobjgrpmask_bit_set(
-					&pclkdomainobjs->physical_domains_mask.super, i);
-
-				if (status != 0)
-					goto done;
-
-				pdomain_physical_50 =
-					(struct clk_domain_50_prog_physical *)(void *)pdomain;
-				status = nvgpu_boardobjgrpmask_bit_set(
-						&pdomain_physical_50->physical_domains_grp_mask.super,
-						i);
-
-				if (status != 0)
-					goto done;
-
-			}
-
-			// _mg_ Todo: We don't need logical support for gb20c.
-			if (pdomain->super.implements(g, &pdomain->super,
-					CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_LOGICAL)) {
-				status = nvgpu_boardobjgrpmask_bit_set(
-					&pclkdomainobjs->logical_domains_mask.super, i);
-				if (status != 0)
-					goto done;
-
-				pdomain_logical_50 =
-					(struct clk_domain_50_prog_logical *)(void *)pdomain;
-				status = nvgpu_boardobjgrpmask_bit_set(
-						&pdomain_logical_50->logical_domains_grp_mask.super, i);
-				if (status != 0)
-					goto done;
-
-			}
-		}
 	} else {
 		status = -EINVAL;
 		nvgpu_err(g, "Unsupported version: 0x%x",
@@ -448,27 +402,40 @@ s32 clk_domain_pmu_setup(struct gk20a *g)
 {
 	s32 status;
 	struct boardobjgrp *pboardobjgrp = NULL;
+	struct boardobjgrp_e32 *psuper;
 
 	nvgpu_log_info(g, " ");
 
-	pboardobjgrp = &g->pmu->clk_pmu->clk_domainobjs->super.super;
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		status = -EINVAL;
+		goto done;
+	}
+
+	pboardobjgrp = &psuper->super;
 
 	if (!pboardobjgrp->bconstructed) {
-		return -EINVAL;
+		status = -EINVAL;
+		goto done;
 	}
 
 	status = pboardobjgrp->pmuinithandle(g, pboardobjgrp);
 
+done:
 	nvgpu_log_info(g, "Done");
 	return status;
 }
 
 static s32 devinit_get_clocks_table_35(struct gk20a *g,
-		struct nvgpu_clk_domains *pclkdomainobjs, u8 *clocks_table_ptr)
+		u8 *clocks_table_ptr)
 {
 	s32 status = 0;
 	struct vbios_clocks_table_35_header clocks_table_header = { 0 };
 	struct vbios_clocks_table_35_entry clocks_table_entry = { 0 };
+	struct vbios_clocks_table *pClocksHAL;
 	struct vbios_clocks_table_1x_hal_clock_entry *vbiosclktbl1xhalentry;
 	u8 *clocks_tbl_entry_ptr = NULL;
 	u32 index = 0;
@@ -483,6 +450,7 @@ static s32 devinit_get_clocks_table_35(struct gk20a *g,
 		struct clk_domain_35_master v35_master;
 		struct clk_domain_35_slave v35_slave;
 	} clk_domain_data;
+	struct nvgpu_clk_domains *pclkdomainobjs = g->pmu->clk_pmu->clk_domainobjs;
 
 	nvgpu_log_info(g, " ");
 	pclkdomainobjs->version = CLK_DOMAIN_BOARDOBJGRP_VERSION_35;
@@ -503,7 +471,8 @@ static s32 devinit_get_clocks_table_35(struct gk20a *g,
 
 	switch (clocks_table_header.clocks_hal) {
 	case CLK_TABLE_HAL_ENTRY_GV:
-		vbiosclktbl1xhalentry = vbiosclktbl1xhalentry_gv;
+		devinitClocksTableHALTranslate_1X(g, CLK_TABLE_HAL_ENTRY_GV, &pClocksHAL);
+		vbiosclktbl1xhalentry = pClocksHAL->domains;
 		break;
 	default:
 		status = -EINVAL;
@@ -679,7 +648,7 @@ static s32 devinit_get_clocks_table_35(struct gk20a *g,
 		}
 		status = boardobjgrp_objinsert(&pclkdomainobjs->super.super,
 				(struct pmu_board_obj *)(void *)
-				pclkdomain_dev, (u8)index);
+				pclkdomain_dev, (u16)index);
 		if (status != 0) {
 			nvgpu_err(g,
 			"unable to insert clock domain boardobj for %d", index);
@@ -694,271 +663,28 @@ done:
 	return status;
 }
 
-static s32 devinit_get_clocks_table_5x(struct gk20a *g,
-		struct nvgpu_clk_domains *pclkdomainobjs, u8 *clocks_table_ptr)
-{
-	s32 status = 0;
-	struct vbios_clocks_table_5x_header clocks_table_header = { 0 };
-	struct vbios_clocks_table_5x_entry clocks_table_entry = { 0 };
-	const struct vbios_clocks_table_1x_hal_clock_entry *vbiosclktbl1xhalentry;
-	const u8 *clocks_tbl_entry_ptr = NULL;
-	u32 index = 0;
-	struct nvgpu_clk_domain *pclkdomain_dev;
-
-	/*
-	 * misra_c_2012_rule_19_2_violation
-	 * MISRA C-2012 Rule 19.2 a typedef Union is used to reduce
-	 * the stackframe memory footprint by allocating the memory for
-	 * the union of boardobjs.
-	 * This prevents a "frame-larger-than 2048 bytes" compile error.
-	 */
-	typedef union {
-		struct pmu_board_obj obj;
-		struct nvgpu_clk_domain clk_domain;
-		struct clk_domain_5x v5x;
-		struct clk_domain_5x_fixed v5x_fixed;
-		struct clk_domain_50_prog_logical v50_prog_lgc;
-		struct clk_domain_50_prog_physical v50_prog_phy;
-	} u_clk_domain_data;
-	u_clk_domain_data *pclk_domain_data = NULL;
-
-	vbiosclktbl1xhalentry = vbiosclktbl1xhalentry_next;
-
-	nvgpu_log_info(g, " ");
-
-	pclk_domain_data = (u_clk_domain_data *) nvgpu_kzalloc(g, sizeof(u_clk_domain_data));
-	if (pclk_domain_data == NULL) {
-		nvgpu_err(g, "Unable to allocate memory.");
-		status = -ENOMEM;
-		goto done_no_free;
-	}
-
-	nvgpu_memcpy((u8 *)&clocks_table_header, clocks_table_ptr,
-			VBIOS_CLOCKS_TABLE_5x_HEADER_SIZE_13);
-	if (clocks_table_header.header_size <
-			(u8) VBIOS_CLOCKS_TABLE_5x_HEADER_SIZE_13) {
-		status = -EINVAL;
-		goto done;
-	}
-
-	pclkdomainobjs->version = CLK_DOMAIN_BOARDOBJGRP_VERSION_50;
-
-	if (clocks_table_header.base_entry_size <
-			(u8) VBIOS_CLOCKS_TABLE_5x_ENTRY_SIZE_15) {
-		status = -EINVAL;
-		goto done;
-	}
-
-	switch (clocks_table_header.clocks_hal) {
-	case CLK_TABLE_HAL_ENTRY_GV:
-		vbiosclktbl1xhalentry = vbiosclktbl1xhalentry_gv;
-		break;
-	case CLK_TABLE_HAL_ENTRY_GB20Y:
-		vbiosclktbl1xhalentry = vbiosclktbl1xhalentry_next;
-		break;
-	default:
-		status = -EINVAL;
-		nvgpu_err(g, "Unsupported clock hal id: 0x%x",
-				clocks_table_header.clocks_hal);
-		break;
-	}
-
-	if (status == -EINVAL)
-		goto done;
-
-	pclkdomainobjs->cntr_sampling_periodms =
-		clocks_table_header.clock_counter_sample_period;
-	pclkdomainobjs->clkmon_refwin_usec =
-		clocks_table_header.fmon_ref_window;
-
-	clocks_tbl_entry_ptr = clocks_table_ptr +
-			clocks_table_header.header_size;
-
-	/* Read table entries*/
-	for (index = 0; index < clocks_table_header.base_entry_count; index++,
-			clocks_tbl_entry_ptr += clocks_table_header.base_entry_size +
-				(clocks_table_header.vf_item_entry_size *
-				clocks_table_header.vf_item_entry_count)) {
-		/* To avoid MISRA violation,
-		 * this is a single point of exit
-		 * from this for loop in the case
-		 * of an error is encountered.
-		 */
-		if (status != 0)
-			break;
-
-		nvgpu_memcpy((u8 *)&clocks_table_entry,
-			clocks_tbl_entry_ptr, clocks_table_header.base_entry_size);
-		pclk_domain_data->clk_domain.domain =
-			(u8) vbiosclktbl1xhalentry[index].domain;
-		pclk_domain_data->clk_domain.api_domain =
-			clktranslatehalmumsettoapinumset(
-			BIT32(pclk_domain_data->clk_domain.domain));
-		pclk_domain_data->v5x.b_noise_aware_capable =
-			vbiosclktbl1xhalentry[index].b_noise_aware_capable;
-
-		switch (BIOS_GET_FIELD(u32, clocks_table_entry.flags0,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE)) {
-		case  NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_FIXED:
-		{
-			pclk_domain_data->obj.type =
-				CTRL_CLK_CLK_DOMAIN_TYPE_50_FIXED;
-			pclk_domain_data->v5x_fixed.freq_mhz = BIOS_GET_FIELD(u16,
-				clocks_table_entry.param1,
-				NV_VBIOS_CLOCKS_TABLE_50_ENTRY_PARAM1_FIXED_FREQUENCY_MHZ);
-			break;
-		}
-
-		case  NV_VBIOS_CLOCKS_TABLE_5X_ENTRY_FLAGS0_USAGE_PROG_LOGICAL:
-		{
-			pclk_domain_data->obj.type =
-				CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_LOGICAL;
-			pclk_domain_data->v50_prog_phy.super.cpmu_clk_id =
-				(u8) vbiosclktbl1xhalentry[index].domain;
-
-			pclk_domain_data->v50_prog_lgc.super.super.clk_prog_idx_first =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param0,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_FIRST);
-			pclk_domain_data->v50_prog_lgc.super.super.clk_prog_idx_last =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param0,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_LAST);
-
-			/* Param1-4 are not used in logical. */
-
-			pclk_domain_data->v50_prog_lgc.super.super.factory_delta.data.delta_khz = 0;
-			pclk_domain_data->v50_prog_lgc.super.super.factory_delta.type = 0;
-			pclk_domain_data->v50_prog_lgc.super.clk_vf_curve_count =
-				vbiosclktbl1xhalentry[index].clk_vf_curve_count;
-			/* clockmon params not used on logical clock, set to Default */
-			pclk_domain_data->v50_prog_lgc.super.clkmon_info.low_threshold_vfe_idx = 0xffff;
-			pclk_domain_data->v50_prog_lgc.super.clkmon_info.high_threshold_vfe_idx = 0xffff;
-			break;
-		}
-
-		case  NV_VBIOS_CLOCKS_TABLE_5X_ENTRY_FLAGS0_USAGE_PROG_PHYSICAL:
-		{
-			pclk_domain_data->obj.type =
-				CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL;
-			pclk_domain_data->v50_prog_phy.super.cpmu_clk_id =
-				(u8) vbiosclktbl1xhalentry[index].domain;
-
-			pclk_domain_data->v50_prog_phy.super.super.clk_prog_idx_first =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param0,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_FIRST);
-			pclk_domain_data->v50_prog_phy.super.super.clk_prog_idx_last =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param0,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_LAST);
-
-			pclk_domain_data->v50_prog_phy.super.freq_delta_min_mhz =
-				BIOS_GET_FIELD(s16, clocks_table_entry.param1,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MIN_MHZ);
-			pclk_domain_data->v50_prog_phy.super.freq_delta_max_mhz =
-				BIOS_GET_FIELD(s16, clocks_table_entry.param1,
-				NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MAX_MHZ);
-			pclk_domain_data->v50_prog_phy.super.grd_delta.data.delta_khz =
-				nvgpu_safe_mult_s32(1000,
-					(s32)BIOS_GET_FIELD(s16, clocks_table_entry.param2,
-					NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM2_GRD_FREQUENCY_OFFSET));
-
-			pclk_domain_data->v50_prog_phy.super.super.factory_delta.data.delta_khz = 0;
-			pclk_domain_data->v50_prog_phy.super.super.factory_delta.type = 0;
-			pclk_domain_data->v50_prog_lgc.super.clk_vf_curve_count =
-				vbiosclktbl1xhalentry[index].clk_vf_curve_count;
-
-			pclk_domain_data->v50_prog_phy.super.pre_volt_ordering_index =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param3,
-				NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_PRE_VOLT_ORDERING_IDX);
-
-			pclk_domain_data->v50_prog_phy.super.post_volt_ordering_index =
-				BIOS_GET_FIELD(u8, clocks_table_entry.param3,
-				NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_POST_VOLT_ORDERING_IDX);
-
-			pclk_domain_data->v50_prog_phy.super.fbvdd_data.valid = (bool)
-				BIOS_GET_FIELD(u8, clocks_table_entry.param3,
-				NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_FBVDD_DATA_SUPPORT);
-
-			pclk_domain_data->v50_prog_phy.super.clkmon_info.low_threshold_vfe_idx =
-				BIOS_GET_FIELD(u16, clocks_table_entry.param4,
-				NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MIN);
-			pclk_domain_data->v50_prog_phy.super.clkmon_info.high_threshold_vfe_idx =
-				BIOS_GET_FIELD(u16, clocks_table_entry.param4,
-				NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MAX);
-			break;
-		}
-
-		default:
-		{
-			nvgpu_err(g,
-				  "error reading clock domain entry %d", index);
-			status = -EINVAL;
-			break;
-		}
-
-		}
-
-		if (status == -EINVAL)
-			continue; /* to avoid MISRA violation, single exit point at top of loop */
-
-		pclkdomain_dev = construct_clk_domain(g,
-				(void *)pclk_domain_data);
-		if (pclkdomain_dev == NULL) {
-			nvgpu_err(g,
-			"unable to construct clock domain boardobj for %d",
-			index);
-			status = -EINVAL;
-			continue; /* to avoid MISRA violation, single exit point at top of loop */
-		}
-
-		status = boardobjgrp_objinsert(&pclkdomainobjs->super.super,
-				(struct pmu_board_obj *)
-				pclkdomain_dev, (u8)index);
-		if (status != 0) {
-			nvgpu_err(g,
-			"unable to insert clock domain boardobj for %d", index);
-			status = -EINVAL;
-			continue; /* to avoid MISRA violation, single exit point at top of loop */
-		}
-	}
-
-done:
-	nvgpu_kfree(g, pclk_domain_data);
-done_no_free:
-	nvgpu_log_info(g, " done status %x", status);
-	return status;
-}
-
-static s32 devinit_get_clocks_table(struct gk20a *g,
-			struct nvgpu_clk_domains *pclkdomainobjs)
+static s32 devinit_get_clocks_table(struct gk20a *g)
 {
 	s32 status = 0;
 	u8 *clocks_table_ptr = NULL;
-	struct vbios_clocks_table_35_header clocks_table_header = { 0 };
+
 	nvgpu_log_info(g, " ");
 
 	clocks_table_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
 			nvgpu_bios_get_bit_token(g, NVGPU_BIOS_CLOCK_TOKEN),
 							CLOCKS_TABLE);
+
 	if (clocks_table_ptr == NULL) {
 		status = -EINVAL;
 		goto done;
 	}
-	nvgpu_memcpy((u8 *)&clocks_table_header, clocks_table_ptr,
-			VBIOS_CLOCKS_TABLE_35_HEADER_SIZE_09);
-
-	if (clocks_table_header.version == VBIOS_CLOCKS_TABLE_5X_HEADER_VERSION) {
-		status = devinit_get_clocks_table_5x(g, pclkdomainobjs,
-				clocks_table_ptr);
-	} else {
-		status = devinit_get_clocks_table_35(g, pclkdomainobjs,
-				clocks_table_ptr);
-	}
+	status = devinit_get_clocks_table_35(g, clocks_table_ptr);
 
 done:
 	return status;
-
 }
 
-static s32 clk_domain_construct_super(struct gk20a *g,
+s32 clk_domain_construct_super(struct gk20a *g,
 					struct pmu_board_obj **obj,
 					size_t size, void *pargs)
 {
@@ -1096,14 +822,13 @@ static s32 clkdomaingetslaveclk(struct gk20a *g,
 	return status;
 }
 
-static s32 clkdomainvfsearch(struct gk20a *g,
+s32 clkdomainvfsearch(struct gk20a *g,
 				struct nvgpu_clk_pmupstate *pclk,
 				struct nvgpu_clk_domain *pdomain,
 				u16 *pclkmhz,
 				u32 *pvoltuv,
 				u8 rail)
 {
-	// _mg_ Todo: Update to handle v5 clk domain.
 	s32 status = 0;
 	struct clk_domain_3x_master *p3xmaster  =
 		(struct clk_domain_3x_master *)(void *)pdomain;
@@ -1183,7 +908,7 @@ done:
 	return status;
 }
 
-static s32 clkdomaingetfpoints
+s32 clkdomaingetfpoints
 (
 	struct gk20a *g,
 	struct nvgpu_clk_pmupstate *pclk,
@@ -1193,7 +918,6 @@ static s32 clkdomaingetfpoints
 	u8 rail
 )
 {
-	// _mg_ Todo: Update to handle v5 clk domain.
 	s32 status = 0;
 	struct clk_domain_3x_master *p3xmaster  =
 		(struct clk_domain_3x_master *)(void *)pdomain;
@@ -1250,8 +974,8 @@ done:
 }
 
 static s32 clk_domain_pmudatainit_35_prog(struct gk20a *g,
-					   struct pmu_board_obj *obj,
-					   struct nv_pmu_boardobj *pmu_obj)
+			struct pmu_board_obj *obj,
+			struct nv_pmu_boardobj *pmu_obj)
 {
 	s32 status = 0;
 	struct clk_domain_35_prog *pclk_domain_35_prog;
@@ -1361,8 +1085,8 @@ static s32 clk_domain_construct_35_prog(struct gk20a *g,
 }
 
 static s32 clk_domain_pmudatainit_35_slave(struct gk20a *g,
-						struct pmu_board_obj *obj,
-						struct nv_pmu_boardobj *pmu_obj)
+			struct pmu_board_obj *obj,
+			struct nv_pmu_boardobj *pmu_obj)
 {
 	s32 status = 0;
 	struct clk_domain_35_slave *pclk_domain_35_slave;
@@ -1386,8 +1110,8 @@ static s32 clk_domain_pmudatainit_35_slave(struct gk20a *g,
 }
 
 static s32 clk_domain_construct_35_slave(struct gk20a *g,
-					 struct pmu_board_obj **obj,
-					 size_t size, void *pargs)
+			struct pmu_board_obj **obj,
+			size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct clk_domain_35_slave *pdomain;
@@ -1419,8 +1143,8 @@ static s32 clk_domain_construct_35_slave(struct gk20a *g,
 }
 
 static s32 clkdomainclkproglink_3x_master(struct gk20a *g,
-					  struct nvgpu_clk_pmupstate *pclk,
-					  struct nvgpu_clk_domain *pdomain)
+			struct nvgpu_clk_pmupstate *pclk,
+			struct nvgpu_clk_domain *pdomain)
 {
 	s32 status = 0;
 	struct clk_domain_3x_master *p3xmaster  =
@@ -1462,8 +1186,8 @@ done:
 }
 
 static s32 clk_domain_pmudatainit_35_master(struct gk20a *g,
-						struct pmu_board_obj *obj,
-						struct nv_pmu_boardobj *pmu_obj)
+			struct pmu_board_obj *obj,
+			struct nv_pmu_boardobj *pmu_obj)
 {
 	s32 status = 0;
 	struct clk_domain_35_master *pclk_domain_35_master;
@@ -1494,8 +1218,8 @@ static s32 clk_domain_pmudatainit_35_master(struct gk20a *g,
 }
 
 static s32 clk_domain_construct_35_master(struct gk20a *g,
-					  struct pmu_board_obj **obj,
-					  size_t size, void *pargs)
+			struct pmu_board_obj **obj,
+			size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct clk_domain_35_master *pdomain;
@@ -1527,9 +1251,9 @@ static s32 clk_domain_construct_35_master(struct gk20a *g,
 	return status;
 }
 
-static s32 clkdomainclkproglink_fixed(struct gk20a *g,
-					struct nvgpu_clk_pmupstate *pclk,
-					struct nvgpu_clk_domain *pdomain)
+s32 clkdomainclkproglink_fixed(struct gk20a *g,
+			struct nvgpu_clk_pmupstate *pclk,
+			struct nvgpu_clk_domain *pdomain)
 {
 	(void)pclk;
 	(void)pdomain;
@@ -1563,8 +1287,8 @@ static s32 clk_domain_pmudatainit_3x_fixed(struct gk20a *g,
 }
 
 static s32 clk_domain_construct_3x_fixed(struct gk20a *g,
-					 struct pmu_board_obj **obj,
-					 size_t size, void *pargs)
+			struct pmu_board_obj **obj,
+			size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct clk_domain_3x_fixed *pdomain;
@@ -1593,288 +1317,7 @@ static s32 clk_domain_construct_3x_fixed(struct gk20a *g,
 	return status;
 }
 
-static s32 clk_domain_pmudatainit_50_prog(struct gk20a *g,
-					   struct pmu_board_obj *obj,
-					   struct nv_pmu_boardobj *pmu_obj)
-{
-	s32 status = 0;
-
-	nvgpu_log_info(g, " ");
-	(void)obj;
-	(void)pmu_obj;
-
-	// _mg_ Todo: This is stubbed out for now. Implement during RPC layer work.
-	status = -EINVAL;
-
-	return status;
-}
-
-static s32 clk_domain_pmudatainit_50_physical(struct gk20a *g,
-					   struct pmu_board_obj *obj,
-					   struct nv_pmu_boardobj *pmu_obj)
-{
-	s32 status = 0;
-
-	nvgpu_log_info(g, " ");
-	(void)obj;
-	(void)pmu_obj;
-	// _mg_ Todo: This is stubbed out for now. Implement during RPC layer work.
-	status = -EINVAL;
-
-	return status;
-
-}
-
-static s32 clkdomainclkproglink_5x_physical(struct gk20a *g,
-					struct nvgpu_clk_pmupstate *pclk,
-					struct nvgpu_clk_domain *pdomain)
-{
-	s32 status = 0;
-
-	nvgpu_log_info(g, " ");
-	(void)pclk;
-	(void)pdomain;
-	// _mg_ Todo: This is stubbed out for now. Implement during RPC layer work.
-	status = -EINVAL;
-
-	return status;
-}
-
-static s32 clkdomainclkproglink_5x_prog(struct gk20a *g,
-					struct nvgpu_clk_pmupstate *pclk,
-					struct nvgpu_clk_domain *pdomain)
-{
-	s32 status = 0;
-	struct clk_domain_5x_prog *p5xprog =
-		(struct clk_domain_5x_prog *)pdomain;
-	struct clk_prog *pprog = NULL;
-	u8 i;
-
-	nvgpu_log_info(g, " ");
-
-	for (i = p5xprog->clk_prog_idx_first;
-			i <= p5xprog->clk_prog_idx_last;
-			i++) {
-		pprog = CLK_CLK_PROG_GET(pclk, i);
-		if (pprog == NULL)
-			status = -EINVAL;
-	}
-	return status;
-}
-
-static s32 clk_domain_pmudatainit_5x(struct gk20a *g,
-					struct pmu_board_obj *obj,
-					struct nv_pmu_boardobj *pmu_obj)
-{
-	s32 status = 0;
-	struct clk_domain_5x *pclk_domain_5x;
-	/* can reuse domain boardobj as-is for v5 */
-	struct nv_pmu_clk_clk_domain_3x_boardobj_set *pset;
-
-	nvgpu_log_info(g, " ");
-
-	status = clk_domain_pmudatainit_super(g, obj, pmu_obj);
-	if (status != 0)
-		return status;
-
-	pclk_domain_5x = (struct clk_domain_5x *)obj;
-
-	pset = (struct nv_pmu_clk_clk_domain_3x_boardobj_set *)pmu_obj;
-
-	pset->b_noise_aware_capable = pclk_domain_5x->b_noise_aware_capable;
-
-	return status;
-}
-
-static s32 clk_domain_pmudatainit_5x_fixed(struct gk20a *g,
-					struct pmu_board_obj *obj,
-					struct nv_pmu_boardobj *pmu_obj)
-{
-	s32 status = 0;
-	struct clk_domain_5x_fixed *pclk_domain_5x_fixed;
-
-	/* can reuse fixed boardobj as-is for v5 */
-	struct nv_pmu_clk_clk_domain_3x_fixed_boardobj_set *pset;
-
-	nvgpu_log_info(g, " ");
-
-	status = clk_domain_pmudatainit_5x(g, obj, pmu_obj);
-	if (status != 0)
-		return status;
-
-	pclk_domain_5x_fixed = (struct clk_domain_5x_fixed *)
-					obj;
-
-	pset = (struct nv_pmu_clk_clk_domain_3x_fixed_boardobj_set *)
-					pmu_obj;
-
-	pset->freq_mhz = pclk_domain_5x_fixed->freq_mhz;
-
-	return status;
-}
-
-static s32 clk_domain_construct_5x(struct gk20a *g,
-					struct pmu_board_obj **obj,
-					size_t size, void *pargs)
-{
-	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
-	struct clk_domain_5x *pdomain;
-	struct clk_domain_5x *ptmpdomain =
-			(struct clk_domain_5x *)pargs;
-	s32 status = 0;
-
-	obj_tmp->type_mask = BIT32(CTRL_CLK_CLK_DOMAIN_TYPE_50);
-	status = clk_domain_construct_super(g, obj,
-					size, pargs);
-	if (status != 0)
-		return -EINVAL;
-
-	pdomain = (struct clk_domain_5x *)*obj;
-
-	pdomain->super.super.pmudatainit =
-			clk_domain_pmudatainit_5x;
-
-	pdomain->b_noise_aware_capable = ptmpdomain->b_noise_aware_capable;
-
-	return status;
-}
-
-static s32 clk_domain_construct_5x_fixed(struct gk20a *g,
-					struct pmu_board_obj **obj,
-					size_t size, void *pargs)
-{
-	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
-	struct clk_domain_5x_fixed *pdomain;
-	struct clk_domain_5x_fixed *ptmpdomain =
-			(struct clk_domain_5x_fixed *)pargs;
-	s32 status = 0;
-
-	if (pmu_board_obj_get_type(pargs) != CTRL_CLK_CLK_DOMAIN_TYPE_50_FIXED)
-		return -EINVAL;
-
-	obj_tmp->type_mask |= BIT32(CTRL_CLK_CLK_DOMAIN_TYPE_50_FIXED);
-	status = clk_domain_construct_5x(g, obj, size, pargs);
-	if (status != 0)
-		return -EINVAL;
-
-	pdomain = (struct clk_domain_5x_fixed *)*obj;
-
-	pdomain->super.super.super.pmudatainit =
-			clk_domain_pmudatainit_5x_fixed;
-
-	pdomain->super.super.clkdomainclkproglink =
-			clkdomainclkproglink_fixed; // _mg_ Todo: do we need v5 specific function?
-
-	pdomain->freq_mhz = ptmpdomain->freq_mhz;
-
-	return status;
-}
-
-static s32 clk_domain_construct_50_prog(struct gk20a *g,
-					struct pmu_board_obj **obj,
-					size_t size, void *pargs)
-{
-	u32 i, num;
-	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
-	struct clk_domain_50_prog *pdomain;
-	struct clk_domain_50_prog *ptmpdomain =
-			(struct clk_domain_50_prog *)pargs;
-	s32 status = 0;
-
-	nvgpu_log_info(g, " ");
-
-	obj_tmp->type_mask |= BIT32(CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG);
-	status = clk_domain_construct_5x(g, obj, size, pargs);
-	if (status != 0)
-		return -EINVAL;
-
-	pdomain = (struct clk_domain_50_prog *) *obj;
-
-	pdomain->super.super.super.super.type_mask |=
-		BIT32(CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG);
-
-	pdomain->super.super.super.super.pmudatainit =
-				clk_domain_pmudatainit_50_prog;
-
-	pdomain->super.super.super.clkdomainclkproglink =
-				clkdomainclkproglink_5x_prog;
-
-	pdomain->super.super.super.clkdomainclkvfsearch =
-				clkdomainvfsearch; // _mg_ Todo: Does this function need mods for v5?
-
-	pdomain->super.super.super.clkdomainclkgetfpoints =
-				clkdomaingetfpoints; // _mg_ Todo: Does this function need mods for v5?
-
-	pdomain->super.clk_prog_idx_first =
-			ptmpdomain->super.clk_prog_idx_first;
-	pdomain->super.clk_prog_idx_last = ptmpdomain->super.clk_prog_idx_last;
-
-	pdomain->super.factory_delta = ptmpdomain->super.factory_delta;
-	pdomain->super.freq_delta_min_mhz =
-			ptmpdomain->super.freq_delta_min_mhz;
-	pdomain->super.freq_delta_max_mhz =
-			ptmpdomain->super.freq_delta_max_mhz;
-
-	pdomain->pre_volt_ordering_index = ptmpdomain->pre_volt_ordering_index;
-	pdomain->post_volt_ordering_index =
-			ptmpdomain->post_volt_ordering_index;
-
-	pdomain->clk_vf_curve_count = ptmpdomain->clk_vf_curve_count;
-
-	pdomain->clk_enum_idx_first = ptmpdomain->clk_enum_idx_first;
-	pdomain->clk_enum_idx_last = ptmpdomain->clk_enum_idx_last;
-	pdomain->clk_logical_domain_idx = ptmpdomain->clk_logical_domain_idx;
-	pdomain->freq_delta_min_mhz = ptmpdomain->freq_delta_min_mhz;
-	pdomain->freq_delta_max_mhz = ptmpdomain->freq_delta_max_mhz;
-
-	pdomain->rail_mask = ptmpdomain->rail_mask;
-	pdomain->cpmu_clk_id = ptmpdomain->cpmu_clk_id;
-
-	pdomain->clkmon_info.high_threshold_vfe_idx =
-			ptmpdomain->clkmon_info.high_threshold_vfe_idx;
-	pdomain->clkmon_info.low_threshold_vfe_idx =
-			ptmpdomain->clkmon_info.low_threshold_vfe_idx;
-
-	pdomain->super.deltas = ptmpdomain->super.deltas;
-
-	num = NV_CTRL_CLK_CLK_DOMAIN_PROG_RAIL_VF_ITEM_MAX;
-
-	for (i = 0; i < num; i++)
-		pdomain->rail_vf_item[i] = ptmpdomain->rail_vf_item[i];
-
-	return status;
-}
-
-static s32 clk_domain_construct_50_physical(struct gk20a *g,
-					struct pmu_board_obj **obj,
-					size_t size, void *pargs)
-{
-	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
-	struct clk_domain_50_prog_physical *pdomain;
-	s32 status = 0;
-
-	if (pmu_board_obj_get_type(pargs) !=
-			(u8) CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL)
-		return -EINVAL;
-
-	obj_tmp->type_mask |= BIT32(CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL);
-	status = clk_domain_construct_50_prog(g, obj, size, pargs);
-	if (status != 0)
-		return -EINVAL;
-
-	pdomain = (struct clk_domain_50_prog_physical *) *obj;
-	pdomain->super.super.super.super.super.pmudatainit =
-			clk_domain_pmudatainit_50_physical;
-	pdomain->super.super.super.super.clkdomainclkproglink =
-			clkdomainclkproglink_5x_physical;
-
-	status = boardobjgrpmask_e32_init(
-			&pdomain->physical_domains_grp_mask, NULL);
-
-	return status;
-}
-
-static struct nvgpu_clk_domain *construct_clk_domain(struct gk20a *g,
+struct nvgpu_clk_domain *construct_clk_domain(struct gk20a *g,
 		void *pargs)
 {
 	struct pmu_board_obj *obj = NULL;
@@ -1898,8 +1341,8 @@ static struct nvgpu_clk_domain *construct_clk_domain(struct gk20a *g,
 		break;
 
 	case CTRL_CLK_CLK_DOMAIN_TYPE_50_FIXED:
-		status = clk_domain_construct_5x_fixed(g, &obj,
-			sizeof(struct clk_domain_5x_fixed), pargs);
+		status = clk_domain_construct_50_fixed(g, &obj,
+			sizeof(struct clk_domain_50_fixed), pargs);
 		break;
 
 	case CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL:
@@ -1913,17 +1356,19 @@ static struct nvgpu_clk_domain *construct_clk_domain(struct gk20a *g,
 		break;
 	}
 
-	if (status != 0)
-		return NULL;
+	if (status != 0) {
+		obj = NULL;
+		nvgpu_err(g, "Error constructing CLK_DOMAIN: status=%d.", status);
+	}
 
 	nvgpu_log_info(g, " Done");
 
 	return (struct nvgpu_clk_domain *)(void *)obj;
 }
 
-static s32 clk_domain_pmudatainit_super(struct gk20a *g,
-					struct pmu_board_obj *obj,
-					struct nv_pmu_boardobj *pmu_obj)
+s32 clk_domain_pmudatainit_super(struct gk20a *g,
+			struct pmu_board_obj *obj,
+			struct nv_pmu_boardobj *pmu_obj)
 {
 	s32 status = 0;
 	struct nvgpu_clk_domain *pclk_domain;
@@ -1942,6 +1387,8 @@ static s32 clk_domain_pmudatainit_super(struct gk20a *g,
 	pset->domain = pclk_domain->domain;
 	pset->api_domain = pclk_domain->api_domain;
 	pset->perf_domain_grp_idx = pclk_domain->perf_domain_grp_idx;
+	pset->b_noise_aware_capable = pclk_domain->b_noise_aware_capable;
+	pset->perf_domain_grp_idx = pclk_domain->perf_domain_grp_idx;
 
 	return status;
 }
@@ -1951,10 +1398,20 @@ s32 clk_domain_clk_prog_link(struct gk20a *g,
 {
 	s32 status = 0;
 	struct nvgpu_clk_domain *pdomain;
-	u8 i;
+	u16 i;
+	struct boardobjgrp_e32 *psuper;
+
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		status = -EINVAL;
+		goto done;
+	}
 
 	/* Iterate over all CLK_DOMAINs and flatten their VF curves.*/
-	BOARDOBJGRP_FOR_EACH(&(pclk->clk_domainobjs->super.super),
+	BOARDOBJGRP_FOR_EACH(&(psuper->super),
 			struct nvgpu_clk_domain *, pdomain, i) {
 		status = pdomain->clkdomainclkproglink(g, pclk, pdomain);
 		if (status != 0) {
@@ -1997,7 +1454,7 @@ s32 clk_get_fll_clks_per_clk_domain(struct gk20a *g,
 {
 	s32 status = -EINVAL;
 	struct nvgpu_clk_domain *pdomain;
-	u8 i;
+	u16 i;
 	struct nvgpu_clk_pmupstate *pclk = g->pmu->clk_pmu;
 	unsigned long bit;
 	u16 clkmhz = 0;
@@ -2061,6 +1518,7 @@ done:
 /* _mg_ Todo:
  * Need to enable clock rate setting for P0 and P8 pstates
  * once we have both pstates implements.
+ * This is called by change sequencer to set clocks: nvgpu_pmu_perf_changeseq_set_clks()
  */
 void clk_set_p0_clk_per_domain(struct gk20a *g, u8 *gpcclk_domain,
 		u32 *gpcclk_clkmhz,
@@ -2071,9 +1529,18 @@ void clk_set_p0_clk_per_domain(struct gk20a *g, u8 *gpcclk_domain,
 	struct nvgpu_pmu_perf_pstate_clk_info *p0_info;
 	u32 max_clkmhz;
 	u16 max_ratio;
-	u8 i = 0;
+	u16 i = 0;
+	struct boardobjgrp_e32 *psuper;
 
-	BOARDOBJGRP_FOR_EACH(&(g->pmu->clk_pmu->clk_domainobjs->super.super),
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		return;
+	}
+
+	BOARDOBJGRP_FOR_EACH(&(psuper->super),
 			struct nvgpu_clk_domain *, pclk_domain, i) {
 
 		switch (pclk_domain->api_domain) {
@@ -2213,32 +1680,63 @@ void clk_set_p0_clk_per_domain(struct gk20a *g, u8 *gpcclk_domain,
 
 s32 clk_domain_init_pmupstate(struct gk20a *g)
 {
-	/* If already allocated, do not re-allocate */
-	if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
-		return 0;
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+	if (ver == NVGPU_GPUID_GB20C) {
+		/* If already allocated, do not re-allocate */
+		if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+			return 0;
+		}
+
+		g->pmu->clk_pmu->clk_domainobjs_50 = nvgpu_kzalloc(g,
+				sizeof(*g->pmu->clk_pmu->clk_domainobjs_50));
+		if (g->pmu->clk_pmu->clk_domainobjs_50 == NULL) {
+			return -ENOMEM;
+		}
+	} else {
+		/* If already allocated, do not re-allocate */
+		if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+			return 0;
+		}
+
+		g->pmu->clk_pmu->clk_domainobjs = nvgpu_kzalloc(g,
+				sizeof(*g->pmu->clk_pmu->clk_domainobjs));
+		if (g->pmu->clk_pmu->clk_domainobjs == NULL) {
+			return -ENOMEM;
+		}
 	}
 
-	g->pmu->clk_pmu->clk_domainobjs = nvgpu_kzalloc(g,
-			sizeof(*g->pmu->clk_pmu->clk_domainobjs));
-	if (g->pmu->clk_pmu->clk_domainobjs == NULL) {
-		return -ENOMEM;
-	}
-
+	vf_points_status = NULL;
 	return 0;
 }
 
 void clk_domain_free_pmupstate(struct gk20a *g)
 {
-	nvgpu_kfree(g, g->pmu->clk_pmu->clk_domainobjs);
-	g->pmu->clk_pmu->clk_domainobjs = NULL;
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+	if (ver == NVGPU_GPUID_GB20C) {
+		nvgpu_kfree(g, g->pmu->clk_pmu->clk_domainobjs_50);
+		g->pmu->clk_pmu->clk_domainobjs_50 = NULL;
+	} else {
+		nvgpu_kfree(g, g->pmu->clk_pmu->clk_domainobjs);
+		g->pmu->clk_pmu->clk_domainobjs = NULL;
+	}
+
+	clk_domain_free_vf_tables(g);
 }
 
 s32 nvgpu_pmu_clk_domain_get_from_index(struct gk20a *g, u32 *domain, u32 index)
 {
 	struct nvgpu_clk_domain *clk_domain;
+	struct boardobjgrp_e32 *psuper;
 
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		return -EINVAL;
+	}
 	clk_domain = (struct nvgpu_clk_domain *) BOARDOBJGRP_OBJ_GET_BY_IDX(
-		&g->pmu->clk_pmu->clk_domainobjs->super.super, (u8)index);
+		&(psuper->super), (u8)index);
 	if (clk_domain == NULL)
 		return -EINVAL;
 
@@ -2254,9 +1752,18 @@ s32 nvgpu_pmu_clk_domain_get_f_points(struct gk20a *g,
 	s32 status = -EINVAL;
 	struct nvgpu_clk_domain *pdomain;
 	struct nvgpu_clk_pmupstate *pclk = g->pmu->clk_pmu;
-	u8 i;
+	u16 i;
+	struct boardobjgrp_e32 *psuper;
 
-	BOARDOBJGRP_FOR_EACH(&(pclk->clk_domainobjs->super.super),
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		return -EINVAL;
+	}
+
+	BOARDOBJGRP_FOR_EACH(&(psuper->super),
 			struct nvgpu_clk_domain *, pdomain, i) {
 		if (pdomain->api_domain == clkapidomain) {
 			status = pdomain->clkdomainclkgetfpoints(g, pclk,
@@ -2274,9 +1781,18 @@ u8 nvgpu_pmu_clk_domain_update_clk_info(struct gk20a *g,
 {
 	struct nvgpu_pmu_perf_pstate_clk_info *p0_info;
 	struct nvgpu_clk_domain *pdomain;
-	u8 i = 0U, num_domains = 0U;
+	u16 i = 0U, num_domains = 0U;
+	struct boardobjgrp_e32 *psuper;
 
-	BOARDOBJGRP_FOR_EACH(&(g->pmu->clk_pmu->clk_domainobjs->super.super),
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		return 0;
+	}
+
+	BOARDOBJGRP_FOR_EACH(&(psuper->super),
 		struct nvgpu_clk_domain *, pdomain, i) {
 
 		p0_info = nvgpu_pmu_perf_pstate_get_clk_set_info(g,
@@ -2298,41 +1814,174 @@ u8 nvgpu_pmu_clk_domain_update_clk_info(struct gk20a *g,
 		num_domains =
 		nvgpu_safe_cast_u32_to_u8(nvgpu_safe_add_u32(num_domains, 1U));
 
-		nvgpu_pmu_dbg(g, "Domain %x, Nom Freq = %d Max Freq =%d,"
-			"regime %d", pdomain->api_domain, p0_info->nominal_mhz,
+		nvgpu_pmu_dbg(g, "Domain %x, Nom Freq = %d Max Freq =%d, regime %d",
+			pdomain->api_domain, p0_info->nominal_mhz,
 			p0_info->max_mhz, CTRL_CLK_FLL_REGIME_ID_FFR);
 	}
 	return num_domains;
-
 }
 
-s32 nvgpu_pmu_clk_domain_freq_to_volt(struct gk20a *g, u8 clkdomain_idx,
-	u32 *pclkmhz, u32 *pvoltuv, u8 railidx)
+
+s32 clk_domain_get_vf_tables(struct gk20a *g)
 {
-
-	struct nvgpu_clk_vf_points *pclk_vf_points;
-	struct boardobjgrp *pboardobjgrp;
-	struct pmu_board_obj *obj = NULL;
-	s32 status = -EINVAL;
-	struct clk_vf_point *pclk_vf_point;
-	u8 index;
-
-	(void)clkdomain_idx;
-	(void)railidx;
+	s32 status = 0;
 
 	nvgpu_log_info(g, " ");
-	pclk_vf_points = g->pmu->clk_pmu->clk_vf_pointobjs;
-	pboardobjgrp = &pclk_vf_points->super.super;
 
-	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*, obj, index) {
-		pclk_vf_point = (struct clk_vf_point *)(void *)obj;
-		if ((*pclkmhz) <= pclk_vf_point->pair.freq_mhz) {
-			*pvoltuv = pclk_vf_point->pair.voltage_uv;
-			return 0;
-		}
+	// release any previous VF tables
+	if (vf_points_status != NULL) {
+		nvgpu_kfree(g, vf_points_status);
+		vf_points_status = NULL;
 	}
+
+	vf_points_status = nvgpu_kzalloc(g, sizeof(*vf_points_status));
+	if (vf_points_status == NULL) {
+		status = -ENOMEM;
+		nvgpu_err(g, "Failed to allocate memory for VF points status");
+		goto done;
+	}
+
+	// fetch all VF tables from PMU
+	status = nvgpu_clk_vf_points_get_status(g, vf_points_status);
+	if (status != 0) {
+		nvgpu_err(g, "Failed to get VF points status");
+		nvgpu_kfree(g, vf_points_status);
+		vf_points_status = NULL;
+	}
+
+done:
+	nvgpu_log_info(g, "Done.");
 	return status;
 }
+
+void clk_domain_free_vf_tables(struct gk20a *g)
+{
+	nvgpu_kfree(g, vf_points_status);
+	vf_points_status = NULL;
+}
+
+s32 nvgpu_pmu_clk_domain_freq_to_volt(struct gk20a *g,
+	u16 clkdomain_idx,
+	u32 *pclkmhz, u32 *pvoltuv)
+{
+	struct boardobjgrp_e32 *psuper;
+	struct pmu_board_obj *obj;
+	struct clk_domain_50_prog_physical *pDomain50ProgPhysical;
+	struct clk_domain_50_physical_rail_vf_primary *pVfPrimary;
+	struct nv_pmu_clk_clk_vf_rel_vf_entry_pri *pVfEntryPri;
+	struct nvgpu_clk_vf_point_status vfPoint;
+	struct clk_vf_rel *pVfRel = NULL;
+	s32 status = -EINVAL;
+	u16 index;
+	u32 input_freq;
+	struct nvgpu_clk_vf_point_status best_vfPoint;
+	u16 best_index;
+	u32 best_freq;
+	bool found_any;
+	u8 railidx;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	if (vf_points_status == NULL) {
+		nvgpu_err(g, "VF points status is NULL");
+		goto done;
+	}
+
+	psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+
+	obj = BOARDOBJGRP_OBJ_GET_BY_IDX(&(psuper->super), (u16)clkdomain_idx);
+	if (obj == NULL) {
+		nvgpu_err(g, "No clkDomain Obj for index: %d", clkdomain_idx);
+		goto done;
+	}
+
+	if (pmu_board_obj_get_type(obj) != CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL) {
+		nvgpu_err(g, "clkDomain %d type 0x%x is not PROG_PHYSICAL",
+				pmu_board_obj_get_type(obj), clkdomain_idx);
+		goto done;
+	}
+
+	pDomain50ProgPhysical = (struct clk_domain_50_prog_physical *) obj;
+	//
+	// We expect all programmable domains on GB20C to have
+	// exactly one voltage rail powering the clock domain.
+	// Thus no need to iterate over a railmask.
+	//
+	railidx = clkDomainProgVoltRailIdxGet_50_PROG_PHYSICAL(g, (void *)pDomain50ProgPhysical);
+	pVfPrimary = &pDomain50ProgPhysical->rail_vf_item[railidx].data.primary;
+	if (pVfPrimary == NULL) {
+		nvgpu_err(g, "Invalid rail VF item for clock domain %d - rail %d",
+			clkdomain_idx, railidx);
+		goto done;
+	}
+
+	pVfRel = CLK_CLK_VF_REL_GET(g->pmu->clk_pmu, pVfPrimary->clk_vf_rel_idx_first);
+
+	if (pVfRel == NULL) {
+		nvgpu_err(g, "Unable to obtain VF_REL object for clock domain %d", clkdomain_idx);
+		goto done;
+	}
+
+	pVfEntryPri = &pVfRel->vf_entry_pri;
+
+	status = 0;
+
+	// Search over the relevant block of VF POINT board objects with floor logic
+	input_freq = *pclkmhz;
+	best_index = 0;
+	best_freq = 0;
+	found_any = false;
+
+	for (index = pVfEntryPri->vfPointIdxFirst; index <= pVfEntryPri->vfPointIdxLast; index++) {
+
+		// Check bounds
+		if (index >= vf_points_status->super.objCount) {
+			nvgpu_err(g, "VF Point index %d out of bounds (max %d)",
+				  index, vf_points_status->super.objCount);
+			continue;
+		}
+
+		// Use the VF point data directly from the cached structure (NO PMU CALL!)
+		vfPoint = vf_points_status->vf_points[index];
+
+		/* Only consider VF points with frequency <= target */
+		if (vfPoint.freq_mhz <= input_freq) {
+			/* Update best match if this is higher frequency but still <= target */
+			if (vfPoint.freq_mhz > best_freq) {
+				best_freq = vfPoint.freq_mhz;
+				best_vfPoint = vfPoint;
+				best_index = index;
+				found_any = true;
+			}
+		}
+	}
+
+	if (found_any) {
+		*pvoltuv = best_vfPoint.voltage_uv;
+		*pclkmhz = best_vfPoint.freq_mhz;
+		nvgpu_pmu_dbg(g, "F->V Floor: Domain %d, VF index %d, %u MHz (<= target %u MHz) -> %u uV",
+			   clkdomain_idx, best_index, *pclkmhz, input_freq, *pvoltuv);
+	} else {
+		/* No VF point found <= target, use minimum frequency */
+
+		if (pVfEntryPri->vfPointIdxFirst < vf_points_status->super.objCount) {
+			vfPoint = vf_points_status->vf_points[pVfEntryPri->vfPointIdxFirst];
+			*pvoltuv = vfPoint.voltage_uv;
+			*pclkmhz = vfPoint.freq_mhz;
+			nvgpu_pmu_dbg(g, "F->V Floor: Domain %d, VF index %d, %u MHz (minimum, target %u MHz too low) -> %u uV",
+				   clkdomain_idx, pVfEntryPri->vfPointIdxFirst,
+				   *pclkmhz, input_freq, *pvoltuv);
+		} else {
+			nvgpu_err(g, "No valid VF points found for domain %d", clkdomain_idx);
+			status = -EINVAL;
+		}
+	}
+
+done:
+	nvgpu_pmu_dbg(g, "Done.");
+	return status;
+}
+
 
 s32 nvgpu_pmu_clk_domain_get_index_by_domain(struct gk20a *g,
 		u32 domain,
@@ -2341,15 +1990,314 @@ s32 nvgpu_pmu_clk_domain_get_index_by_domain(struct gk20a *g,
 	s32 status = -EINVAL;
 	struct nvgpu_clk_domain *pdomain;
 	struct nvgpu_clk_pmupstate *pclk = g->pmu->clk_pmu;
-	u8 i;
+	u16 domainIndex;
 
-	BOARDOBJGRP_FOR_EACH(&(pclk->clk_domainobjs->super.super),
-			struct nvgpu_clk_domain *, pdomain, i) {
+	// Only need to support v5 domains
+	BOARDOBJGRP_FOR_EACH(&(pclk->clk_domainobjs_50->super.super.super),
+			struct nvgpu_clk_domain *, pdomain, domainIndex) {
 		if (pdomain->domain == domain) {
 			status = 0;
-			*idx = i;
+			*idx = domainIndex;
 			return status;
 		}
 	}
 	return status;
+}
+
+s32 clkClkDomainGetApiDomainByIndex(struct gk20a *g, u32 *api_domain, u32 index)
+{
+	struct nvgpu_clk_domain *clk_domain;
+	struct boardobjgrp_e32 *psuper;
+	s32 status = 0;
+
+	if (g->pmu->clk_pmu->clk_domainobjs_50 != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+	} else if (g->pmu->clk_pmu->clk_domainobjs != NULL) {
+		psuper = &g->pmu->clk_pmu->clk_domainobjs->super;
+	} else {
+		status = -EINVAL;
+		goto done;
+	}
+	clk_domain = (struct nvgpu_clk_domain *) BOARDOBJGRP_OBJ_GET_BY_IDX(
+		&(psuper->super), (u16)index);
+	if (clk_domain == NULL) {
+		status = -EINVAL;
+		goto done;
+	}
+	*api_domain = clk_domain->api_domain;
+
+done:
+	return status;
+}
+
+s32 nvgpu_clk_domain_volt_to_freq(struct gk20a *g, u16 clkdomain_idx,
+	u32 *pclkmhz, u32 *pvoltuv)
+{
+	struct boardobjgrp_e32 *psuper;
+	struct pmu_board_obj *obj;
+	struct clk_domain_50_prog_physical *pDomain50ProgPhysical;
+	struct clk_domain_50_physical_rail_vf_primary *pVfPrimary;
+	struct nv_pmu_clk_clk_vf_rel_vf_entry_pri *pVfEntryPri;
+	struct nvgpu_clk_vf_point_status vfPoint;
+	struct clk_vf_rel *pVfRel = NULL;
+	s32 status = -EINVAL;
+	u16 index;
+	u32 input_volt;
+	struct nvgpu_clk_vf_point_status best_vfPoint;
+	u16 best_index;
+	u32 best_volt;
+	bool found_any;
+	u8 railidx;
+
+	nvgpu_pmu_dbg(g, " ");
+
+	if (vf_points_status == NULL) {
+		nvgpu_err(g, "VF points status is NULL");
+		goto done;
+	}
+
+	psuper = &g->pmu->clk_pmu->clk_domainobjs_50->super.super;
+
+	obj = BOARDOBJGRP_OBJ_GET_BY_IDX(&(psuper->super), (u16)clkdomain_idx);
+	if (obj == NULL) {
+		nvgpu_err(g, "No clkDomain Obj for index: %d", clkdomain_idx);
+		goto done;
+	}
+
+	if (pmu_board_obj_get_type(obj) != CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL) {
+		nvgpu_err(g, "clkDomain %d type 0x%x is not PROG_PHYSICAL",
+				pmu_board_obj_get_type(obj), clkdomain_idx);
+		goto done;
+	}
+
+	pDomain50ProgPhysical = (struct clk_domain_50_prog_physical *) obj;
+	//
+	// We expect all programmable domains on GB20C to have
+	// exactly one voltage rail powering the clock domain.
+	// Thus no need to iterate over a railmask.
+	//
+	railidx = clkDomainProgVoltRailIdxGet_50_PROG_PHYSICAL(g, (void *)pDomain50ProgPhysical);
+	pVfPrimary = &pDomain50ProgPhysical->rail_vf_item[railidx].data.primary;
+	if (pVfPrimary == NULL) {
+		nvgpu_err(g, "Invalid rail VF item for clock domain %d - rail %d",
+			clkdomain_idx, railidx);
+		goto done;
+	}
+	pVfRel = CLK_CLK_VF_REL_GET(g->pmu->clk_pmu, pVfPrimary->clk_vf_rel_idx_first);
+	if (pVfRel == NULL) {
+		nvgpu_err(g, "Unable to obtain VF_REL object for clock domain %d", clkdomain_idx);
+		goto done;
+	}
+
+	pVfEntryPri = &pVfRel->vf_entry_pri;
+
+	status = 0;
+
+	// Search over the relevant block of VF POINT board objects with floor logic
+	input_volt = *pvoltuv;
+	best_index = 0;
+	best_volt = 0;
+	found_any = false;
+
+	for (index = pVfEntryPri->vfPointIdxFirst; index <= pVfEntryPri->vfPointIdxLast; index++) {
+
+		// Check bounds
+		if (index >= vf_points_status->super.objCount) {
+			nvgpu_err(g, "VF Point index %d out of bounds (max %d)",
+				  index, vf_points_status->super.objCount);
+			continue;
+		}
+
+		// Use the VF point data directly from the cached structure (NO PMU CALL!)
+		vfPoint = vf_points_status->vf_points[index];
+
+		/* Only consider VF points with voltage <= target */
+		if (vfPoint.voltage_uv <= input_volt) {
+			/* Update best match if this is higher voltage but still <= target */
+			if (vfPoint.voltage_uv > best_volt) {
+				best_volt = vfPoint.voltage_uv;
+				best_vfPoint = vfPoint;
+				best_index = index;
+				found_any = true;
+			}
+		}
+	}
+
+	if (found_any) {
+		*pclkmhz = best_vfPoint.freq_mhz;
+		*pvoltuv = best_vfPoint.voltage_uv;
+		nvgpu_pmu_dbg(g, "V->F Floor: Domain %d, VF index %d, %u uV (<= target %u uV) -> %u MHz",
+			   clkdomain_idx, best_index, *pvoltuv, input_volt, *pclkmhz);
+	} else {
+		/* No VF point found <= target, use minimum voltage */
+
+		if (pVfEntryPri->vfPointIdxFirst < vf_points_status->super.objCount) {
+			vfPoint = vf_points_status->vf_points[pVfEntryPri->vfPointIdxFirst];
+			*pclkmhz = vfPoint.freq_mhz;
+			*pvoltuv = vfPoint.voltage_uv;
+			nvgpu_pmu_dbg(g, "V->F Floor: Domain %d, VF index %d, %u uV (minimum, target %u uV too low) -> %u MHz",
+				   clkdomain_idx, pVfEntryPri->vfPointIdxFirst,
+				   *pvoltuv, input_volt, *pclkmhz);
+		} else {
+			nvgpu_err(g, "No valid VF points found for domain %d", clkdomain_idx);
+			status = -EINVAL;
+		}
+	}
+
+done:
+	nvgpu_pmu_dbg(g, "Done.");
+	return status;
+}
+
+int nvgpu_clk_find_vf_point_for_gpc_rate(struct gk20a *g, u32 gpc_freq_mhz,
+				       struct nvgpu_clk_vf_point_5x *vf_point)
+{
+	u32 gpc_volt_uv = 0;
+	u32 gpm_volt_uv = 0;
+	u32 sys_gpm_volt_uv, nvd_gpm_volt_uv, uproc_gpm_volt_uv;
+	u32 temp_freq, temp_volt;
+	u32 sys_ratio_percent;
+	u16 gpc_domain_idx, xbar_domain_idx, nvd_domain_idx, uproc_domain_idx;
+	int ret = 0;
+
+	if (!vf_point) {
+		nvgpu_err(g, "Invalid VF point pointer");
+		ret = -EINVAL;
+		goto done;
+	}
+
+	/* Initialize VF point structure */
+	memset(vf_point, 0, sizeof(*vf_point));
+
+	/* Get domain indices for all clock domains */
+	ret = nvgpu_pmu_clk_domain_get_index_by_domain(g, CLKWHICH_GPCCLK, (u32 *)&gpc_domain_idx);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get GPC domain index");
+		goto done;
+	}
+
+	ret = nvgpu_pmu_clk_domain_get_index_by_domain(g, CLKWHICH_XBARCLK, (u32 *)&xbar_domain_idx);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get XBAR domain index");
+		goto done;
+	}
+
+	ret = nvgpu_pmu_clk_domain_get_index_by_domain(g, CLKWHICH_NVDCLK, (u32 *)&nvd_domain_idx);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get NVD domain index");
+		goto done;
+	}
+
+	ret = nvgpu_pmu_clk_domain_get_index_by_domain(g, CLKWHICH_UPROCCLK, (u32 *)&uproc_domain_idx);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get UPROC domain index");
+		goto done;
+	}
+
+	/* Step 0: Fetch all VF points ONCE to eliminate redundant RPC to PMU
+	 * in each of the F->V and V->F steps below.
+	 */
+	ret = clk_domain_get_vf_tables(g);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get VF Curves from PMU");
+		goto done;
+	}
+
+	nvgpu_pmu_dbg(g, "=== VF Point Lookup Request ===");
+	nvgpu_pmu_dbg(g, "Requested GPC Frequency: %u MHz", gpc_freq_mhz);
+	nvgpu_pmu_dbg(g, "Domain indices: GPC=%d, XBAR=%d, NVD=%d, UPROC=%d",
+		   gpc_domain_idx, xbar_domain_idx, nvd_domain_idx, uproc_domain_idx);
+
+	/* Step 1: Set GPC frequency */
+	vf_point->gpc_mhz = gpc_freq_mhz;
+
+	/* Step 2: Get GPC voltage from GPC frequency using F→V */
+	temp_freq = gpc_freq_mhz;
+	ret = nvgpu_pmu_clk_domain_freq_to_volt(g, gpc_domain_idx, &temp_freq, &gpc_volt_uv);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get GPC voltage for freq %u MHz", gpc_freq_mhz);
+		goto cleanup;
+	}
+	/* Use the actual frequency and voltage from VF point */
+	vf_point->gpc_mhz = temp_freq;
+	vf_point->gpc_volt_uv = gpc_volt_uv;
+
+	/* Step 3: Calculate SYS frequency (% of actual GPC) and get GPM voltage */
+
+	/* Get actual ratio percentage from parsed VBIOS data */
+	ret = get_gpc_to_sys_clk_freq_ratio_percent(g, &sys_ratio_percent);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get GPC to SYS frequency ratio from clk_top_relobjs");
+		goto cleanup;
+	}
+
+	temp_freq = (vf_point->gpc_mhz * sys_ratio_percent) / 100U;
+	nvgpu_pmu_dbg(g, "DEBUG: Calculated SYS freq = %u MHz (%d%% of GPC %u MHz)",
+		   temp_freq, sys_ratio_percent, vf_point->gpc_mhz);
+
+	ret = nvgpu_pmu_clk_domain_freq_to_volt(g, xbar_domain_idx, &temp_freq, &gpm_volt_uv);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get GPM voltage for SYS freq %u MHz", temp_freq);
+		goto cleanup;
+	}
+
+	/* Use the actual values from VF point */
+	nvgpu_pmu_dbg(g, "DEBUG: Final SYS freq=%u MHz, GPM volt=%u uV", temp_freq, gpm_volt_uv);
+	vf_point->sys_mhz = temp_freq;
+	sys_gpm_volt_uv = gpm_volt_uv;
+
+	/* Step 4: Get NVD frequency from GPM voltage using V→F on NVD domain */
+	temp_volt = sys_gpm_volt_uv;
+	ret = nvgpu_clk_domain_volt_to_freq(g, nvd_domain_idx, &temp_freq, &temp_volt);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get NVD frequency for voltage %u uV", sys_gpm_volt_uv);
+		goto cleanup;
+	}
+	/* Use the actual values from VF point */
+	vf_point->nvd_mhz = temp_freq;
+	nvd_gpm_volt_uv = temp_volt;
+
+	/* Step 5: Get UPROC frequency from GPM voltage using V→F on UPROC domain */
+	temp_volt = sys_gpm_volt_uv;
+	temp_freq = 0;
+	ret = nvgpu_clk_domain_volt_to_freq(g, uproc_domain_idx, &temp_freq, &temp_volt);
+	if (ret != 0) {
+		nvgpu_err(g, "Failed to get UPROC frequency for voltage %u uV", sys_gpm_volt_uv);
+		goto cleanup;
+	}
+	/* Use the actual values from VF point */
+	vf_point->uproc_mhz = temp_freq;
+	uproc_gpm_volt_uv = temp_volt;
+
+	/* Step 6: Set GPM voltage to maximum of all three domains */
+	vf_point->gpm_volt_uv = max(max(sys_gpm_volt_uv, nvd_gpm_volt_uv), uproc_gpm_volt_uv);
+
+	/* Step 7: Set clock domain mask using domain indices */
+	vf_point->clk_domain_mask = BIT(gpc_domain_idx) | BIT(xbar_domain_idx) |
+				    BIT(nvd_domain_idx) | BIT(uproc_domain_idx);
+
+	nvgpu_pmu_dbg(g, "Clock domain mask: 0x%x (GPC:%d XBAR:%d NVD:%d UPROC:%d)",
+		   vf_point->clk_domain_mask, gpc_domain_idx, xbar_domain_idx,
+		   nvd_domain_idx, uproc_domain_idx);
+
+	nvgpu_pmu_dbg(g, "=== FINAL VF POINT RESULT ===");
+	nvgpu_pmu_dbg(g, "Expected SYS freq should be: %u MHz (90%% of GPC)",
+		   (vf_point->gpc_mhz * 90) / 100);
+	nvgpu_pmu_dbg(g, "SYS constraint check: SYS %u MHz %s GPC %u MHz",
+		   vf_point->sys_mhz,
+		   (vf_point->sys_mhz <= vf_point->gpc_mhz) ? "<=" : ">",
+		   vf_point->gpc_mhz);
+	nvgpu_pmu_dbg(g,
+		   "Auto VF Point: GPC=%u MHz/%u uV, SYS=%u MHz, NVD=%u MHz, UPROC=%u MHz,",
+		   vf_point->gpc_mhz, vf_point->gpc_volt_uv, vf_point->sys_mhz,
+		   vf_point->nvd_mhz, vf_point->uproc_mhz);
+	nvgpu_pmu_dbg(g,
+		  "Auto VF Point: GPM=%u uV (SYS:%u NVD:%u UPROC:%u)",
+		   vf_point->gpm_volt_uv, sys_gpm_volt_uv, nvd_gpm_volt_uv, uproc_gpm_volt_uv);
+
+cleanup:
+	clk_domain_free_vf_tables(g);
+
+done:
+	return ret;
 }

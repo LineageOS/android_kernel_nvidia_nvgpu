@@ -130,7 +130,22 @@ struct gk20a;
  */
 #define NVGPU_DEVTYPE_OFA		22U
 
-#define NVGPU_MAX_DEVTYPE		58U
+/**
+ * @ingroup NVGPU_TOP_DEVICE_INFO_DEFINES
+ *
+ * Device type for SYSLRC instances.
+ */
+#define NVGPU_DEVTYPE_SYSLRC		48U
+
+/**
+ * @ingroup NVGPU_TOP_DEVICE_INFO_DEFINES
+ *
+ * Device type for SYSLTC instances.
+ */
+#define NVGPU_DEVTYPE_SYSLTC		49U
+
+
+#define NVGPU_MAX_DEVTYPE		63U
 
 #define NVGPU_DEVICE_TOKEN_INIT		0U
 

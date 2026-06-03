@@ -761,6 +761,7 @@ static const struct gops_gr tu104_ops_gr = {
 	.pre_process_sm_exception = gr_gv11b_pre_process_sm_exception,
 	.set_bes_crop_debug3 = gr_gp10b_set_bes_crop_debug3,
 	.set_bes_crop_debug4 = gr_gp10b_set_bes_crop_debug4,
+	.set_tex_in_dbg = gv11b_gr_intr_set_tex_in_dbg,
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gv11b_gr_get_egpc_base,

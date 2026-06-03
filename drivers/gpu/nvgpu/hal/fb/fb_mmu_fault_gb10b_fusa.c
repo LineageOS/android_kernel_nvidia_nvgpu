@@ -74,6 +74,7 @@ void gb10b_fb_write_mmu_fault_status(struct gk20a *g, u32 reg_val)
 	nvgpu_writel(g, fb_mmu_fault_status_r(), reg_val);
 }
 
+#ifdef CONFIG_NVGPU_REPLAYABLE_FAULT
 int gb10b_fb_mmu_invalidate_replay(struct gk20a *g,
 		u32 invalidate_replay_val)
 {
@@ -115,3 +116,4 @@ int gb10b_fb_mmu_invalidate_replay(struct gk20a *g,
 
 	return err;
 }
+#endif

@@ -41,4 +41,7 @@
 #include <nvgpu/types.h>
 #include <nvgpu/static_analysis.h>
 
+#define xbar_mxbar_pri_gpc0_ig_gnic0_base_v()                         (0x00b20000U)
+#define xbar_mxbar_pri_gpc0_eg_gnic1_base_v()                         (0x00b28000U)
+
 #endif

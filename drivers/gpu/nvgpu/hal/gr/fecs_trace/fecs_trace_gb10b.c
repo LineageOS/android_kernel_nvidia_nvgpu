@@ -12,6 +12,7 @@
 #include <nvgpu/hw/gb10b/hw_func_gb10b.h>
 #include <nvgpu/hw/gb10b/hw_gr_gb10b.h>
 
+#ifdef CONFIG_NVGPU_FECS_TRACE
 int gb10b_fecs_trace_get_read_index(struct gk20a *g)
 {
 	return nvgpu_pg_elpg_protected_call(g,
@@ -30,3 +31,4 @@ int gb10b_fecs_trace_set_read_index(struct gk20a *g, int index)
 	return nvgpu_pg_elpg_protected_call(g,
 			(nvgpu_func_writel(g, func_priv_mailbox_scratch_r(1), (u32)index), 0));
 }
+#endif

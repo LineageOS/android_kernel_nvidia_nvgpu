@@ -298,10 +298,11 @@ void gp10b_gr_init_commit_global_cb_manager(struct gk20a *g,
 	}
 }
 
-void gp10b_gr_init_get_supported_preemption_modes(
+void gp10b_gr_init_get_supported_preemption_modes(struct gk20a *g,
 	u32 *graphics_preemption_mode_flags, u32 *compute_preemption_mode_flags)
 {
 	u32 gfxp_flags = NVGPU_PREEMPTION_MODE_GRAPHICS_WFI;
+	(void)(g);
 
 #ifdef CONFIG_NVGPU_GFXP
 	gfxp_flags |= NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
@@ -311,7 +312,9 @@ void gp10b_gr_init_get_supported_preemption_modes(
 	*compute_preemption_mode_flags = (NVGPU_PREEMPTION_MODE_COMPUTE_WFI |
 					 NVGPU_PREEMPTION_MODE_COMPUTE_CTA);
 #ifdef CONFIG_NVGPU_CILP
-	*compute_preemption_mode_flags |= NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
+	if (g->disable_cilp_preemption == false) {
+		*compute_preemption_mode_flags |= NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
+	}
 #endif
 }
 

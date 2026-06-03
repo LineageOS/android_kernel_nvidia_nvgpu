@@ -27,7 +27,7 @@ struct gops_lrc {
 	void (*split_lrcc_broadcast_addr)(struct gk20a *g, u32 addr,
 						u32 *priv_addr_table,
 						u32 *priv_addr_table_index);
-	void (*split_lrc_broadcast_addr)(struct gk20a *g, u32 addr,
+	s32 (*split_lrc_broadcast_addr)(struct gk20a *g, u32 addr,
 						u32 *priv_addr_table,
 						u32 *priv_addr_table_index);
 #endif

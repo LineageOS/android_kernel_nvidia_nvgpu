@@ -14,11 +14,7 @@
 #endif
 #include "falcon_sw_ga10b.h"
 
-#if defined(CONFIG_NVGPU_NON_FUSA)
-#if defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C)
 #include "falcon_sw_gb10b.h"
-#endif
-#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_falcon.h>
@@ -629,12 +625,12 @@ static int falcon_sw_chip_init(struct gk20a *g, struct nvgpu_falcon *flcn)
 	case NVGPU_GPUID_GV11B:
 		gk20a_falcon_sw_init(flcn);
 		break;
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+	case NVGPU_GPUID_GB10B:
 		gb10b_falcon_sw_init(flcn);
 		break;
-#endif
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
 	case NVGPU_GPUID_GB20C:
 	case NVGPU_GPUID_GB20C_NEXT:

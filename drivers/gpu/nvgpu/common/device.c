@@ -55,6 +55,12 @@ static inline const char *nvgpu_device_type_to_str(const struct nvgpu_device *de
 	case NVGPU_DEVTYPE_NVGSP:
 		str = "NVGSP";
 		break;
+	case NVGPU_DEVTYPE_SYSLTC:
+		str = "SYSLTC";
+		break;
+	case NVGPU_DEVTYPE_SYSLRC:
+		str =  "SYSLRC";
+		break;
 	default:
 		str = "Unknown";
 		break;
@@ -72,6 +78,7 @@ void nvgpu_device_dump_dev(struct gk20a *g, const struct nvgpu_device *dev)
 	device_dbg(g, "  RunlistID: %2u  IntrID:  %2u  ResetID: %u",
 		   dev->runlist_id, dev->intr_id, dev->reset_id);
 	device_dbg(g, "  PRI Base: 0x%x", dev->pri_base);
+	device_dbg(g, " InstanceID: 0x%x", dev->inst_id);
 }
 
 /*

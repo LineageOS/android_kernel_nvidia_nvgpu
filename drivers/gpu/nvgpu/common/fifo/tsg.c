@@ -424,25 +424,25 @@ int nvgpu_tsg_create_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
 	return 0;
 }
 
-void nvgpu_tsg_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
+int nvgpu_tsg_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
 				 u32 veid)
 {
 	nvgpu_mutex_acquire(&tsg->veid_alloc_lock);
 
 	if (veid == 0U) {
 		if (!tsg->sync_veid) {
-			nvgpu_log_info(g, "VEID 0 not allocated");
+			nvgpu_err(g, "VEID 0 not allocated");
 			nvgpu_mutex_release(&tsg->veid_alloc_lock);
-			return;
+			return -EINVAL;
 		}
 
 		tsg->sync_veid = false;
 		tsg->subctx_vms[veid] = NULL;
 	} else {
 		if (!nvgpu_test_bit(veid - MAX_SYNC_SUBCONTEXTS, tsg->async_veids)) {
-			nvgpu_log_info(g, "VEID %u not allocated", veid);
+			nvgpu_err(g, "VEID %u not allocated", veid);
 			nvgpu_mutex_release(&tsg->veid_alloc_lock);
-			return;
+			return -EINVAL;
 		}
 		nvgpu_clear_bit(veid - MAX_SYNC_SUBCONTEXTS, tsg->async_veids);
 		tsg->subctx_vms[veid] = NULL;
@@ -451,6 +451,7 @@ void nvgpu_tsg_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
 	nvgpu_mutex_release(&tsg->veid_alloc_lock);
 
 	nvgpu_log_info(g, "Freed VEID %u", veid);
+	return 0;
 }
 
 int nvgpu_tsg_user_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
@@ -467,9 +468,7 @@ int nvgpu_tsg_user_delete_subcontext(struct gk20a *g, struct nvgpu_tsg *tsg,
 		return -EINVAL;
 	}
 
-	nvgpu_tsg_delete_subcontext(g, tsg, veid);
-
-	return 0;
+	return nvgpu_tsg_delete_subcontext(g, tsg, veid);
 }
 
 int nvgpu_tsg_create_sync_subcontext_internal(struct gk20a *g,
@@ -629,14 +628,29 @@ int nvgpu_tsg_bind_domain(struct nvgpu_tsg *tsg, struct nvgpu_nvs_domain *nnvs_d
 {
 	struct nvgpu_runlist_domain *rl_domain;
 	struct gk20a *g = tsg->g;
-	const char *name;
+	int err = 0;
 
 	/* Hopping channels from one domain to another is not allowed */
 	if (tsg->num_active_channels != 0U) {
 		return -EINVAL;
 	}
 
-	name = nvgpu_nvs_domain_get_name(nnvs_domain);
+	nvgpu_mutex_acquire(&tsg->nvs_domain_ptr_wr_lock);
+
+	/*
+	 * With TSG sharing, if a process has already bound the TSG to a scheduling
+	 * domain, other process(es) sharing the same TSG cannot bind it to another domain.
+	 *
+	 * If already bound to same domeain, early exit.
+	 */
+	if (tsg->nvs_domain_ptr != NULL) {
+		if (tsg->nvs_domain_ptr->id != nnvs_domain->id) {
+			err = -EINVAL;
+			nvgpu_err(g, "tsg: (%u) already bound to another domain",
+				  tsg->tsgid);
+		}
+		goto clean_up;
+	}
 
 	/*
 	 * The domain ptr will get updated with the right id once the runlist
@@ -644,25 +658,24 @@ int nvgpu_tsg_bind_domain(struct nvgpu_tsg *tsg, struct nvgpu_nvs_domain *nnvs_d
 	 */
 	rl_domain = nvgpu_rl_domain_get(g, 0, nnvs_domain->id);
 	if (rl_domain == NULL) {
-		nvgpu_err(g, "rl domain not found (%s) having Id[%llu]", name, nnvs_domain->id);
+		nvgpu_err(g, "rl domain not found (%s) having Id[%llu]",
+			  nvgpu_nvs_domain_get_name(nnvs_domain), nnvs_domain->id);
 		/*
 		 * This shouldn't happen because the nvs domain guarantees RL domains.
 		 *
 		 * TODO: query this via the nvs domain.
 		 */
-		return -ENOENT;
-	}
-
-	/* Release the default domain ref that was implicitly taken at open */
-	if (tsg->nvs_domain_ptr != NULL) {
-		nvgpu_nvs_domain_put(g, tsg->nvs_domain_ptr);
+		err = -ENOENT;
+		goto clean_up;
 	}
 
 	nvgpu_nvs_domain_get(g, nnvs_domain);
 	tsg->rl_domain = rl_domain;
 	tsg->nvs_domain_ptr = nnvs_domain;
 
-	return 0;
+clean_up:
+	nvgpu_mutex_release(&tsg->nvs_domain_ptr_wr_lock);
+	return err;
 }
 #endif
 
@@ -1099,6 +1112,7 @@ void nvgpu_tsg_unbind_channel_ctx_reload_check(struct nvgpu_tsg *tsg,
 			if (temp_ch->chid != ch->chid) {
 				g->ops.channel.force_ctx_reload(g,
 					temp_ch->runlist->id, temp_ch->chid);
+				tsg->has_force_ctx_reload_set = true;
 				break;
 			}
 		}
@@ -1124,6 +1138,7 @@ static void nvgpu_tsg_destroy(struct nvgpu_tsg *tsg)
 #ifdef CONFIG_NVGPU_TSG_SHARING
 	nvgpu_mutex_destroy(&tsg->tsg_share_lock);
 #endif
+	nvgpu_mutex_destroy(&tsg->nvs_domain_ptr_wr_lock);
 	nvgpu_mutex_destroy(&tsg->ctx_init_lock);
 	nvgpu_mutex_destroy(&tsg->eng_ctx_lock);
 	nvgpu_mutex_destroy(&tsg->veid_alloc_lock);
@@ -1204,6 +1219,7 @@ static void nvgpu_tsg_init_support(struct gk20a *g, u32 tsgid)
 	nvgpu_mutex_init(&tsg->ctx_init_lock);
 	nvgpu_mutex_init(&tsg->eng_ctx_lock);
 	nvgpu_mutex_init(&tsg->veid_alloc_lock);
+	nvgpu_mutex_init(&tsg->nvs_domain_ptr_wr_lock);
 
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
 	nvgpu_init_list_node(&tsg->event_id_list);
@@ -1540,6 +1556,54 @@ u32 nvgpu_tsg_default_timeslice_us(struct gk20a *g)
 	return NVGPU_TSG_TIMESLICE_DEFAULT_US;
 }
 
+/*
+ * This is work-around until nvgpu_tsg_set_timeslice() is enabled in
+ * safety.
+ */
+#if !defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
+int nvgpu_tsg_set_timeslice_for_cilp(struct nvgpu_tsg *tsg)
+{
+	int ret = 0;
+	struct gk20a *g = tsg->g;
+	u64 domain_id = SHADOW_DOMAIN_ID;
+
+	nvgpu_log_fn(g, " ");
+	(void)(domain_id);
+
+	/*
+	 * this is work-around, no check for timeslice_us to be within
+	 * min and max.
+	 */
+	tsg->timeslice_us = ((nvgpu_tsg_default_timeslice_us(g) * 2U));
+
+#ifdef CONFIG_NVGPU_CHECKER
+	nvgpu_mutex_acquire(&tsg->nvs_domain_ptr_wr_lock);
+	if (tsg->nvs_domain_ptr != NULL) {
+		domain_id = tsg->nvs_domain_ptr->id;
+	}
+	nvgpu_mutex_release(&tsg->nvs_domain_ptr_wr_lock);
+
+	ret = nvgpu_checker_tsg_init(tsg->tsgid, domain_id, tsg->timeslice_us);
+	if (ret != 0) {
+		nvgpu_err(tsg->g, "failed to store TSG data");
+		return ret;
+	}
+#endif /* CONFIG_NVGPU_CHECKER */
+
+	/* TSG may not be bound yet */
+	if (tsg->runlist == NULL) {
+		return ret;
+	}
+
+	ret = g->ops.runlist.reload(g, tsg->runlist, tsg->rl_domain, true, true);
+	if (ret != 0) {
+		nvgpu_err(g, "Runlist reload error while setting TSG timeslice for CILP");
+	}
+
+	return ret;
+}
+#endif /* !CONFIG_NVGPU_NON_FUSA && CONFIG_NVGPU_CILP */
+
 /**
  * @brief Release a TSG back to the pool of available TSGs.
  *
@@ -1733,6 +1797,7 @@ int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid, u32
 #ifdef CONFIG_NVGPU_DEBUGGER
 	tsg->sm_exception_mask_type = NVGPU_SM_EXCEPTION_TYPE_MASK_NONE;
 #endif
+	tsg->has_force_ctx_reload_set = false;
 	tsg->gr_ctx = nvgpu_alloc_gr_ctx_struct(g);
 	if (tsg->gr_ctx == NULL) {
 		err = -ENOMEM;
@@ -1818,6 +1883,8 @@ void nvgpu_tsg_release_common(struct gk20a *g, struct nvgpu_tsg *tsg)
 
 	nvgpu_free_gr_ctx_struct(g, tsg->gr_ctx);
 	tsg->gr_ctx = NULL;
+
+	tsg->has_force_ctx_reload_set = false;
 
 	if (g->ops.tsg.deinit_subctx_state != NULL) {
 		g->ops.tsg.deinit_subctx_state(g, tsg);

@@ -71,9 +71,17 @@ int nvgpu_pg_elpg_disable(struct gk20a *g);
 int nvgpu_pg_elpg_enable(struct gk20a *g);
 int nvgpu_pg_elpg_ms_disable(struct gk20a *g);
 int nvgpu_pg_elpg_ms_enable(struct gk20a *g);
+int nvgpu_pg_gpc_rg_disable(struct gk20a *g);
+int nvgpu_pg_gpc_rg_enable(struct gk20a *g);
+int nvgpu_pg_vid_elpg_disable(struct gk20a *g, u8 pg_vid_engine_id);
+int nvgpu_pg_vid_elpg_enable(struct gk20a *g, u8 pg_vid_engine_id);
 bool nvgpu_pg_elpg_is_enabled(struct gk20a *g);
 bool nvgpu_pg_elpg_ms_is_enabled(struct gk20a *g);
+bool nvgpu_pg_gpc_rg_is_enabled(struct gk20a *g);
+bool nvgpu_pg_vid_elpg_is_enabled(struct gk20a *g, u8 pg_vid_engine_id);
 int nvgpu_pg_elpg_set_elpg_enabled(struct gk20a *g, bool enable);
+int nvgpu_pg_elpg_set_vid_elpg_enabled(struct gk20a *g, bool enable,
+										u8 pg_vid_engine_id);
 int nvgpu_pg_fgpg_set_fgpg_enabled(struct gk20a *g, bool enable);
 int nvgpu_pg_fgpg_set_engine_fgpg_enable(struct gk20a *g,
 	unsigned long new_engine_bitmask);
@@ -81,4 +89,5 @@ bool nvgpu_pg_feature_status(struct gk20a *g, u32 lpwr_mon_index);
 s32 nvgpu_pg_lpwr_lp_mon_start_stop(struct gk20a *g, u32 lpwr_mon_index,
 				bool start);
 u32 nvgpu_pg_get_lpwr_lp_residency(struct gk20a *g);
+u32 nvgpu_pg_get_fgpg_all_engine_mask(struct gk20a *g);
 #endif /*NVGPU_POWER_FEATURES_PG_H*/

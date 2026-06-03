@@ -41,7 +41,12 @@
 /* reports whether the hw queue overflowed */
 bool nvgpu_css_get_overflow_status(struct gk20a *g)
 {
-	return g->ops.perf.get_membuf_overflow_status(g, CSS_PMA_CHANNEL_ID);
+	bool overflow_status;
+
+	(void)g->ops.perf.get_membuf_overflow_status(g, CSS_PMA_CHANNEL_ID,
+		&overflow_status, NULL, true);
+
+	return overflow_status;
 }
 
 /* returns how many pending snapshot entries are pending */
@@ -124,7 +129,10 @@ int nvgpu_css_enable_snapshot(struct gk20a *g,
 	data->hw_get = data->hw_snapshot;
 	(void) memset(data->hw_snapshot, 0xff, snapshot_size);
 
-	g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID);
+	ret = g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID, NULL, true);
+	if (ret != 0) {
+		goto failed_allocation;
+	}
 
 	hwpm_inst_block = &g->mm.hwpm.inst_block;
 	inst_blk_ptr = nvgpu_inst_block_ptr(g, hwpm_inst_block);
@@ -135,7 +143,11 @@ int nvgpu_css_enable_snapshot(struct gk20a *g,
 		nvgpu_err(g, "perf init_inst_block failed. %d", ret);
 		goto failed_allocation;
 	}
-	g->ops.perf.enable_membuf(g, CSS_PMA_CHANNEL_ID, snapshot_size, data->hw_memdesc.gpu_va);
+	ret = g->ops.perf.enable_membuf(g, CSS_PMA_CHANNEL_ID, snapshot_size,
+			data->hw_memdesc.gpu_va, NULL, true);
+	if (ret != 0) {
+		goto failed_allocation;
+	}
 
 	nvgpu_log_info(g, "cyclestats: buffer for hardware snapshots enabled\n");
 
@@ -159,8 +171,8 @@ void nvgpu_css_disable_snapshot(struct gk20a *g)
 		return;
 	}
 
-	g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID);
-	g->ops.perf.disable_membuf(g, CSS_PMA_CHANNEL_ID);
+	g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID, NULL, true);
+	g->ops.perf.disable_membuf(g, CSS_PMA_CHANNEL_ID, NULL, true);
 	g->ops.perf.deinit_inst_block(g, CSS_PMA_CHANNEL_ID);
 
 	nvgpu_dma_unmap_free(g->mm.pmu.vm, &data->hw_memdesc);

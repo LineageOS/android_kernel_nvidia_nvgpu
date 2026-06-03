@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025, NVIDIA CORPORATION & AFFILIATES.
+// All rights reserved.
+//
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/dma.h>
@@ -1404,7 +1406,7 @@ int nvgpu_pmu_init_fw_ver_ops(struct gk20a *g,
 				pmu_get_init_msg_sw_mngd_area_off_v5;
 			fw_ops->get_init_msg_sw_mngd_area_size =
 				pmu_get_init_msg_sw_mngd_area_size_v5;
-			fw_ops->clk.clk_set_boot_clk = NULL;
+			fw_ops->clk.clk_set_boot_clk = nvgpu_pmu_clk_set_boot_clk;
 		} else {
 			fw_ops->get_init_msg_queue_params =
 				pmu_get_init_msg_queue_params_v4;

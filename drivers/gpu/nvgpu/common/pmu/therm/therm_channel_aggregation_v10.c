@@ -42,6 +42,19 @@ s32 thermChannelIfaceModel10Construct_AGGREGATION_V10
     // pModel10->pmuDataInit   = _thermChannelIfaceModel10PmuDataInit_AGGREGATION_V10;
     // Override super-class interfaces
     // pChAggregation10->super.super.super.stateInit = _thermChannelStateInit_AGGREGATION_V10;
+
+    // CRITICAL FIX: Copy base thermal channel data from input
+    pChAggregation10->super.super.bScaling            = pChTemp->super.super.bScaling;
+    pChAggregation10->super.super.scaling             = pChTemp->super.super.scaling;
+    pChAggregation10->super.super.offsetSW            = pChTemp->super.super.offsetSW;
+    pChAggregation10->super.super.bBounds             = pChTemp->super.super.bBounds;
+    pChAggregation10->super.super.temp_min            = pChTemp->super.super.temp_min;
+    pChAggregation10->super.super.temp_max            = pChTemp->super.super.temp_max;
+    pChAggregation10->super.super.tempSim.bSupported  = pChTemp->super.super.tempSim.bSupported;
+    pChAggregation10->super.super.tempSim.bEnabled    = pChTemp->super.super.tempSim.bEnabled;
+    pChAggregation10->super.super.tempSim.targetTemp  = pChTemp->super.super.tempSim.targetTemp;
+    pChAggregation10->super.super.chType              = pChTemp->super.super.chType;
+
     // Set THERM_CHANNEL_AGGREGATION_V10 specific parameters.
     pChAggregation10->thermDevIdx          = pChTemp->thermDevIdx;
     pChAggregation10->thermDevProvIdxStart = pChTemp->thermDevProvIdxStart;

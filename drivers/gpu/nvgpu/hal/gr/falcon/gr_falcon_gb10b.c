@@ -1,6 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/gr/gr_falcon.h>
@@ -373,6 +372,20 @@ int gb10b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 		ret = gm20b_gr_falcon_submit_fecs_method_op(g, op, flags,
 				fecs_method);
 		break;
+
+	case NVGPU_PRI_FECS_METHOD_PUSH_ADR_CONTEXT_RESET:
+		op.method.addr = gr_fecs_method_push_adr_push_adr_context_reset_v();
+		op.method.data = data;
+		op.mailbox.data = 0U;
+		op.mailbox.id = 0U;
+		op.mailbox.ok = 0x100U;
+		op.cond.ok = GR_IS_UCODE_OP_EQUAL;
+		op.cond.fail = GR_IS_UCODE_OP_SKIP;
+		flags |= NVGPU_GR_FALCON_SUBMIT_METHOD_F_SLEEP;
+		ret = gm20b_gr_falcon_submit_fecs_method_op(g, op, flags,
+				fecs_method);
+		break;
+
 	default:
 		ret = ga100_gr_falcon_ctrl_ctxsw(g, fecs_method,
 			data, ret_val);

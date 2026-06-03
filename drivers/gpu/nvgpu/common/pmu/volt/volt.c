@@ -5,14 +5,14 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/string.h>
 #include <nvgpu/pmu/cmd.h>
-
+#include <nvgpu/pmu/perf.h>
 #include "volt.h"
 #include "volt_rail.h"
 #include "volt_dev.h"
 #include "volt_policy.h"
 
 
-static int volt_send_load_cmd_to_pmu(struct gk20a *g)
+int nvgpu_pmu_volt_load(struct gk20a *g)
 {
 	struct nvgpu_pmu *pmu = g->pmu;
 	struct nv_pmu_rpc_struct_volt_load rpc;
@@ -35,9 +35,25 @@ void nvgpu_pmu_volt_rpc_handler(struct gk20a *g, struct nv_pmu_rpc_header *rpc)
 		nvgpu_pmu_dbg(g,
 			"reply NV_PMU_RPC_ID_VOLT_BOARD_OBJ_GRP_CMD");
 		break;
+	case NV_PMU_RPC_ID_VOLT_VOLT_SET_VOLTAGE:
+		nvgpu_pmu_dbg(g,
+			"reply NV_PMU_RPC_ID_VOLT_VOLT_SET_VOLTAGE");
+		break;
 	case NV_PMU_RPC_ID_VOLT_LOAD:
 		nvgpu_pmu_dbg(g,
 			"reply NV_PMU_RPC_ID_VOLT_LOAD");
+		break;
+	case NV_PMU_RPC_ID_VOLT_VOLT_RAIL_GET_VOLTAGE:
+		nvgpu_pmu_dbg(g,
+			"reply NV_PMU_RPC_ID_VOLT_VOLT_RAIL_GET_VOLTAGE");
+		break;
+	case NV_PMU_RPC_ID_VOLT_VOLT_POLICY_SANITY_CHECK:
+		nvgpu_pmu_dbg(g,
+			"reply NV_PMU_RPC_ID_VOLT_VOLT_POLICY_SANITY_CHECK");
+		break;
+	case NV_PMU_RPC_ID_VOLT_TEST_EXECUTE:
+		nvgpu_pmu_dbg(g,
+			"reply NV_PMU_RPC_ID_VOLT_TEST_EXECUTE");
 		break;
 	default:
 		nvgpu_pmu_dbg(g, "invalid reply");
@@ -127,14 +143,6 @@ int nvgpu_pmu_volt_pmu_setup(struct gk20a *g)
 
 	err = volt_policy_pmu_setup(g);
 	if (err != 0) {
-		return err;
-	}
-
-	err = volt_send_load_cmd_to_pmu(g);
-	if (err != 0) {
-		nvgpu_err(g,
-			"Failed to send VOLT LOAD CMD to PMU: status = 0x%08x.",
-			err);
 		return err;
 	}
 

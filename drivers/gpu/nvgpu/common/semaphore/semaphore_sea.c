@@ -24,28 +24,29 @@ void nvgpu_semaphore_sea_unlock(struct nvgpu_semaphore_sea *s)
 
 static int semaphore_sea_grow(struct nvgpu_semaphore_sea *sea)
 {
-	int ret = 0;
 	struct gk20a *g = sea->gk20a;
+	size_t semaphore_pool_count = g->ops.channel.count(g);
+	int ret = 0;
 	u32 i;
 
 	nvgpu_semaphore_sea_lock(sea);
 
 	ret = nvgpu_dma_alloc_sys(g,
-				  NVGPU_CPU_PAGE_SIZE * SEMAPHORE_POOL_COUNT,
+				  NVGPU_CPU_PAGE_SIZE * semaphore_pool_count,
 				  &sea->sea_mem);
 	if (ret != 0) {
 		goto out;
 	}
 
-	sea->size = SEMAPHORE_POOL_COUNT;
-	sea->map_size = SEMAPHORE_POOL_COUNT * NVGPU_CPU_PAGE_SIZE;
+	sea->size = semaphore_pool_count;
+	sea->map_size = semaphore_pool_count * NVGPU_CPU_PAGE_SIZE;
 
 	/*
 	 * Start the semaphores at values that will soon overflow the 32-bit
 	 * integer range. This way any buggy comparisons would start to fail
 	 * sooner rather than later.
 	 */
-	for (i = 0U; i < NVGPU_CPU_PAGE_SIZE * SEMAPHORE_POOL_COUNT; i += 4U) {
+	for (i = 0U; i < NVGPU_CPU_PAGE_SIZE * semaphore_pool_count; i += 4U) {
 		nvgpu_mem_wr(g, &sea->sea_mem, i, 0xfffffff0U);
 	}
 
@@ -89,6 +90,13 @@ struct nvgpu_semaphore_sea *nvgpu_semaphore_sea_create(struct gk20a *g)
 		return NULL;
 	}
 
+	g->sema_sea->pools_alloced = nvgpu_kzalloc(g,
+				BITS_TO_LONGS(U32(g->ops.channel.count(g))) *
+				sizeof(unsigned long));
+	if (g->sema_sea->pools_alloced == NULL) {
+		return NULL;
+	}
+
 	g->sema_sea->size = 0;
 	g->sema_sea->page_count = 0;
 	g->sema_sea->gk20a = g;
@@ -104,6 +112,7 @@ struct nvgpu_semaphore_sea *nvgpu_semaphore_sea_create(struct gk20a *g)
 
 cleanup:
 	nvgpu_mutex_destroy(&g->sema_sea->sea_lock);
+	nvgpu_kfree(g, g->sema_sea->pools_alloced);
 	nvgpu_kfree(g, g->sema_sea);
 	g->sema_sea = NULL;
 	gpu_sema_dbg(g, "Failed to creat semaphore sea!");
@@ -118,6 +127,7 @@ void nvgpu_semaphore_sea_destroy(struct gk20a *g)
 
 	nvgpu_dma_free(g, &g->sema_sea->sea_mem);
 	nvgpu_mutex_destroy(&g->sema_sea->sea_lock);
+	nvgpu_kfree(g, g->sema_sea->pools_alloced);
 	nvgpu_kfree(g, g->sema_sea);
 	g->sema_sea = NULL;
 }

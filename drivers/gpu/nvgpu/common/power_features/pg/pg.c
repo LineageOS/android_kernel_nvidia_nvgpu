@@ -169,6 +169,205 @@ int nvgpu_pg_elpg_ms_disable(struct gk20a *g)
 	return err;
 }
 
+bool nvgpu_pg_gpc_rg_is_enabled(struct gk20a *g)
+{
+	bool gpc_rg_enabled;
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_mutex_acquire(&g->cg_pg_lock);
+	gpc_rg_enabled = g->gpc_rg_enabled;
+	nvgpu_mutex_release(&g->cg_pg_lock);
+	return gpc_rg_enabled;
+}
+
+int nvgpu_pg_gpc_rg_enable(struct gk20a *g)
+{
+	int err = 0;
+#ifdef CONFIG_NVGPU_LS_PMU
+	nvgpu_log_fn(g, " ");
+
+	if (!g->can_elpg || !g->can_gpc_rg) {
+		return 0;
+	}
+
+	/*
+	 * If elpg is enabled and gpc_rg is NOT enabled
+	 * and pg is initialized then only we wait
+	 * for gr init and then enable GPC_RG feature.
+	 * In rmmod path, the gr struct could be freed earlier.
+	 * In order to avoid NULL access for gr, we check for these
+	 * conditions then proceed further.
+	 */
+	if ((g->elpg_enabled) && (!g->gpc_rg_enabled) &&
+		(g->pmu->pg->initialized)) {
+		g->ops.gr.init.wait_initialized(g);
+		nvgpu_mutex_acquire(&g->cg_pg_lock);
+		g->gpc_rg_enabled = true;
+		err = nvgpu_pmu_enable_gpc_rg(g);
+		nvgpu_mutex_release(&g->cg_pg_lock);
+	}
+#endif
+	return err;
+}
+
+int nvgpu_pg_gpc_rg_disable(struct gk20a *g)
+{
+	int err = 0;
+#ifdef CONFIG_NVGPU_LS_PMU
+	nvgpu_log_fn(g, " ");
+
+	if (!g->can_elpg || !g->can_gpc_rg) {
+		return 0;
+	}
+
+	/*
+	 * If elpg and gpc_rg flags are set to true
+	 * then only we check further conditions.
+	 */
+	if ((g->elpg_enabled) && (g->gpc_rg_enabled) &&
+		(g->pmu->pg->initialized)) {
+		g->ops.gr.init.wait_initialized(g);
+		nvgpu_mutex_acquire(&g->cg_pg_lock);
+		g->gpc_rg_enabled = false;
+		err = nvgpu_pmu_disable_gpc_rg(g);
+		nvgpu_mutex_release(&g->cg_pg_lock);
+	}
+#endif
+	return err;
+}
+
+static bool nvgpu_pg_vid_elpg_get_enabled_flag(struct gk20a *g,
+			u8 pg_vid_engine_id)
+{
+	bool vid_elpg_enabled = false;
+
+	switch (pg_vid_engine_id) {
+	case PMU_PG_ELPG_ENGINE_ID_VID_NVDEC:
+		vid_elpg_enabled = g->nvdec_elpg_enabled;
+		break;
+	case PMU_PG_ELPG_ENGINE_ID_VID_NVENC:
+		vid_elpg_enabled = g->nvenc_elpg_enabled;
+		break;
+	case PMU_PG_ELPG_ENGINE_ID_VID_OFA:
+		vid_elpg_enabled = g->ofa_elpg_enabled;
+		break;
+	default:
+		nvgpu_err(g, "Get flag for invalid pg_vid_engine_id: %d",
+				pg_vid_engine_id);
+		break;
+	}
+	return vid_elpg_enabled;
+}
+
+static void nvgpu_pg_vid_elpg_set_enabled_flag(struct gk20a *g,
+			bool enabled, u8 pg_vid_engine_id)
+{
+	switch (pg_vid_engine_id) {
+	case PMU_PG_ELPG_ENGINE_ID_VID_NVDEC:
+		g->nvdec_elpg_enabled = enabled;
+		break;
+	case PMU_PG_ELPG_ENGINE_ID_VID_NVENC:
+		g->nvenc_elpg_enabled = enabled;
+		break;
+	case PMU_PG_ELPG_ENGINE_ID_VID_OFA:
+		g->ofa_elpg_enabled = enabled;
+		break;
+	default:
+		nvgpu_err(g, "Set flag for invalid pg_vid_engine_id: %d to %d",
+				pg_vid_engine_id, enabled);
+		break;
+	}
+}
+
+bool nvgpu_pg_vid_elpg_is_enabled(struct gk20a *g, u8 pg_vid_engine_id)
+{
+	bool vid_elpg_enabled;
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_mutex_acquire(&g->cg_pg_lock);
+	vid_elpg_enabled = nvgpu_pg_vid_elpg_get_enabled_flag(g, pg_vid_engine_id);
+	nvgpu_mutex_release(&g->cg_pg_lock);
+	return vid_elpg_enabled;
+}
+
+int nvgpu_pg_vid_elpg_enable(struct gk20a *g, u8 pg_vid_engine_id)
+{
+	int err = 0;
+
+#ifdef CONFIG_NVGPU_LS_PMU
+	if (!g->can_vid_elpg) {
+		return 0;
+	}
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_mutex_acquire(&g->cg_pg_lock);
+	if (nvgpu_pg_vid_elpg_get_enabled_flag(g, pg_vid_engine_id)) {
+		err = nvgpu_pmu_pg_vid_enable(g, true, pg_vid_engine_id);
+	}
+	nvgpu_mutex_release(&g->cg_pg_lock);
+#endif
+
+	return err;
+}
+
+int nvgpu_pg_vid_elpg_disable(struct gk20a *g, u8 pg_vid_engine_id)
+{
+	int err = 0;
+
+#ifdef CONFIG_NVGPU_LS_PMU
+	if (!g->can_vid_elpg) {
+		return 0;
+	}
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_mutex_acquire(&g->cg_pg_lock);
+	if (nvgpu_pg_vid_elpg_get_enabled_flag(g, pg_vid_engine_id)) {
+		err = nvgpu_pmu_pg_vid_enable(g, false, pg_vid_engine_id);
+	}
+	nvgpu_mutex_release(&g->cg_pg_lock);
+#endif
+
+	return err;
+}
+
+int nvgpu_pg_elpg_set_vid_elpg_enabled(struct gk20a *g, bool enable, u8 pg_vid_engine_id)
+{
+	int err = 0;
+	bool change_mode = false;
+
+	nvgpu_log_fn(g, " ");
+
+	if (!g->can_vid_elpg) {
+		return 0;
+	}
+
+	nvgpu_mutex_acquire(&g->cg_pg_lock);
+	if (enable) {
+		if (!nvgpu_pg_vid_elpg_get_enabled_flag(g, pg_vid_engine_id)) {
+			change_mode = true;
+			nvgpu_pg_vid_elpg_set_enabled_flag(g, true, pg_vid_engine_id);
+		}
+	} else {
+		if (nvgpu_pg_vid_elpg_get_enabled_flag(g, pg_vid_engine_id)) {
+			change_mode = true;
+			nvgpu_pg_vid_elpg_set_enabled_flag(g, false, pg_vid_engine_id);
+		}
+	}
+	if (!change_mode) {
+		goto done;
+	}
+#ifdef CONFIG_NVGPU_LS_PMU
+	err = nvgpu_pmu_pg_vid_enable(g, enable, pg_vid_engine_id);
+#endif
+done:
+	nvgpu_mutex_release(&g->cg_pg_lock);
+	return err;
+}
+
 int nvgpu_pg_fgpg_set_fgpg_enabled(struct gk20a *g, bool enable)
 {
 	int err = 0;
@@ -271,8 +470,10 @@ bool nvgpu_pg_feature_status(struct gk20a *g, u32 lpwr_mon_index)
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_NVENC1_INDEX_ID:
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_NVDEC0_INDEX_ID:
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_NVDEC1_INDEX_ID:
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_NVJPG0_INDEX_ID:
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_NVJPG1_INDEX_ID:
+#endif
 	case PMU_LPWR_MON_SOURCE_ID_FGPG_OFA0_INDEX_ID:
 		if (g->fgpg_enabled) {
 			status = true;
@@ -315,6 +516,7 @@ bool nvgpu_pg_feature_status(struct gk20a *g, u32 lpwr_mon_index)
 			nvgpu_pmu_dbg(g, "ELCG not enabled for NVDEC1");
 		}
 		break;
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	case PMU_LPWR_MON_SOURCE_ID_ELCG_NVJPG0_INDEX_ID:
 		if (g->elcg_enabled &&  g->elcg_engine_bitmask & (1U << CG_SUBFEATURE_ID_ELCG_CTRL_NVJPG0)) {
 			status = true;
@@ -329,6 +531,7 @@ bool nvgpu_pg_feature_status(struct gk20a *g, u32 lpwr_mon_index)
 			nvgpu_pmu_dbg(g, "ELCG not enabled for NVJPG1");
 		}
 		break;
+#endif
 	case PMU_LPWR_MON_SOURCE_ID_ELCG_OFA0_INDEX_ID:
 		if (g->elcg_enabled &&  g->elcg_engine_bitmask & (1U << CG_SUBFEATURE_ID_ELCG_CTRL_OFA0)) {
 			status = true;
@@ -456,4 +659,12 @@ u32 nvgpu_pg_get_lpwr_lp_residency(struct gk20a *g)
 done:
 	nvgpu_mutex_release(&g->cg_pg_lock);
 	return residency;
+}
+
+u32 nvgpu_pg_get_fgpg_all_engine_mask(struct gk20a *g)
+{
+	if (g->ops.pmu.pmu_fgpg_all_engine_mask != NULL) {
+		return g->ops.pmu.pmu_fgpg_all_engine_mask();
+	}
+	return PG_FGPG_ALL_ENGINE_ENABLED_BITMASK;
 }

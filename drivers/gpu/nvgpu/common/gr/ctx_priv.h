@@ -48,7 +48,7 @@ struct nvgpu_gr_ctx_desc {
 	bool force_preemption_gfxp;
 #endif
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_CILP)
 	bool force_preemption_cilp;
 #endif
 

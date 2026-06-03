@@ -410,7 +410,7 @@ static int nvgpu_nvs_ioctl_query_domains_locked(
 
 			(void)memset(&dom, 0, sizeof(dom));
 
-			strncpy(dom.name, nvs_dom->name, sizeof(dom.name) - 1);
+			snprintf(dom.name, sizeof(dom.name), "%s", nvs_dom->name);
 			dom.timeslice_ns     = nvs_dom->timeslice_ns;
 			dom.preempt_grace_ns = nvs_dom->preempt_grace_ns;
 			dom.subscheduler     = nvgpu_dom->subscheduler;

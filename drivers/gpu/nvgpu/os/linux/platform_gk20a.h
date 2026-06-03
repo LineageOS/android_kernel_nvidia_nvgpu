@@ -64,7 +64,7 @@ enum tegra_chip_id {
 	TEGRA_256,
 	TEGRA_256_VF,
 #endif
-#ifdef CONFIG_NVGPU_NEXT
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 	NVGPU_NEXT_TEGRA_CHIPS
 #endif
 };
@@ -96,7 +96,16 @@ struct gk20a_platform {
 	bool can_elpg_ms_init;
 
 	/* Should be populated at probe. */
+	bool can_gpc_rg_init;
+
+	/* Should be populated at probe. */
+	bool can_vid_elpg_init;
+
+	/* Should be populated at probe. */
 	bool has_syncpoints;
+
+	/* Should be populated at probe. */
+	bool has_scheduling_domains;
 
 	/* channel limit after which to start aggressive sync destroy */
 	unsigned int aggressive_sync_destroy_thresh;
@@ -183,6 +192,16 @@ struct gk20a_platform {
 
 	/* Adaptative ELPG: true = enable flase = disable */
 	bool enable_aelpg;
+
+	/* GPC Rail Gating: true = enable false = disable*/
+	bool enable_gpc_rg;
+
+	/* VID Engine Level Power Gating: true = enable flase = disable */
+	bool enable_nvdec_elpg;
+
+	bool enable_nvenc_elpg;
+
+	bool enable_ofa_elpg;
 
 	/* PMU Perfmon: true = enable false = disable */
 	bool enable_perfmon;
@@ -399,6 +418,9 @@ struct gk20a_platform {
 	u32 fake_rpc_base;
 	u32 fake_rpc_size;
 #endif
+	unsigned int devfreq_arr_size;
+	void *devfreq_arr;
+	void *devfreq_masters;
 };
 
 static inline struct gk20a_platform *gk20a_get_platform(
@@ -409,14 +431,8 @@ static inline struct gk20a_platform *gk20a_get_platform(
 
 #ifdef CONFIG_TEGRA_GK20A
 extern struct gk20a_platform gv11b_tegra_platform;
-#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
-extern struct gk20a_platform gv11b_vgpu_tegra_platform;
-#endif
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NON_FUSA)
 extern struct gk20a_platform ga10b_tegra_platform;
-#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
-extern struct gk20a_platform ga10b_vgpu_tegra_platform;
-#endif
 #endif
 
 #endif
@@ -424,6 +440,7 @@ extern struct gk20a_platform ga10b_vgpu_tegra_platform;
 int gk20a_tegra_busy(struct device *dev);
 void gk20a_tegra_idle(struct device *dev);
 void gk20a_tegra_debug_dump(struct device *pdev);
+int gk20a_get_vmid(struct gk20a *g);
 
 static inline struct gk20a *get_gk20a(struct device *dev)
 {

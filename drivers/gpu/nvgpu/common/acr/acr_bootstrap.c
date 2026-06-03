@@ -34,14 +34,14 @@ struct nvgpu_firmware *nvgpu_request_gsp_firmware(struct gk20a *g)
 	struct nvgpu_firmware *gsp_pwm_fw = NULL;
 
 	switch (ver) {
-#ifdef CONFIG_NVGPU_GB10B
-	case NVGPU_GPUID_GB10B:
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GB10B_NEXT:
+#endif
+	case NVGPU_GPUID_GB10B:
 		gsp_pwm_fw = nvgpu_request_firmware(g,
 				GB10B_GSP_DBG_RISCV_FW,
 				g->acr->fw_load_flag);
 		break;
-#endif
 #ifdef CONFIG_NVGPU_GB20C
 	case NVGPU_GPUID_GB20C:
 		gsp_pwm_fw = nvgpu_request_firmware(g,

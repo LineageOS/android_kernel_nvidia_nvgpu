@@ -125,5 +125,8 @@ int gr_gk20a_determine_ppc_configuration(struct gk20a *g,
 					u32 *num_ppcs, u32 *ppc_mask,
 					u32 *reg_ppc_count);
 struct nvgpu_channel *gk20a_get_resident_ctx(struct gk20a *g, u32 *tsgid);
+int gr_exec_ctx_ops(struct nvgpu_tsg *tsg, struct nvgpu_dbg_reg_op *ctx_ops,
+		   u32 num_ops, u32 num_ctx_wr_ops, u32 num_ctx_rd_ops,
+		   bool ctx_resident);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /*__GR_GK20A_H__*/

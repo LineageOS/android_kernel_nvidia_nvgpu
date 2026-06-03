@@ -7,6 +7,7 @@
 #include <nvgpu/clk_arb.h>
 #include <nvgpu/debugger.h>
 #include <nvgpu/errata.h>
+#include <nvgpu/ptimer.h>
 #include <nvgpu/error_notifier.h>
 #ifdef CONFIG_NVGPU_FECS_TRACE
 #include <nvgpu/gr/fecs_trace.h>
@@ -15,6 +16,9 @@
 #include <nvgpu/gr/gr_intr.h>
 #include <nvgpu/grmgr.h>
 #include <nvgpu/gr/setup.h>
+#include <nvgpu/ofa.h>
+#include <nvgpu/nvdec.h>
+#include <nvgpu/nvjpg.h>
 #include <nvgpu/nvhost.h>
 #include <nvgpu/perfbuf.h>
 #include <nvgpu/runlist.h>
@@ -42,17 +46,16 @@
 #include "common/vgpu/perf/cyclestats_snapshot_vgpu.h"
 #include "common/vgpu/perf/perf_vgpu.h"
 #include "common/vgpu/pm_reservation_vgpu.h"
-#include "common/vgpu/profiler/profiler_vgpu.h"
-#include "common/vgpu/ptimer/ptimer_vgpu.h"
 #include "common/vgpu/rc/rc_vf.h"
 #include "common/vgpu/top/top_vgpu.h"
+#include "common/vgpu/profiler/profiler_vf.h"
+#include "common/vgpu/perf/perf_vf.h"
 
 #include "hal/cbc/cbc_gb10b.h"
 #include "hal/class/class_gb10b.h"
 #include "hal/class/class_gb20c.h"
 #include "hal/fb/fb_gm20b.h"
 #include "hal/fb/fb_gp10b.h"
-#include "hal/fb/fb_gb10b.h"
 #include "hal/fb/fb_mmu_fault_gv11b.h"
 #include "hal/fb/intr/fb_intr_ga10b.h"
 #include "hal/fifo/channel_ga10b.h"
@@ -78,15 +81,15 @@
 #include "hal/fifo/runlist_ram_gb20c.h"
 #include "hal/fifo/runlist_ram_gv11b.h"
 #include "hal/fifo/tsg_ga10b.h"
-#include "hal/fifo/tsg_gb10b.h"
+#include "hal/fifo/tsg_gb20c.h"
 #include "hal/fifo/tsg_gv11b.h"
 #include "hal/fifo/userd_gb10b.h"
 #include "hal/fifo/userd_gk20a.h"
 #include "hal/fifo/userd_gv11b.h"
 #include "hal/fifo/usermode_gb20c.h"
 #include "hal/fifo/usermode_tu104.h"
+#include "hal/func/func_ga10b.h"
 #include "hal/func/func_gb10b.h"
-#include "hal/fuse/fuse_ga10b.h"
 #include "hal/gin/gin_gb10b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_ga10b.h"
 #include "hal/gr/ctxsw_prog/ctxsw_prog_gb10b.h"
@@ -102,8 +105,10 @@
 #include "hal/gr/gr/gr_gk20a.h"
 #include "hal/gr/gr/gr_gm20b.h"
 #include "hal/gr/gr/gr_gv11b.h"
+#include "hal/gr/hwpm_map/hwpm_map_ga10b.h"
 #include "hal/gr/hwpm_map/hwpm_map_gb10b.h"
 #include "hal/gr/hwpm_map/hwpm_map_gv100.h"
+#include "hal/gr/hwpm_map/hwpm_map_gb20c.h"
 #include "hal/gr/init/gr_init_gb10b.h"
 #include "hal/gr/init/gr_init_gb20c.h"
 #include "hal/gr/init/gr_init_gm20b.h"
@@ -117,6 +122,7 @@
 #include "hal/init/hal_gb20c_litter.h"
 #include "hal/ltc/ltc_gb10b.h"
 #include "hal/ltc/ltc_gm20b.h"
+#include "hal/mm/cache/flush_gv11b.h"
 #include "hal/mm/gmmu/gmmu_gb10b.h"
 #include "hal/mm/gmmu/gmmu_gm20b.h"
 #include "hal/mm/gmmu/gmmu_gv11b.h"
@@ -127,10 +133,14 @@
 #include "hal/mm/mmu_fault/mmu_fault_gv11b.h"
 #include "hal/netlist/netlist_gb10b.h"
 #include "hal/perf/perf_gb10b.h"
+#include "hal/perf/perf_gb20c.h"
 #include "hal/ptimer/ptimer_gv11b.h"
 #ifdef CONFIG_NVGPU_DEBUGGER
 #include "hal/regops/allowlist_gb10b.h"
-#include "hal/regops/regops_gb10b.h"
+#include "hal/regops/allowlist_gb20c.h"
+#include "hal/regops/allowlist_auto_generated_gb20c.h"
+#include "hal/regops/regops_gb20c.h"
+#include "hal/regops/user_access_map_gb20c.h"
 #endif
 #include "hal/sync/sema_cmdbuf_gv11b.h"
 #include "hal/sync/syncpt_cmdbuf_gv11b.h"
@@ -176,11 +186,17 @@ static int vf_gb20c_init_gpu_characteristics(struct gk20a *g)
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_FECS_CTXSW_TRACE, true);
 #endif
 #ifdef CONFIG_NVGPU_PROFILER
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_PROFILER_V2_DEVICE, false);
+	if (!nvgpu_platform_is_simulation(g)) {
+		nvgpu_set_enabled(g, NVGPU_SUPPORT_PROFILER_V2_DEVICE, true);
+	}
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_PROFILER_V2_CONTEXT, false);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_SMPC_GLOBAL_MODE, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_VAB_ENABLED, false);
+	nvgpu_set_enabled(g, NVGPU_SUPPORT_CCU_PROF, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_CWD_HES, true);
+#endif
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	nvgpu_set_enabled(g, NVGPU_SUPPORT_MULTIMEDIA_TRACE, true);
 #endif
 
 	return 0;
@@ -368,6 +384,11 @@ static const struct gops_gr_hwpm_map vf_gb20c_ops_gr_hwpm_map = {
 	.add_ctxsw_buffer_gpc_perf_entries_to_map = gb10b_hwpm_map_add_gpc_perf_entries_to_map,
 	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gb10b_hwpm_map_add_pm_ucgpc_entries_to_map,
 	.add_ctxsw_buffer_lrcc_entries_to_map = gb10b_hwpm_map_add_lrcc_entries_to_map,
+	.add_reg_in_fecs_to_map = gb20c_hwpm_map_add_reg_in_fecs_to_map,
+	.add_reg_in_gpccs_to_map = ga10b_hwpm_map_add_reg_in_gpccs_to_map,
+	.add_hes_reg_to_map = gb20c_hwpm_map_add_hes_reg_to_map,
+	.add_padding_for_dtdtpc_support = gb20c_hwpm_map_add_padding_for_dtdtpc_support,
+	.get_cpc_info = gb20c_hwpm_map_get_cpc_info,
 };
 #endif
 
@@ -438,7 +459,7 @@ static const struct gops_gr_init vf_gb20c_ops_gr_init = {
 	.gfxp_wfi_timeout = gv11b_gr_init_commit_gfxp_wfi_timeout,
 #endif /* CONFIG_NVGPU_GRAPHICS */
 #ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
-	.get_access_map = gb10b_gr_init_get_access_map,
+	.get_access_map = gb20c_gr_init_get_access_map,
 #endif
 };
 
@@ -473,7 +494,6 @@ static const struct gops_gr vf_gb20c_ops_gr = {
 	.set_gpc_tpc_mask = NULL,
 #endif
 	.dump_gr_regs = NULL,
-	.update_pc_sampling = vgpu_gr_update_pc_sampling,
 	.init_sm_dsm_reg_info = gv11b_gr_init_sm_dsm_reg_info,
 	.init_cyclestats = vgpu_gr_init_cyclestats,
 	.set_sm_debug_mode = gv11b_gr_set_sm_debug_mode,
@@ -520,21 +540,29 @@ static const struct gops_gr vf_gb20c_ops_gr = {
 };
 
 static const struct gops_nvenc vf_gb20c_ops_nvenc = {
+	.init = nvgpu_nvenc_sw_init,
+	.deinit = nvgpu_nvenc_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
 static const struct gops_ofa vf_gb20c_ops_ofa = {
+	.init = nvgpu_ofa_sw_init,
+	.deinit = nvgpu_ofa_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
 static const struct gops_nvdec vf_gb20c_ops_nvdec = {
+	.init = nvgpu_nvdec_sw_init,
+	.deinit = nvgpu_nvdec_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
 
 static const struct gops_nvjpg vf_gb20c_ops_nvjpg = {
+	.init = nvgpu_nvjpg_sw_init,
+	.deinit = nvgpu_nvjpg_sw_deinit,
 	.multimedia_alloc_ctx = nvgpu_multimedia_setup_ctx,
 	.multimedia_free_ctx = nvgpu_multimedia_free_ctx,
 };
@@ -623,7 +651,7 @@ static const struct gops_fifo vf_gb20c_ops_fifo = {
 	.fifo_init_support = nvgpu_fifo_init_support,
 	.fifo_suspend = nvgpu_fifo_suspend,
 	.init_fifo_setup_hw = vgpu_gv11b_init_fifo_setup_hw,
-	.preempt_channel = vgpu_fifo_preempt_channel,
+	.preempt_channel = NULL,
 	.preempt_tsg = vgpu_fifo_preempt_tsg,
 	.is_preempt_pending = gv11b_fifo_is_preempt_pending,
 	.reset_enable_hw = NULL,
@@ -632,7 +660,7 @@ static const struct gops_fifo vf_gb20c_ops_fifo = {
 #endif
 	.setup_sw = vgpu_fifo_setup_sw,
 	.cleanup_sw = vgpu_fifo_cleanup_sw,
-	.set_sm_exception_type_mask = vgpu_set_sm_exception_type_mask,
+	.set_sm_exception_type_mask = nvgpu_tsg_set_sm_exception_type_mask,
 	.intr_0_enable = NULL,
 	.intr_1_enable = NULL,
 	.intr_0_isr = NULL,
@@ -795,6 +823,7 @@ static const struct gops_channel vf_gb20c_ops_channel = {
 	.resume_all_serviceable_ch = nvgpu_channel_resume_all_serviceable_ch,
 	.set_error_notifier = nvgpu_set_err_notifier_if_empty,
 	.reset_faulted = vgpu_vf_channel_reset_faulted,
+	.get_vmid = vgpu_channel_get_vmid,
 };
 
 static const struct gops_tsg vf_gb20c_ops_tsg = {
@@ -807,7 +836,7 @@ static const struct gops_tsg vf_gb20c_ops_tsg = {
 	.init_eng_method_buffers = gv11b_tsg_init_eng_method_buffers,
 	.deinit_eng_method_buffers = gv11b_tsg_deinit_eng_method_buffers,
 	.bind_channel = NULL,
-	.bind_channel_eng_method_buffers = gb10b_tsg_bind_channel_eng_method_buffers,
+	.bind_channel_eng_method_buffers = gb20c_tsg_bind_channel_eng_method_buffers,
 	.unbind_channel = NULL,
 	.unbind_channel_check_hw_state = nvgpu_tsg_unbind_channel_hw_state_check,
 	.unbind_channel_check_hw_next = ga10b_tsg_unbind_channel_check_hw_next,
@@ -950,38 +979,88 @@ static const struct gops_clk_arb vf_gb20c_ops_clk_arb = {
 static const struct gops_regops vf_gb20c_ops_regops = {
 	.exec_regops = vf_exec_regops,
 	.exec_ctx_regops = vf_exec_ctx_ops,
-	.get_global_whitelist_ranges = gb10b_get_global_allowlist_ranges,
-	.get_global_whitelist_ranges_count = gb10b_get_global_allowlist_ranges_count,
-	.get_context_whitelist_ranges = gb10b_get_context_allowlist_ranges,
-	.get_context_whitelist_ranges_count = gb10b_get_context_allowlist_ranges_count,
-	.get_runcontrol_whitelist = gb10b_get_runcontrol_allowlist,
-	.get_runcontrol_whitelist_count = gb10b_get_runcontrol_allowlist_count,
-	.get_hwpm_router_register_stride = gb10b_get_hwpm_router_register_stride,
-	.get_hwpm_perfmon_register_stride = gb10b_get_hwpm_perfmon_register_stride,
-	.get_hwpm_pma_channel_register_stride = gb10b_get_hwpm_pma_channel_register_stride,
-	.get_hwpm_pma_trigger_register_stride = gb10b_get_hwpm_pma_trigger_register_stride,
-	.get_smpc_register_stride = gb10b_get_smpc_register_stride,
-	.get_cau_register_stride = gb10b_get_cau_register_stride,
+	.get_global_whitelist_ranges = gb20c_get_global_allowlist_ranges,
+	.get_global_whitelist_ranges_count = gb20c_get_global_allowlist_ranges_count,
+	.get_context_whitelist_ranges = gb20c_get_context_allowlist_ranges,
+	.get_context_whitelist_ranges_count = gb20c_get_context_allowlist_ranges_count,
+	.get_runcontrol_whitelist = gb20c_get_runcontrol_allowlist,
+	.get_runcontrol_whitelist_count = gb20c_get_runcontrol_allowlist_count,
+	.get_hwpm_router_register_stride = gb20c_get_hwpm_router_register_stride,
+	.get_hwpm_perfmon_register_stride = gb20c_get_hwpm_perfmon_register_stride,
+	.get_hwpm_pma_channel_register_stride = gb20c_get_hwpm_pma_channel_register_stride,
+	.get_hwpm_pma_trigger_register_stride = gb20c_get_hwpm_pma_trigger_register_stride,
+	.get_smpc_register_stride = gb20c_get_smpc_register_stride,
+	.get_cau_register_stride = gb20c_get_cau_register_stride,
 	.get_hwpm_perfmon_register_offset_allowlist =
-		gb10b_get_hwpm_perfmon_register_offset_allowlist,
+		gb20c_get_hwpm_perfmon_register_offset_allowlist,
 	.get_hwpm_router_register_offset_allowlist =
-		gb10b_get_hwpm_router_register_offset_allowlist,
+		gb20c_get_hwpm_router_register_offset_allowlist,
 	.get_hwpm_pma_channel_register_offset_allowlist =
-		gb10b_get_hwpm_pma_channel_register_offset_allowlist,
+		gb20c_get_hwpm_pma_channel_register_offset_allowlist,
 	.get_hwpm_pma_trigger_register_offset_allowlist =
-		gb10b_get_hwpm_pma_trigger_register_offset_allowlist,
-	.get_smpc_register_offset_allowlist = gb10b_get_smpc_register_offset_allowlist,
-	.get_cau_register_offset_allowlist = gb10b_get_cau_register_offset_allowlist,
-	.get_hwpm_perfmon_register_ranges = gb10b_get_hwpm_perfmon_register_ranges,
-	.get_hwpm_router_register_ranges = gb10b_get_hwpm_router_register_ranges,
-	.get_hwpm_pma_channel_register_ranges = gb10b_get_hwpm_pma_channel_register_ranges,
-	.get_hwpm_pc_sampler_register_ranges = gb10b_get_hwpm_pc_sampler_register_ranges,
-	.get_hwpm_pma_trigger_register_ranges = gb10b_get_hwpm_pma_trigger_register_ranges,
-	.get_smpc_register_ranges = gb10b_get_smpc_register_ranges,
-	.get_cau_register_ranges = gb10b_get_cau_register_ranges,
-	.get_hwpm_perfmux_register_ranges = gb10b_get_hwpm_perfmux_register_ranges,
-	.get_hwpm_mm_register_ranges = gb10b_get_hwpm_mm_register_ranges,
-	.get_hes_register_ranges = gb10b_get_hes_register_ranges,
+		gb20c_get_hwpm_pma_trigger_register_offset_allowlist,
+	.get_smpc_register_offset_allowlist = gb20c_get_smpc_register_offset_allowlist,
+	.get_cau_register_offset_allowlist = gb20c_get_cau_register_offset_allowlist,
+	.get_hes_register_offset_allowlist = gb20c_get_hes_register_offset_allowlist,
+	.get_ccuprof_register_offset_allowlist = gb20c_get_ccuprof_register_offset_allowlist,
+	.get_hwpm_perfmon_register_ranges = gb20c_get_hwpm_perfmon_register_ranges,
+	.get_hwpm_router_register_ranges = gb20c_get_hwpm_router_register_ranges,
+	.get_hwpm_pma_channel_register_ranges = gb20c_get_hwpm_pma_channel_register_ranges,
+	.get_hwpm_pc_sampler_register_ranges = gb20c_get_hwpm_pc_sampler_register_ranges,
+	.get_hwpm_pma_trigger_register_ranges = gb20c_get_hwpm_pma_trigger_register_ranges,
+	.get_smpc_register_ranges = gb20c_get_smpc_register_ranges,
+	.get_cau_register_ranges = gb20c_get_cau_register_ranges,
+	.get_hwpm_perfmux_register_ranges = gb20c_get_hwpm_perfmux_register_ranges,
+	.get_hwpm_mm_register_ranges = gb20c_get_hwpm_mm_register_ranges,
+	.get_hes_register_ranges = gb20c_get_hes_register_ranges,
+	.get_hep_register_ranges = gb20c_get_hep_register_ranges,
+	.get_hwpm_perfmon_gpc_reg_base = gb20c_get_hwpm_perfmon_gpc_reg_base,
+	.get_hwpm_perfmon_fbp_reg_base = gb20c_get_hwpm_perfmon_fbp_reg_base,
+	.get_hwpm_perfmon_sys_reg_base = gb20c_get_hwpm_perfmon_sys_reg_base,
+	.get_hwpm_perfmon_gpc_reg_stride = gb20c_get_hwpm_perfmon_gpc_reg_stride,
+	.get_hwpm_router_gpc_reg_base = gb20c_get_hwpm_router_gpc_reg_base,
+	.get_hwpm_router_fbp_reg_base = gb20c_get_hwpm_router_fbp_reg_base,
+	.get_hwpm_router_sys_reg_base = gb20c_get_hwpm_router_sys_reg_base,
+	.get_hwpm_router_gpc_reg_stride = gb20c_get_hwpm_router_gpc_reg_stride,
+	.get_hwpm_pma_trigger_reg_base = gb20c_get_hwpm_pma_trigger_reg_base,
+	.get_hwpm_pmasys_command_slice_stride = gb20c_get_hwpm_pmasys_command_slice_stride,
+	.get_hwpm_gpc0_tpc0_cau_base = gb20c_get_hwpm_gpc0_tpc0_cau_base,
+	.get_hwpm_tpc_cau_range_stride = gb20c_get_hwpm_tpc_cau_range_stride,
+	.get_hwpm_pma_channel_cblock_reg_stride = gb20c_get_hwpm_pma_channel_cblock_reg_stride,
+	.get_hwpm_pma_channel_reg_base = gb20c_get_hwpm_pma_channel_reg_base,
+	.get_hwpm_hem_sys0_base = gb20c_get_hwpm_hem_sys0_base,
+	.get_hwpm_hem_sys0_stride = gb20c_get_hwpm_hem_sys0_stride,
+	.get_hwpm_perf_pmasys_reg_base = gb20c_get_hwpm_perf_pmasys_reg_base,
+	.get_hwpm_perf_ccuprof_units_per_gpc = gb20c_get_hwpm_perf_ccuprof_units_per_gpc,
+	.get_hwpm_perf_ccuprof_units_per_fbp = gb20c_get_hwpm_perf_ccuprof_units_per_fbp,
+	.get_hwpm_perf_ccuprof_gpc0_reg_base = gb20c_get_hwpm_perf_ccuprof_gpc0_reg_base,
+	.get_hwpm_perf_ccuprof_gpcs_reg_base = gb20c_get_hwpm_perf_ccuprof_gpcs_reg_base,
+	.get_hwpm_perf_ccuprof_fbp0_reg_base = gb20c_get_hwpm_perf_ccuprof_fbp0_reg_base,
+	.get_hwpm_perf_ccuprof_fbps_reg_base = gb20c_get_hwpm_perf_ccuprof_fbps_reg_base,
+	.get_hwpm_perf_ccuprof_gpc_reg_stride = gb20c_get_hwpm_perf_ccuprof_gpc_reg_stride,
+	.get_hwpm_perf_ccuprof_fbp_reg_stride = gb20c_get_hwpm_perf_ccuprof_fbp_reg_stride,
+	.get_hwpm_perf_ccuprof_unit_reg_stride = gb20c_get_hwpm_perf_ccuprof_unit_reg_stride,
+	.get_hwpm_gpc0_tpc0_mpc_ccuprof_ulcmux_cntl0 =
+						gb20c_get_hwpm_gpc0_tpc0_mpc_ccuprof_ulcmux_cntl0,
+	.get_hwpm_ltc0_lts0_ccuprof_ulcmux_cntl0 = gb20c_get_hwpm_ltc0_lts0_ccuprof_ulcmux_cntl0,
+	.init_reg_op_type_per_register_type = gb20c_init_reg_op_type_per_register_type,
+	.get_hwpm_perfmon_user_access_register_ranges =
+		gb10b_get_hwpm_perfmon_bitvector_register_ranges,
+	.get_hwpm_router_user_access_register_ranges =
+		gb10b_get_hwpm_router_bitvector_register_ranges,
+	.get_pma_channel_user_access_register_ranges =
+		gb10b_get_hwpm_pma_channel_bitvector_register_ranges,
+	.get_pma_trigger_user_access_register_ranges =
+		gb10b_get_hwpm_pma_trigger_bitvector_register_ranges,
+	.get_smpc_user_access_register_ranges =
+		gb10b_get_hwpm_smpc_bitvector_register_ranges,
+	.get_cau_user_access_register_ranges =
+		gb10b_get_hwpm_cau_bitvector_register_ranges,
+	.get_hes_user_access_register_ranges =
+		gb10b_get_hwpm_hes_bitvector_register_ranges,
+	.get_ccuprof_user_access_register_ranges =
+		gb20c_get_hwpm_ccuprof_bitvector_register_ranges,
+	.allowlist_misc_register_ranges = gb20c_allowlist_misc_register_ranges,
 };
 #endif
 
@@ -1023,10 +1102,22 @@ static const struct gops_debugger vf_gb20c_ops_debugger = {
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 static const struct gops_perf vf_gb20c_ops_perf = {
+	.get_num_hwpm_perfmon = gb20c_perf_get_num_hwpm_perfmon,
 	.get_pmmsys_per_chiplet_offset = gb10b_perf_get_pmmsys_per_chiplet_offset,
 	.get_pmmgpc_per_chiplet_offset = gb10b_perf_get_pmmgpc_per_chiplet_offset,
 	.get_pmmfbp_per_chiplet_offset = gb10b_perf_get_pmmfbp_per_chiplet_offset,
 	.update_get_put = vgpu_perf_update_get_put,
+	.reset_pm_trigger_masks = vf_perf_reset_pm_trigger_masks,
+	.enable_pm_trigger = vf_perf_enable_pm_trigger,
+	.init_inst_block = vf_perf_init_inst_block,
+	.deinit_inst_block = vf_perf_deinit_inst_block,
+	.get_pma_channel_count = gb10b_perf_get_pma_channel_count,
+	.get_pma_channels_per_cblock = gb10b_perf_get_pma_channels_per_cblock,
+	.get_pma_cblock_instance_count = gb20c_perf_get_cblock_instance_count,
+	.get_hwpm_gpcs_base_addr = gb10b_perf_get_hwpm_gpcs_base_addr,
+	.get_hwpm_gpcsrouter_base_addr = gb10b_perf_get_hwpm_gpcsrouter_base_addr,
+	.get_hwpm_fbps_base_addr = gb10b_perf_get_hwpm_fbps_base_addr,
+	.get_hwpm_fbpsrouter_base_addr = gb10b_perf_get_hwpm_fbpsrouter_base_addr,
 };
 #endif
 
@@ -1034,8 +1125,8 @@ static const struct gops_perf vf_gb20c_ops_perf = {
 static const struct gops_perfbuf vf_gb20c_ops_perfbuf = {
 	.perfbuf_enable = vgpu_perfbuffer_enable,
 	.perfbuf_disable = vgpu_perfbuffer_disable,
-	.init_inst_block = vgpu_perfbuffer_init_inst_block,
-	.deinit_inst_block = vgpu_perfbuffer_deinit_inst_block,
+	.init_inst_block = nvgpu_perfbuf_init_inst_block,
+	.deinit_inst_block = nvgpu_perfbuf_deinit_inst_block,
 	.update_get_put = nvgpu_perfbuf_update_get_put,
 };
 #endif
@@ -1050,12 +1141,19 @@ static const struct gops_pm_reservation vf_gb20c_ops_pm_reservation = {
 
 #ifdef CONFIG_NVGPU_PROFILER
 static const struct gops_profiler vf_gb20c_ops_profiler = {
-	.bind_hwpm = vgpu_profiler_bind_hwpm,
-	.unbind_hwpm = vgpu_profiler_unbind_hwpm,
-	.bind_pma_streamout = vgpu_profiler_bind_pma_streamout,
-	.unbind_pma_streamout = vgpu_profiler_unbind_pma_streamout,
-	.bind_smpc = vgpu_profiler_bind_smpc,
-	.unbind_smpc = vgpu_profiler_unbind_smpc,
+	.bind_hwpm = vf_profiler_bind_hwpm,
+	.unbind_hwpm = vf_profiler_unbind_hwpm,
+	.bind_pma_streamout = vf_profiler_bind_pma_streamout,
+	.unbind_pma_streamout = vf_profiler_unbind_pma_streamout,
+	.bind_smpc = vf_gb10b_profiler_bind_smpc,
+	.unbind_smpc = vf_gb10b_profiler_unbind_smpc,
+	.bind_hes_cwd = vf_profiler_bind_hes_cwd,
+	.set_hs_credit_per_chiplet = vf_profiler_set_hs_credit_per_chiplet,
+	.get_hs_credit_per_gpc_chiplet = gb10b_perf_get_hs_credit_per_gpc_chiplet,
+	.get_hs_credit_per_fbp_chiplet = gb10b_perf_get_hs_credit_per_fbp_chiplet,
+	.get_hs_credit_per_sys_pipe_for_profiling = gb10b_perf_get_hs_credit_per_sys_pipe_for_profiling,
+	.get_hs_credit_per_sys_pipe_for_hes = gb10b_perf_get_hs_credit_per_sys_pipe_for_hes,
+	.unbind_ccuprof = vf_gb20c_profiler_unbind_ccuprof,
 };
 #endif
 
@@ -1071,9 +1169,9 @@ static const struct gops_bus vf_gb20c_ops_bus = {
 
 static const struct gops_ptimer vf_gb20c_ops_ptimer = {
 	.isr = NULL,
-	.read_ptimer = vgpu_read_ptimer,
+	.read_ptimer = ga10b_func_read_ptimer,
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
-	.get_timestamps_zipper = vgpu_get_timestamps_zipper,
+	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
 #endif
 #ifdef CONFIG_NVGPU_PROFILER
 	.get_timer_reg_offsets = gv11b_ptimer_get_timer_reg_offsets,

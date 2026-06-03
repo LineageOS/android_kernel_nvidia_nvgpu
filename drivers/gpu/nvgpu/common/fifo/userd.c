@@ -106,7 +106,12 @@ int nvgpu_userd_setup_sw(struct gk20a *g)
 		return err;
 	}
 
-	size = f->num_channels * g->ops.userd.entry_size(g);
+	if (!nvgpu_safe_mult_u32_return(f->num_channels, g->ops.userd.entry_size(g), &size)) {
+		nvgpu_err(g, "Arithmetic Overflow");
+		err = -EOVERFLOW;
+		goto clean_up;
+	}
+
 	num_pages = DIV_ROUND_UP(size, NVGPU_CPU_PAGE_SIZE);
 	err = nvgpu_vm_area_alloc(g->mm.bar1.vm,
 			num_pages, NVGPU_CPU_PAGE_SIZE, &f->userd_gpu_va, 0);

@@ -17,8 +17,17 @@ int nvgpu_channel_alloc_job(struct nvgpu_channel *c,
 {
 	unsigned int put = c->joblist.pre_alloc.put;
 	unsigned int get = c->joblist.pre_alloc.get;
-	unsigned int next = (put + 1) % c->joblist.pre_alloc.length;
-	bool full = next == get;
+	unsigned int next;
+	bool full;
+	u32 val = 0U;
+
+	if (!nvgpu_safe_add_u32_return(put, 1U, &val)) {
+		nvgpu_err(c->g, "Arithmetic Overflow");
+		return -EOVERFLOW;
+	}
+
+	next = val % c->joblist.pre_alloc.length;
+	full = next == get;
 
 	if (full) {
 		return -EAGAIN;

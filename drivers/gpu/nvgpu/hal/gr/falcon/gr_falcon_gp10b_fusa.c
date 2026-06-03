@@ -47,7 +47,8 @@ int gp10b_gr_falcon_init_ctx_state(struct gk20a *g,
 int gp10b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 						u32 data, u32 *ret_val)
 {
-#if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_CILP)
+#if defined(CONFIG_NVGPU_GFXP) ||\
+(defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP))
 	struct nvgpu_fecs_method_op op = {
 		.mailbox = { .id = 0U, .data = 0U, .ret = NULL,
 			     .clr = ~U32(0U), .ok = 0U, .fail = 0U},
@@ -61,7 +62,8 @@ int gp10b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 	nvgpu_log_info(g, "fecs method %d data 0x%x ret_val %p",
 				fecs_method, data, ret_val);
 
-#if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_CILP)
+#if defined(CONFIG_NVGPU_GFXP) ||\
+(defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP))
 	switch (fecs_method) {
 #ifdef CONFIG_NVGPU_GFXP
 	case NVGPU_GR_FALCON_METHOD_PREEMPT_IMAGE_SIZE:
@@ -71,8 +73,7 @@ int gp10b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 		ret = gm20b_gr_falcon_submit_fecs_method_op(g, op, 0U, fecs_method);
 	break;
 #endif
-
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 	case NVGPU_GR_FALCON_METHOD_CONFIGURE_CTXSW_INTR:
 		op.method.addr =
 			gr_fecs_method_push_adr_configure_interrupt_completion_option_v();
@@ -83,11 +84,11 @@ int gp10b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 		ret = gm20b_gr_falcon_submit_fecs_sideband_method_op(g, op);
 	break;
 #endif
-
 	default:
 #endif
 		ret = gm20b_gr_falcon_ctrl_ctxsw(g, fecs_method, data, ret_val);
-#if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_CILP)
+#if defined(CONFIG_NVGPU_GFXP) ||\
+(defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP))
 	break;
 	}
 #endif

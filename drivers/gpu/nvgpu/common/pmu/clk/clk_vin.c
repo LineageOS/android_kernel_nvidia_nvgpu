@@ -1,25 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-/* SPDX-FileCopyrightText: Copyright (c) 2016-2025, NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bios.h>
 #include <nvgpu/pmu/pmuif/nvgpu_cmdif.h>
@@ -37,6 +17,7 @@
 #include "ucode_clk_inf.h"
 #include "clk_vin.h"
 #include "clk.h"
+#include "common/pmu/volt/volt.h"
 
 static s32 devinit_get_vin_device_table(struct gk20a *g,
 		struct nvgpu_avfsvinobjs *pvinobjs);
@@ -75,7 +56,7 @@ static s32 nvgpu_clk_avfs_get_vin_cal_fuse_v20(struct gk20a *g,
 {
 	s32 status = 0;
 	s8 gain, offset;
-	u8 i;
+	u16 i;
 
 	if (pvinobjs->calibration_rev_vbios ==
 			g->ops.fuse.read_vin_cal_fuse_rev(g)) {
@@ -124,7 +105,7 @@ static s32 clk_vin_devgrp_pmudatainit_super(struct gk20a *g,
 
 static s32 clk_vin_devgrp_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-		struct nv_pmu_boardobj **pmu_obj, u8 idx)
+		struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_clk_clk_vin_device_boardobj_grp_set *pgrp_set =
 		(struct nv_pmu_clk_clk_vin_device_boardobj_grp_set *)
@@ -139,13 +120,14 @@ static s32 clk_vin_devgrp_pmudata_instget(struct gk20a *g,
 
 	*pmu_obj = (struct nv_pmu_boardobj *)
 		&pgrp_set->objects[idx].data.obj;
+
 	nvgpu_log_info(g, " Done");
 	return 0;
 }
 
 static s32 clk_vin_devgrp_pmustatus_instget(struct gk20a *g,
 		void *pboardobjgrppmu,
-		struct nv_pmu_boardobj_query **obj_pmu_status, u8 idx)
+		struct nv_pmu_boardobj_query **obj_pmu_status, u16 idx)
 {
 	struct nv_pmu_clk_clk_vin_device_boardobj_grp_get_status
 	*pgrp_get_status =
@@ -164,14 +146,91 @@ static s32 clk_vin_devgrp_pmustatus_instget(struct gk20a *g,
 	return 0;
 }
 
+static s32 clk_adc_devgrp_pmudatainit_super(struct gk20a *g,
+	struct boardobjgrp *pboardobjgrp,
+	struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
+{
+	struct nv_pmu_clk_clk_adc_device_boardobjgrp_set_header *pset =
+		(struct nv_pmu_clk_clk_adc_device_boardobjgrp_set_header *)
+		pboardobjgrppmu;
+	struct nvgpu_avfsvinobjs *pvin_obbj = (struct nvgpu_avfsvinobjs *)
+			(void *)pboardobjgrp;
+	struct nvgpu_avfs_adcobjs_v20 *pAdcObjs20 =
+			(struct nvgpu_avfs_adcobjs_v20 *) pboardobjgrp;
+	s32 status = 0;
+
+	nvgpu_log_info(g, " ");
+
+	status = boardobjgrp_pmudatainit_e32(g, pboardobjgrp, pboardobjgrppmu);
+
+	pboardobjgrppmu->classType = pboardobjgrppmu->class_id;
+
+	pset->bAdcIsDisableAllowed = pvin_obbj->vin_is_disable_allowed;
+	pset->version = pvin_obbj->version;
+
+	status = nvgpu_boardobjgrpmask_export(
+		&pvin_obbj->naffl_adc_devices_mask.super,
+		pvin_obbj->naffl_adc_devices_mask.super.bitcount,
+		&pset->nafllAdcDevicesMask.super);
+
+	pset->data.adcsV20.lowTemp = pAdcObjs20->data.low_temperature;
+	pset->data.adcsV20.highTemp = pAdcObjs20->data.high_temperature;
+	pset->data.adcsV20.refTemp = pAdcObjs20->data.ref_temperature;
+	pset->data.adcsV20.adcCodeCorrectionOffsetMin = pAdcObjs20->data.adc_code_correction_offset_min;
+	pset->data.adcsV20.adcCodeCorrectionOffsetMax = pAdcObjs20->data.adc_code_correction_offset_max;
+	pset->data.adcsV20.tempVfeVarIdx = pAdcObjs20->data.temperature_vfe_var_idx;
+	pset->data.adcsV20.lowVoltuV = pAdcObjs20->data.low_volt_uv;
+	pset->data.adcsV20.highVoltuV = pAdcObjs20->data.high_volt_uv;
+	pset->data.adcsV20.refVoltuV = pAdcObjs20->data.ref_volt_uv;
+
+	if (status != 0) {
+		nvgpu_err(g, "export mask failed.");
+		goto done;
+	}
+
+done:
+	nvgpu_log_info(g, " Done. status %d", status);
+	return status;
+}
+
+static s32 clk_adc_devgrp_pmudata_instget(struct gk20a *g,
+	struct nv_pmu_boardobjgrp *pmuboardobjgrp,
+	struct nv_pmu_boardobj **pmu_obj, u16 idx)
+{
+	struct nv_pmu_clk_clk_adc_device_boardobj_grp_set *pgrp_set =
+		(struct nv_pmu_clk_clk_adc_device_boardobj_grp_set *)
+		pmuboardobjgrp;
+
+	nvgpu_log_info(g, " ");
+
+	/* check whether pmuboardobjgrp has a valid boardobj in index */
+	if (((u32)BIT(idx) &
+		pgrp_set->hdr.data.super.obj_mask.super.data[0]) == 0U)
+		return -EINVAL;
+
+	*pmu_obj = (struct nv_pmu_boardobj *)
+		&pgrp_set->objects[idx].data.obj;
+
+	nvgpu_log_info(g, " Done");
+
+	return 0;
+}
+
 s32 clk_vin_sw_setup(struct gk20a *g)
 {
 	s32 status;
 	struct boardobjgrp *pboardobjgrp = NULL;
-	struct vin_device_v20 *pvindev = NULL;
-	struct nvgpu_avfsvinobjs *pvinobjs;
 
 	nvgpu_log_info(g, " ");
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &g->pmu->clk_pmu->avfs_vinobjs->super.super;
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_vin boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_vin boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->clk_pmu->avfs_vinobjs->super);
@@ -182,13 +241,10 @@ s32 clk_vin_sw_setup(struct gk20a *g)
 		goto done;
 	}
 
-	pboardobjgrp = &g->pmu->clk_pmu->avfs_vinobjs->super.super;
-	pvinobjs = g->pmu->clk_pmu->avfs_vinobjs;
-
-	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, VIN_DEVICE);
+	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, CLK_ADC_DEVICE);
 
 	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
-			clk, CLK, clk_vin_device, CLK_VIN_DEVICE);
+			clk, CLK, clk_vin_device, CLK_ADC_DEVICE);
 	if (status != 0) {
 		nvgpu_err(g,
 			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
@@ -196,28 +252,13 @@ s32 clk_vin_sw_setup(struct gk20a *g)
 		goto done;
 	}
 
-// _mg_ Todo: pmudata...() need updates for ADC_DEVICE_V30
-	pboardobjgrp->pmudatainit  = clk_vin_devgrp_pmudatainit_super;
-	pboardobjgrp->pmudatainstget  = clk_vin_devgrp_pmudata_instget;
-	pboardobjgrp->pmustatusinstget  = clk_vin_devgrp_pmustatus_instget;
-
 	status = devinit_get_vin_device_table(g, g->pmu->clk_pmu->avfs_vinobjs);
 	if (status != 0)
 		goto done;
 
-	/* update vin calibration to fuse only if non-v30 device */
-	if (pvinobjs->version != NV2080_CTRL_CLK_ADC_DEVICES_V30) {
-		status = nvgpu_clk_avfs_get_vin_cal_fuse_v20(g, pvinobjs, pvindev);
-		if (status != 0) {
-			nvgpu_err(g, "clk_avfs_get_vin_cal_fuse_v20 failed err=%d",
-				status);
-			goto done;
-		}
-	}
-
 	status = BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g,
 				&g->pmu->clk_pmu->avfs_vinobjs->super.super,
-				clk, CLK, clk_vin_device, CLK_VIN_DEVICE);
+				clk, CLK, clk_vin_device, CLK_ADC_DEVICE);
 	if (status != 0) {
 		nvgpu_err(g,
 			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
@@ -260,7 +301,8 @@ static s32 devinit_get_vin_device_table(struct gk20a *g,
 	s8 offset = 0, gain = 0;
 	struct clk_vin_device *pvin_dev;
 	u32 cal_type;
-
+	struct boardobjgrp *pboardobjgrp =
+			&pvinobjs->super.super;
 	union {
 		struct pmu_board_obj obj;
 		struct clk_vin_device vin_device;
@@ -284,6 +326,11 @@ static s32 devinit_get_vin_device_table(struct gk20a *g,
 		status = devinit_get_adc_device_table_v2x(g, pvinobjs);
 		goto done;
 	}
+
+	pboardobjgrp->pmudatainit  = clk_vin_devgrp_pmudatainit_super;
+	pboardobjgrp->pmudatainstget  = clk_vin_devgrp_pmudata_instget;
+	pboardobjgrp->pmustatusinstget  = clk_vin_devgrp_pmustatus_instget;
+
 	pvinobjs->version = (vin_desc_table_header.version == NV_VIN_DESCRIPTOR_10_HEADER_VERSION) ?
 			NV2080_CTRL_CLK_VIN_DEVICES_V10 :
 			NV2080_CTRL_CLK_VIN_DEVICES_DISABLED;
@@ -344,6 +391,14 @@ static s32 devinit_get_vin_device_table(struct gk20a *g,
 				(struct pmu_board_obj *)pvin_dev, (u8)index);
 
 		vin_tbl_entry_ptr += vin_desc_table_header.entry_size;
+	}
+
+	/* update vin calibration to fuse */
+	status = nvgpu_clk_avfs_get_vin_cal_fuse_v20(g, pvinobjs, &vin_device_data.vin_device_v20);
+	if (status != 0) {
+		nvgpu_err(g, "clk_avfs_get_vin_cal_fuse_v20 failed err=%d",
+			status);
+		goto done;
 	}
 
 done:
@@ -504,7 +559,9 @@ static s32 adc_device_init_pmudata_super(struct gk20a *g,
 {
 	s32 status = 0;
 	struct clk_adc_device *padc_dev;
+	struct ctrl_clk_adc_device_v30 *pv30_dev;
 	struct nv_pmu_clk_clk_adc_device_boardobj_set *perf_pmu_data;
+	struct nv_pmu_clk_clk_adc_device_v30_boardobj_set *pv30_pmu_data;
 
 	nvgpu_log_info(g, " ");
 
@@ -513,19 +570,39 @@ static s32 adc_device_init_pmudata_super(struct gk20a *g,
 		goto done;
 
 	padc_dev = (struct clk_adc_device *)obj;
+	pv30_dev = (struct ctrl_clk_adc_device_v30 *) obj;
 	perf_pmu_data = (struct nv_pmu_clk_clk_adc_device_boardobj_set *)
 		pmu_obj;
+	pv30_pmu_data = (struct nv_pmu_clk_clk_adc_device_v30_boardobj_set *) pmu_obj;
 
 	perf_pmu_data->id = padc_dev->id;
 	perf_pmu_data->naflls_shared_mask = padc_dev->naflls_shared_mask;
 	perf_pmu_data->override_mode = padc_dev->override_mode;
-	// _mg_ Todo: volt rail idx needs to be copied to nafll dev obj and in state_load callback.
+
+	switch (padc_dev->volt_domain_vbios) {
+	case 0:
+	{
+		padc_dev->volt_domain = CTRL_VOLT_DOMAIN_LOGIC;
+		break;
+	}
+	case 1:
+	{
+		padc_dev->volt_domain = CTRL_VOLT_DOMAIN_MSVDD;
+		break;
+	}
+	default:
+		padc_dev->volt_domain = CTRL_VOLT_DOMAIN_INVALID;
+		break;
+	}
 	perf_pmu_data->volt_rail_idx =
 			nvgpu_pmu_volt_rail_volt_domain_convert_to_idx(
 					g, padc_dev->volt_domain);
 	perf_pmu_data->dynamic_cal = padc_dev->dynamic_cal;
 	perf_pmu_data->logical_api_id = padc_dev->logical_api_id;
 	perf_pmu_data->devinit_enabled = padc_dev->devinit_enabled;
+
+	// Copy in the type specific members.
+	pv30_pmu_data->data = pv30_dev->data;
 
 done:
 	nvgpu_log_info(g, " Done. status %d", status);
@@ -701,6 +778,8 @@ static s32 devinit_get_adc_device_table_v2x(struct gk20a *g,
 	struct pmu_board_obj             *pboardObj;
 	struct clk_adc_device            *padcDevice;
 	struct ctrl_clk_adc_device_v30   *padcDeviceV30;
+	struct boardobjgrp *pboardObjGrp =
+			&pAdcObjs->super.super;
 
 	nvgpu_log_info(g, " ");
 
@@ -715,6 +794,10 @@ static s32 devinit_get_adc_device_table_v2x(struct gk20a *g,
 	padcDevice = &padcDeviceV30->super.super;
 	pboardObj  = &padcDevice->super;
 
+	pboardObjGrp->pmudatainit  = clk_adc_devgrp_pmudatainit_super;
+	pboardObjGrp->pmudatainstget  = clk_adc_devgrp_pmudata_instget;
+	pboardObjGrp->pmustatusinstget  = clk_vin_devgrp_pmustatus_instget;
+
 
 	adc_table_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
 			nvgpu_bios_get_bit_token(g, NVGPU_BIOS_CLOCK_TOKEN),
@@ -726,7 +809,6 @@ static s32 devinit_get_adc_device_table_v2x(struct gk20a *g,
 
 	nvgpu_memcpy((u8 *)&adc_desc_table_header, adc_table_ptr,
 			sizeof(struct adc_descriptor_header_20));
-
 	if (adc_desc_table_header.version != NV_ADC_DESCRIPTOR_20_HEADER_VERSION) {
 		nvgpu_err(g, "Unsupported ADC table version: %x  want: %x",
 				adc_desc_table_header.version,
@@ -734,7 +816,8 @@ static s32 devinit_get_adc_device_table_v2x(struct gk20a *g,
 		status = -EINVAL;
 		goto done;
 	}
-	pAdcObjs->version = NV2080_CTRL_CLK_ADC_DEVICES_V30;
+	// Set to the VBIOS table version
+	pAdcObjs->version = 2;
 
 	/* populate boardobjs with VBIOS table data */
 
@@ -918,10 +1001,10 @@ static s32 devinit_get_adc_device_table_v2x(struct gk20a *g,
 
 			padcDevice->devinit_enabled =
 					BIOS_GET_FIELD(bool,
-					adc_desc_table_entry.flags,
-					NV_ADC_FLAG_DEVINIT_ENABLE);
+									adc_desc_table_entry.flags,
+				NV_ADC_FLAG_DEVINIT_ENABLE);
 
-			status = nvgpu_boardobjgrpmask_bit_set(
+		status = nvgpu_boardobjgrpmask_bit_set(
 					&pAdcObjs->naffl_adc_devices_mask.super, (u8)index);
 			if (status != 0) {
 				nvgpu_err(g, "Setting NAFFLL ADC device mask failed - %d\n", index);

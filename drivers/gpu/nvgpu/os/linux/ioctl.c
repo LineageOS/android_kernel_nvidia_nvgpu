@@ -11,6 +11,7 @@
 
 #include <linux/file.h>
 #include <linux/slab.h>
+#include <uapi/linux/nvgpu.h>
 
 #include <nvgpu/nvgpu_common.h>
 #include <nvgpu/gk20a.h>
@@ -26,10 +27,14 @@
 #include "ioctl_prof.h"
 #include "power_ops.h"
 #include "ioctl_nvs.h"
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+#include "ioctl_gsp_vm_sched.h"
+#endif
 #include "ioctl.h"
 #include "module.h"
 #include "os_linux.h"
 #include "fecs_trace_linux.h"
+#include "multimedia_trace_linux.h"
 #include "platform_gk20a.h"
 
 const struct file_operations gk20a_power_node_ops = {
@@ -143,6 +148,21 @@ static const struct file_operations gk20a_ctxsw_ops = {
 };
 #endif
 
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+static const struct file_operations nvgpu_multimedia_ops = {
+	.owner = THIS_MODULE,
+	.release = nvgpu_multimedia_dev_release,
+	.open = nvgpu_multimedia_dev_open,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = nvgpu_multimedia_dev_ioctl,
+#endif
+	.unlocked_ioctl = nvgpu_multimedia_dev_ioctl,
+	.poll = nvgpu_multimedia_dev_poll,
+	.read = nvgpu_multimedia_dev_read,
+	.mmap = nvgpu_multimedia_dev_mmap,
+};
+#endif
+
 static const struct file_operations gk20a_sched_ops = {
 	.owner = THIS_MODULE,
 	.release = gk20a_sched_dev_release,
@@ -176,6 +196,18 @@ static const struct file_operations nvgpu_nvs_ops = {
 	.read           = nvgpu_nvs_dev_read,
 };
 
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+static const struct file_operations nvgpu_gsp_vm_sched_ops = {
+	.owner = THIS_MODULE,
+	.release = nvgpu_gsp_vm_sched_dev_release,
+	.open = nvgpu_gsp_vm_sched_dev_open,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = nvgpu_gsp_vm_sched_dev_ioctl,
+#endif
+	.unlocked_ioctl = nvgpu_gsp_vm_sched_dev_ioctl,
+};
+#endif
+
 struct nvgpu_dev_node {
 	/* Device node name */
 	char name[20];
@@ -195,6 +227,9 @@ static const struct nvgpu_dev_node dev_node_list[] = {
 #if defined(CONFIG_NVGPU_FECS_TRACE)
 	{"ctxsw",	&gk20a_ctxsw_ops,	false,	true	},
 #endif
+#if defined(CONFIG_NVGPU_MULTIMEDIA_TRACE)
+	{"multimedia",	&nvgpu_multimedia_ops,	false,	true	},
+#endif
 	{"dbg",		&gk20a_dbg_ops,		false,	true	},
 	{"prof",	&gk20a_prof_ops,	false,	true	},
 	{"prof-ctx",	&gk20a_prof_ctx_ops,	false,	true	},
@@ -202,6 +237,9 @@ static const struct nvgpu_dev_node dev_node_list[] = {
 	{"sched",	&gk20a_sched_ops,	false,	false	},
 	{"nvsched",	&nvgpu_nvs_ops,		false,	false	},
 	{"nvsched_ctrl_fifo",	&nvgpu_nvs_ctrl_fifo_ops,	false,	false	},
+#ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
+	{"gsp_vm_sched",	&nvgpu_gsp_vm_sched_ops,	false,	false	},
+#endif
 	{"tsg",		&gk20a_tsg_ops,		false,	false	},
 };
 
@@ -649,6 +687,8 @@ static int nvgpu_prepare_dev_node_class_list(struct gk20a *g, u32 *num_classes,
 static bool check_valid_dev_node(struct gk20a *g, struct nvgpu_class *class,
 		const struct nvgpu_dev_node *node)
 {
+	struct gk20a_platform *platform = gk20a_get_platform(dev_from_gk20a(g));
+
 	if (nvgpu_grmgr_is_multi_gr_enabled(g)) {
 		if ((class->instance_type == NVGPU_MIG_TYPE_PHYSICAL) &&
 		    !node->mig_physical_node) {
@@ -662,6 +702,19 @@ static bool check_valid_dev_node(struct gk20a *g, struct nvgpu_class *class,
 	if ((!g->support_gpu_tools) && (node->tools_node)) {
 		return false;
 	}
+
+	/* Do not create nvsched device node if scheduling domains are not supported */
+	if (strcmp(node->name, "nvsched") == 0) {
+#ifdef CONFIG_NVS_PRESENT
+		if (!platform->has_scheduling_domains) {
+			return false;
+		}
+#else
+		/* Always skip nvsched if CONFIG_NVS_PRESENT not defined */
+		return false;
+#endif
+	}
+
 	return true;
 }
 
@@ -833,4 +886,70 @@ u32 nvgpu_get_gpu_instance_id_from_cdev(struct gk20a *g, struct nvgpu_cdev *cdev
 	}
 
 	return 0;
+}
+
+u32 nvgpu_engine_id_to_dev_type(u32 engine_id)
+{
+	switch (engine_id) {
+	case NVGPU_GPU_ENGINE_ID_GR:
+		return NVGPU_DEVTYPE_GRAPHICS;
+	case NVGPU_GPU_ENGINE_ID_ASYNC_COPY:
+		return NVGPU_DEVTYPE_LCE;
+	case NVGPU_GPU_ENGINE_ID_NVENC:
+		return NVGPU_DEVTYPE_NVENC;
+	case NVGPU_GPU_ENGINE_ID_OFA:
+		return NVGPU_DEVTYPE_OFA;
+	case NVGPU_GPU_ENGINE_ID_NVDEC:
+		return NVGPU_DEVTYPE_NVDEC;
+	case NVGPU_GPU_ENGINE_ID_NVJPG:
+		return NVGPU_DEVTYPE_NVJPG;
+	}
+
+	return NVGPU_MAX_DEVTYPE;
+}
+
+u32 nvgpu_fifo_engine_to_upi_engine_id(u32 fifo_engine_type)
+{
+	switch (fifo_engine_type) {
+	case NVGPU_ENGINE_GR:
+		return NVGPU_GPU_ENGINE_ID_GR;
+	case NVGPU_ENGINE_GRCE:
+		return NVGPU_GPU_ENGINE_ID_GR_COPY;
+	case NVGPU_ENGINE_ASYNC_CE:
+		return NVGPU_GPU_ENGINE_ID_ASYNC_COPY;
+	case NVGPU_ENGINE_NVENC:
+		return NVGPU_GPU_ENGINE_ID_NVENC;
+	case NVGPU_ENGINE_OFA:
+		return NVGPU_GPU_ENGINE_ID_OFA;
+	case NVGPU_ENGINE_NVDEC:
+		return NVGPU_GPU_ENGINE_ID_NVDEC;
+	case NVGPU_ENGINE_NVJPG:
+		return NVGPU_GPU_ENGINE_ID_NVJPG;
+	case NVGPU_ENGINE_INVAL:
+	default:
+		return NVGPU_GPU_ENGINE_ID_MAX;
+	}
+}
+
+u32 nvgpu_uapi_engine_id_to_fifo_engine(u32 uapi_engine_id)
+{
+	switch (uapi_engine_id) {
+	case NVGPU_GPU_ENGINE_ID_GR:
+		return NVGPU_ENGINE_GR;
+	case NVGPU_GPU_ENGINE_ID_GR_COPY:
+		return NVGPU_ENGINE_GRCE;
+	case NVGPU_GPU_ENGINE_ID_ASYNC_COPY:
+		return NVGPU_ENGINE_ASYNC_CE;
+	case NVGPU_GPU_ENGINE_ID_NVENC:
+		return NVGPU_ENGINE_NVENC;
+	case NVGPU_GPU_ENGINE_ID_OFA:
+		return NVGPU_ENGINE_OFA;
+	case NVGPU_GPU_ENGINE_ID_NVDEC:
+		return NVGPU_ENGINE_NVDEC;
+	case NVGPU_GPU_ENGINE_ID_NVJPG:
+		return NVGPU_ENGINE_NVJPG;
+	case NVGPU_GPU_ENGINE_ID_MAX:
+	default:
+		return NVGPU_ENGINE_INVAL;
+	}
 }

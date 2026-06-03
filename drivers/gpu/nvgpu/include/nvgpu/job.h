@@ -16,8 +16,6 @@ struct nvgpu_channel;
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
 
 struct nvgpu_channel_job {
-	struct nvgpu_mapped_buf **mapped_buffers;
-	u32 num_mapped_buffers;
 	struct nvgpu_fence_type post_fence;
 	struct nvgpu_semaphore *gpfifo_sema;
 	struct priv_cmd_entry *wait_cmd;

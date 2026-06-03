@@ -122,7 +122,7 @@ struct nvgpu_gr {
 	bool can_broadcast_stop_trigger;
 #endif
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 	bool cilp_preempt_pending;
 	u32 cilp_preempt_pending_gfid;
 	u32 cilp_preempt_pending_tsgid;

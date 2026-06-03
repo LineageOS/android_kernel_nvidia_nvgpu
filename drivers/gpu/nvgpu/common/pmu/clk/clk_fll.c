@@ -1,26 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-/* SPDX-FileCopyrightText: Copyright (c) 2016-2025, NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
+#include <nvgpu/io.h>
+#include <nvgpu/hw/gb20c/hw_fuse_gb20c.h>
 #include <nvgpu/bios.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/boardobjgrp.h>
@@ -30,7 +12,7 @@
 #include <nvgpu/string.h>
 #include <nvgpu/pmu/clk/clk.h>
 
-#include "../volt/volt.h"
+#include "common/pmu/volt/volt.h"
 #include "ucode_clk_inf.h"
 #include "clk_fll.h"
 #include "clk_vin.h"
@@ -50,12 +32,14 @@ static s32 fll_device_init_pmudata_super(struct gk20a *g,
 
 static u32 clk_get_vbios_clk_domain(u32 vbios_domain);
 static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
-		struct clk_avfs_fll_objs_v20 *pfllobjs);
+		struct clk_avfs_fll_objs *pfllobjs);
 static struct nafll_device_v35 *construct_nafll_device_v35(struct gk20a *g,
 		void *pargs);
 static s32 nafll_v35_device_init_pmudata_super(struct gk20a *g,
 		struct pmu_board_obj *obj,
 		struct nv_pmu_boardobj *pmu_obj);
+static s32 nafllLutProgMaskSet_V35(struct gk20a *g,
+		struct nafll_device *pNafll);
 
 u8 clk_get_fll_lut_vf_num_entries(struct nvgpu_clk_pmupstate *pclk)
 {
@@ -70,6 +54,84 @@ u32 nvgpu_pmu_clk_fll_get_lut_min_volt(struct nvgpu_clk_pmupstate *pclk)
 u32 nvgpu_pmu_clk_fll_get_lut_step_size(struct nvgpu_clk_pmupstate *pclk)
 {
 	return ((pclk)->avfs_fllobjs->lut_step_size_uv);
+}
+
+static s32 clkNafllDeviceStateLoad(struct gk20a *g,
+	struct nafll_device *pDev)
+{
+	s32 status = 0;
+	struct nvgpu_clk_domain *pClkDomain;
+
+	if (pDev == NULL) {
+		status = -EINVAL;
+		goto done;
+	}
+
+	// Calculate the number of LUT entries & LUT stride
+	// From Ampere and onwards only 6.25 mv step sizes are supported
+	g->pmu->clk_pmu->avfs_fllobjs->lut_num_entries = ((CTRL_CLK_LUT_MAX_VOLTAGE_UV -
+		CTRL_CLK_LUT_MIN_VOLTAGE_UV) / CTRL_CLK_VIN_STEP_SIZE_UV);
+
+	pDev->regime_desc.regime_id = CTRL_CLK_FLL_REGIME_ID_FFR;
+
+	pClkDomain =
+		clkDomainsFindByApiDomain(g, pDev->clk_domain);
+
+	if (pClkDomain == NULL) {
+		status = -EINVAL;
+		goto done;
+	}
+	pDev->rail_idx_for_lut = clkDomainProgVoltRailIdxGet_50_PROG_PHYSICAL(g, pClkDomain);
+
+	status = nafllLutProgMaskSet_V35(g, pDev);
+
+done:
+	return status;
+}
+
+static s32 nafllLutBroadcastSlaveRegister(struct gk20a *g,
+	struct nafll_device *pfll,
+	struct nafll_device *pfll_slave)
+{
+	(void)g;
+
+	if (pfll->clk_domain != pfll_slave->clk_domain)
+		return -EINVAL;
+
+	return nvgpu_boardobjgrpmask_bit_set(&pfll->
+		lut_prog_bcast_secndary_mask.super,
+		pmu_board_obj_get_idx(&pfll_slave->super));
+}
+
+static s32 nafllLutProgMaskSet_V35(struct gk20a *g,
+	struct nafll_device *pNafll)
+{
+	s32 status = 0;
+
+	// Early return with no action taken if not in broadcast NAFLL mask
+	if (!nvgpu_boardobjgrpmask_bit_get(
+		&g->pmu->clk_pmu->avfs_fllobjs->broadcast_nafll_dev_mask.super,
+		pNafll->super.idx))
+		goto done;
+
+	// Always set its bit in lut_prog_master_mask
+	status = nvgpu_boardobjgrpmask_bit_set(
+		&g->pmu->clk_pmu->avfs_fllobjs->lut_prog_master_mask.super,
+		pNafll->super.idx);
+	if (status != 0) {
+		nvgpu_err(g, "Could not set bit in master mask: status=%d, idx=%d.",
+			status, pNafll->super.idx);
+	}
+
+	// Always self-register to set the bit in the SECONDARY mask.
+	status = nafllLutBroadcastSlaveRegister(g, pNafll, pNafll);
+	if (status != 0) {
+		nvgpu_err(g, "Could not register broadcast slave with master: status=%d, nafllIdx=%d.",
+			status, pNafll->super.idx);
+	}
+
+done:
+	return status;
 }
 
 static s32 clk_fll_devgrp_pmudatainit_super(struct gk20a *g,
@@ -104,9 +166,112 @@ static s32 clk_fll_devgrp_pmudatainit_super(struct gk20a *g,
 	return status;
 }
 
+static s32 clk_fll_devgrp_pmudatainit_super_v35(struct gk20a *g,
+		struct boardobjgrp *pboardobjgrp,
+		struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
+{
+	struct nv_pmu_clk_clk_nafll_device_boardobjgrp_set_header *pset =
+		(struct nv_pmu_clk_clk_nafll_device_boardobjgrp_set_header *)
+		pboardobjgrppmu;
+	struct clk_avfs_fll_objs *pfll_objs = (struct clk_avfs_fll_objs *)
+		pboardobjgrp;
+	s32 status = 0;
+
+	nvgpu_log_info(g, " ");
+
+	status = boardobjgrp_pmudatainit_e32(g, pboardobjgrp, pboardobjgrppmu);
+	if (status != 0) {
+		nvgpu_err(g, "failed to init nafll pmuobjgrp");
+		return status;
+	}
+
+	pset->lut_num_entries = pfll_objs->lut_num_entries;
+	pset->lut_step_size_uv = pfll_objs->lut_step_size_uv;
+	pset->lut_min_voltage_uv = pfll_objs->lut_min_voltage_uv;
+	pset->max_min_freq_mhz = pfll_objs->max_min_freq_mhz;
+	pset->b_die1_all_gpc_floorswept = pfll_objs->b_die1_all_gpc_floorswept;
+
+	status = nvgpu_boardobjgrpmask_export(
+		&pfll_objs->unicast_nafll_dev_mask.super,
+		pfll_objs->unicast_nafll_dev_mask.super.bitcount,
+		&pset->unicast_nafll_dev_mask.super);
+	if (status != 0) {
+		nvgpu_err(g, "export mask failed.");
+		goto done;
+	}
+
+	status = nvgpu_boardobjgrpmask_export(
+		&pfll_objs->broadcast_nafll_dev_mask.super,
+		pfll_objs->broadcast_nafll_dev_mask.super.bitcount,
+		&pset->broadcast_nafll_dev_mask.super);
+	if (status != 0) {
+		nvgpu_err(g, "export mask failed.");
+		goto done;
+	}
+
+	status = nvgpu_boardobjgrpmask_export(
+		&pfll_objs->lut_prog_master_mask.super,
+		pfll_objs->lut_prog_master_mask.super.bitcount,
+		&pset->lut_prog_master_mask.super);
+	if (status != 0) {
+		nvgpu_err(g, "export mask failed.");
+		goto done;
+	}
+
+done:
+	nvgpu_log_info(g, " Done");
+	return status;
+}
+
+static s32 clk_fll_devgrp_pmudata_instget_v35(struct gk20a *g,
+		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
+		struct nv_pmu_boardobj **pmu_obj, u16 idx)
+{
+	struct nv_pmu_clk_clk_nafll_device_boardobj_grp_set  *pgrp_set =
+		(struct nv_pmu_clk_clk_nafll_device_boardobj_grp_set *)
+		pmuboardobjgrp;
+
+	nvgpu_log_info(g, " ");
+
+	/*check whether pmuboardobjgrp has a valid boardobj in index*/
+	if (((u32)BIT(idx) &
+		pgrp_set->hdr.data.super.obj_mask.super.data[0]) == 0U) {
+		return -EINVAL;
+	}
+
+	*pmu_obj = (struct nv_pmu_boardobj *)
+		&pgrp_set->objects[idx].data.obj;
+
+	nvgpu_log_info(g, " Done");
+	return 0;
+}
+
+static s32 clk_fll_devgrp_pmustatus_instget_v35(struct gk20a *g,
+		void *pboardobjgrppmu,
+		struct nv_pmu_boardobj_query **obj_pmu_status, u16 idx)
+{
+	struct nv_pmu_clk_clk_nafll_device_v2_boardobj_grp_get_status
+	*pgrp_get_status =
+		(struct nv_pmu_clk_clk_nafll_device_v2_boardobj_grp_get_status *)
+		pboardobjgrppmu;
+
+	(void)g;
+
+	/*check whether pmuboardobjgrp has a valid boardobj in index*/
+	if (((u32)BIT(idx) &
+		pgrp_get_status->hdr.data.super.obj_mask.super.data[0]) == 0U) {
+		return -EINVAL;
+	}
+
+	*obj_pmu_status = (struct nv_pmu_boardobj_query *)
+			&pgrp_get_status->objects[idx].data.obj;
+
+	return 0;
+}
+
 static s32 clk_fll_devgrp_pmudata_instget(struct gk20a *g,
 		struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-		struct nv_pmu_boardobj **pmu_obj, u8 idx)
+		struct nv_pmu_boardobj **pmu_obj, u16 idx)
 {
 	struct nv_pmu_clk_clk_fll_device_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_clk_clk_fll_device_boardobj_grp_set *)
@@ -128,7 +293,7 @@ static s32 clk_fll_devgrp_pmudata_instget(struct gk20a *g,
 
 static s32 clk_fll_devgrp_pmustatus_instget(struct gk20a *g,
 		void *pboardobjgrppmu,
-		struct nv_pmu_boardobj_query **obj_pmu_status, u8 idx)
+		struct nv_pmu_boardobj_query **obj_pmu_status, u16 idx)
 {
 	struct nv_pmu_clk_clk_fll_device_boardobj_grp_get_status
 	*pgrp_get_status =
@@ -145,6 +310,7 @@ static s32 clk_fll_devgrp_pmustatus_instget(struct gk20a *g,
 
 	*obj_pmu_status = (struct nv_pmu_boardobj_query *)
 			&pgrp_get_status->objects[idx].data.obj;
+
 	return 0;
 }
 
@@ -153,13 +319,17 @@ s32 clk_fll_sw_setup(struct gk20a *g)
 	s32 status;
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct clk_avfs_fll_objs *pfllobjs;
-	struct fll_device *pfll;
-	struct fll_device *pfll_master;
-	struct fll_device *pfll_local;
-	u8 i;
-	u8 j;
 
 	nvgpu_log_info(g, " ");
+
+	/* If already constructed, do not re-construct (suspend/resume pattern) */
+	pboardobjgrp = &(g->pmu->clk_pmu->avfs_fllobjs->super.super);
+	if (pboardobjgrp->bconstructed) {
+		nvgpu_pmu_dbg(g, "clk_fll boardobjgrp already constructed, skipping reinit");
+		return 0;
+	}
+
+	nvgpu_pmu_dbg(g, "Constructing clk_fll boardobjgrp for first time");
 
 	status = nvgpu_boardobjgrp_construct_e32(g,
 			&g->pmu->clk_pmu->avfs_fllobjs->super);
@@ -169,25 +339,18 @@ s32 clk_fll_sw_setup(struct gk20a *g)
 		goto done;
 	}
 	pfllobjs = g->pmu->clk_pmu->avfs_fllobjs;
-	pboardobjgrp = &(g->pmu->clk_pmu->avfs_fllobjs->super.super);
 
 	/* construct and set the boardobj class ID */
-	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, FLL_DEVICE);
-
+	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, CLK, CLK_NAFLL_DEVICE);
 
 	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
-			clk, CLK, clk_fll_device, CLK_FLL_DEVICE);
+			clk, CLK, clk_fll_device, CLK_NAFLL_DEVICE);
 	if (status != 0) {
 		nvgpu_err(g,
 			  "error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
 			  status);
 		goto done;
 	}
-
-	/* _mg_ Todo: Update the fll devgrp pmudata functions for V35 Device */
-	pboardobjgrp->pmudatainit  = clk_fll_devgrp_pmudatainit_super;
-	pboardobjgrp->pmudatainstget  = clk_fll_devgrp_pmudata_instget;
-	pboardobjgrp->pmustatusinstget  = clk_fll_devgrp_pmustatus_instget;
 
 	pfllobjs = (struct clk_avfs_fll_objs *)pboardobjgrp;
 	pfllobjs->lut_num_entries = g->ops.clk.lut_num_entries;
@@ -202,6 +365,22 @@ s32 clk_fll_sw_setup(struct gk20a *g)
 		goto done;
 	}
 
+	/* Initialize unicast nafll mask to zero.*/
+	status = boardobjgrpmask_e32_init(&pfllobjs->unicast_nafll_dev_mask,
+		NULL);
+	if (status != 0) {
+		nvgpu_err(g, "boardobjgrpmask_e32_init failed err=%d", status);
+		goto done;
+	}
+
+	/* Initialize broadcast nafll mask to zero.*/
+	status = boardobjgrpmask_e32_init(&pfllobjs->broadcast_nafll_dev_mask,
+		NULL);
+	if (status != 0) {
+		nvgpu_err(g, "boardobjgrpmask_e32_init failed err=%d", status);
+		goto done;
+	}
+
 	status = devinit_get_fll_device_table(g, pfllobjs);
 	if (status != 0) {
 		nvgpu_err(g, "devinit_get_fll_device_table failed err=%d", status);
@@ -210,52 +389,14 @@ s32 clk_fll_sw_setup(struct gk20a *g)
 
 	status = BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g,
 				&g->pmu->clk_pmu->avfs_fllobjs->super.super,
-				clk, CLK, clk_fll_device, CLK_FLL_DEVICE);
+				clk, CLK, clk_fll_device, CLK_NAFLL_DEVICE);
 	if (status != 0) {
 		nvgpu_err(g,
-			  "error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
-			  status);
+			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
+			status);
 		goto done;
 	}
 
-	BOARDOBJGRP_FOR_EACH(&(pfllobjs->super.super),
-			     struct fll_device *, pfll, i) {
-		pfll_master = NULL;
-		j = 0;
-		BOARDOBJGRP_ITERATOR(&(pfllobjs->super.super),
-				struct fll_device *, pfll_local, j,
-				&pfllobjs->lut_prog_master_mask.super) {
-			if (pfll_local->clk_domain == pfll->clk_domain) {
-				pfll_master = pfll_local;
-				break;
-			}
-		}
-
-		if (pfll_master == NULL) {
-			status = nvgpu_boardobjgrpmask_bit_set(
-				&pfllobjs->lut_prog_master_mask.super,
-				pmu_board_obj_get_idx(pfll));
-			if (status != 0) {
-				nvgpu_err(g, "err setting lutprogmask");
-				goto done;
-			}
-			pfll_master = pfll;
-		}
-		if (pfll_master->super.type < NV2080_CTRL_CLK_NAFLL_DEVICE_TYPE_V35) {
-			if (pfll_master->lut_broadcast_slave_register == NULL) {
-				nvgpu_err(g, "Invalid nafll boardobj");
-				status = -EINVAL;
-				goto done;
-			}
-
-			status = pfll_master->lut_broadcast_slave_register(
-				g, pfllobjs, pfll_master, pfll);
-			if (status != 0) {
-				nvgpu_err(g, "err setting lutslavemask");
-				goto done;
-			}
-		}
-	}
 done:
 	nvgpu_log_info(g, " done status %x", status);
 	return status;
@@ -267,7 +408,6 @@ s32 clk_fll_pmu_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 
 	nvgpu_log_info(g, " ");
-
 	pboardobjgrp = &g->pmu->clk_pmu->avfs_fllobjs->super.super;
 
 	if (!pboardobjgrp->bconstructed) {
@@ -296,6 +436,7 @@ static s32 devinit_get_fll_device_table(struct gk20a *g,
 	u32 desctablesize;
 	u32 vbios_domain = NV_PERF_DOMAIN_4X_CLOCK_DOMAIN_SKIP;
 	struct nvgpu_avfsvinobjs *pvinobjs = g->pmu->clk_pmu->avfs_vinobjs;
+	struct boardobjgrp *pboardobjgrp = &(g->pmu->clk_pmu->avfs_fllobjs->super.super);
 
 	nvgpu_log_info(g, " ");
 
@@ -311,10 +452,13 @@ static s32 devinit_get_fll_device_table(struct gk20a *g,
 			sizeof(struct fll_descriptor_header));
 
 	if (fll_desc_table_header_sz.version == FLL_DESCRIPTOR_HEADER_20_VERSION) {
-		status = devinit_get_fll_device_table_v20(g,
-						(struct clk_avfs_fll_objs_v20 *)pfllobjs);
+		status = devinit_get_fll_device_table_v20(g, pfllobjs);
 		goto done;
 	}
+
+	pboardobjgrp->pmudatainit  = clk_fll_devgrp_pmudatainit_super;
+	pboardobjgrp->pmudatainstget  = clk_fll_devgrp_pmudata_instget;
+	pboardobjgrp->pmustatusinstget  = clk_fll_devgrp_pmustatus_instget;
 
 	if (fll_desc_table_header_sz.size >= FLL_DESCRIPTOR_HEADER_10_SIZE_7) {
 		desctablesize = FLL_DESCRIPTOR_HEADER_10_SIZE_7;
@@ -496,7 +640,7 @@ static s32 devinitTranslateNafllIdVbiosToApi(struct gk20a *g,
 }
 
 static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
-		struct clk_avfs_fll_objs_v20 *pfllobjs)
+		struct clk_avfs_fll_objs *pfllobjs)
 {
 	s32 status = 0;
 	u8 *fll_table_ptr = NULL;
@@ -504,21 +648,22 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 	struct fll_descriptor_entry_20 fll_desc_table_entry = { 0 };
 	u8 *fll_tbl_entry_ptr = NULL;
 	u32 index = 0;
-	struct clk_avfs_fll_objs_v20 *pnafll_grp = pfllobjs;
+	struct clk_avfs_fll_objs *pnafll_grp = pfllobjs;
 	struct nafll_device_v35 *pfll_dev = NULL;
 	struct clk_adc_device *padc_dev = NULL;
 	u32 gpcMask;
 	bool bSkip;
+	u32 gpcSkip;
 	u32 api_clk_domain = CTRL_CLK_CLK_DOMAIN_INDEX_INVALID;
 	struct nvgpu_avfsvinobjs *pvinobjs = g->pmu->clk_pmu->avfs_vinobjs;
-
+	struct boardobjgrp *pboardobjgrp = &(g->pmu->clk_pmu->avfs_fllobjs->super.super);
 	union {
 		struct pmu_board_obj			boardObj;
 		struct nafll_device				nafllDevice;
 		struct nafll_device_v35			nafllDeviceV35;
 	} nafllDescData = { 0 };
 
-	nvgpu_log_info(g, " ");
+	nvgpu_pmu_dbg(g, " ");
 
 	fll_table_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
 			  nvgpu_bios_get_bit_token(g, NVGPU_BIOS_CLOCK_TOKEN),
@@ -533,16 +678,24 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 	 * and an ADC boardobj callback,
 	 * ensure they are not invalid.
 	 */
-	if (g->pmu->clk_pmu->clk_domainobjs->super.super.objgetbyidx == NULL) {
+	if (g->pmu->clk_pmu->clk_domainobjs_50 == NULL ||
+		g->pmu->clk_pmu->clk_domainobjs_50->super.super.super.objgetbyidx == NULL) {
 		nvgpu_err(g, "Clock domain object invalid. Abort VBIOS parsing.");
 		status = -EINVAL;
 		goto done;
 	}
-	if (pvinobjs->super.super.objgetbyidx == NULL) {
+	if (pvinobjs == NULL ||
+		pvinobjs->super.super.objgetbyidx == NULL) {
 		nvgpu_err(g, "ADC object invalid. Abort VBIOS parsing.");
 		status = -EINVAL;
 		goto done;
 	}
+
+	pboardobjgrp->classType = 1;
+
+	pboardobjgrp->pmudatainit  = clk_fll_devgrp_pmudatainit_super_v35;
+	pboardobjgrp->pmudatainstget  = clk_fll_devgrp_pmudata_instget_v35;
+	pboardobjgrp->pmustatusinstget  = clk_fll_devgrp_pmustatus_instget_v35;
 
 	nvgpu_memcpy((u8 *)&fll_desc_table_header, fll_table_ptr,
 		sizeof(struct fll_descriptor_header_20));
@@ -599,14 +752,13 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 
 	pnafll_grp->b_die1_all_gpc_floorswept = false;
 
-
 	/*
 	 * Get GPC Floorsweeping bit map.
 	 * Need to skip GPC NAFLL VBIOS entries
 	 * for floorswept GPCs.
 	 */
-	 // _mg_ Todo: Read fuses, for now assume all gpcs available.
-	gpcMask = 0xffffffff;
+	gpcMask = ~nvgpu_readl(g, fuse_status_opt_gpc_r());
+	nvgpu_pmu_dbg(g, "GPC Floorsweep mask - 0x%x", gpcMask);
 
 	fll_tbl_entry_ptr = fll_table_ptr + fll_desc_table_header.header_size;
 	/* Parse each of the table entries */
@@ -627,14 +779,6 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 		if (fll_desc_table_entry.fll_device_type == FLL_DEVICE_TYPE_DISABLED)
 			continue;
 
-		if (fll_desc_table_entry.fll_device_type != FLL_DEVICE_TYPE_V35) {
-			nvgpu_err(g,
-			"Unsupported NAFLL device type: 0x%x",
-			fll_desc_table_entry.fll_device_type);
-			status = -EINVAL;
-			continue; /* to avoid MISRA violation, exit at top of loop */
-		}
-
 		/* Translate VBIOS device ID (index) to API device ID */
 		status = devinitTranslateNafllIdVbiosToApi(g, index, &api_nafll_id);
 		if (status != 0)
@@ -642,27 +786,32 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 
 		/* Skip Floorswept GPCs */
 		bSkip = false;
+		gpcSkip = 0xffffffff;
 		if (api_nafll_id >= NV2080_CTRL_CLK_NAFLL_ID_GPC0 &&
 			api_nafll_id <= NV2080_CTRL_CLK_NAFLL_ID_GPC3) {
 			switch (api_nafll_id) {
 			case NV2080_CTRL_CLK_NAFLL_ID_GPC0:
 			{
 				bSkip = ((gpcMask & BIT32(0)) == 0);
+				gpcSkip = 0;
 				break;
 			}
 			case NV2080_CTRL_CLK_NAFLL_ID_GPC1:
 			{
 				bSkip = ((gpcMask & BIT32(1)) == 0);
+				gpcSkip = 1;
 				break;
 			}
 			case NV2080_CTRL_CLK_NAFLL_ID_GPC2:
 			{
 				bSkip = ((gpcMask & BIT32(2)) == 0);
+				gpcSkip = 2;
 				break;
 			}
 			case NV2080_CTRL_CLK_NAFLL_ID_GPC3:
 			{
 				bSkip = ((gpcMask & BIT32(3)) == 0);
+				gpcSkip = 3;
 				break;
 			}
 			/* No default - so that coverity will not complain about dead code. */
@@ -671,7 +820,7 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 			 * if GPC is floorswept.
 			 */
 			if (bSkip) {
-				nvgpu_log_info(g, "GPC is Floorswept - skip.");
+				nvgpu_pmu_dbg(g, "GPC %d is Floorswept - skip.", gpcSkip);
 				continue;
 			}
 		}
@@ -704,19 +853,48 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 			}
 		}
 
-		nafllDescData.boardObj.type = NV2080_CTRL_CLK_NAFLL_DEVICE_TYPE_V35;
-		nafllDescData.nafllDevice.b_skip_pldiv_below_dvco_min =
+		switch (fll_desc_table_entry.fll_device_type) {
+		case FLL_DEVICE_TYPE_V35:
+		{
+			nafllDescData.boardObj.type = NV2080_CTRL_CLK_NAFLL_DEVICE_TYPE_V35;
+			nafllDescData.nafllDevice.b_skip_pldiv_below_dvco_min =
 				((fll_desc_table_entry.dvco_params
 				& NV_FLL_DESC_V20_DVCO_PARAMS_SKIP_PLDIV_MASK) != 0U);
 
-		nafllDescData.nafllDevice.dvco_min_freq_vfe_idx = BIOS_GET_FIELD(
-					u16, fll_desc_table_entry.dvco_params,
-					NV_FLL_DESC_V20_DVCO_PARAMS_F_MIN_VFE_IDX);
+			nafllDescData.nafllDevice.dvco_min_freq_vfe_idx = BIOS_GET_FIELD(
+				u16, fll_desc_table_entry.dvco_params,
+				NV_FLL_DESC_V20_DVCO_PARAMS_F_MIN_VFE_IDX);
 
-		nafllDescData.nafllDeviceV35.b_hw_pldiv_en =
+			nafllDescData.nafllDeviceV35.b_hw_pldiv_en =
 				((fll_desc_table_entry.dvco_params
 				& NV_FLL_DESC_V20_DVCO_PARAMS_F_ACCURACY_MASK) != 0U);
 
+			break;
+		}
+		case FLL_DEVICE_TYPE_V35_SECURE_V10:
+		{
+			nafllDescData.boardObj.type =
+				NV2080_CTRL_CLK_CLK_NAFLL_DEVICE_TYPE_V35_SECURE_V10;
+
+			nafllDescData.nafllDevice.b_skip_pldiv_below_dvco_min = false;
+
+			nafllDescData.nafllDevice.dvco_min_freq_vfe_idx = BIOS_GET_FIELD(
+				u16, fll_desc_table_entry.dvco_params,
+				NV_FLL_DESC_V20_DVCO_PARAMS_F_MIN_VFE_IDX);
+
+			break;
+		}
+		default:
+		{
+			nvgpu_err(g,
+			"Unsupported NAFLL device type: 0x%x",
+			fll_desc_table_entry.fll_device_type);
+			status = -EINVAL;
+			continue; /* to avoid MISRA violation, exit at top of loop */
+		}
+		}
+
+		// Common parameters across all types of NAFLL
 		nafllDescData.nafllDevice.id = api_nafll_id;
 		nafllDescData.nafllDevice.mdiv = BIOS_GET_FIELD(u8,
 					fll_desc_table_entry.fll_params,
@@ -730,8 +908,9 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 		nafllDescData.nafllDevice.b_multistep_pldiv_switch_en = true;
 
 		/* Convert the VBIOS clock domain index to API clock domain*/
-		status = nvgpu_pmu_clk_domain_get_from_index(g,
+		status = clkClkDomainGetApiDomainByIndex(g,
 					&api_clk_domain, fll_desc_table_entry.clk_domain);
+
 		if (status != 0) {
 			nvgpu_err(g,
 			"Clock domain object not found. Clk index: 0x%x",
@@ -762,6 +941,9 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 		nafllDescData.nafllDevice.regime_desc.regime_id = CTRL_BOARDOBJ_IDX_INVALID;
 		nafllDescData.nafllDevice.regime_desc.fixed_freq_regime_limit_mhz =
 					fll_desc_table_entry.ffr_cutoff_freq_mhz;
+
+		// DVCO1X is true by default from HOPPER+.
+		nafllDescData.nafllDevice.b_dvco_1x = true;
 
 		/* construct nafll device and insert into GRP */
 		pfll_dev = construct_nafll_device_v35(g, (void *)&nafllDescData);
@@ -830,10 +1012,11 @@ static s32 devinit_get_fll_device_table_v20(struct gk20a *g,
 				continue; /* to avoid MISRA violation, exit at top of loop */
 			}
 		}
+		status = clkNafllDeviceStateLoad(g, (struct nafll_device *)pfll_dev);
 	}
 
 done:
-	nvgpu_log_info(g, " Done status %x", status);
+	nvgpu_pmu_dbg(g, " Done status %x", status);
 	return status;
 }
 
@@ -1125,6 +1308,88 @@ u16 nvgpu_pmu_clk_fll_get_min_max_freq(struct gk20a *g)
 	return 0;
 }
 
+s32 nvgpu_pmu_clk_domains_fll_set_regime_50(struct gk20a *g,
+	u8 regime, u32 api_clk_domain)
+{
+	struct nafll_device *pNafllDevice;
+	struct nvgpu_clk_pmupstate *pclk;
+	u16 idx;
+	s32 status = -EINVAL;
+	bool regime_changed = false;
+
+	// Sanity checks
+	if (g == NULL) {
+		nvgpu_err(g, "g is NULL");
+		goto done;
+	}
+
+	nvgpu_log_info(g, " ");
+
+	pclk = g->pmu->clk_pmu;
+	if (pclk == NULL) {
+		nvgpu_err(g, "g->pmu->clk_pmu is NULL");
+		goto done;
+	}
+	if (pclk->clk_domainobjs_50 == NULL) {
+		nvgpu_err(g, "clk_domainobjs_50 is NULL");
+		goto done;
+	}
+	if (regime >= CTRL_CLK_FLL_REGIME_ID_MAX) {
+		nvgpu_err(g, "regime %d out of range", regime);
+		goto done;
+	}
+
+	//
+	// Loop through the NAFLL devices and check if regime needs to change
+	// on NAFLL devices that belong to the api_clk_domain
+	BOARDOBJGRP_FOR_EACH(&(pclk->avfs_fllobjs->super.super),
+		struct nafll_device *, pNafllDevice, idx) {
+
+		if (pNafllDevice->clk_domain == api_clk_domain) {
+			// Check if regime is actually changing
+			u8 current_regime = pNafllDevice->regime_desc.target_regime_id_override;
+
+			if (current_regime != regime) {
+				pNafllDevice->regime_desc.target_regime_id_override = regime;
+				regime_changed = true;
+
+			} else {
+				nvgpu_log_info(g, "NAFLL %d regime already set to %d, no change needed",
+						idx, regime);
+			}
+			//
+			// we have at least one NAFLL found for the
+			// target clkDomain, set status good.
+			status = 0;
+		}
+	}
+	if (status != 0) {
+		nvgpu_err(g, "Failed to find a NAFLL device for api clkDomain 0x%x",
+			api_clk_domain);
+		goto done;
+	}
+
+	// Only resend to PMU if regime actually changed
+	if (regime_changed) {
+		// Resend the NAFLL board objects to PMU
+		// to set the regime
+		nvgpu_log_info(g, "Sending NAFLL board objs to PMU to change regime to %d",
+			regime);
+
+			status = clk_fll_pmu_setup(g);
+	} else {
+		nvgpu_log_info(g, "Regime %d already active for domain 0x%x, skipping PMU setup",
+			       regime, api_clk_domain);
+	}
+
+	// Todo: Once we have an valid value, end change_seq RPC here.
+	// Use same GPC clock freq and voltage as current setting
+	// (pto_counter reading).
+
+done:
+	return status;
+}
+
 s32 clk_fll_init_pmupstate(struct gk20a *g)
 {
 	/* If already allocated, do not re-allocate */
@@ -1133,7 +1398,7 @@ s32 clk_fll_init_pmupstate(struct gk20a *g)
 	}
 
 	g->pmu->clk_pmu->avfs_fllobjs = nvgpu_kzalloc(g,
-			sizeof(struct clk_avfs_fll_objs_v20));
+			sizeof(struct clk_avfs_fll_objs));
 	if (g->pmu->clk_pmu->avfs_fllobjs == NULL) {
 		return -ENOMEM;
 	}
@@ -1143,6 +1408,10 @@ s32 clk_fll_init_pmupstate(struct gk20a *g)
 
 void clk_fll_free_pmupstate(struct gk20a *g)
 {
+	/* Clean up PMU memory allocations before freeing the object */
+	if (g->pmu->clk_pmu->avfs_fllobjs != NULL)
+		nvgpu_boardobjgrp_pmu_cleanup(g, &g->pmu->clk_pmu->avfs_fllobjs->super.super);
+
 	nvgpu_kfree(g, g->pmu->clk_pmu->avfs_fllobjs);
 	g->pmu->clk_pmu->avfs_fllobjs = NULL;
 }

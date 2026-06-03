@@ -9,38 +9,11 @@
 #include <nvgpu/boardobjgrp_e32.h>
 #include <common/pmu/boardobj/boardobj.h>
 
-#define NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS          16U
-
-struct ctrl_clk_clk_prop_top_info_frequency_search_space {
-	u16 minRatioClkPropTopIdx;
-	u16 maxRatioClkPropTopIdx;
-	u8 searchSpaceHal;
-	bool bUseHigherIsoSecFmaxVminMhz;
-};
-
-/*
- * Array of source to destination clock propagation topology path for a given
- * programmable clock domain. Each path stores the clock propagation relationship
- * index which represents the next relationship index on the path from source
- * clock domain to desitnation clock domain.
- */
-struct ctrl_clk_clk_prop_top_clk_domain_dst_path {
-	u16 dstPath[NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS];
-};
-
-/*
- * Array of source to destination clock propagation topology path for all
- * programmable clock domains.
- */
-struct ctrl_clk_clk_prop_top_clk_domains_dst_path {
-	struct ctrl_clk_clk_prop_top_clk_domain_dst_path
-		domainDstPath[NV2080_CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS];
-};
-
 struct clk_prop_top {
 	struct pmu_board_obj super;
 	u8 topId;
-	struct boardobjgrp_e255 clkPropTopRelMask;
+	struct boardobjgrpmask_e255 clkPropTopRelMask;
+	struct ctrl_clk_clk_prop_top_clk_domains_dst_path domainsDstPath;
 };
 
 struct nvgpu_clk_prop_tops {

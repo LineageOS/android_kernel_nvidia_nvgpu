@@ -158,14 +158,17 @@ int nvgpu_profiler_bind_pma_streamout(struct gk20a *g,
 		u64 pma_buffer_va,
 		u32 pma_buffer_size,
 		u64 pma_bytes_available_buffer_va,
-		u32 reservation_id);
+		u32 reservation_id,
+		struct nvgpu_tsg *tsg,
+		bool is_ctx_resident);
 int nvgpu_profiler_unbind_pma_streamout(struct gk20a *g,
 		u32 gr_instance_id,
 		u32 pma_channel_id,
 		bool is_ctxsw,
 		struct nvgpu_tsg *tsg,
 		void *pma_bytes_available_buffer_cpuva,
-		u32 reservation_id);
+		u32 reservation_id,
+		bool is_ctx_resident);
 int nvgpu_profiler_bind_smpc(struct gk20a *g,
 		u32 gr_instance_id,
 		bool is_ctxsw,
@@ -174,20 +177,25 @@ int nvgpu_profiler_bind_smpc(struct gk20a *g,
 int nvgpu_profiler_unbind_smpc(struct gk20a *g, u32 gr_instance_id,
 		bool is_ctxsw, struct nvgpu_tsg *tsg,
 		u32 reservation_id);
-void nvgpu_profiler_bind_hes_cwd(struct gk20a *g, u32 gr_instance_id,
-		u32 reservation_id, u32 pma_channel_id);
+int nvgpu_profiler_bind_hes_cwd(struct gk20a *g, u32 gr_instance_id,
+			       u32 reservation_id, u32 pma_channel_id,
+			       bool is_ctx_resident, struct nvgpu_tsg *tsg);
 int nvgpu_profiler_unbind_hes_cwd(struct gk20a *g,
 		u32 gr_instance_id,
 		bool is_ctxsw);
 
 int nvgpu_profiler_set_secure_config_hwpm(struct gk20a *g,  u32 gr_instance_id,
-					  u32 pma_channel_id, bool enable);
+					 u32 pma_channel_id, bool enable,
+					 bool is_ctx_resident, struct nvgpu_tsg *tsg);
 int nvgpu_profiler_set_secure_config_cau(struct gk20a *g, u32 gr_instance_id,
-					 u32 pma_channel_id, bool enable);
+					u32 pma_channel_id, bool enable,
+					bool is_ctx_resident, struct nvgpu_tsg *tsg);
 int nvgpu_profiler_set_secure_config_cwd_hem(struct gk20a *g, u32 gr_instance_id,
-					u32 pma_channel_id, bool enable);
+					    u32 pma_channel_id, bool enable,
+					    bool is_ctx_resident, struct nvgpu_tsg *tsg);
 int nvgpu_profiler_set_secure_config_ccuprof(struct gk20a *g, u32 gr_instance_id,
-					     u32 pma_channel_id, bool enable);
+					    u32 pma_channel_id, bool enable,
+					    bool is_ctx_resident, struct nvgpu_tsg *tsg);
 bool nvgpu_profiler_hs_credit_allocation_supported(struct gk20a *g);
 int nvgpu_profiler_bind_pm_resources(struct nvgpu_profiler_object *prof);
 int nvgpu_profiler_unbind_pm_resources(struct nvgpu_profiler_object *prof);
@@ -210,9 +218,21 @@ void nvgpu_profiler_init_pmasys_state(struct gk20a *g,
 					u32 gr_instance_id);
 int nvgpu_profiler_quiesce_hwpm_streamout_resident(struct gk20a *g,
 					u32 gr_instance_id, u32 pma_channel_id);
+bool nvgpu_profiler_is_context_resource(struct nvgpu_profiler_object *prof,
+				       enum nvgpu_profiler_pm_resource_type pm_resource);
 #ifdef CONFIG_NVGPU_NON_FUSA
 void nvgpu_profiler_hs_stream_quiesce(struct gk20a *g);
 #endif /* CONFIG_NVGPU_NON_FUSA */
 
+bool nvgpu_profiler_get_is_ctxsw(struct nvgpu_profiler_object *prof);
+int
+nvgpu_profiler_extended_b2cc_disable_ctxsw(struct gk20a *g,
+					  struct nvgpu_profiler_object *prof,
+					  bool is_ctxsw, bool *is_ctx_resident);
+int nvgpu_profiler_extended_b2cc_enable_ctxsw(struct gk20a *g,
+					     struct nvgpu_profiler_object *prof,
+					     bool is_ctxsw);
+int nvgpu_profiler_unbind_ccuprof(struct gk20a *g,
+	u32 gr_instance_id, bool is_ctxsw, u32 reservation_id);
 #endif /* CONFIG_NVGPU_PROFILER */
 #endif /* NVGPU_PROFILER_H */

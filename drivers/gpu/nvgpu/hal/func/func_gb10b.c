@@ -171,7 +171,7 @@ void gb10b_func_l2_invalidate_locked(struct gk20a *g)
 {
 	u32 data, token_mask, start_token, complete_token;
 	struct nvgpu_timeout timeout;
-	u32 retries = 200;
+	u32 retries = 2000;
 
 #ifdef CONFIG_NVGPU_TRACE
 	trace_gk20a_mm_l2_invalidate(g->name);

@@ -12,6 +12,22 @@ int nvgpu_cg_pg_disable(struct gk20a *g)
 
 	nvgpu_log_fn(g, " ");
 
+#ifdef CONFIG_NVGPU_POWER_PG
+	/* Disable vid elpg first. */
+	err = nvgpu_pg_vid_elpg_disable(g, PMU_PG_ELPG_ENGINE_ID_VID_NVDEC);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set disable nvdec elpg");
+	}
+	err = nvgpu_pg_vid_elpg_disable(g, PMU_PG_ELPG_ENGINE_ID_VID_NVENC);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set disable nvenc elpg");
+	}
+	err = nvgpu_pg_vid_elpg_disable(g, PMU_PG_ELPG_ENGINE_ID_VID_OFA);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set disable ofa elpg");
+	}
+#endif
+
 	g->ops.gr.init.wait_initialized(g);
 
 #ifdef CONFIG_NVGPU_POWER_PG
@@ -38,6 +54,21 @@ int nvgpu_cg_pg_enable(struct gk20a *g)
 	int err = 0;
 
 	nvgpu_log_fn(g, " ");
+
+#ifdef CONFIG_NVGPU_POWER_PG
+	err = nvgpu_pg_vid_elpg_enable(g, PMU_PG_ELPG_ENGINE_ID_VID_NVDEC);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set enable nvdec elpg");
+	}
+	err = nvgpu_pg_vid_elpg_enable(g, PMU_PG_ELPG_ENGINE_ID_VID_NVENC);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set enable nvenc elpg");
+	}
+	err = nvgpu_pg_vid_elpg_enable(g, PMU_PG_ELPG_ENGINE_ID_VID_OFA);
+	if (err != 0) {
+		nvgpu_err(g, "failed to set enable ofa elpg");
+	}
+#endif
 
 	g->ops.gr.init.wait_initialized(g);
 

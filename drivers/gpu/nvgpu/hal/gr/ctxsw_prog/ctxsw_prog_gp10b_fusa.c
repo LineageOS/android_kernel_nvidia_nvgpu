@@ -39,3 +39,13 @@ void gp10b_ctxsw_prog_set_full_preemption_ptr(struct gk20a *g,
 		ctxsw_prog_main_image_full_preemption_ptr_o(), u64_lo32(addr));
 }
 #endif /* CONFIG_NVGPU_GFXP */
+
+#ifdef CONFIG_NVGPU_CILP
+void gp10b_ctxsw_prog_set_compute_preemption_mode_cilp(struct gk20a *g,
+	struct nvgpu_mem *ctx_mem)
+{
+	nvgpu_mem_wr(g, ctx_mem,
+		ctxsw_prog_main_image_compute_preemption_options_o(),
+		ctxsw_prog_main_image_compute_preemption_options_control_cilp_f());
+}
+#endif /* CONFIG_NVGPU_CILP */

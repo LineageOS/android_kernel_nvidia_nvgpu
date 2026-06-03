@@ -99,8 +99,8 @@ void ga10b_mssnvlink_init_soc_credits(struct gk20a *g)
 			MSS_NVLINK_MCF_MEMORY_TYPE_CONTROL_0));
 		val &= ~(MSS_NVLINK_FORCE_COH_SNP);
 		val |= MSS_NVLINK_FORCE_COH_SNP;
-		nvgpu_os_writel(val, *(mssnvlink_control + i) +
-			MSS_NVLINK_MCF_MEMORY_TYPE_CONTROL_0);
+		nvgpu_os_writel(val, nvgpu_safe_add_u32(*(mssnvlink_control + i),
+			MSS_NVLINK_MCF_MEMORY_TYPE_CONTROL_0));
 	}
 
 	for (i = 0U; i < num_links; i++) {

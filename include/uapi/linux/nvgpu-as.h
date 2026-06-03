@@ -984,13 +984,112 @@ struct nvgpu_as_get_va_regions_args {
 	 */
 	__u32 reserved;
 };
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_MAP_BUFFER_BATCH IOCTL: NVGPU_AS_IOCTL_MAP_BUFFER_BATCH
+ * @brief GMMU map/unmap multiple buffers in a single ioctl call
+ *
+ * This IOCTL combines the feature of @ref NVGPU_AS_IOCTL_UNMAP_BUFFER and
+ * @ref NVGPU_AS_IOCTL_MAP_BUFFER_EX and also allows it for multiple buffers
+ * at the same time.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_map_buffer_batch_args</td>
+ *   <td>@c #nvgpu_as_map_buffer_batch_args</td>
+ * </tr>
+ * <tr>
+ *   <td>@c Additional buffer 1 (@c #nvgpu_as_map_buffer_batch_args::unmaps)</td>
+ *   <td>@c #nvgpu_as_unmap_buffer_args</td>
+ *   <td>@c #nvgpu_as_unmap_buffer_args</td>
+ * </tr>
+ * <tr>
+ *   <td>@c Additional buffer 2 (@c #nvgpu_as_map_buffer_batch_args::maps)</td>
+ *   <td>@c #nvgpu_as_map_buffer_ex_args</td>
+ *   <td>@c #nvgpu_as_map_buffer_ex_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Invalid or out of range parameters.
+ * - @c EFAULT ---  Copying to/from userspace failed.
+ * - @c ENOMEM ---  Memory allocation failure.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_MAP_BUFFER_BATCH
+ * @brief Header struct for @ref NVGPURM_INTF_AS_MAP_BUFFER_BATCH.
+ */
 struct nvgpu_as_map_buffer_batch_args {
-	__u64 unmaps; /* ptr to array of nvgpu_as_unmap_buffer_args */
-	__u64 maps;   /* ptr to array of nvgpu_as_map_buffer_ex_args */
-	__u32 num_unmaps; /* in: number of unmaps
-			   * out: on error, number of successful unmaps */
-	__u32 num_maps;   /* in: number of maps
-			   * out: on error, number of successful maps */
+	/**
+	 * @brief address of @c #nvgpu_as_unmap_buffer_args buffer array
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     The buffer array size must be same as #num_unmaps.
+	 *   </dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
+	__u64 unmaps;
+
+	/**
+	 * @brief address of @c #nvgpu_as_map_buffer_ex_args buffer array
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     The buffer array size must be same as #num_maps.
+	 *   </dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
+	__u64 maps;
+
+	/**
+	 * @brief Number of unmap requests in the batch.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Number of buffers to be unmapped</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>Number of successful unmaps in case of error</dd>
+	 * </dl>
+	 *
+	 */
+	__u32 num_unmaps;
+
+	/**
+	 * @brief Number of map requests in the batch.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Number of buffers to be mapped</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>Number of successful maps in case of error</dd>
+	 * </dl>
+	 *
+	 */
+	__u32 num_maps;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u64 reserved;
 };
 
@@ -1045,7 +1144,6 @@ struct nvgpu_as_map_buffer_batch_args {
  * @brief Header struct for @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP.
  */
 struct nvgpu_as_get_sync_ro_map_args {
-
 	/**
 	 * @brief Base address of the syncpoint-semaphore RO shim
 	 *
@@ -1087,18 +1185,88 @@ struct nvgpu_as_get_sync_ro_map_args {
 	 */
 	__u32 num_syncpoints;
 };
-/*
- * Macro defining the maximum number of syncpoint regions that are
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2 IOCTL: NVGPU_AS_IOCTL_GET_SYNC_RO_MAP_V2
+ * @brief This ioctl is just new version of @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP with
+ * added support for multiple syncpoint regions.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>Usermode to RM</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_get_sync_ro_map_v2_args</td>
+ *   <td>@c #nvgpu_as_get_sync_ro_map_v2_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Syncpoint RO shim not supported.
+ * - @c ENOMEM ---  Failed to map the shim to GPU virtual address space.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @pre @c #NVGPU_GPU_FLAGS_SUPPORT_SYNCPOINT_ADDRESS
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ * @brief Macro defining the maximum number of syncpoint regions that are
  * reported.
  */
 #define NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS 4
 
-/*
- * Structure describing a single syncpoint region.
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ * @brief Structure describing a single syncpoint region.
  */
 struct nvgpu_as_syncpoint_region_description {
+	/**
+	 * @brief Base address of the syncpoint-semaphore RO shim
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Syncpoint-semaphore RO shim base address</dd>
+	 * </dl>
+	 *
+	 * Range: Kernel-private region (see @ref NVGPURM_INTF_ALLOC_AS).
+	 */
 	__u64 base_gpuva;
+
+	/**
+	 * @brief Syncpoint stride (in bytes).
+	 *
+	 * Syncpoint stride specifies the distance between adjacent syncpoints.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Syncpoint stride</dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific
+	 * - On T194: 4096
+	 * - On T234: 65536
+	 * - On T264: 65536
+	 */
 	__u32 sync_size;
+
+	/**
+	 * @brief Number of syncpoints in the shim.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Number of syncpoints</dd>
+	 * </dl>
+	 *
+	 * Range: Platform-specific
+	 */
 	__u32 num_syncpoints;
 };
 
@@ -1112,10 +1280,64 @@ struct nvgpu_as_syncpoint_region_description {
  *
  * @regions array of syncpoint regions
  */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ * @brief Header struct for @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ */
 struct nvgpu_as_get_sync_ro_map_v2_args {
-	__u32 num_syncpoint_regions; /* out */
-	struct nvgpu_as_syncpoint_region_description regions[NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS]; /* out */
+	/**
+	 * @brief Number of syncpoint regions supported.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Number of syncpoint regions</dd>
+	 * </dl>
+	 *
+	 * Range: Platform-specific
+	 */
+	__u32 num_syncpoint_regions;
+
+	/**
+	 * @brief Array of @c #nvgpu_as_syncpoint_region_description structures
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>
+	 *     Array of #nvgpu_as_syncpoint_region_description entries up to a maximum
+	 *     of @c #NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS.
+	 *   </dd>
+	 * </dl>
+	 */
+	struct nvgpu_as_syncpoint_region_description regions[NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS];
 };
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_MAPPING_MODIFY IOCTL: NVGPU_AS_IOCTL_MAPPING_MODIFY
+ * @brief Changes the kind of an existing mapped buffer region.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_mapping_modify_args</td>
+ *   <td>@c #nvgpu_as_mapping_modify_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Invalid parameters
+ * - @c ENOMEM ---  Memory allocation failure
+ * - @c ENOTTY ---  Modifying mapping not supported
+ * - @c EFAULT ---  Copying to/from userspace failed.
+ */
 
 /*
  * VM mapping modify IOCTL
@@ -1154,14 +1376,83 @@ struct nvgpu_as_get_sync_ro_map_v2_args {
  *   The address of the existing buffer in the GPU virtual address space
  *   specified in bytes.
  */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_MAPPING_MODIFY
+ * @brief Command code for @ref NVGPURM_INTF_AS_MAPPING_MODIFY
+ */
 struct nvgpu_as_mapping_modify_args {
-	__s16 compr_kind;       /* in */
-	__s16 incompr_kind;     /* in */
+	/**
+	 * @brief New compressed kind to be used for the mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Compressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     compression is not required.
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 *
+	 * @remark  This parameter is only valid if compression resources are allocated
+	 * to the underlying physical buffer. If @c #NV_KIND_INVALID is specified then the
+	 * fallback incompr_kind parameter is used.
+	 */
+	__s16 compr_kind;
 
-	__u64 buffer_offset;	/* in, offset of mapped buffer region */
-	__u64 buffer_size;	/* in, size of mapped buffer region */
+	/**
+	 * @brief New kind to be used for the mapping if compression is not to be used.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Incompressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     incompressible fallback is not allowed.
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 */
+	__s16 incompr_kind;
 
-	__u64 map_address;	/* in, base virtual address of mapped buffer */
+	/**
+	 * @brief Beginning offset of the region within the existing buffer for which the
+	 * kind should be modified.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Offset within the buffer.
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: [0, (@c Buffer_Size - @c #buffer_size)]. Must be a multiple of @c
+	 * #page_size.
+	 */
+	__u64 buffer_offset;
+
+	/**
+	 * @brief size of the region within the existing buffer for which the kind should
+	 * be updated (in bytes).
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Number of bytes to be mapped</dd>
+	 * </dl>
+	 *
+	 * Range: [4096, (@c Buffer_Size - @c #buffer_offset)]. Must be a multiple
+	 * of @c #page_size.
+	 */
+	__u64 buffer_size;
+
+	/**
+	 * @brief The address of the existing buffer in the GPU virtual address space
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>GPU virtual address of the existing mapping
+	 *   </dd>
+	 * </dl>
+	 */
+	__u64 map_address;
 };
 
 /*
@@ -1231,56 +1522,205 @@ struct nvgpu_as_mapping_modify_args {
  * @num_pages [IN]
  *   Specify the number of pages to map or unmap.
  */
-struct nvgpu_as_remap_op {
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_REMAP IOCTL: NVGPU_AS_IOCTL_REMAP
+ * @brief Remap existing mapping or map/unmap set of mapping buffer requests.
+ *
+ * This function overwrites page table entries within an address space allocation
+ * @ref NVGPURM_INTF_AS_ALLOC_SPACE. Each remap entry (#nvgpu_as_remap_op) represents a single
+ * request to map or unmap virtual address space pages. Any existing mappings are overridden.
+ * The entries are processed in sequential order, and duplicate and overlapping entries are allowed.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_remap_args</td>
+ *   <td>@c #nvgpu_as_remap_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1</td>
+ *   <td>@c #nvgpu_as_remap_op</td>
+ *   <td><tt>#nvgpu_as_remap_op[N]</tt>. See @c
+ *       #nvgpu_as_remap_args::num_ops for the number of operations (@c N)</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Invalid parameters
+ * - @c ENOMEM ---  Memory allocation failure
+ * - @c ENOTTY ---  Modifying mapping not supported
+ * - @c EFAULT ---  Copying to/from userspace failed.
+ *
+ * @remark Both Ioctls @ref NVGPURM_INTF_AS_REMAP and @ref NVGPURM_INTF_AS_MAP_BUFFER_EX must not be
+ * used on a single address space allocation (reserved using @ref NVGPURM_INTF_AS_ALLOC_SPACE). It
+ * is an error to do so, and if done regardless, the system behavior is unspecified.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_REMAP
+ * @{
+ */
+
+/**
+ * @brief Enable GPU L2 caching for the mapping.
+ *
+ * When not specified, GPU L2-caching is disabled for the mapping.
+ *
+ * @remark GPU L2 caching should be enabled when GPU compression is used. See @c
+ * #nvgpu_as_remap_op::compr_kind.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_CACHEABLE               (1 << 2)
+
+/**
+ * @brief Specifies read-only access.
+ *
+ * Read-only access is used regardless of the buffer handle access.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_ACCESS_NO_WRITE         (1 << 10)
+
+/**
+ * @brief Small page size.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K             (1 << 15)
+
+/**
+ * @brief Big page size.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K            (1 << 16)
+
+/**
+ * @brief Big page size.
+ *
+ * @remark This is not supported since pascal.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K           (1 << 17)
+
+/**
+ * @brief Huge page size.
+ */
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K          (1 << 18)
 
-	/* in: For map and unmap (one and only one) of the _PAGESIZE_ flags is
-	 * required to interpret the mem_offset_in_pages and virt_offset_in_pages
-	 * correctly. The other flags are used only with map operations. */
+/** @} */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_REMAP
+ * Struct describing a single remap operation
+ */
+struct nvgpu_as_remap_op {
+	/**
+	 * @brief Describes page size, cacheability and access type i.e. read_only or read-write
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Bit mask of flags (@c NVGPU_AS_REMAP_OP_FLAGS_)</dd>
+	 * </dl>
+	 *
+	 * Range: Bit mask of @c NVGPU_AS_REMAP_OP_FLAGS_*
+	 *
+	 * @remark one only one of the NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_* should be specified
+	 *
+	 * @remark For unmap operation cacheability and access type flags are not used
+	 */
 	__u32 flags;
 
-	/* in: For map operations, this field specifies the desired
-	 * compressible kind.  For unmap operations this field must be set
-	 * to NV_KIND_INVALID.
-	 * out: For map operations this field returns the actual kind used
-	 * for the mapping.  This can be useful for detecting if a compressed
-	 * mapping request was forced to use the fallback incompressible kind
-	 * value because sufficient compression resources are not available. */
+	/**
+	 * @brief Kind number for compressible mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Compressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     compression is not required or it is an unmap operation.</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>When the value is:
+	 *       - @c #NV_KIND_INVALID: compression tags are not assigned.
+	 *       - Otherwise, compression tags are assigned for the mapping. The map
+	 *         kind number used is @c #compr_kind [in] = @c #compr_kind [out].
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 */
 	__s16 compr_kind;
 
-	/* in: For map operations, this field specifies the desired
-	 * incompressible kind.  This value will be used as the fallback kind
-	 * if a valid compressible kind value was specified in the compr_kind
-	 * field but sufficient compression resources are not available.  For
-	 * unmap operations this field must be set to NV_KIND_INVALID. */
+	/**
+	 * @brief Incompressible kind number for the mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Incompressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     incompressible mapping is not allowed.</dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 *
+	 * @remark When @c #compr_kind &ne; @c #NV_KIND_INVALID, then this field specifies
+	 * the incompressible fallback kind number in case compression tags are not
+	 * available. If incompressible fallback is not allowed, this field is set
+	 * to @c #NV_KIND_INVALID.
+	 *
+	 * @remark Specifying a compressible kind number in this field will result
+	 * in corruption.
+	 *
+	 * @remark For unmap operation this must be set as @c #NV_KIND_INVALID.
+	 */
 	__s16 incompr_kind;
 
-	/* in: For map operations, this field specifies the handle (dmabuf_fd)
-	 * for the physical memory buffer to map into the specified virtual
-	 * address range.  For unmap operations, this field must be set to
-	 * zero. */
+	/**
+	 * @brief dma-buf file descriptor of the buffer
+	 * @remark For unmap operations, this field must be set to 0.
+	 */
 	__u32 mem_handle;
 
-	/* This field is reserved for padding purposes. */
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__s32 reserved;
 
-	/* in: For map operations this field specifies the offset (in pages)
-	 * into the physical memory buffer associated with mem_handle from
-	 * from which physical page information should be collected for
-	 * the mapping.  For unmap operations this field must be zero. */
+	/**
+	 * @brief Offset (in pages) into the physical memory buffer associated with mem_handle from
+	 * from which physical page information should be collected for the mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Offset (in pages)</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 *
+	 * @remark For unmap operations this field must be 0.
+	 */
 	__u64 mem_offset_in_pages;
 
-	/* in: For both map and unmap operations this field specifies the
-	 * virtual address space start offset in pages for the operation. */
+	/**
+	 * @brief Starting virtual address Offset (in pages) for map or unmap operation.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Virtual address Offset (in pages)</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u64 virt_offset_in_pages;
 
-	/* in: For both map and unmap operations this field specifies the
-	 * number of pages to map or unmap. */
+	/**
+	 * @brief number of pages to map or unmap.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>number of pages to map or unmap</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u64 num_pages;
 };
 
@@ -1294,14 +1734,36 @@ struct nvgpu_as_remap_op {
  * to the associated sparse address space so either all map and/or unmap
  * operations are performed or none of them are.
  */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_REMAP
+ * @brief Header struct for @ref NVGPURM_INTF_AS_REMAP
+ */
 struct nvgpu_as_remap_args {
-	/* in: This field specifies a pointer into the caller's address space
-	 * containing an array of one or more nvgpu_as_remap_op structures. */
+	/**
+	 * @brief address of @c #nvgpu_as_remap_op buffer array
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     The buffer size must be sufficient to hold array of @c #nvgpu_as_remap_op entries.
+	 *   </dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u64 ops;
 
-	/* in/out: On input this field specifies the number of operations in
-	 * the ops array.  On output this field returns the successful
-	 * number of remap operations. */
+	/**
+	 * @brief number of entries to be remapped
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     Number of entries in #ops array.
+	 *   </dd>
+	 *   <dt>[out]</dt><dd>Number of successful remap operations</dd>
+	 * </dl>
+	 */
 	__u32 num_ops;
 };
 
@@ -1351,6 +1813,10 @@ struct nvgpu_as_remap_args {
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 9, struct nvgpu_as_get_buffer_compbits_info_args)
 #define NVGPU_AS_IOCTL_MAP_BUFFER_COMPBITS \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 10, struct nvgpu_as_map_buffer_compbits_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_MAP_BUFFER_BATCH
+ * @brief Command code for @ref NVGPURM_INTF_AS_MAP_BUFFER_BATCH.
+ */
 #define NVGPU_AS_IOCTL_MAP_BUFFER_BATCH	\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 11, struct nvgpu_as_map_buffer_batch_args)
 /**
@@ -1359,10 +1825,22 @@ struct nvgpu_as_remap_args {
  */
 #define NVGPU_AS_IOCTL_GET_SYNC_RO_MAP	\
 	_IOR(NVGPU_AS_IOCTL_MAGIC,  12, struct nvgpu_as_get_sync_ro_map_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_MAPPING_MODIFY
+ * @brief Command code for @ref NVGPURM_INTF_AS_MAPPING_MODIFY
+ */
 #define NVGPU_AS_IOCTL_MAPPING_MODIFY	\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC,  13, struct nvgpu_as_mapping_modify_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_REMAP
+ * @brief Command code for @ref NVGPURM_INTF_AS_REMAP
+ */
 #define NVGPU_AS_IOCTL_REMAP		\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 14, struct nvgpu_as_remap_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ * @brief Command code for @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP_V2
+ */
 #define NVGPU_AS_IOCTL_GET_SYNC_RO_MAP_V2	\
 	_IOR(NVGPU_AS_IOCTL_MAGIC,  15, struct nvgpu_as_get_sync_ro_map_v2_args)
 

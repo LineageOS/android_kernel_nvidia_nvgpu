@@ -72,7 +72,8 @@ int gr_gk20a_update_hwpm_ctxsw_mode(struct gk20a *g,
 	bool set_pm_ctx_gpu_va = false;
 	struct nvgpu_gr_ctx *gr_ctx;
 	bool skip_update = false;
-	int ret;
+	int ret, err = 0;
+	bool is_ctx_resident = true;
 	struct nvgpu_gr *gr = nvgpu_gr_get_instance_ptr(g, gr_instance_id);
 
 	nvgpu_log_fn(g, " ");
@@ -85,15 +86,35 @@ int gr_gk20a_update_hwpm_ctxsw_mode(struct gk20a *g,
 		ret = nvgpu_gr_ctx_alloc_map_pm_ctx(g, tsg,
 				gr->gr_ctx_desc, gr->hwpm_map);
 		if (ret != 0) {
-			nvgpu_err(g,
-				"failed to allocate and map pm ctxt buffer");
+			nvgpu_err(g, "failed to allocate and map pm ctxt buffer");
 			nvgpu_mutex_release(&tsg->ctx_init_lock);
 			return ret;
 		}
 
 		if ((mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_STREAM_OUT_CTXSW) &&
-			(g->ops.perf.init_hwpm_pmm_register != NULL)) {
-			g->ops.perf.init_hwpm_pmm_register(g, gr_instance_id);
+		    (g->ops.perf.init_hwpm_pmm_register != NULL)) {
+			if (g->ops.perf.supports_extended_b2cc != NULL) {
+				ret = g->ops.perf.supports_extended_b2cc(g, tsg,
+									&is_ctx_resident);
+				if (ret != 0) {
+					nvgpu_err(g, "Fatal error - unable to stop ctxsw");
+					nvgpu_mutex_release(&tsg->ctx_init_lock);
+					return ret;
+				}
+			}
+			ret = g->ops.perf.init_hwpm_pmm_register(g, gr_instance_id, tsg,
+								is_ctx_resident);
+			if (g->ops.perf.supports_extended_b2cc != NULL) {
+				err = nvgpu_gr_enable_ctxsw(g);
+				if (err != 0) {
+					nvgpu_err(g, "Unable to restart ctxsw! - %d", err);
+				}
+			}
+			if (ret != 0 || err != 0) {
+				nvgpu_err(g, "Error in PMM regs update - err -%d", ret);
+				nvgpu_mutex_release(&tsg->ctx_init_lock);
+				return ret;
+			}
 		}
 	}
 
@@ -1548,10 +1569,10 @@ void gr_gk20a_exec_ctx_ops_resident(struct gk20a *g,
 	}
 }
 
-static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
-			    struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
-			    u32 num_ctx_wr_ops, u32 num_ctx_rd_ops,
-			    bool ctx_resident)
+int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
+		   struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
+		   u32 num_ctx_wr_ops, u32 num_ctx_rd_ops,
+		   bool ctx_resident)
 {
 	struct gk20a *g = tsg->g;
 	struct nvgpu_gr_ctx *gr_ctx;
@@ -1568,6 +1589,14 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 	u32 *offset_addrs = NULL;
 	u32 ctx_op_nr, num_ctx_ops[2] = {num_ctx_wr_ops, num_ctx_rd_ops};
 	int err = 0, pass;
+	u32 offsets_size, offset_addr_size;
+	/* TODO: The maximum number of duplicates has to be calculated during boot
+	 * as part of setting up the pri address map. Currently, hardcoding it to 8
+	 */
+	const u32 max_num_duplicates = 8U;
+
+	offsets_size =  max_offsets * max_num_duplicates;
+	offset_addr_size = max_offsets;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "wr_ops=%d rd_ops=%d",
 		   num_ctx_wr_ops, num_ctx_rd_ops);
@@ -1581,12 +1610,12 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 	}
 
 	/* they're the same size, so just use one alloc for both */
-	offsets = nvgpu_kzalloc(g, 2U * sizeof(u32) * max_offsets);
+	offsets = nvgpu_kzalloc(g, sizeof(u32) * (offsets_size + offset_addr_size));
 	if (offsets == NULL) {
 		err = -ENOMEM;
 		goto cleanup;
 	}
-	offset_addrs = offsets + max_offsets;
+	offset_addrs = offsets + offsets_size;
 
 	nvgpu_gr_ctx_patch_write_begin(g, gr_ctx, false);
 
@@ -1690,6 +1719,8 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 						(offsets[j] >=
 						 nvgpu_gr_obj_ctx_get_golden_image_size(
 							gr->golden_image))) {
+					nvgpu_log(g, gpu_dbg_gpu_dbg, "0x%x offset is beyond the gr ctx buffer",
+						offsets[j]);
 					continue;
 				}
 				if (pass == 0) { /* write pass */

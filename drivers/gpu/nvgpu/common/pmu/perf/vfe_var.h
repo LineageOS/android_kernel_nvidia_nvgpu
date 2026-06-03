@@ -93,7 +93,6 @@ struct vfe_var_single_sensed_fuse_base {
 	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_integer;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_hw_integer;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_default;
-	u8 fuse_version;
 	bool b_version_check_done;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_ver_info fuse_ver_info;
 	u32 hw_correction_scale;
@@ -115,8 +114,8 @@ struct vfe_var_single_sensed_fuse {
 
 struct vfe_var_single_sensed_fuse_20 {
 	struct vfe_var_single_sensed_fuse_base super;
-	u16 fuse_id;
-	u16 fuse_id_ver;
+	u8 fuse_id;
+	u8 fuse_id_ver;
 };
 
 struct vfe_var_single_sensed_temp {

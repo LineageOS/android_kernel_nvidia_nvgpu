@@ -17,7 +17,7 @@
 #include "common/gsp_scheduler/gsp_scheduler.h"
 #include "common/gsp/ipc/gsp_msg.h"
 
-static int nvgpu_acr_wait_message_cond(struct gk20a *g, u32 timeout_ms,
+int nvgpu_acr_wait_message_cond(struct gk20a *g, u32 timeout_ms,
 		void *var, u8 val)
 {
 	struct nvgpu_timeout timeout;

@@ -9,6 +9,8 @@
 #ifdef CONFIG_GK20A_PM_QOS
 #include <linux/pm_qos.h>
 #endif
+#include <linux/pm_opp.h>
+#include <linux/of.h>
 #include <linux/version.h>
 
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 14, 0)
@@ -356,7 +358,53 @@ static void unregister_gpu_opp(struct device *dev)
 #else
 static void unregister_gpu_opp(struct device *dev)
 {
+	/* Remove device tree OPP table if it exists */
+	if (dev->of_node &&
+	    of_find_property(dev->of_node, "operating-points-v2", NULL))
+		dev_pm_opp_of_remove_table(dev);
+
+	/* Remove any dynamic OPP entries */
 	dev_pm_opp_remove_all_dynamic(dev);
+}
+
+/*
+ * Helper function to read OPP frequencies and replace freq table
+ * Returns 0 on success, negative error code on failure
+ */
+static int read_opp_freqs_and_replace(struct device *dev,
+				      struct gk20a *g,
+				      struct gk20a_scale_profile *profile,
+				      int opp_count)
+{
+	unsigned long *opp_freqs;
+	struct dev_pm_opp *opp;
+	unsigned long freq = 0;
+	int opp_idx;
+
+	opp_freqs = nvgpu_kzalloc(g, sizeof(*opp_freqs) * opp_count);
+	if (!opp_freqs)
+		return -ENOMEM;
+
+	/* Read frequencies from OPP table in descending order */
+	for (opp_idx = 0; opp_idx < opp_count; opp_idx++) {
+		opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+		if (IS_ERR(opp)) {
+			nvgpu_err(g, "OPP %d failed", opp_idx);
+			nvgpu_kfree(g, opp_freqs);
+			return PTR_ERR(opp);
+		}
+
+		opp_freqs[opp_idx] = freq;
+		nvgpu_info(g, "Freq %lu Hz idx %d", freq, opp_idx);
+		dev_pm_opp_put(opp);
+		freq++; /* Increment for next search */
+	}
+
+	/* Successfully read all frequencies, replace the table */
+	profile->devfreq_profile.freq_table = opp_freqs;
+	profile->devfreq_profile.max_state = opp_count;
+
+	return 0;
 }
 
 static int register_gpu_opp(struct device *dev)
@@ -366,8 +414,46 @@ static int register_gpu_opp(struct device *dev)
 	struct gk20a_scale_profile *profile = g->scale_profile;
 	unsigned long *freq_table = profile->devfreq_profile.freq_table;
 	int max_states = profile->devfreq_profile.max_state;
+	int opp_count;
 	int i;
 	int err = 0;
+
+	/* Try to initialize OPP table from device tree first */
+	if (dev->of_node &&
+	    of_find_property(dev->of_node, "operating-points-v2", NULL)) {
+		nvgpu_info(g,
+			"Found OPP property, initializing from DT");
+
+		err = dev_pm_opp_of_add_table(dev);
+		if (err == 0) {
+			opp_count = dev_pm_opp_get_opp_count(dev);
+			if (opp_count > 0) {
+				err = read_opp_freqs_and_replace(dev, g,
+								  profile,
+								  opp_count);
+				if (err == 0)
+					return 0; /* Success */
+
+				nvgpu_err(g, "Failed read OPPs: %d", err);
+			} else {
+				nvgpu_err(g, "OPP init but count=%d",
+					opp_count);
+			}
+			dev_pm_opp_of_remove_table(dev);
+		} else {
+			nvgpu_err(g, "Failed to init OPP table: %d", err);
+		}
+	}
+
+	/* Check if OPP table already exists (fallback check) */
+	opp_count = dev_pm_opp_get_opp_count(dev);
+	if (opp_count > 0) {
+		nvgpu_info(g,
+			"OPP table has %d entries, decoupled from PMU VF",
+			opp_count);
+		return 0;  /* Success - using existing OPP table */
+	}
+
 
 	for (i = 0; i < max_states; ++i) {
 		err = dev_pm_opp_add(dev, freq_table[i], 0);
@@ -381,9 +467,123 @@ static int register_gpu_opp(struct device *dev)
 		}
 	}
 
+
 	return err;
 }
 #endif
+
+/*
+ * OPP functions for device tree-based frequency management
+ * These functions handle OPP table management for devices with OPP configuration
+ */
+
+/**
+ * gk20a_tegra_init_opp_table() - Initialize OPP table from device tree
+ * @dev: Device pointer
+ *
+ * This function initializes the OPP (Operating Performance Points) table
+ * from the device tree. This allows devfreq frequencies to be configured
+ * independently from PMU-provided frequencies.
+ *
+ * Returns: 0 on success, -ENODEV if no OPP table found (not an error),
+ *          or error code on failure
+ */
+int gk20a_tegra_init_opp_table(struct device *dev)
+{
+	int err;
+
+	/* Initialize OPP table from device tree using "operating-points-v2" */
+	err = dev_pm_opp_of_add_table(dev);
+	if (err) {
+		/*
+		 * If OPP table not found in DT, it's not an error -
+		 * driver will use PMU-provided frequencies as fallback
+		 */
+		if (err == -ENODEV) {
+			dev_info(dev,
+				"No OPP in DT, will use PMU freqs\n");
+			return 0;
+		}
+		dev_err(dev, "Failed to init OPP from DT: %d\n", err);
+		return err;
+	}
+
+	dev_info(dev, "OPP table initialized from device tree\n");
+	return 0;
+}
+
+/**
+ * gk20a_tegra_cleanup_opp_table() - Cleanup OPP table
+ * @dev: Device pointer
+ *
+ * Removes the OPP table that was initialized from device tree
+ */
+void gk20a_tegra_cleanup_opp_table(struct device *dev)
+{
+	dev_pm_opp_of_remove_table(dev);
+}
+
+/**
+ * gk20a_tegra_get_clk_freqs_from_opp() - Get frequency table from OPP
+ * @dev: Device pointer
+ * @freqs: Pointer to store allocated frequency array
+ * @num_freqs: Pointer to store number of frequencies
+ *
+ * This function retrieves the frequency table from device tree OPP entries,
+ * allowing devfreq to be decoupled from the PMU frequency table.
+ *
+ * If no OPP table exists in device tree, returns -ENODEV and the caller
+ * should fall back to using PMU-provided frequencies.
+ *
+ * Returns: 0 on success, error code on failure
+ */
+int gk20a_tegra_get_clk_freqs_from_opp(struct device *dev,
+				       unsigned long **freqs,
+				       int *num_freqs)
+{
+	struct dev_pm_opp *opp;
+	unsigned long *freq_table;
+	unsigned long freq = 0;
+	int count, i = 0;
+
+	/* Count number of OPP entries in device tree */
+	count = dev_pm_opp_get_opp_count(dev);
+	if (count <= 0) {
+		dev_info(dev, "No OPP, use PMU frequencies\n");
+		return -ENODEV;
+	}
+
+	/* Allocate frequency table */
+	freq_table = devm_kcalloc(dev, count, sizeof(*freq_table),
+				  GFP_KERNEL);
+	if (!freq_table)
+		return -ENOMEM;
+
+	/* Iterate through all OPP entries and extract frequencies */
+	for (i = 0; i < count; i++) {
+		opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+		if (IS_ERR(opp)) {
+			dev_err(dev, "Failed to find OPP %lu: %ld\n",
+				freq, PTR_ERR(opp));
+			devm_kfree(dev, freq_table);
+			return PTR_ERR(opp);
+		}
+
+		freq_table[i] = freq;
+		dev_dbg(dev, "OPP[%d]: %lu Hz\n", i, freq);
+
+		dev_pm_opp_put(opp);
+
+		/* Move to next frequency */
+		freq++;
+	}
+
+	*freqs = freq_table;
+	*num_freqs = count;
+
+	dev_info(dev, "Loaded %d devfreq OPPs from device tree\n", count);
+	return 0;
+}
 
 /*
  * gk20a_scale_init(dev)
@@ -407,15 +607,17 @@ void gk20a_scale_init(struct device *dev)
 	if (!platform->devfreq_governor)
 		return;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	if (!platform->qos_min_notify && !platform->qos_max_notify) {
-		return;
+	/* For virtual devices, initialize OPP table from device tree first */
+	if (platform->virtual_dev) {
+		err = gk20a_tegra_init_opp_table(dev);
+		if (err && err != -ENODEV) {
+			nvgpu_err(g, "Failed to init OPP table: %d", err);
+			/*
+			 * Continue - will fall back to GPU server freq_table
+			 * if no OPP table found
+			 */
+		}
 	}
-#else
-	if (!platform->qos_notify) {
-		return;
-	}
-#endif
 
 	profile = nvgpu_kzalloc(g, sizeof(*profile));
 	if (!profile)
@@ -430,8 +632,21 @@ void gk20a_scale_init(struct device *dev)
 
 	/* Create frequency table */
 	err = gk20a_scale_make_freq_table(profile);
-	if (err || !profile->devfreq_profile.max_state)
+	if (err || !profile->devfreq_profile.max_state) {
+		nvgpu_err(g, "Failed to create frequency table, err=%d, max_state=%u",
+			  err, profile->devfreq_profile.max_state);
 		goto err_get_freqs;
+	}
+
+	/* Try to read frequencies from device tree OPP table */
+	if (profile->dev->of_node &&
+	    of_find_property(profile->dev->of_node,
+			     "operating-points-v2", NULL)) {
+		nvgpu_info(g,
+			"DT OPP property found - will read from OPP");
+	} else {
+		nvgpu_info(g, "No specific device tree OPP table, using default frequency table");
+	}
 
 	profile->qos_min_freq = 0;
 	profile->qos_max_freq = UINT_MAX;
@@ -459,6 +674,7 @@ void gk20a_scale_init(struct device *dev)
 					platform->devfreq_governor, NULL);
 
 		if (IS_ERR(devfreq)) {
+			nvgpu_err(g, "devfreq_add_device failed, error=%ld", PTR_ERR(devfreq));
 			devfreq = NULL;
 		} else {
 			nvgpu_info(g, "enabled scaling for GPU\n");
@@ -469,10 +685,14 @@ void gk20a_scale_init(struct device *dev)
 		if (devfreq != NULL) {
 #ifdef CONFIG_DEVFREQ_THERMAL
 			cooling = of_devfreq_cooling_register(dev->of_node, devfreq);
-			if (IS_ERR(cooling))
-				dev_info(dev, "Failed to register cooling device\n");
-			else
+			if (IS_ERR(cooling)) {
+				nvgpu_err(g, "Failed to register DevFreq cooling device: %ld",
+					  PTR_ERR(cooling));
+				l->cooling = NULL;
+			} else {
 				l->cooling = cooling;
+				nvgpu_info(g, "DevFreq cooling device registered successfully");
+			}
 #endif
 			/* create symlink /sys/devices/gpu.0/devfreq_dev */
 			error = sysfs_create_link(&dev->kobj,
@@ -549,19 +769,9 @@ void gk20a_scale_exit(struct device *dev)
 	if (!platform->devfreq_governor)
 		return;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	if (!platform->qos_min_notify && !platform->qos_max_notify) {
-		return;
-	}
-#else
-	if (!platform->qos_notify) {
-		return;
-	}
-#endif
-
 #ifdef CONFIG_GK20A_PM_QOS
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	if (devfreq) {
+	if (devfreq && platform->qos_min_notify) {
 		profile = g->scale_profile;
 
 		err = dev_pm_qos_remove_notifier(devfreq->dev.parent,
@@ -570,6 +780,11 @@ void gk20a_scale_exit(struct device *dev)
 		if (err) {
 			nvgpu_err(g, "failed to remove min freq notifier %d", err);
 		}
+	}
+
+	if (devfreq && platform->qos_max_notify) {
+		if (!profile)
+			profile = g->scale_profile;
 
 		err = dev_pm_qos_remove_notifier(devfreq->dev.parent,
 						 &profile->qos_max_notify_block,
@@ -577,7 +792,11 @@ void gk20a_scale_exit(struct device *dev)
 		if (err) {
 			nvgpu_err(g, "failed to remove max freq notifier %d", err);
 		}
+	}
 
+	if (devfreq && (platform->qos_min_notify || platform->qos_max_notify)) {
+		if (!profile)
+			profile = g->scale_profile;
 		nvgpu_mutex_destroy(&profile->lock);
 	}
 #else

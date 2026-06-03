@@ -55,7 +55,7 @@ int nvgpu_ptimer_init(struct gk20a *g)
 
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 int nvgpu_get_timestamps_zipper(struct gk20a *g,
-		enum nvgpu_cpu_timestamp_source cpu_timestamp_source,
+		u32 cpu_timestamp_source,
 		u32 count,
 		struct nvgpu_cpu_time_correlation_sample *samples)
 {

@@ -1,1150 +1,610 @@
-/* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
+#include <nvgpu/gk20a.h>
+#include <nvgpu/log.h>
+#include <nvgpu/grmgr.h>
+#include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/gr/config.h>
 #include <nvgpu/regops_allowlist.h>
+#include <nvgpu/profiler.h>
+#include <nvgpu/regops.h>
+
+#include <nvgpu/hw/gb10b/hw_perf_gb10b.h>
+
 #include "allowlist_gb10b.h"
-
-static const u32 gb10b_hwpm_perfmon_register_offset_allowlist[] = {
-};
-
-static const u32 gb10b_hwpm_router_register_offset_allowlist[] = {
-};
-
-static const u32 gb10b_hwpm_pma_channel_register_offset_allowlist[] = {
-	0x00000818,
-	0x00000a00,
-	0x00000a10,
-	0x00000a20,
-	0x00000a24,
-	0x00000a34,
-	0x00000a38,
-	0x00000a40,
-	0x00000a50,
-	0x00000a60,
-	0x00000a64,
-	0x00000a74,
-	0x00000a78,
-	0x00000a80,
-	0x00000a90,
-	0x00000aa0,
-	0x00000aa4,
-	0x00000ab4,
-	0x00000ab8,
-	0x00000ac0,
-	0x00000ad0,
-	0x00000ae0,
-	0x00000ae4,
-	0x00000af4,
-	0x00000af8,
-	0x00000b00,
-	0x00000b10,
-	0x00000b20,
-	0x00000b24,
-	0x00000b34,
-	0x00000b38,
-	0x00000b40,
-	0x00000b50,
-	0x00000b60,
-	0x00000b64,
-	0x00000b74,
-	0x00000b78,
-};
-
-static const u32 gb10b_hwpm_pma_trigger_register_offset_allowlist[] = {
-	0x00000818,
-	0x00001100,
-	0x00001104,
-	0x0000111c,
-	0x00001120,
-	0x00001124,
-	0x00001128,
-	0x0000112c,
-	0x00001130,
-	0x00001134,
-	0x00001138,
-	0x0000113c,
-	0x00001140,
-	0x00001144,
-	0x00001148,
-	0x0000114c,
-	0x00001150,
-	0x00001154,
-	0x00001158,
-	0x0000115c,
-	0x00001170,
-	0x00001174,
-	0x00001178,
-	0x0000117c,
-	0x00001190,
-	0x00001194,
-	0x000011ac,
-	0x000011b0,
-	0x000011b4,
-	0x000011b8,
-	0x000011bc,
-	0x000011c0,
-	0x000011c4,
-	0x000011c8,
-	0x000011cc,
-	0x000011d0,
-	0x000011d4,
-	0x000011d8,
-	0x000011dc,
-	0x000011e0,
-	0x000011e4,
-	0x000011e8,
-	0x000011ec,
-	0x00001200,
-	0x00001204,
-	0x00001208,
-	0x0000120c,
-	0x00001220,
-	0x00001224,
-	0x0000123c,
-	0x00001240,
-	0x00001244,
-	0x00001248,
-	0x0000124c,
-	0x00001250,
-	0x00001254,
-	0x00001258,
-	0x0000125c,
-	0x00001260,
-	0x00001264,
-	0x00001268,
-	0x0000126c,
-	0x00001270,
-	0x00001274,
-	0x00001278,
-	0x0000127c,
-	0x00001290,
-	0x00001294,
-	0x00001298,
-	0x0000129c,
-	0x000012b0,
-	0x000012b4,
-	0x000012cc,
-	0x000012d0,
-	0x000012d4,
-	0x000012d8,
-	0x000012dc,
-	0x000012e0,
-	0x000012e4,
-	0x000012e8,
-	0x000012ec,
-	0x000012f0,
-	0x000012f4,
-	0x000012f8,
-	0x000012fc,
-	0x00001300,
-	0x00001304,
-	0x00001308,
-	0x0000130c,
-	0x00001320,
-	0x00001324,
-	0x00001328,
-	0x0000132c,
-	0x00001340,
-	0x00001344,
-	0x0000135c,
-	0x00001360,
-	0x00001364,
-	0x00001368,
-	0x0000136c,
-	0x00001370,
-	0x00001374,
-	0x00001378,
-	0x0000137c,
-	0x00001380,
-	0x00001384,
-	0x00001388,
-	0x0000138c,
-	0x00001390,
-	0x00001394,
-	0x00001398,
-	0x0000139c,
-	0x000013b0,
-	0x000013b4,
-	0x000013b8,
-	0x000013bc,
-	0x000013d0,
-	0x000013d4,
-	0x000013ec,
-	0x000013f0,
-	0x000013f4,
-	0x000013f8,
-	0x000013fc,
-	0x00001400,
-	0x00001404,
-	0x00001408,
-	0x0000140c,
-	0x00001410,
-	0x00001414,
-	0x00001418,
-	0x0000141c,
-	0x00001420,
-	0x00001424,
-	0x00001428,
-	0x0000142c,
-	0x00001440,
-	0x00001444,
-	0x00001448,
-	0x0000144c,
-};
-
-static const u32 gb10b_smpc_register_offset_allowlist[] = {
-	0x00000800,
-	0x00000804,
-	0x00000808,
-	0x0000080c,
-	0x00000810,
-	0x00000814,
-	0x00000818,
-	0x0000081c,
-	0x00000820,
-	0x00000824,
-	0x00000828,
-	0x0000082c,
-	0x00000830,
-	0x00000834,
-	0x00000838,
-	0x0000083c,
-	0x00000840,
-	0x00000844,
-	0x00000848,
-	0x00000900,
-	0x00000904,
-	0x00000908,
-	0x0000090c,
-	0x00000910,
-	0x00000914,
-	0x00000918,
-	0x0000091c,
-	0x00000920,
-	0x00000924,
-	0x00000928,
-	0x0000092c,
-	0x00000930,
-	0x00000934,
-	0x00000938,
-	0x0000093c,
-	0x00000940,
-	0x00000944,
-	0x00000948,
-	0x0000094c,
-	0x00000950,
-	0x00000954,
-	0x00000958,
-	0x0000095c,
-	0x00000960,
-	0x00000964,
-	0x00000968,
-	0x0000096c,
-	0x00000970,
-	0x00000974,
-	0x00000978,
-	0x0000097c,
-	0x00000980,
-	0x00000984,
-	0x00000988,
-	0x0000098c,
-	0x00000990,
-	0x00000994,
-	0x00000998,
-	0x0000099c,
-	0x000009a0,
-	0x000009a4,
-	0x000009a8,
-	0x000009ac,
-	0x000009b0,
-	0x000009b4,
-	0x000009b8,
-	0x000009bc,
-	0x000009c0,
-	0x000009c4,
-	0x00000a00,
-	0x00000a04,
-	0x00000a08,
-	0x00000a0c,
-	0x00000a10,
-	0x00000a14,
-	0x00000a18,
-	0x00000a1c,
-	0x00000a20,
-	0x00000a24,
-	0x00000a28,
-	0x00000a2c,
-	0x00000a30,
-	0x00000a34,
-	0x00000a38,
-	0x00000a3c,
-	0x00000a40,
-	0x00000a44,
-	0x00000a48,
-	0x00000a4c,
-	0x00000a50,
-	0x00000a54,
-	0x00000a58,
-	0x00000a5c,
-	0x00000a60,
-	0x00000a64,
-	0x00000a68,
-	0x00000a6c,
-	0x00000a70,
-	0x00000a74,
-	0x00000a78,
-	0x00000a7c,
-	0x00000a80,
-	0x00000a84,
-	0x00000a88,
-	0x00000a8c,
-	0x00000a90,
-	0x00000a94,
-	0x00000a98,
-	0x00000a9c,
-	0x00000aa0,
-	0x00000aa4,
-	0x00000aa8,
-	0x00000aac,
-	0x00000ab0,
-	0x00000ab4,
-	0x00000ab8,
-	0x00000abc,
-	0x00000ac0,
-	0x00000ac4,
-};
-
-static const u32 gb10b_cau_register_offset_allowlist[] = {
-	0x00000000,
-	0x00000004,
-	0x00000008,
-	0x0000000c,
-	0x00000010,
-	0x00000014,
-	0x00000018,
-	0x0000001c,
-	0x00000024,
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_perfmon_register_ranges[] = {
-	{0x00240000, 0x00243ffc},
-	{0x00180000, 0x0018bffc},
-	{0x00200000, 0x0020fffc},
-	{0x002a8900, 0x002a8f00},
-	{0x00288100, 0x0028a700},
-	{0x00280100, 0x00281100},
-	{0x002a8100, 0x002a8100},
-	{0x002a8300, 0x002a8300},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_router_register_ranges[] = {
-	{0x002a4000, 0x002a4bfc},
-	{0x002a0000, 0x002a0ffc},
-	{0x002b4000, 0x002b43fc},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_pma_channel_register_ranges[] = {
-	{0x002b0a00, 0x002b0a00},
-	{0x002b0a10, 0x002b0a14},
-	{0x002b0a24, 0x002b0a3c},
-	{0x002b0a40, 0x002b0a40},
-	{0x002b0a50, 0x002b0a54},
-	{0x002b0a64, 0x002b0a7c},
-	{0x002b0a80, 0x002b0a80},
-	{0x002b0a90, 0x002b0a94},
-	{0x002b0aa4, 0x002b0abc},
-	{0x002b0ac0, 0x002b0ac0},
-	{0x002b0ad0, 0x002b0ad4},
-	{0x002b0ae4, 0x002b0afc},
-	{0x002b0b00, 0x002b0b00},
-	{0x002b0b10, 0x002b0b14},
-	{0x002b0b24, 0x002b0b3c},
-	{0x002b0b40, 0x002b0b40},
-	{0x002b0b50, 0x002b0b54},
-	{0x002b0b64, 0x002b0b7c},
-	{0x002b1e00, 0x002b1e18},
-	{0x002b1e20, 0x002b1e38},
-	{0x002b1e40, 0x002b1e58},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_pma_trigger_register_ranges[] = {
-	{0x002b1100, 0x002b1104},
-	{0x002b1118, 0x002b116c},
-	{0x002b1190, 0x002b1194},
-	{0x002b11a8, 0x002b11fc},
-	{0x002b1220, 0x002b1224},
-	{0x002b1238, 0x002b128c},
-	{0x002b12b0, 0x002b12b4},
-	{0x002b12c8, 0x002b131c},
-	{0x002b1340, 0x002b1344},
-	{0x002b1358, 0x002b13ac},
-	{0x002b13d0, 0x002b13d4},
-	{0x002b13e8, 0x002b143c},
-	{0x002b1170, 0x002b117c},
-	{0x002b1200, 0x002b120c},
-	{0x002b1290, 0x002b129c},
-	{0x002b1320, 0x002b132c},
-	{0x002b13b0, 0x002b13bc},
-	{0x002b1440, 0x002b144c},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_smpc_register_ranges[] = {
-	{0x00505800, 0x00505bfc},
-	{0x00506800, 0x00506bfc},
-	{0x00507800, 0x00507bfc},
-	{0x00508800, 0x00508bfc},
-	{0x00504800, 0x00504bfc},
-	{0x00515800, 0x00515bfc},
-	{0x00516800, 0x00516bfc},
-	{0x00517800, 0x00517bfc},
-	{0x00518800, 0x00518bfc},
-	{0x00514800, 0x00514bfc},
-	{0x00525800, 0x00525bfc},
-	{0x00526800, 0x00526bfc},
-	{0x00527800, 0x00527bfc},
-	{0x00528800, 0x00528bfc},
-	{0x00524800, 0x00524bfc},
-	{0x00425800, 0x00425bfc},
-	{0x00426800, 0x00426bfc},
-	{0x00427800, 0x00427bfc},
-	{0x00428800, 0x00428bfc},
-	{0x00424800, 0x00424bfc},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_perfmux_register_ranges[] = {
-	{0x00140028, 0x00140028},
-	{0x00142028, 0x00142028},
-	{0x00144028, 0x00144028},
-	{0x00146028, 0x00146028},
-	{0x001c6028, 0x001c6028},
-	{0x00900100, 0x00900100},
-	{0x00904100, 0x00904100},
-	{0x00908100, 0x00908100},
-	{0x0090c100, 0x0090c100},
-	{0x00910100, 0x00910100},
-	{0x00914100, 0x00914100},
-	{0x00918100, 0x00918100},
-	{0x0091c100, 0x0091c100},
-	{0x009a0100, 0x009a0100},
-	{0x00503814, 0x00503814},
-	{0x00503870, 0x00503870},
-	{0x00503894, 0x00503894},
-	{0x00503a14, 0x00503a14},
-	{0x00503a70, 0x00503a70},
-	{0x00503a94, 0x00503a94},
-	{0x00513814, 0x00513814},
-	{0x00513870, 0x00513870},
-	{0x00513894, 0x00513894},
-	{0x00513a14, 0x00513a14},
-	{0x00513a70, 0x00513a70},
-	{0x00513a94, 0x00513a94},
-	{0x00523814, 0x00523814},
-	{0x00523870, 0x00523870},
-	{0x00523894, 0x00523894},
-	{0x00523a14, 0x00523a14},
-	{0x00523a70, 0x00523a70},
-	{0x00523a94, 0x00523a94},
-	{0x00423814, 0x00423814},
-	{0x00423870, 0x00423870},
-	{0x00423894, 0x00423894},
-	{0x00423a14, 0x00423a14},
-	{0x00423a70, 0x00423a70},
-	{0x00423a94, 0x00423a94},
-	{0x00423c14, 0x00423c14},
-	{0x00423c70, 0x00423c70},
-	{0x00423c94, 0x00423c94},
-	{0x00503c14, 0x00503c14},
-	{0x00503c70, 0x00503c70},
-	{0x00503c94, 0x00503c94},
-	{0x00513c14, 0x00513c14},
-	{0x00513c70, 0x00513c70},
-	{0x00513c94, 0x00513c94},
-	{0x00523c14, 0x00523c14},
-	{0x00523c70, 0x00523c70},
-	{0x00523c94, 0x00523c94},
-	{0x00140550, 0x00140550},
-	{0x00140578, 0x00140578},
-	{0x00140750, 0x00140750},
-	{0x00140778, 0x00140778},
-	{0x00140950, 0x00140950},
-	{0x00140978, 0x00140978},
-	{0x00140b50, 0x00140b50},
-	{0x00140b78, 0x00140b78},
-	{0x00142550, 0x00142550},
-	{0x00142578, 0x00142578},
-	{0x00142750, 0x00142750},
-	{0x00142778, 0x00142778},
-	{0x00142950, 0x00142950},
-	{0x00142978, 0x00142978},
-	{0x00142b50, 0x00142b50},
-	{0x00142b78, 0x00142b78},
-	{0x00144550, 0x00144550},
-	{0x00144578, 0x00144578},
-	{0x00144750, 0x00144750},
-	{0x00144778, 0x00144778},
-	{0x00144950, 0x00144950},
-	{0x00144978, 0x00144978},
-	{0x00144b50, 0x00144b50},
-	{0x00144b78, 0x00144b78},
-	{0x00146550, 0x00146550},
-	{0x00146578, 0x00146578},
-	{0x00146750, 0x00146750},
-	{0x00146778, 0x00146778},
-	{0x00146950, 0x00146950},
-	{0x00146978, 0x00146978},
-	{0x00146b50, 0x00146b50},
-	{0x00146b78, 0x00146b78},
-	{0x008c0428, 0x008c042c},
-	{0x008c0628, 0x008c062c},
-	{0x008c0828, 0x008c082c},
-	{0x008c0a28, 0x008c0a2c},
-	{0x008c1428, 0x008c142c},
-	{0x008c1628, 0x008c162c},
-	{0x008c1828, 0x008c182c},
-	{0x008c1a28, 0x008c1a2c},
-	{0x008c2428, 0x008c242c},
-	{0x008c2628, 0x008c262c},
-	{0x008c2828, 0x008c282c},
-	{0x008c2a28, 0x008c2a2c},
-	{0x008c3428, 0x008c342c},
-	{0x008c3628, 0x008c362c},
-	{0x008c3828, 0x008c382c},
-	{0x008c3a28, 0x008c3a2c},
-	{0x00140350, 0x00140350},
-	{0x00140378, 0x00140378},
-	{0x00142350, 0x00142350},
-	{0x00142378, 0x00142378},
-	{0x00144350, 0x00144350},
-	{0x00144378, 0x00144378},
-	{0x00146350, 0x00146350},
-	{0x00146378, 0x00146378},
-	{0x001c6350, 0x001c6350},
-	{0x001c6378, 0x001c6378},
-	{0x001c6550, 0x001c6550},
-	{0x001c6578, 0x001c6578},
-	{0x001c6750, 0x001c6750},
-	{0x001c6778, 0x001c6778},
-	{0x001c6950, 0x001c6950},
-	{0x001c6978, 0x001c6978},
-	{0x001c6b50, 0x001c6b50},
-	{0x001c6b78, 0x001c6b78},
-	{0x008bf028, 0x008bf02c},
-	{0x008bf428, 0x008bf42c},
-	{0x008bf628, 0x008bf62c},
-	{0x008bf828, 0x008bf82c},
-	{0x008bfa28, 0x008bfa2c},
-	{0x008c0028, 0x008c002c},
-	{0x008c1028, 0x008c102c},
-	{0x008c2028, 0x008c202c},
-	{0x008c3028, 0x008c302c},
-	{0x009001e0, 0x009001e4},
-	{0x009041e0, 0x009041e4},
-	{0x009081e0, 0x009081e4},
-	{0x0090c1e0, 0x0090c1e4},
-	{0x009101e0, 0x009101e4},
-	{0x009141e0, 0x009141e4},
-	{0x009181e0, 0x009181e4},
-	{0x0091c1e0, 0x0091c1e4},
-	{0x009a01e0, 0x009a01e4},
-	{0x00500884, 0x00500884},
-	{0x00500c7c, 0x00500c7c},
-	{0x0050100c, 0x0050100c},
-	{0x005028a0, 0x005028a8},
-	{0x0050f0a8, 0x0050f0a8},
-	{0x00510884, 0x00510884},
-	{0x00510c7c, 0x00510c7c},
-	{0x0051100c, 0x0051100c},
-	{0x005128a0, 0x005128a8},
-	{0x0051f0a8, 0x0051f0a8},
-	{0x00520884, 0x00520884},
-	{0x00520c7c, 0x00520c7c},
-	{0x0052100c, 0x0052100c},
-	{0x005228a0, 0x005228a8},
-	{0x0052f0a8, 0x0052f0a8},
-	{0x00500384, 0x00500384},
-	{0x005004a0, 0x005004a0},
-	{0x00500604, 0x00500604},
-	{0x00500680, 0x00500680},
-	{0x00500714, 0x00500714},
-	{0x0050081c, 0x0050081c},
-	{0x005008c8, 0x005008cc},
-	{0x00500b04, 0x00500b04},
-	{0x00500c88, 0x00500c88},
-	{0x00500d00, 0x00500d00},
-	{0x00500e08, 0x00500e08},
-	{0x00500f88, 0x00500f88},
-	{0x00510384, 0x00510384},
-	{0x005104a0, 0x005104a0},
-	{0x00510604, 0x00510604},
-	{0x00510680, 0x00510680},
-	{0x00510714, 0x00510714},
-	{0x0051081c, 0x0051081c},
-	{0x005108c8, 0x005108cc},
-	{0x00510b04, 0x00510b04},
-	{0x00510c88, 0x00510c88},
-	{0x00510d00, 0x00510d00},
-	{0x00510e08, 0x00510e08},
-	{0x00510f88, 0x00510f88},
-	{0x00520384, 0x00520384},
-	{0x005204a0, 0x005204a0},
-	{0x00520604, 0x00520604},
-	{0x00520680, 0x00520680},
-	{0x00520714, 0x00520714},
-	{0x0052081c, 0x0052081c},
-	{0x005208c8, 0x005208cc},
-	{0x00520b04, 0x00520b04},
-	{0x00520c88, 0x00520c88},
-	{0x00520d00, 0x00520d00},
-	{0x00520e08, 0x00520e08},
-	{0x00520f88, 0x00520f88},
-	{0x00420884, 0x00420884},
-	{0x00420c7c, 0x00420c7c},
-	{0x0042100c, 0x0042100c},
-	{0x004228a0, 0x004228a8},
-	{0x0042f0a8, 0x0042f0a8},
-	{0x00420384, 0x00420384},
-	{0x004204a0, 0x004204a0},
-	{0x00420604, 0x00420604},
-	{0x00420680, 0x00420680},
-	{0x00420714, 0x00420714},
-	{0x0042081c, 0x0042081c},
-	{0x004208c8, 0x004208cc},
-	{0x00420b04, 0x00420b04},
-	{0x00420c88, 0x00420c88},
-	{0x00420d00, 0x00420d00},
-	{0x00420e08, 0x00420e08},
-	{0x00420f88, 0x00420f88},
-	{0x005051ac, 0x005051ac},
-	{0x005052b0, 0x005052b0},
-	{0x00505304, 0x00505304},
-	{0x0050540c, 0x0050540c},
-	{0x00505664, 0x00505664},
-	{0x005061ac, 0x005061ac},
-	{0x005062b0, 0x005062b0},
-	{0x00506304, 0x00506304},
-	{0x0050640c, 0x0050640c},
-	{0x00506664, 0x00506664},
-	{0x005071ac, 0x005071ac},
-	{0x005072b0, 0x005072b0},
-	{0x00507304, 0x00507304},
-	{0x0050740c, 0x0050740c},
-	{0x00507664, 0x00507664},
-	{0x005081ac, 0x005081ac},
-	{0x005082b0, 0x005082b0},
-	{0x00508304, 0x00508304},
-	{0x0050840c, 0x0050840c},
-	{0x00508664, 0x00508664},
-	{0x005151ac, 0x005151ac},
-	{0x005152b0, 0x005152b0},
-	{0x00515304, 0x00515304},
-	{0x0051540c, 0x0051540c},
-	{0x00515664, 0x00515664},
-	{0x005161ac, 0x005161ac},
-	{0x005162b0, 0x005162b0},
-	{0x00516304, 0x00516304},
-	{0x0051640c, 0x0051640c},
-	{0x00516664, 0x00516664},
-	{0x005171ac, 0x005171ac},
-	{0x005172b0, 0x005172b0},
-	{0x00517304, 0x00517304},
-	{0x0051740c, 0x0051740c},
-	{0x00517664, 0x00517664},
-	{0x005181ac, 0x005181ac},
-	{0x005182b0, 0x005182b0},
-	{0x00518304, 0x00518304},
-	{0x0051840c, 0x0051840c},
-	{0x00518664, 0x00518664},
-	{0x005251ac, 0x005251ac},
-	{0x005252b0, 0x005252b0},
-	{0x00525304, 0x00525304},
-	{0x0052540c, 0x0052540c},
-	{0x00525664, 0x00525664},
-	{0x005261ac, 0x005261ac},
-	{0x005262b0, 0x005262b0},
-	{0x00526304, 0x00526304},
-	{0x0052640c, 0x0052640c},
-	{0x00526664, 0x00526664},
-	{0x005271ac, 0x005271ac},
-	{0x005272b0, 0x005272b0},
-	{0x00527304, 0x00527304},
-	{0x0052740c, 0x0052740c},
-	{0x00527664, 0x00527664},
-	{0x005281ac, 0x005281ac},
-	{0x005282b0, 0x005282b0},
-	{0x00528304, 0x00528304},
-	{0x0052840c, 0x0052840c},
-	{0x00528664, 0x00528664},
-	{0x00505054, 0x00505054},
-	{0x00506054, 0x00506054},
-	{0x00507054, 0x00507054},
-	{0x00508054, 0x00508054},
-	{0x00515054, 0x00515054},
-	{0x00516054, 0x00516054},
-	{0x00517054, 0x00517054},
-	{0x00518054, 0x00518054},
-	{0x00525054, 0x00525054},
-	{0x00526054, 0x00526054},
-	{0x00527054, 0x00527054},
-	{0x00528054, 0x00528054},
-	{0x004241ac, 0x004241ac},
-	{0x004242b0, 0x004242b0},
-	{0x00424304, 0x00424304},
-	{0x0042440c, 0x0042440c},
-	{0x00424664, 0x00424664},
-	{0x004251ac, 0x004251ac},
-	{0x004252b0, 0x004252b0},
-	{0x00425304, 0x00425304},
-	{0x0042540c, 0x0042540c},
-	{0x00425664, 0x00425664},
-	{0x004261ac, 0x004261ac},
-	{0x004262b0, 0x004262b0},
-	{0x00426304, 0x00426304},
-	{0x0042640c, 0x0042640c},
-	{0x00426664, 0x00426664},
-	{0x004271ac, 0x004271ac},
-	{0x004272b0, 0x004272b0},
-	{0x00427304, 0x00427304},
-	{0x0042740c, 0x0042740c},
-	{0x00427664, 0x00427664},
-	{0x004281ac, 0x004281ac},
-	{0x004282b0, 0x004282b0},
-	{0x00428304, 0x00428304},
-	{0x0042840c, 0x0042840c},
-	{0x00428664, 0x00428664},
-	{0x005041ac, 0x005041ac},
-	{0x005042b0, 0x005042b0},
-	{0x00504304, 0x00504304},
-	{0x005043dc, 0x005043dc},
-	{0x0050440c, 0x0050440c},
-	{0x00504664, 0x00504664},
-	{0x005141ac, 0x005141ac},
-	{0x005142b0, 0x005142b0},
-	{0x00514304, 0x00514304},
-	{0x005143dc, 0x005143dc},
-	{0x0051440c, 0x0051440c},
-	{0x00514664, 0x00514664},
-	{0x005241ac, 0x005241ac},
-	{0x005242b0, 0x005242b0},
-	{0x00524304, 0x00524304},
-	{0x005243dc, 0x005243dc},
-	{0x0052440c, 0x0052440c},
-	{0x00524664, 0x00524664},
-	{0x00424054, 0x00424054},
-	{0x00425054, 0x00425054},
-	{0x00426054, 0x00426054},
-	{0x00427054, 0x00427054},
-	{0x00428054, 0x00428054},
-	{0x00504054, 0x00504054},
-	{0x00514054, 0x00514054},
-	{0x00524054, 0x00524054},
-	{0x00503014, 0x00503014},
-	{0x005030cc, 0x005030cc},
-	{0x005031dc, 0x005031dc},
-	{0x00503214, 0x00503214},
-	{0x005032cc, 0x005032cc},
-	{0x005033dc, 0x005033dc},
-	{0x00513014, 0x00513014},
-	{0x005130cc, 0x005130cc},
-	{0x005131dc, 0x005131dc},
-	{0x00513214, 0x00513214},
-	{0x005132cc, 0x005132cc},
-	{0x005133dc, 0x005133dc},
-	{0x00523014, 0x00523014},
-	{0x005230cc, 0x005230cc},
-	{0x005231dc, 0x005231dc},
-	{0x00523214, 0x00523214},
-	{0x005232cc, 0x005232cc},
-	{0x005233dc, 0x005233dc},
-	{0x00423014, 0x00423014},
-	{0x004230cc, 0x004230cc},
-	{0x004231dc, 0x004231dc},
-	{0x00423214, 0x00423214},
-	{0x004232cc, 0x004232cc},
-	{0x004233dc, 0x004233dc},
-	{0x00423e14, 0x00423e14},
-	{0x00423ecc, 0x00423ecc},
-	{0x00423fdc, 0x00423fdc},
-	{0x00503e14, 0x00503e14},
-	{0x00503ecc, 0x00503ecc},
-	{0x00503fdc, 0x00503fdc},
-	{0x00513e14, 0x00513e14},
-	{0x00513ecc, 0x00513ecc},
-	{0x00513fdc, 0x00513fdc},
-	{0x00523e14, 0x00523e14},
-	{0x00523ecc, 0x00523ecc},
-	{0x00523fdc, 0x00523fdc},
-	{0x0040415c, 0x0040415c},
-	{0x00405b50, 0x00405b50},
-	{0x00407010, 0x00407010},
-	{0x004098a0, 0x004098a0},
-	{0x0040a270, 0x0040a274},
-	{0x0040c0a8, 0x0040c0a8},
-	{0x00405850, 0x00405850},
-	{0x00405908, 0x00405908},
-	{0x00405a00, 0x00405a00},
-	{0x00406024, 0x00406024},
-	{0x00407808, 0x00407808},
-	{0x0040803c, 0x0040803c},
-	{0x000000b4, 0x000000b4},
-	{0x0000a084, 0x0000a084},
-	{0x000879e0, 0x000879e0},
-	{0x000913e0, 0x000913e0},
-	{0x00104030, 0x00104030},
-	{0x00105084, 0x00105084},
-	{0x001050b4, 0x001050b4},
-	{0x001050c4, 0x001050c4},
-	{0x001050f4, 0x001050f4},
-	{0x0010f030, 0x0010f034},
-	{0x00122228, 0x00122228},
-	{0x00122a28, 0x00122a28},
-	{0x00124228, 0x00124228},
-	{0x0013c808, 0x0013c80c},
-	{0x001fa384, 0x001fa384},
-	{0x00800028, 0x00800028},
-	{0x008000ec, 0x008000fc},
-	{0x00801028, 0x00801028},
-	{0x008010ec, 0x008010fc},
-	{0x00802028, 0x00802028},
-	{0x008020ec, 0x008020fc},
-	{0x00803028, 0x00803028},
-	{0x008030ec, 0x008030fc},
-	{0x00804028, 0x00804028},
-	{0x008040ec, 0x008040fc},
-	{0x00805028, 0x00805028},
-	{0x008050ec, 0x008050fc},
-	{0x00806028, 0x00806028},
-	{0x008060ec, 0x008060fc},
-	{0x00807028, 0x00807028},
-	{0x008070ec, 0x008070fc},
-	{0x00808028, 0x00808028},
-	{0x008080ec, 0x008080fc},
-	{0x00809028, 0x00809028},
-	{0x008090ec, 0x008090fc},
-	{0x0080a028, 0x0080a028},
-	{0x0080a0ec, 0x0080a0fc},
-	{0x0080b028, 0x0080b028},
-	{0x0080b0ec, 0x0080b0fc},
-	{0x00870000, 0x00870000},
-	{0x00870400, 0x00870400},
-	{0x00870800, 0x00870800},
-	{0x00871000, 0x00871000},
-	{0x00871400, 0x00871400},
-	{0x00871800, 0x00871800},
-	{0x00878000, 0x00878000},
-	{0x00878400, 0x00878400},
-	{0x00878800, 0x00878800},
-	{0x00879000, 0x00879000},
-	{0x00879400, 0x00879400},
-	{0x00879800, 0x00879800},
-	{0x008a00f8, 0x008a0108},
-	{0x008f40a8, 0x008f40a8},
-	{0x008f64f0, 0x008f64f0},
-	{0x00b20014, 0x00b20014},
-	{0x00b20094, 0x00b20094},
-	{0x00b20114, 0x00b20114},
-	{0x00b21014, 0x00b21014},
-	{0x00b21094, 0x00b21094},
-	{0x00b21114, 0x00b21114},
-	{0x00b22014, 0x00b22014},
-	{0x00b22094, 0x00b22094},
-	{0x00b22114, 0x00b22114},
-	{0x00b23014, 0x00b23014},
-	{0x00b23094, 0x00b23094},
-	{0x00b23114, 0x00b23114},
-	{0x00b24014, 0x00b24014},
-	{0x00b24094, 0x00b24094},
-	{0x00b24114, 0x00b24114},
-	{0x0013cb94, 0x0013cb94},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_pc_sampler_register_ranges[] = {
-	{0x005053dc, 0x005053dc},
-	{0x005063dc, 0x005063dc},
-	{0x005073dc, 0x005073dc},
-	{0x005083dc, 0x005083dc},
-	{0x00505bdc, 0x00505bdc},
-	{0x00506bdc, 0x00506bdc},
-	{0x00507bdc, 0x00507bdc},
-	{0x00508bdc, 0x00508bdc},
-	{0x005063dc, 0x005063dc},
-	{0x005073dc, 0x005073dc},
-	{0x005083dc, 0x005083dc},
-	{0x005093dc, 0x005093dc},
-	{0x004243dc, 0x004243dc},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hwpm_mm_register_ranges[] = {
-	{0x001c80a8, 0x001c80a8},
-	{0x001cc0a8, 0x001cc0a8},
-	{0x008440a8, 0x008440a8},
-	{0x008480a8, 0x008480a8},
-	{0x0084c0a8, 0x0084c0a8},
-	{0x009c00a8, 0x009c00a8},
-	{0x009c80a8, 0x009c80a8},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_cau_register_ranges[] = {
-	{0x00505180, 0x005051a8},
-	{0x005051b0, 0x005051e8},
-	{0x005051f0, 0x005051fc},
-	{0x00506180, 0x005061a8},
-	{0x005061b0, 0x005061e8},
-	{0x005061f0, 0x005061fc},
-	{0x00507180, 0x005071a8},
-	{0x005071b0, 0x005071e8},
-	{0x005071f0, 0x005071fc},
-	{0x00508180, 0x005081a8},
-	{0x005081b0, 0x005081e8},
-	{0x005081f0, 0x005081fc},
-	{0x00515180, 0x005151a8},
-	{0x005151b0, 0x005151e8},
-	{0x005151f0, 0x005151fc},
-	{0x00516180, 0x005161a8},
-	{0x005161b0, 0x005161e8},
-	{0x005161f0, 0x005161fc},
-	{0x00517180, 0x005171a8},
-	{0x005171b0, 0x005171e8},
-	{0x005171f0, 0x005171fc},
-	{0x00518180, 0x005181a8},
-	{0x005181b0, 0x005181e8},
-	{0x005181f0, 0x005181fc},
-	{0x00525180, 0x005251a8},
-	{0x005251b0, 0x005251e8},
-	{0x005251f0, 0x005251fc},
-	{0x00526180, 0x005261a8},
-	{0x005261b0, 0x005261e8},
-	{0x005261f0, 0x005261fc},
-	{0x00527180, 0x005271a8},
-	{0x005271b0, 0x005271e8},
-	{0x005271f0, 0x005271fc},
-	{0x00528180, 0x005281a8},
-	{0x005281b0, 0x005281e8},
-	{0x005281f0, 0x005281fc},
-	{0x00424180, 0x004241a8},
-	{0x004241b0, 0x004241e8},
-	{0x004241f0, 0x004241fc},
-	{0x00425180, 0x004251a8},
-	{0x004251b0, 0x004251e8},
-	{0x004251f0, 0x004251fc},
-	{0x00426180, 0x004261a8},
-	{0x004261b0, 0x004261e8},
-	{0x004261f0, 0x004261fc},
-	{0x00427180, 0x004271a8},
-	{0x004271b0, 0x004271e8},
-	{0x004271f0, 0x004271fc},
-	{0x00428180, 0x004281a8},
-	{0x004281b0, 0x004281e8},
-	{0x004281f0, 0x004281fc},
-	{0x00504180, 0x005041a8},
-	{0x005041b0, 0x005041e8},
-	{0x005041f0, 0x005041fc},
-	{0x00514180, 0x005141a8},
-	{0x005141b0, 0x005141e8},
-	{0x005141f0, 0x005141fc},
-	{0x00524180, 0x005241a8},
-	{0x005241b0, 0x005241e8},
-	{0x005241f0, 0x005241fc},
-	{0x00505180, 0x0050519c},
-	{0x005051a4, 0x005051a4},
-	{0x00506180, 0x0050619c},
-	{0x005061a4, 0x005061a4},
-	{0x00507180, 0x0050719c},
-	{0x005071a4, 0x005071a4},
-	{0x00508180, 0x0050819c},
-	{0x005081a4, 0x005081a4},
-	{0x00515180, 0x0051519c},
-	{0x005151a4, 0x005151a4},
-	{0x00516180, 0x0051619c},
-	{0x005161a4, 0x005161a4},
-	{0x00517180, 0x0051719c},
-	{0x005171a4, 0x005171a4},
-	{0x00518180, 0x0051819c},
-	{0x005181a4, 0x005181a4},
-	{0x00525180, 0x0052519c},
-	{0x005251a4, 0x005251a4},
-	{0x00526180, 0x0052619c},
-	{0x005261a4, 0x005261a4},
-	{0x00527180, 0x0052719c},
-	{0x005271a4, 0x005271a4},
-	{0x00528180, 0x0052819c},
-	{0x005281a4, 0x005281a4},
-	{0x00424180, 0x0042419c},
-	{0x004241a4, 0x004241a4},
-	{0x00425180, 0x0042519c},
-	{0x004251a4, 0x004251a4},
-	{0x00426180, 0x0042619c},
-	{0x004261a4, 0x004261a4},
-	{0x00427180, 0x0042719c},
-	{0x004271a4, 0x004271a4},
-	{0x00428180, 0x0042819c},
-	{0x004281a4, 0x004281a4},
-	{0x00504180, 0x0050419c},
-	{0x005041a4, 0x005041a4},
-	{0x00514180, 0x0051419c},
-	{0x005141a4, 0x005141a4},
-	{0x00524180, 0x0052419c},
-	{0x005241a4, 0x005241a4},
-};
-
-static const struct nvgpu_pm_resource_register_range gb10b_hes_register_ranges[] = {
-	{0x002b6c00, 0x002b6c7c},
-};
-
-u32 gb10b_get_hwpm_perfmon_register_stride(void)
-{
-	return 0x00000200;
-}
-
-u32 gb10b_get_hwpm_router_register_stride(void)
-{
-	return 0x00000400;
-}
-
-u32 gb10b_get_hwpm_pma_channel_register_stride(void)
-{
-	return 0x00002000;
-}
-
-u32 gb10b_get_hwpm_pma_trigger_register_stride(void)
-{
-	return 0x00002000;
-}
-
-u32 gb10b_get_smpc_register_stride(void)
-{
-	return 0x00001000;
-}
-
-u32 gb10b_get_cau_register_stride(void)
-{
-	return 0x00000040;
-}
-
-const u32 *gb10b_get_hwpm_perfmon_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_perfmon_register_offset_allowlist) /
-		sizeof(gb10b_hwpm_perfmon_register_offset_allowlist[0]));
-	return gb10b_hwpm_perfmon_register_offset_allowlist;
-}
-
-const u32 *gb10b_get_hwpm_router_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_router_register_offset_allowlist) /
-		sizeof(gb10b_hwpm_router_register_offset_allowlist[0]));
-	return gb10b_hwpm_router_register_offset_allowlist;
-}
-
-const u32 *gb10b_get_hwpm_pma_channel_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_pma_channel_register_offset_allowlist) /
-		sizeof(gb10b_hwpm_pma_channel_register_offset_allowlist[0]));
-	return gb10b_hwpm_pma_channel_register_offset_allowlist;
-}
-
-const u32 *gb10b_get_hwpm_pma_trigger_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_pma_trigger_register_offset_allowlist) /
-		sizeof(gb10b_hwpm_pma_trigger_register_offset_allowlist[0]));
-	return gb10b_hwpm_pma_trigger_register_offset_allowlist;
-}
-
-const u32 *gb10b_get_smpc_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_smpc_register_offset_allowlist) /
-		sizeof(gb10b_smpc_register_offset_allowlist[0]));
-	return gb10b_smpc_register_offset_allowlist;
-}
-
-const u32 *gb10b_get_cau_register_offset_allowlist(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_cau_register_offset_allowlist) /
-		sizeof(gb10b_cau_register_offset_allowlist[0]));
-	return gb10b_cau_register_offset_allowlist;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_perfmon_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_perfmon_register_ranges) /
-		sizeof(gb10b_hwpm_perfmon_register_ranges[0]));
-	return gb10b_hwpm_perfmon_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_router_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_router_register_ranges) /
-		sizeof(gb10b_hwpm_router_register_ranges[0]));
-	return gb10b_hwpm_router_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_pma_channel_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_pma_channel_register_ranges) /
-		sizeof(gb10b_hwpm_pma_channel_register_ranges[0]));
-	return gb10b_hwpm_pma_channel_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_pma_trigger_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_pma_trigger_register_ranges) /
-		sizeof(gb10b_hwpm_pma_trigger_register_ranges[0]));
-	return gb10b_hwpm_pma_trigger_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_smpc_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_smpc_register_ranges) /
-		sizeof(gb10b_smpc_register_ranges[0]));
-	return gb10b_smpc_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_perfmux_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_perfmux_register_ranges) /
-		sizeof(gb10b_hwpm_perfmux_register_ranges[0]));
-	return gb10b_hwpm_perfmux_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_pc_sampler_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_pc_sampler_register_ranges) /
-		sizeof(gb10b_hwpm_pc_sampler_register_ranges[0]));
-	return gb10b_hwpm_pc_sampler_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_cau_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_cau_register_ranges) /
-		sizeof(gb10b_cau_register_ranges[0]));
-	return gb10b_cau_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hes_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hes_register_ranges) /
-		sizeof(gb10b_hes_register_ranges[0]));
-	return gb10b_hes_register_ranges;
-}
-
-const struct nvgpu_pm_resource_register_range
-		*gb10b_get_hwpm_mm_register_ranges(u32 *count)
-{
-	*count = (u32)(sizeof(gb10b_hwpm_mm_register_ranges) /
-		sizeof(gb10b_hwpm_mm_register_ranges[0]));
-	return gb10b_hwpm_mm_register_ranges;
-}
 
 bool gb10b_is_hwpm_pma_reg_context_switched(void)
 {
 	return false;
+}
+
+int gb10b_init_reg_op_type_per_register_type(struct gk20a *g, struct nvgpu_profiler_object *prof,
+					    enum nvgpu_profiler_pm_resource_type pm_resource)
+{
+	bool is_ctx_switched = false;
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC) {
+		if (prof->ctxsw[NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC]) {
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_SMPC] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+		} else {
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_SMPC] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+		}
+	}
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY) {
+		if (prof->ctxsw[NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY]) {
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_CAU] =
+				NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+
+			/*
+			 * Refer Bug 4719304
+			 * PMA registers are not part of context buffer offset
+			 * map yet. They are to be executed as device level
+			 * regops till then irrespective of context switch mode.
+			 */
+			if (g->ops.regops.is_hwpm_pma_reg_context_switched != NULL) {
+				is_ctx_switched =
+					g->ops.regops.is_hwpm_pma_reg_context_switched();
+				if (!is_ctx_switched) {
+					prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
+						NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+					prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
+						NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+				}
+			}
+		} else {
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_TRIGGER] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMUX] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+			prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_CAU] =
+				NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+		}
+		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_MM] =
+			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+	}
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM) {
+		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HWPM_PMA_CHANNEL] =
+			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+	}
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_PC_SAMPLER) {
+		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_PC_SAMPLER] =
+			NVGPU_DBG_REG_OP_TYPE_GR_CTX;
+	}
+
+	/* ctxsw support does not exist for hes right now */
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES) {
+		prof->reg_op_type[NVGPU_HWPM_REGISTER_TYPE_HES] =
+			NVGPU_DBG_REG_OP_TYPE_GLOBAL;
+	}
+
+	return 0;
+}
+
+u32
+gb10b_add_bitvector_to_reg_ranges(struct gk20a *g, const u32 *bitvector, u32 count,
+				 u32 offset, struct nvgpu_pm_resource_register_range *ranges)
+{
+	u32 index = 0U;
+	u32 i = 0U;
+	u32 start = 0U;
+	u32 end = 0U;
+	u32 range_count = 0U;
+
+	while (i < count) {
+		start = i;
+		end = i;
+
+		/* Find the end of the current contiguous range */
+		while ((end + 1 < count) && (bitvector[end + 1] == bitvector[end] + 4U)) {
+			end++;
+		}
+		if (ranges != NULL) {
+			/* Add this range to the map */
+			ranges[index].start = nvgpu_safe_add_u32(bitvector[start], offset);
+			ranges[index].end = nvgpu_safe_add_u32(bitvector[end], offset);
+			nvgpu_log(g, gpu_dbg_prof, "%u: 0x%x-0x%x", index,
+				 ranges[index].start, ranges[index].end);
+		}
+		index++;
+		range_count++;
+		/* Move to the next possible range */
+		i = end + 1;
+	}
+
+	return range_count;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_perfmon_bitvector_register_ranges(struct gk20a *g,
+					struct nvgpu_profiler_object *prof, u32 *count)
+{
+	struct nvgpu_pm_resource_register_range *ranges;
+	u32 perfmon_stride = perf_pmmsys_perdomain_offset_v();
+	const u32 *perfmon_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
+	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
+	u32 num_fbp = nvgpu_grmgr_get_gr_num_fbps(g, gr_instance_id);
+	u32 num_sys = 1U;
+	/* To account GPCS and FBPS space registers, 1U is added to chiplet count */
+	u32 gpc_perfmon_count = nvgpu_safe_mult_u32(nvgpu_safe_add_u32(num_gpc, 1U),
+						   g->num_gpc_perfmon);
+	u32 fbp_perfmon_count = nvgpu_safe_mult_u32(nvgpu_safe_add_u32(num_fbp, 1U),
+						   g->num_fbp_perfmon);
+	u32 chiplet_reg_base = 0U;
+	u32 chiplet_stride = 0U;
+	u32 chiplet_offset = 0U;
+	u32 perfmon_offset = 0U;
+	u32 perfmon = 0U;
+	u32 offset = 0U;
+	u32 chiplet = 0U;
+
+	perfmon_bitvector =
+		g->ops.regops.get_hwpm_perfmon_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count = gb10b_add_bitvector_to_reg_ranges(g, perfmon_bitvector,
+							bitvector_count,
+							0U, NULL);
+
+
+	range_count = nvgpu_safe_add_u32(gpc_perfmon_count, fbp_perfmon_count);
+	range_count = nvgpu_safe_add_u32(range_count,
+					nvgpu_safe_mult_u32(num_sys, g->num_sys_perfmon));
+	range_count = nvgpu_safe_mult_u32(bitvector_range_count, range_count);
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) * range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	nvgpu_log(g, gpu_dbg_prof,
+		"num_gpc_perfmon: %u, num_fbp_perfmon: %u, num_sys_perfmon: %u",
+		g->num_gpc_perfmon, g->num_fbp_perfmon, g->num_sys_perfmon);
+	*count = 0U;
+	chiplet_reg_base = g->ops.regops.get_hwpm_perfmon_gpc_reg_base();
+	chiplet_stride = g->ops.perf.get_pmmgpc_per_chiplet_offset();
+	for (chiplet = 0U; chiplet < nvgpu_safe_add_u32(num_gpc, 1U); chiplet++) {
+		if (chiplet == num_gpc) {
+			chiplet_offset = g->ops.perf.get_hwpm_gpcs_base_addr();
+		} else {
+			chiplet_offset = nvgpu_safe_add_u32(chiplet_reg_base,
+							   nvgpu_safe_mult_u32(chiplet,
+									      chiplet_stride));
+		}
+		for (perfmon = 0U; perfmon < g->num_gpc_perfmon; perfmon++) {
+			perfmon_offset = nvgpu_safe_mult_u32(perfmon, perfmon_stride);
+			offset = nvgpu_safe_add_u32(chiplet_offset, perfmon_offset);
+			nvgpu_log(g, gpu_dbg_prof,
+				"%u:%u, gpc_offset: 0x%x, perfmon_offset: 0x%x, offset: 0x%x",
+				chiplet, perfmon, chiplet_offset, perfmon_offset, offset);
+			range_count = gb10b_add_bitvector_to_reg_ranges(g, perfmon_bitvector,
+								bitvector_count, offset,
+								ranges + *count);
+			*count += range_count;
+		}
+	}
+
+	chiplet_reg_base = g->ops.regops.get_hwpm_perfmon_fbp_reg_base();
+	chiplet_stride = g->ops.perf.get_pmmfbp_per_chiplet_offset();
+	for (chiplet = 0U; chiplet < nvgpu_safe_add_u32(num_fbp, 1U); chiplet++) {
+		if (chiplet == num_fbp) {
+			chiplet_offset = g->ops.perf.get_hwpm_fbps_base_addr();
+		} else {
+			chiplet_offset = nvgpu_safe_add_u32(chiplet_reg_base,
+							   nvgpu_safe_mult_u32(chiplet,
+									      chiplet_stride));
+		}
+
+		for (perfmon = 0U; perfmon < g->num_fbp_perfmon; perfmon++) {
+			perfmon_offset = nvgpu_safe_mult_u32(perfmon, perfmon_stride);
+			offset = nvgpu_safe_add_u32(chiplet_offset, perfmon_offset);
+			nvgpu_log(g, gpu_dbg_prof,
+				"%u:%u, fbp_offset: 0x%x, perfmon_offset: 0x%x, offset: 0x%x",
+				chiplet, perfmon, chiplet_offset, perfmon_offset, offset);
+			range_count = gb10b_add_bitvector_to_reg_ranges(g, perfmon_bitvector,
+								bitvector_count, offset,
+								ranges + *count);
+			*count += range_count;
+		}
+	}
+
+	chiplet_reg_base = g->ops.regops.get_hwpm_perfmon_sys_reg_base();
+	chiplet_stride = g->ops.perf.get_pmmsys_per_chiplet_offset();
+	for (chiplet = 0U; chiplet < num_sys; chiplet++) {
+		chiplet_offset = nvgpu_safe_mult_u32(chiplet, chiplet_stride);
+		chiplet_offset = nvgpu_safe_add_u32(chiplet_offset, chiplet_reg_base);
+		for (perfmon = 0U; perfmon < g->num_sys_perfmon; perfmon++) {
+			perfmon_offset = nvgpu_safe_mult_u32(perfmon, perfmon_stride);
+			offset = nvgpu_safe_add_u32(chiplet_offset, perfmon_offset);
+			nvgpu_log(g, gpu_dbg_prof,
+				"%u:%u, sys_offset: 0x%x, perfmon_offset: 0x%x, offset: 0x%x",
+				chiplet, perfmon, chiplet_offset, perfmon_offset, offset);
+			range_count = gb10b_add_bitvector_to_reg_ranges(g, perfmon_bitvector,
+								bitvector_count, offset,
+								ranges + *count);
+			*count += range_count;
+		}
+	}
+
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_router_bitvector_register_ranges(struct gk20a *g,
+					       struct nvgpu_profiler_object *prof, u32 *count)
+{
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *router_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 chiplet = 0U;
+	u32 gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
+	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
+	u32 num_fbp = nvgpu_grmgr_get_gr_num_fbps(g, gr_instance_id);
+	u32 num_sys = 1U;
+	u32 stride = g->ops.regops.get_hwpm_router_gpc_reg_stride();
+	u32 chiplet_router_reg_base = 0U;
+	u32 chiplet_count;
+	u32 offset = 0U;
+
+	router_bitvector =
+		g->ops.regops.get_hwpm_router_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count =
+		gb10b_add_bitvector_to_reg_ranges(g, router_bitvector, bitvector_count,
+						 0U, NULL);
+
+	/* To account GPCSROUTER and FBPSROUTER, 1U is added to chiplet count */
+	chiplet_count = nvgpu_safe_add_u32(nvgpu_safe_add_u32(num_gpc, 1U),
+					  nvgpu_safe_add_u32(num_fbp, 1U));
+	chiplet_count = nvgpu_safe_add_u32(chiplet_count, num_sys);
+	range_count = nvgpu_safe_mult_u32(bitvector_range_count, chiplet_count);
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) * range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	*count = 0U;
+	chiplet_router_reg_base = g->ops.regops.get_hwpm_router_gpc_reg_base();
+	for (chiplet = 0U; chiplet < nvgpu_safe_add_u32(num_gpc, 1U); chiplet++) {
+		if (chiplet == num_gpc) {
+			offset = g->ops.perf.get_hwpm_gpcsrouter_base_addr();
+		} else {
+			offset = nvgpu_safe_add_u32(chiplet_router_reg_base,
+						   nvgpu_safe_mult_u32(chiplet, stride));
+		}
+		nvgpu_log(g, gpu_dbg_prof, "GPC:%u, offset: 0x%x", chiplet, offset);
+		range_count =
+			gb10b_add_bitvector_to_reg_ranges(g, router_bitvector, bitvector_count,
+							 offset, ranges + *count);
+		*count += range_count;
+	}
+
+	chiplet_router_reg_base = g->ops.regops.get_hwpm_router_fbp_reg_base();
+	for (chiplet = 0U; chiplet < nvgpu_safe_add_u32(num_fbp, 1U); chiplet++) {
+		if (chiplet == num_fbp) {
+			offset = g->ops.perf.get_hwpm_fbpsrouter_base_addr();
+		} else {
+			offset = nvgpu_safe_add_u32(chiplet_router_reg_base,
+						   nvgpu_safe_mult_u32(chiplet, stride));
+		}
+		nvgpu_log(g, gpu_dbg_prof, "FBP:%u, offset: 0x%x", chiplet, offset);
+		range_count =
+			gb10b_add_bitvector_to_reg_ranges(g, router_bitvector, bitvector_count,
+							 offset, ranges + *count);
+		*count += range_count;
+	}
+
+	chiplet_router_reg_base = g->ops.regops.get_hwpm_router_sys_reg_base();
+	for (chiplet = 0U; chiplet < num_sys; chiplet++) {
+		offset = nvgpu_safe_add_u32(chiplet_router_reg_base,
+					   nvgpu_safe_mult_u32(chiplet, stride));
+		nvgpu_log(g, gpu_dbg_prof, "Sys:%u, offset: 0x%x", chiplet, offset);
+		range_count =
+			gb10b_add_bitvector_to_reg_ranges(g, router_bitvector, bitvector_count,
+							 offset, ranges + *count);
+		*count += range_count;
+	}
+
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_pma_trigger_bitvector_register_ranges(struct gk20a *g, u32 *count)
+{
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *trigger_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 offset = 0U;
+
+	trigger_bitvector =
+		g->ops.regops.get_hwpm_pma_trigger_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count = gb10b_add_bitvector_to_reg_ranges(g, trigger_bitvector,
+							bitvector_count,
+							0U, NULL);
+
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) *
+				bitvector_range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	offset = g->ops.regops.get_hwpm_perf_pmasys_reg_base();
+	nvgpu_log(g, gpu_dbg_prof, "offset: 0x%x", offset);
+	range_count = gb10b_add_bitvector_to_reg_ranges(g, trigger_bitvector, bitvector_count,
+		offset, ranges);
+
+	*count = range_count;
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_pma_channel_bitvector_register_ranges(struct gk20a *g, u32 *count)
+{
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *pma_channel_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 offset = 0U;
+
+	pma_channel_bitvector =
+		g->ops.regops.get_hwpm_pma_channel_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count = gb10b_add_bitvector_to_reg_ranges(g, pma_channel_bitvector,
+							bitvector_count,
+							0U, NULL);
+
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) *
+	bitvector_range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	offset = g->ops.regops.get_hwpm_perf_pmasys_reg_base();
+	nvgpu_log(g, gpu_dbg_prof, "offset: 0x%x", offset);
+	range_count = gb10b_add_bitvector_to_reg_ranges(g, pma_channel_bitvector, bitvector_count,
+		offset, ranges);
+
+	*count = range_count;
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_smpc_bitvector_register_ranges(struct gk20a *g,
+					     struct nvgpu_profiler_object *prof, u32 *count)
+{
+	u32 gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
+	struct nvgpu_gr_config *config = nvgpu_gr_get_config_ptr(g);
+	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *smpc_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 offset = 0U;
+	u32 num_tpc = 0U;
+	u32 tpc_count = 0U;
+	u32 gpc = 0U;
+	u32 tpc = 0U;
+	u32 tpc_offset = 0U;
+	u32 gpc_pri_base = 0U;
+	u32 tpc_in_gpc_base = 0U;
+	u32 tpc_stride = 0U;
+	u32 gpc_stride = 0U;
+	u32 tpc_shared_base_in_gpc = 0U;
+
+	for (gpc = 0U; gpc < nvgpu_safe_add_u32(num_gpc, 1U); gpc++) {
+		if (gpc == num_gpc) {
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, 0U);
+		} else {
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, gpc);
+		}
+		tpc_count += nvgpu_safe_add_u32(num_tpc, 1U);
+	}
+
+	smpc_bitvector =
+		g->ops.regops.get_smpc_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count =
+		gb10b_add_bitvector_to_reg_ranges(g, smpc_bitvector, bitvector_count,
+						 0U, NULL);
+	range_count = nvgpu_safe_mult_u32(bitvector_range_count, tpc_count);
+
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) * range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	gpc_pri_base = nvgpu_get_litter_value(g, GPU_LIT_GPC_BASE);
+	gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
+	tpc_stride = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_STRIDE);
+	tpc_in_gpc_base = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_BASE);
+	tpc_shared_base_in_gpc = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_SHARED_BASE);
+
+	*count = 0U;
+	for (gpc = 0; gpc < nvgpu_safe_add_u32(num_gpc, 1U); gpc++) {
+		if (gpc == num_gpc) {
+			offset = nvgpu_get_litter_value(g, GPU_LIT_GPC_SHARED_BASE);
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, 0U);
+		} else {
+			offset = nvgpu_safe_add_u32(gpc_pri_base,
+						   nvgpu_safe_mult_u32(gpc, gpc_stride));
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, gpc);
+		}
+
+		for (tpc = 0; tpc < nvgpu_safe_add_u32(num_tpc, 1U); tpc++) {
+			if (tpc == num_tpc) {
+				tpc_offset = nvgpu_safe_add_u32(offset, tpc_shared_base_in_gpc);
+			} else {
+				tpc_offset = nvgpu_safe_add_u32(tpc_in_gpc_base,
+							       nvgpu_safe_mult_u32(tpc,
+										  tpc_stride));
+				tpc_offset = nvgpu_safe_add_u32(offset, tpc_offset);
+			}
+			nvgpu_log(g, gpu_dbg_prof,
+				"%u:%u, tpc_offset: 0x%x", gpc, tpc, tpc_offset);
+			range_count =
+				gb10b_add_bitvector_to_reg_ranges(g, smpc_bitvector,
+								 bitvector_count,
+								 tpc_offset, ranges + *count);
+			*count += range_count;
+		}
+	}
+
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_cau_bitvector_register_ranges(struct gk20a *g,
+				struct nvgpu_profiler_object *prof, u32 *count)
+{
+	u32 gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
+	struct nvgpu_gr_config *config = nvgpu_gr_get_config_ptr(g);
+	u32 num_gpc = nvgpu_grmgr_get_gr_num_gpcs(g, gr_instance_id);
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *cau_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 num_tpc = 0U;
+	u32 tpc_count = 0U;
+	u32 gpc = 0U;
+	u32 tpc = 0U;
+	u32 cau_idx = 0U;
+	u32 gpc_offset = 0U;
+	u32 tpc_offset = 0U;
+	u32 gpc_pri_base = 0U;
+	u32 tpc_in_gpc_base = 0U;
+	u32 tpc_stride = 0U;
+	u32 gpc_stride = 0U;
+	u32 cau_base = 0U;
+	u32 tpc_shared_base_in_gpc = 0U;
+
+	/* 1U is added to num_gpc to account for shared GPC */
+	for (gpc = 0U; gpc < nvgpu_safe_add_u32(num_gpc, 1U); gpc++) {
+		if (gpc == num_gpc) {
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, 0U);
+		} else {
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, gpc);
+		}
+		tpc_count += nvgpu_safe_add_u32(num_tpc, 1U);
+	}
+
+	cau_bitvector =
+		g->ops.regops.get_cau_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count =
+		gb10b_add_bitvector_to_reg_ranges(g, cau_bitvector, bitvector_count,
+						 0U, NULL);
+	range_count = nvgpu_safe_mult_u32(bitvector_range_count, tpc_count);
+	range_count = nvgpu_safe_mult_u32(range_count, 2U);
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) * range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	gpc_pri_base = nvgpu_get_litter_value(g, GPU_LIT_GPC_BASE);
+	gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
+	tpc_stride = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_STRIDE);
+	tpc_in_gpc_base = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_BASE);
+	tpc_shared_base_in_gpc = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_SHARED_BASE);
+
+	cau_base = g->ops.regops.get_hwpm_gpc0_tpc0_cau_base();
+	cau_base = nvgpu_safe_sub_u32(cau_base,
+				nvgpu_safe_add_u32(gpc_pri_base, tpc_in_gpc_base));
+
+	*count = 0U;
+	for (gpc = 0; gpc < nvgpu_safe_add_u32(num_gpc, 1U); gpc++) {
+		if (gpc == num_gpc) {
+			gpc_offset = nvgpu_get_litter_value(g, GPU_LIT_GPC_SHARED_BASE);
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, 0U);
+		} else {
+			gpc_offset = nvgpu_safe_add_u32(gpc_pri_base,
+						   nvgpu_safe_mult_u32(gpc, gpc_stride));
+			num_tpc = nvgpu_gr_config_get_gpc_tpc_count(config, gpc);
+		}
+		gpc_offset = nvgpu_safe_add_u32(gpc_offset, cau_base);
+
+		for (tpc = 0; tpc < nvgpu_safe_add_u32(num_tpc, 1U); tpc++) {
+			/* since num of cau per tpc is 1, we can directly add tpc_in_gpc_base */
+			if (tpc == num_tpc) {
+				tpc_offset = nvgpu_safe_add_u32(gpc_offset, tpc_shared_base_in_gpc);
+			} else {
+				tpc_offset = nvgpu_safe_add_u32(tpc_in_gpc_base,
+							       nvgpu_safe_mult_u32(tpc,
+										  tpc_stride));
+				tpc_offset = nvgpu_safe_add_u32(gpc_offset, tpc_offset);
+			}
+			/* TODO: replace 2U with NV_PGRAPH_PRI_GPCS_TPC0_CAU_CONTROL__SIZE_1 */
+			for (cau_idx = 0; cau_idx < 2U; cau_idx++) {
+				tpc_offset = nvgpu_safe_add_u32(tpc_offset, nvgpu_safe_mult_u32(cau_idx, 64U));
+				nvgpu_log(g, gpu_dbg_prof,
+					"%u:%u:%u, gpc_offset: 0x%x, tpc_offset: 0x%x",
+					gpc, tpc, cau_idx, gpc_offset, tpc_offset);
+				range_count = gb10b_add_bitvector_to_reg_ranges(g, cau_bitvector,
+					bitvector_count,
+					tpc_offset, ranges + *count);
+				*count += range_count;
+			}
+		}
+	}
+
+	return ranges;
+}
+
+const struct nvgpu_pm_resource_register_range *
+gb10b_get_hwpm_hes_bitvector_register_ranges(struct gk20a *g, u32 *count)
+{
+	struct nvgpu_pm_resource_register_range *ranges;
+	const u32 *hes_bitvector = NULL;
+	u32 bitvector_count = 0U;
+	u32 bitvector_range_count = 0U;
+	u32 range_count = 0U;
+	u32 offset = 0U;
+
+	hes_bitvector =
+		g->ops.regops.get_hes_register_offset_allowlist(&bitvector_count);
+	bitvector_range_count = gb10b_add_bitvector_to_reg_ranges(g, hes_bitvector, bitvector_count,
+							0U, NULL);
+
+	/* bitvector covers whole of NV_PERF_HEM_SYS0 */
+	ranges = nvgpu_kzalloc(g, sizeof(struct nvgpu_pm_resource_register_range) *
+			      bitvector_range_count);
+	if (ranges == NULL) {
+		nvgpu_err(g, "Failed to allocate ranges");
+		return NULL;
+	}
+
+	offset = g->ops.regops.get_hwpm_hem_sys0_base();
+	nvgpu_log(g, gpu_dbg_prof, "offset: 0x%x", offset);
+	range_count = gb10b_add_bitvector_to_reg_ranges(g, hes_bitvector, bitvector_count,
+		offset, ranges);
+
+	*count = range_count;
+	return ranges;
 }

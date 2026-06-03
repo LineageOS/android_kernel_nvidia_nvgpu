@@ -8,6 +8,7 @@ ifdef NVGPU_POSIX
 srcs +=	os/posix/nvgpu.c \
 	os/posix/posix-io.c \
 	os/posix/mock-registers.c \
+	os/posix/mock-registers-gb10b.c \
 	os/posix/posix-nvgpu_mem.c \
 	os/posix/posix-dma.c \
 	os/posix/posix-vm.c \
@@ -21,7 +22,7 @@ srcs +=	os/posix/nvgpu.c \
 	os/posix/posix-vgpu.c \
 	os/posix/posix-dt.c \
 	os/posix/fuse.c \
-        os/posix/contig_pool.c
+	os/posix/contig_pool.c
 
 ifdef CONFIG_NVGPU_VPR
 srcs += os/posix/posix-vpr.c
@@ -29,6 +30,10 @@ endif
 
 ifdef CONFIG_NVGPU_FECS_TRACE
 srcs += os/posix/fecs_trace_posix.c
+endif
+
+ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+srcs += os/posix/multimedia_trace_posix.c
 endif
 
 ifeq ($(CONFIG_NVGPU_CLK_ARB),1)
@@ -71,7 +76,8 @@ srcs += os/posix/bug.c \
 	os/posix/thread.c \
 	os/posix/os_sched.c \
 	os/posix/kmem.c \
-	os/posix/file_ops.c
+	os/posix/file_ops.c \
+	os/posix/vbios.c
 endif
 
 srcs += os/posix/bitmap.c
@@ -164,7 +170,6 @@ srcs +=	common/device.c \
 	common/multimedia/nvenc.c \
 	common/multimedia/ofa.c \
 	common/multimedia/nvdec.c \
-	common/multimedia/nvjpg.c \
 	common/multimedia/multimedia.c \
 	hal/init/hal_gv11b_litter.c \
 	hal/init/hal_init.c \
@@ -381,7 +386,8 @@ srcs += hal/mm/mm_gm20b.c \
 	hal/fuse/fuse_gp10b_fusa.c \
 	hal/fuse/fuse_gv11b_fusa.c \
 	hal/ltc/intr/ltc_intr_gp10b_fusa.c \
-	hal/ltc/ltc_gp10b_fusa.c
+	hal/ltc/ltc_gp10b_fusa.c \
+	hal/nvjpg/nvjpg_gb10b.c
 
 ifndef NVGPU_HVRTOS
 srcs += os/posix/queue.c
@@ -432,7 +438,8 @@ srcs += common/gr/zbc.c \
 ifeq ($(CONFIG_NVGPU_ZCULL),1)
 srcs += common/gr/zcull.c \
 	hal/gr/zcull/zcull_gm20b.c \
-	hal/gr/zcull/zcull_gv11b.c
+	hal/gr/zcull/zcull_gv11b.c \
+	hal/gr/zcull/zcull_gb10b.c
 endif
 endif
 
@@ -446,6 +453,7 @@ srcs += common/debugger.c \
 	hal/regops/allowlist_ga10b.c \
 	hal/gr/ctxsw_prog/ctxsw_prog_gm20b_dbg.c \
 	hal/gr/hwpm_map/hwpm_map_gv100.c \
+	hal/gr/hwpm_map/hwpm_map_ga10b.c \
 	hal/ltc/ltc_gm20b_dbg.c \
 	hal/ptimer/ptimer_gp10b.c \
 	hal/perf/perf_gv11b.c \
@@ -526,8 +534,12 @@ srcs += common/gr/fecs_trace.c \
 	hal/gr/fecs_trace/fecs_trace_gm20b.c \
 	hal/gr/fecs_trace/fecs_trace_gv11b.c
 ifeq ($(CONFIG_NVGPU_IGPU_VIRT),1)
-srcs += common/vgpu/gr/fecs_trace_vgpu.c
 endif
+endif
+
+ifeq ($(CONFIG_NVGPU_MULTIMEDIA_TRACE),1)
+srcs += common/multimedia/multimedia_trace.c \
+	common/multimedia/multimedia_trace_ctrl.c
 endif
 
 ifeq ($(CONFIG_NVGPU_CYCLESTATS),1)
@@ -548,8 +560,12 @@ srcs += common/falcon/falcon_debug.c
 endif
 
 ifeq ($(CONFIG_NVGPU_LS_PMU),1)
+ifneq ($(CONFIG_NVGPU_DGPU),1)
+srcs += \
+	common/vbios/bios.c \
+	hal/vbios/bios_gb20c.c
+endif
 # Add LS PMU files which are required for normal build
-ifeq ($(CONFIG_NVGPU_DGPU),1)
 srcs += \
 	common/pmu/boardobj/boardobj.c \
 	common/pmu/boardobj/boardobjgrp.c \
@@ -560,8 +576,10 @@ srcs += \
 	common/pmu/clk/clk.c \
 	common/pmu/volt/volt.c \
 	common/pmu/clk/clk_domain.c \
+	common/pmu/clk/clk_domain_50.c \
 	common/pmu/clk/clk_enum.c \
 	common/pmu/clk/clk_fll.c \
+	common/pmu/clk/clk3_freq_domain.c \
 	common/pmu/clk/clk_prog.c \
 	common/pmu/clk/clk_prop_regime.c \
 	common/pmu/clk/clk_prop_top.c \
@@ -586,11 +604,20 @@ srcs += \
 	common/pmu/therm/therm_channel_aggregation_v10.c \
 	common/pmu/therm/therm_channel_estimation_v10.c \
 	common/pmu/therm/therm_dev.c \
+	common/pmu/therm/therm_device_3x.c \
+	common/pmu/therm/therm_device_gpu_gtz_v10.c \
+	common/pmu/therm/therm_device_gpu_stz_v10.c \
+	common/pmu/therm/therm_device_gpu_tz_v10.c \
+	common/pmu/therm/therm_device_gpu_tsense_v10.c \
+	common/pmu/therm/therm_device_gpu_mini_tsense_v10.c \
+	common/pmu/therm/therm_device_mem_v10.c \
+	common/vbios/bios_sw_gb20c.c \
 	common/pmu/volt/volt_dev.c \
 	common/pmu/volt/volt_policy.c \
 	common/pmu/volt/volt_rail.c \
-	common/pmu/volt/volt_rail_3x.c
-endif
+	common/pmu/volt/volt_rail_3x.c \
+	common/pmu/perf_cf/perf_cf.c \
+	common/pmu/perf_cf/perf_cf_topology.c
 srcs += \
 	common/pmu/fw/fw.c \
 	common/pmu/fw/fw_ver_ops.c \
@@ -630,6 +657,7 @@ srcs += common/pmu/pg/pg_sw_gm20b.c \
 	common/pmu/pg/pg_sw_gp106.c \
 	common/pmu/pg/pg_sw_gv11b.c \
 	common/pmu/pg/pg_sw_ga10b.c \
+	common/pmu/pg/pg_sw_gb10b.c \
 	common/pmu/pg/pmu_pg.c \
 	common/pmu/pg/pmu_aelpg.c
 endif
@@ -649,7 +677,6 @@ srcs += common/vgpu/init/init_vgpu.c \
 	common/vgpu/init/init_vf.c \
 	common/vgpu/ivc/comm_vgpu.c \
 	common/vgpu/intr/intr_vgpu.c \
-	common/vgpu/ptimer/ptimer_vgpu.c \
 	common/vgpu/top/top_vgpu.c \
 	common/vgpu/fifo/fifo_vgpu.c \
 	common/vgpu/fifo/fifo_vf.c \
@@ -657,22 +684,15 @@ srcs += common/vgpu/init/init_vgpu.c \
 	common/vgpu/fifo/tsg_vgpu.c \
 	common/vgpu/fifo/tsg_vf.c \
 	common/vgpu/fifo/preempt_vgpu.c \
-	common/vgpu/fifo/runlist_vgpu.c \
-	common/vgpu/fifo/ramfc_vgpu.c \
         common/vgpu/fifo/channel_vf.c \
         common/vgpu/fifo/runlist_vf.c \
         common/vgpu/gr/obj_ctx_vf.c \
         common/vgpu/rc/rc_vf.c \
 	common/vgpu/perf/perf_vgpu.c \
-	common/vgpu/profiler/profiler_vgpu.c \
 	common/vgpu/mm/mm_vgpu.c \
-	common/vgpu/mm/vm_vgpu.c \
 	common/vgpu/gr/gr_vgpu.c \
 	common/vgpu/gr/gr_vf.c \
 	common/vgpu/fb/fb_vgpu.c \
-	common/vgpu/fb/vab_vgpu.c \
-	common/vgpu/gr/ctx_vgpu.c \
-	common/vgpu/gr/subctx_vgpu.c \
 	common/vgpu/clk_vgpu.c \
 	common/vgpu/debugger_vgpu.c \
 	common/vgpu/debugger_vf.c \
@@ -680,18 +700,15 @@ srcs += common/vgpu/init/init_vgpu.c \
 	common/vgpu/ltc/ltc_vgpu.c \
 	common/vgpu/fbp/fbp_vgpu.c \
 	common/vgpu/ce_vgpu.c \
+	common/vgpu/pmu_vgpu.c \
+	common/vgpu/gsp_scheduler/gsp_vm_scheduler_vf.c \
 	hal/vgpu/init/init_hal_vgpu.c \
-	hal/vgpu/init/vgpu_hal_gv11b.c \
-	hal/vgpu/fifo/fifo_gv11b_vgpu.c \
-	hal/vgpu/sync/syncpt_cmdbuf_gv11b_vgpu.c
+	hal/vgpu/fifo/fifo_gv11b_vgpu.c
 
 ifeq ($(CONFIG_NVGPU_USERD),1)
 srcs += common/vgpu/fifo/userd_vgpu.c
 endif
 
-ifeq ($(CONFIG_NVGPU_COMPRESSION),1)
-srcs += common/vgpu/cbc/cbc_vgpu.c
-endif
 endif
 
 ifeq ($(CONFIG_NVGPU_COMPRESSION),1)
@@ -790,6 +807,7 @@ srcs += common/sec2/sec2.c \
 	hal/pramin/pramin_tu104.c \
 	hal/bios/bios_tu104.c \
 	hal/top/top_gv100.c \
+	hal/vbios/bios_gb20c.c \
 	hal/xve/xve_tu104.c
 endif
 
@@ -808,7 +826,8 @@ srcs += common/sim/sim.c \
 endif
 
 ifeq ($(CONFIG_NVGPU_NON_FUSA),1)
-srcs +=	common/power_features/power_features.c
+srcs +=	common/power_features/power_features.c \
+		common/multimedia/nvjpg.c
 endif
 
 ifeq ($(CONFIG_NVGPU_STATIC_POWERGATE),1)
@@ -903,11 +922,6 @@ srcs += \
 	hal/cbc/cbc_ga10b_fusa.c
 endif
 
-ifeq ($(CONFIG_NVGPU_IGPU_VIRT),1)
-srcs += \
-	hal/vgpu/init/vgpu_hal_ga10b.c
-endif
-
 ifeq ($(CONFIG_NVGPU_DGPU),1)
 srcs += \
 	hal/init/hal_ga100.c \
@@ -949,10 +963,6 @@ srctree.nvgpu-next := $(NV_SOURCE)/kernel/nvgpu-next
 include $(srctree.nvgpu-next)/drivers/gpu/nvgpu/Makefile.sources
 srcs += $(addprefix ../../../../nvgpu-next/drivers/gpu/nvgpu/,$(srcs_next))
 
-ifeq ($(CONFIG_NVGPU_HAL_NON_FUSA),1)
-CONFIG_NVGPU_GB10B  := 1
-
-ifeq ($(CONFIG_NVGPU_GB10B),1)
 NVGPU_COMMON_CFLAGS += \
 	-DCONFIG_NVGPU_GB10B
 
@@ -960,7 +970,6 @@ srcs += \
 	common/acr/nvgpu_gb10b_acr_blob_construct.c \
 	common/acr/acr_sw_gb10b.c \
 	common/falcon/falcon_sw_gb10b.c \
-	common/pmu/pg/pg_sw_gb10b.c \
 	hal/cbc/cbc_gb10b.c \
 	hal/ce/ce_gb10b.c \
 	hal/ce/ce_gb10b_fusa.c \
@@ -1001,14 +1010,12 @@ srcs += \
 	hal/gr/intr/gr_intr_gb10b_fusa.c \
 	hal/gr/ecc/ecc_gb10b.c \
 	hal/gr/zbc/zbc_gb10b.c \
-	hal/gr/zcull/zcull_gb10b.c \
 	hal/grmgr/grmgr_gb10b.c \
 	hal/gsp/gsp_gb10b.c \
 	hal/netlist/netlist_gb10b_fusa.c \
 	hal/nvenc/nvenc_gb10b.c \
 	hal/ofa/ofa_gb10b.c \
 	hal/nvdec/nvdec_gb10b.c \
-	hal/nvjpg/nvjpg_gb10b.c \
 	hal/init/hal_gb10b.c \
 	hal/init/hal_gb10b_litter.c \
 	hal/ltc/ltc_gb10b.c \
@@ -1034,8 +1041,9 @@ srcs += \
 	hal/xbar/xbar_gb10b_fusa.c \
 	hal/lrc/lrc_gb10b_fusa.c
 
+ifeq ($(CONFIG_NVGPU_HAL_NON_FUSA),1)
 ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),1)
-srcs += \
+ srcs += \
 	hal/vgpu/init/vf_hal_gb10b.c \
 	hal/vgpu/fb/fb_gb10b_vf.c \
 	hal/vgpu/fb/intr/fb_intr_gb10b_vf.c \
@@ -1043,15 +1051,21 @@ srcs += \
 	common/vgpu/perf/perf_vf.c \
 	common/vgpu/profiler/profiler_vf.c
 endif
+endif
 
+ifeq ($(CONFIG_NVGPU_HAL_NON_FUSA),1)
 ifeq ($(CONFIG_NVGPU_DEBUGGER),1)
 srcs += \
 	hal/perf/perf_gb10b.c \
 	hal/regops/regops_gb10b.c \
-	hal/regops/allowlist_gb10b.c
+	hal/regops/regops_gb20c.c \
+	hal/regops/allowlist_gb10b.c \
+	hal/regops/allowlist_gb20c.c \
+	hal/regops/allowlist_auto_generated_gb10b.c \
+	hal/regops/allowlist_auto_generated_gb20c.c \
+	hal/regops/user_access_map_gb20c.c
 endif
 
-endif
 endif
 
 ifeq ($(CONFIG_NVGPU_HAL_NON_FUSA),1)
@@ -1088,13 +1102,17 @@ srcs += \
 	hal/perf/perf_gb20c.c \
 	hal/ltc/ltc_gb20c_fusa.c \
 	hal/fuse/fuse_gb20c.c \
+	hal/power_features/cg/gb20c_gating_reglist.c \
 	hal/falcon/falcon_gb20c_fusa.c \
 	hal/nvdec/nvdec_gb20c.c \
 	hal/nvenc/nvenc_gb20c.c \
 	hal/ofa/ofa_gb20c.c \
 	hal/netlist/netlist_gb20c_fusa.c \
 	hal/fifo/pbdma_status_gb20c_fusa.c \
-	hal/fifo/pbdma_gb20c.c
+	hal/fifo/pbdma_gb20c.c \
+	hal/pmu/pmu_gb20c.c \
+	hal/gr/hwpm_map/hwpm_map_gb20c.c \
+	hal/fifo/tsg_gb20c_fusa.c
 
 ifeq ($(CONFIG_NVGPU_GR_VIRTUALIZATION),1)
 srcs += \

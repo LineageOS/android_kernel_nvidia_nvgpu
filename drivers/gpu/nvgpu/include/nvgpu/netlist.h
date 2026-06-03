@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
  * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_NETLIST_H
 #define NVGPU_NETLIST_H
 /**
@@ -53,6 +54,8 @@
  *   + nvgpu_netlist_get_gpccs_data_list()
  */
 #include <nvgpu/types.h>
+
+#define MAX_NETLIST_NAME 256U
 
 struct gk20a;
 struct nvgpu_netlist_vars;
@@ -448,6 +451,7 @@ struct netlist_aiv_list *nvgpu_netlist_get_zcull_gpc_ctxsw_regs(
 #endif
 struct netlist_aiv_list *nvgpu_netlist_get_ppc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_ctxsw_regs(struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sysltc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_gpc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_tpc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_ppc_ctxsw_regs(struct gk20a *g);
@@ -458,10 +462,26 @@ struct netlist_aiv_list *nvgpu_netlist_get_fbp_router_ctxsw_regs(
 							struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_ctxsw_regs(
 							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_user_channel_ctxsw_regs(
+							struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_ltc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_lrcc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_fbpa_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_perf_sys_router_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_sys_router_user_channel_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_fbp_router_user_channel_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_user_channel_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_cmdslice_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_fwd_channel_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_user_channel_control_ctxsw_regs(
+							struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_cmdslice_control_ctxsw_regs(
 							struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_rop_ctxsw_regs(struct gk20a *g);
@@ -475,6 +495,14 @@ struct netlist_aiv_list *nvgpu_netlist_get_perf_fbp_control_ctxsw_regs(
 struct netlist_aiv_list *nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(
 		struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_perf_pma_control_ctxsw_regs(
+		struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lts_ctxsw_regs(
+		struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lrc_ctxsw_regs(
+		struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_hem_ctxsw_regs(
+		struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_sys_hep_ctxsw_regs(
 		struct gk20a *g);
 u32 nvgpu_netlist_get_ppc_ctxsw_regs_count(struct gk20a *g);
 u32 nvgpu_netlist_get_gpc_ctxsw_regs_count(struct gk20a *g);

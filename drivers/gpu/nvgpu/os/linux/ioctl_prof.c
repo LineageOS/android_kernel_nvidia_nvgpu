@@ -767,8 +767,8 @@ static int nvgpu_prof_ioctl_pma_stream_update_get_put(struct nvgpu_profiler_obje
 	bool update_put_ptr = args->flags &
 		NVGPU_PROFILER_PMA_STREAM_UPDATE_GET_PUT_ARG_FLAG_RETURN_PUT_PTR;
 	struct gk20a *g = prof->g;
-	bool overflowed;
-	int err;
+	bool overflowed, is_ctx_resident, is_ctxsw;
+	int err, err_2;
 
 	nvgpu_log(g, gpu_dbg_prof,
 		"Update PMA stream request %u: flags = 0x%x bytes_consumed=%llu",
@@ -791,17 +791,27 @@ static int nvgpu_prof_ioctl_pma_stream_update_get_put(struct nvgpu_profiler_obje
 		return -EINVAL;
 	}
 
+	is_ctxsw = nvgpu_profiler_get_is_ctxsw(prof);
+	err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, prof, is_ctxsw, &is_ctx_resident);
+	if (err != 0) {
+		return err;
+	}
+
 	err = nvgpu_perfbuf_update_get_put(prof->g, prof->pma_channel_id, args->bytes_consumed,
 			update_bytes_available ? &args->bytes_available : NULL,
 			prof->pma_bytes_available_buffer_cpuva, wait,
 			update_put_ptr ? &args->put_ptr : NULL,
-			&overflowed);
+			&overflowed, prof->tsg, is_ctx_resident);
+	gk20a_idle(g);
+	err_2 = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw);
+	if (err == 0) {
+		err = err_2;
+	}
+	nvgpu_assert(err_2 == 0);
+
 	if (err != 0) {
-		gk20a_idle(g);
 		return err;
 	}
-
-	gk20a_idle(g);
 
 	if (overflowed) {
 		args->flags |=
@@ -1152,7 +1162,9 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 	u32 total_credits;
 	bool gpc_credits_limit_violation = false;
 	bool fbp_credits_limit_violation = false;
-	int i, err;
+	int i, err, err_2;
+	bool is_ctxsw, is_ctx_resident;
+	struct nvgpu_tsg *tsg = prof->tsg;
 
 	nvgpu_log(g, gpu_dbg_prof, "Set pma stream hs credit handle:%u", prof->prof_handle);
 
@@ -1312,6 +1324,13 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 		fbp_credits_limit_violation = true;
 	}
 
+	is_ctxsw = nvgpu_profiler_get_is_ctxsw(prof);
+	err = nvgpu_profiler_extended_b2cc_disable_ctxsw(g, prof, is_ctxsw,
+							&is_ctx_resident);
+	if (err != 0) {
+		goto copy_from_user_failed;
+	}
+
 	for (i = 0U; i < buf->credit_buf_count; i++) {
 		if (set_credit_buf[i].set_credit_response !=
 					NVGPU_PROFILER_CHANNEL_SET_CREDIT_SUCCESS) {
@@ -1325,9 +1344,14 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CREDITS;
 				break;
 			}
-			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+			err = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
 				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC,
-				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits,
+				is_ctx_resident, tsg);
+			if (err != 0) {
+				nvgpu_err(g, "Setting GPC HS credit failed - %d", err);
+				goto copy_from_user_failed;
+			}
 			hs_credits->gpc_credit_pool[set_credit_buf[i].chiplet_index] =
 								set_credit_buf[i].num_credits;
 			break;
@@ -1338,9 +1362,14 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CREDITS;
 				break;
 			}
-			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+			err = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
 				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP,
-				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits,
+				is_ctx_resident, tsg);
+			if (err != 0) {
+				nvgpu_err(g, "Setting FBP HS credit failed - %d", err);
+				goto copy_from_user_failed;
+			}
 			hs_credits->fbp_credit_pool[set_credit_buf[i].chiplet_index] =
 								set_credit_buf[i].num_credits;
 			break;
@@ -1351,9 +1380,14 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 				break;
 			}
 
-			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+			err = g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
 				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS,
-				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits,
+				is_ctx_resident, tsg);
+			if (err != 0) {
+				nvgpu_err(g, "Setting SYS HS credit failed - %d", err);
+				goto copy_from_user_failed;
+			}
 			hs_credits->sys_credit_pool = set_credit_buf[i].num_credits;
 			break;
 		default:
@@ -1362,6 +1396,13 @@ static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_objec
 			nvgpu_err(g, "invalid chiplet type, %u", set_credit_buf[i].chiplet_type);
 			err = -EINVAL;
 		}
+	}
+
+	err_2 = nvgpu_profiler_extended_b2cc_enable_ctxsw(g, prof, is_ctxsw);
+	if (err_2 != 0) {
+		err = err_2;
+		nvgpu_assert(err_2 == 0);
+		goto copy_from_user_failed;
 	}
 
 	if (copy_to_user((void __user *)(uintptr_t)buf->set_credit_buf_addr, set_credit_buf,

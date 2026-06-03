@@ -11,6 +11,8 @@
 #include <nvgpu/log.h>
 #endif
 
+#define MAX_DEBUGFS_STR_LEN	(16U)
+
 struct gk20a;
 struct gpu_ops;
 struct nvgpu_device;
@@ -22,6 +24,7 @@ struct nvgpu_debug_context {
 	void *ctx;
 	char buf[256];
 };
+
 
 #ifdef CONFIG_DEBUG_FS
 extern unsigned int gk20a_debug_trace_cmdbuf;

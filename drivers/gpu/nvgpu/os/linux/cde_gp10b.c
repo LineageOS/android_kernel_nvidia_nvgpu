@@ -98,7 +98,7 @@ int gp10b_populate_scatter_buffer(struct gk20a *g,
 
 		nvgpu_log(g, gpu_dbg_cde, "surfPA=0x%llx + %d pages", surf_pa, n);
 
-		for (j=0; j < n && pages_left > 0; j++, surf_pa += page_size) {
+		for (j = 0; j < n && pages_left > 0; j++) {
 			u32 addr = (((u32)(surf_pa>>7)) & getSliceMaskGP10B) >> page_size_shift;
 			u8 scatter_bit = parity(addr);
 			u8 bit = page & 7;
@@ -109,8 +109,16 @@ int gp10b_populate_scatter_buffer(struct gk20a *g,
 				d = 0;
 			}
 
-			++page;
+			if (!nvgpu_safe_add_u64_return(page, 1, (u64 *)&page)) {
+				nvgpu_err(g, "page overflow");
+				return -EOVERFLOW;
+			}
+
 			--pages_left;
+			if (!nvgpu_safe_add_u64_return(surf_pa, page_size, &surf_pa)) {
+				nvgpu_err(g, "surf_pa overflow");
+				return -EOVERFLOW;
+			}
 		}
 
 		if (pages_left == 0)

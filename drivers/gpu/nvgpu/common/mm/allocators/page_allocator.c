@@ -1102,9 +1102,10 @@ int nvgpu_page_allocator_init(struct gk20a *g, struct nvgpu_allocator *na,
 		}
 	}
 
-	(void) strncpy(buddy_name, name,
-				(sizeof(buddy_name)) - (sizeof("-src")));
-	(void) strcat(buddy_name, "-src");
+	(void) snprintf(buddy_name, (sizeof(buddy_name)) - (sizeof("-src")),
+					"%s", name);
+	(void) snprintf(buddy_name + strlen(buddy_name),
+			nvgpu_safe_sub_u64(sizeof(buddy_name), strlen(buddy_name)), "%s", "-src");
 
 	err = nvgpu_buddy_allocator_init(g, &a->source_allocator, NULL,
 					buddy_name, base, length, blk_size,

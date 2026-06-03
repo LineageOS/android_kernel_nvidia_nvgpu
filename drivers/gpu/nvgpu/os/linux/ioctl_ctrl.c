@@ -86,23 +86,20 @@ struct nvgpu_tsg_share_token_node {
 
 void nvgpu_gpu_encode_share_token(struct gk20a *g,
 				  u64 source_device_instance_id,
-				  u64 token, size_t share_token_sz,
-				  u8 *share_token)
+				  u64 token, u8 *share_token)
 {
 	size_t src_inst_id_sz = sizeof(source_device_instance_id);
 	size_t token_sz = sizeof(token);
 	u8 *tmp = share_token;
 	u64 first_part, second_part;
 
-	nvgpu_assert(share_token_sz == (src_inst_id_sz + token_sz));
-
 	nvgpu_memcpy(tmp, (u8 *)&source_device_instance_id, src_inst_id_sz);
 	tmp += src_inst_id_sz;
 	nvgpu_memcpy(tmp, (u8 *)&token, token_sz);
 
 	/* Safely copy the data to properly aligned variables */
-	memcpy(&first_part, share_token, sizeof(u64));
-	memcpy(&second_part, share_token + src_inst_id_sz, sizeof(u64));
+	memcpy(&first_part, share_token, src_inst_id_sz);
+	memcpy(&second_part, (share_token + src_inst_id_sz), token_sz);
 
 	nvgpu_log(g, gpu_dbg_fn,
 		"Source: 0x%08llx Token: 0x%08llx Share Token: 0x%08llx%08llx",
@@ -110,23 +107,20 @@ void nvgpu_gpu_encode_share_token(struct gk20a *g,
 }
 
 void nvgpu_gpu_decode_share_token(struct gk20a *g, u8 *share_token,
-				  size_t share_token_sz,
 				  u64 *source_device_instance_id, u64 *token)
 {
-	size_t src_inst_id_sz = sizeof(source_device_instance_id);
-	size_t token_sz = sizeof(token);
+	size_t src_inst_id_sz = sizeof(*source_device_instance_id);
+	size_t token_sz = sizeof(*token);
 	u8 *tmp = share_token;
 	u64 first_part, second_part;
-
-	nvgpu_assert(share_token_sz == (src_inst_id_sz + token_sz));
 
 	nvgpu_memcpy((u8 *)source_device_instance_id, tmp, src_inst_id_sz);
 	tmp += src_inst_id_sz;
 	nvgpu_memcpy((u8 *)token, tmp, token_sz);
 
 	/* Safely copy the data to properly aligned variables */
-	memcpy(&first_part, share_token, sizeof(u64));
-	memcpy(&second_part, share_token + src_inst_id_sz, sizeof(u64));
+	memcpy(&first_part, share_token, src_inst_id_sz);
+	memcpy(&second_part, (share_token + src_inst_id_sz), token_sz);
 
 	nvgpu_log(g, gpu_dbg_fn,
 		"Share Token: 0x%08llx%08llx Source: 0x%08llx Token: 0x%08llx",
@@ -357,6 +351,8 @@ static struct nvgpu_flags_mapping flags_mapping[] = {
 		NVGPU_SUPPORT_PROFILER_V2_CONTEXT},
 	{NVGPU_GPU_FLAGS_SUPPORT_SMPC_GLOBAL_MODE,
 		NVGPU_SUPPORT_SMPC_GLOBAL_MODE},
+	{NVGPU_GPU_FLAGS_SUPPORT_CWD_HES,
+		NVGPU_SUPPORT_CWD_HES},
 	{NVGPU_GPU_FLAGS_SUPPORT_GET_GR_CONTEXT,
 		NVGPU_SUPPORT_GET_GR_CONTEXT},
 	{NVGPU_GPU_FLAGS_L2_MAX_WAYS_EVICT_LAST_ENABLED,
@@ -410,7 +406,7 @@ static void nvgpu_set_preemption_mode_flags(struct gk20a *g,
 	u32 default_graphics_preempt_mode = 0U;
 	u32 default_compute_preempt_mode = 0U;
 
-	g->ops.gr.init.get_supported__preemption_modes(
+	g->ops.gr.init.get_supported__preemption_modes(g,
 			&graphics_preemption_mode_flags,
 			&compute_preemption_mode_flags);
 	g->ops.gr.init.get_default_preemption_modes(
@@ -454,6 +450,9 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 #ifdef CONFIG_NVGPU_TSG_SHARING
 	gpu.device_instance_id = priv->device_instance_id;
 #endif
+
+	gpu.gpu_num_syncpts = g->gpu_num_syncpts;
+	gpu.hw_num_channels = g->fifo.num_channels;
 
 	gpu.numa_domain_id = dev_to_node(dev_from_gk20a(g));
 
@@ -508,7 +507,8 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 			NVGPU_GPU_FLAGS_SUPPORT_SM_TTU |
 			NVGPU_GPU_FLAGS_SUPPORT_PROFILER_V2_DEVICE |
 			NVGPU_GPU_FLAGS_SUPPORT_PROFILER_V2_CONTEXT |
-			NVGPU_GPU_FLAGS_SUPPORT_SMPC_GLOBAL_MODE);
+			NVGPU_GPU_FLAGS_SUPPORT_SMPC_GLOBAL_MODE |
+			NVGPU_GPU_FLAGS_SUPPORT_CWD_HES);
 	}
 
 	gpu.arch = g->params.gpu_arch;
@@ -785,11 +785,27 @@ static int gk20a_ctrl_open_tsg(struct gk20a *g, struct gk20a_ctrl_priv *priv,
 	int fd;
 
 #ifdef CONFIG_NVGPU_TSG_SHARING
+	if (sizeof(args->share_token) <
+		(sizeof(source_device_instance_id) + sizeof(token))) {
+		nvgpu_err(g, "Invalid size of TSG share token");
+		return -EINVAL;
+	}
+
+	/*
+	 * Bit(0) is the only flag to indicate sharing.
+	 * Bit(0) = 0U: New TSG.
+	 * Bit(0) = 1U: Shared TSG.
+	 * If supplied with values at all other bit pos., return error.
+	 */
+	if ((args->flags & ~(NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE)) != 0U) {
+		nvgpu_err(g, "Invalid open TSG flags: (0x%x)", args->flags);
+		return -EINVAL;
+	}
+
 	open_share =
 		(args->flags & NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE) != 0U;
 
 	nvgpu_gpu_decode_share_token(g, args->share_token,
-				     sizeof(args->share_token),
 				     &source_device_instance_id, &token);
 
 	if (!open_share) {
@@ -2958,6 +2974,10 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		break;
 
 	case NVGPU_GPU_IOCTL_SET_SM_DEBUG_MODE:
+		if (!g->support_gpu_tools) {
+			err = -EACCES;
+			break;
+		}
 		err = nvgpu_pg_elpg_protected_call(g,
 			nvgpu_gpu_ioctl_set_debug_mode(g,
 				(struct nvgpu_gpu_sm_debug_mode_args *)buf,
@@ -3157,7 +3177,7 @@ int gk20a_ctrl_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	nvgpu_mutex_acquire(&l->ctrl_privs_lock);
 
-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS) /* Linux v6.3 */
+#if defined(NV_VM_FLAGS_SET_PRESENT) /* Linux v6.3 */
 	vm_flags_set(vma, VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
 		VM_DONTDUMP | VM_PFNMAP);
 #else
@@ -3303,6 +3323,7 @@ static struct gk20a_ctrl_priv *nvgpu_gpu_get_ctrl_priv(
 	nvgpu_list_for_each_entry(priv, &l->ctrl_privs,
 			gk20a_ctrl_priv, list) {
 		if (priv->device_instance_id == device_instance_id) {
+			nvgpu_ref_get(&priv->refcount);
 			nvgpu_mutex_release(&l->ctrl_privs_lock);
 			return priv;
 		}
@@ -3319,27 +3340,32 @@ int nvgpu_gpu_get_share_token(struct gk20a *g,
 			      u64 *token)
 {
 	struct nvgpu_tsg_share_token_node *token_node;
+	struct gk20a_ctrl_priv *target_ctrl_priv;
 	struct gk20a_ctrl_priv *ctrl_priv;
+	int err = 0;
 
 	nvgpu_log_fn(g, " ");
 
-	ctrl_priv = nvgpu_gpu_get_ctrl_priv(g, target_device_instance_id);
-	if (ctrl_priv == NULL) {
+	target_ctrl_priv = nvgpu_gpu_get_ctrl_priv(g, target_device_instance_id);
+	if (target_ctrl_priv == NULL) {
 		nvgpu_err(g, "Invalid target device instance id");
-		return -EINVAL;
+		err = -EINVAL;
+		goto fail;
 	}
 
 	ctrl_priv = nvgpu_gpu_get_ctrl_priv(g, source_device_instance_id);
 	if (ctrl_priv == NULL) {
 		nvgpu_err(g, "Invalid source device instance id");
-		return -EINVAL;
+		err = -EINVAL;
+		goto fail;
 	}
 
 	token_node = (struct nvgpu_tsg_share_token_node *) nvgpu_kzalloc(g,
 				sizeof(struct nvgpu_tsg_share_token_node));
 	if (token_node == NULL) {
 		nvgpu_err(g, "token node allocation failed");
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto fail;
 	}
 
 	nvgpu_init_list_node(&token_node->ctrl_entry);
@@ -3365,7 +3391,15 @@ int nvgpu_gpu_get_share_token(struct gk20a *g,
 
 	nvgpu_log_fn(g, "done");
 
-	return 0;
+fail:
+	if (target_ctrl_priv != NULL) {
+		nvgpu_ref_put(&target_ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
+	}
+	if (ctrl_priv != NULL) {
+		nvgpu_ref_put(&ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
+	}
+
+	return err;
 }
 
 static inline struct nvgpu_tsg_share_token_node *
@@ -3420,6 +3454,7 @@ int nvgpu_gpu_revoke_share_token(struct gk20a *g,
 	}
 
 	nvgpu_mutex_release(&ctrl_priv->tokens_lock);
+	nvgpu_ref_put(&ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
 
 	nvgpu_log_fn(g, "done");
 
@@ -3457,11 +3492,16 @@ int nvgpu_gpu_tsg_revoke_share_tokens(struct gk20a *g,
 			 */
 			nvgpu_list_del(&token_node->ctrl_entry);
 			nvgpu_kfree(g, token_node);
-			revoked_count++;
+			if (!nvgpu_safe_add_u32_return(revoked_count, 1, &revoked_count)) {
+				nvgpu_err(g, "revoked_count overflow");
+				nvgpu_mutex_release(&ctrl_priv->tokens_lock);
+				return -EOVERFLOW;
+			}
 		}
 	}
 
 	nvgpu_mutex_release(&ctrl_priv->tokens_lock);
+	nvgpu_ref_put(&ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
 
 	*out_count = revoked_count;
 
@@ -3506,6 +3546,7 @@ struct nvgpu_tsg *nvgpu_gpu_open_tsg_with_share_token(struct gk20a *g,
 	}
 
 	nvgpu_mutex_release(&ctrl_priv->tokens_lock);
+	nvgpu_ref_put(&ctrl_priv->refcount, nvgpu_ioctl_ctrl_release);
 
 	if (tsg != NULL) {
 		nvgpu_mutex_acquire(&tsg->tsg_share_lock);

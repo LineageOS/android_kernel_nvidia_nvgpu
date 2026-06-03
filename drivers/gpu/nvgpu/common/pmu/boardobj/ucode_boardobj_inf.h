@@ -23,7 +23,9 @@
 #define CTRL_BOARDOBJGRP_TYPE_INVALID			0x00U
 #define CTRL_BOARDOBJGRP_TYPE_E32			0x01U
 #define CTRL_BOARDOBJGRP_TYPE_E255			0x02U
-#define CTRL_BOARDOBJGRP_TYPE_E2048                     0x03U
+#define CTRL_BOARDOBJGRP_TYPE_E512			0x03U
+#define CTRL_BOARDOBJGRP_TYPE_E1024			0x04U
+#define CTRL_BOARDOBJGRP_TYPE_E2048			0x05U
 
 #define CTRL_BOARDOBJGRP_E32_MAX_OBJECTS		32U
 #define CTRL_BOARDOBJGRP_E255_MAX_OBJECTS		255U
@@ -33,7 +35,7 @@
 	CTRL_BOARDOBJGRP_E32_MAX_OBJECTS
 
 #define CTRL_BOARDOBJ_IDX_INVALID			255U
-#define CTRL_BOARDOBJ_IDX_INVALID_16BIT		0xFFFFU
+#define CTRL_BOARDOBJ_IDX_INVALID_16BIT			0xFFFFU
 
 #define CTRL_BOARDOBJGRP_MASK_MASK_ELEMENT_BIT_SIZE	32U
 
@@ -50,6 +52,18 @@
 #define CTRL_BOARDOBJGRP_MASK_ARRAY_EXTENSION_SIZE(_bits)                      \
 	(CTRL_BOARDOBJGRP_MASK_DATA_SIZE(_bits) -                              \
 	 CTRL_BOARDOBJGRP_MASK_ARRAY_START_SIZE)
+
+struct nv_pmu_boardobj_interface {
+	u8 rsvd;
+};
+
+struct nv_pmu_boardobj_iface_model {
+	struct nv_pmu_boardobj_interface super;
+};
+
+struct nv_pmu_boardobj_iface_model_10 {
+	struct nv_pmu_boardobj_iface_model super;
+};
 
 struct ctrl_boardobj {
 	u8 type;
@@ -99,7 +113,7 @@ struct ctrl_boardobjgrp {
  */
 struct nv_pmu_boardobj {
 	u8 type;
-	u8 grp_idx;
+	u16 grp_idx;
 };
 
 /*
@@ -108,8 +122,19 @@ struct nv_pmu_boardobj {
  */
 struct nv_pmu_boardobj_query {
 	u8 type;
-	u8 grp_idx;
+	u16 grp_idx;
 };
+
+/*
+ * Base structure describing a BOARDOBJ to get counters data from PMU.
+ * RM equivalent is RM_PMU_BOARDOBJ_STATUS
+ */
+struct nv_pmu_boardobj_status {
+	u8 type;
+	u8 rsvd0;
+	u16 rsvd1;
+	u64 time_stamp;
+} __attribute__((packed));
 
 /*
  * Virtual base structure describing a BOARDOBJGRP interface between Kernel and
@@ -117,8 +142,9 @@ struct nv_pmu_boardobj_query {
  */
 struct nv_pmu_boardobjgrp_super {
 	u8 type;
+	u8 classType;
 	u8 class_id;
-	u8 obj_slots;
+	u16 obj_slots;
 	u8 flags;
 };
 
@@ -231,7 +257,7 @@ struct nv_pmu_boardobj_msg {
 
 /*
  * Macro generating structures describing classes which implement
- * NV_PMU_BOARDOBJGRP_E255 via the NV_PMU_BOARDBOBJ_CMD_GRP SET interface.
+ * NV_PMU_BOARDOBJGRP_E2048 via the NV_PMU_BOARDBOBJ_CMD_GRP SET interface.
  *
  * @para    _eng    Name of implementing engine in which this structure is
  * found.
@@ -288,6 +314,19 @@ struct nv_pmu_boardobj_msg {
 #define NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E255(_eng, _class)                 \
 	NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE(_eng, _class,                      \
 	CTRL_BOARDOBJGRP_E255_MAX_OBJECTS)
+
+/*
+ * Macro generating structures for querying dynamic state for classes which
+ * implement NV_PMU_BOARDOBJGRP_E2048 via the NV_PMU_BOARDOBJ_CMD_GRP GET_STATUS
+ * interface.
+ *
+ * @para    _eng    Name of implementing engine in which this structure is
+ * found.
+ * @param   _class  Class ID of Objects within Board Object Group.
+ */
+#define NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE_E2048(_eng, _class)                \
+	NV_PMU_BOARDOBJ_GRP_GET_STATUS_MAKE(_eng, _class,                      \
+	CTRL_BOARDOBJGRP_E2048_MAX_OBJECTS)
 
 /* RPC */
 

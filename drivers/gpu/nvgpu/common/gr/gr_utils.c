@@ -103,7 +103,7 @@ int nvgpu_gr_set_dump_gr_hw_state_on_ctxsw_timeout(struct gk20a *g, bool enable)
 	return 0;
 }
 
-#ifdef CONFIG_NVGPU_CILP
+#if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_CILP)
 bool nvgpu_gr_get_cilp_preempt_pending(struct gk20a *g)
 {
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);

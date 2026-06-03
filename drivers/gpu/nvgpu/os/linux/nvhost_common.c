@@ -9,6 +9,7 @@
 #include <nvgpu/nvhost.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/nvgpu_mem.h>
+#include <nvgpu/channel_sync.h>
 
 #include "nvhost_priv.h"
 
@@ -150,9 +151,11 @@ int nvgpu_nvhost_syncpt_init(struct gk20a *g)
 
 	g->syncpt_size =
 		nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, 1);
-	nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
+	g->gpu_num_syncpts = nvgpu_channel_get_synpoints(g);
+
+	nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x number of syncpoints %x\n",
 			g->syncpt_unit_base[0], g->syncpt_unit_size,
-			g->syncpt_size);
+			g->syncpt_size, g->gpu_num_syncpts);
 	return 0;
 fail_sgt:
 	sg_free_table(mem->priv.sgt);

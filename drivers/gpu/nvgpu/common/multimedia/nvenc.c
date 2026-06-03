@@ -18,8 +18,11 @@
 #include <nvgpu/fuse.h>
 #include <nvgpu/nvgpu_err.h>
 #include <nvgpu/device.h>
-#include "multimedia_priv.h"
 #include <nvgpu/gin.h>
+#include "multimedia_priv.h"
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+#include "multimedia_trace_priv.h"
+#endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_multimedia.h>
@@ -30,11 +33,9 @@ s32 nvgpu_nvenc_sw_init(struct gk20a *g)
 {
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 	s32 err = 0;
-#if defined(CONFIG_NVGPU_NON_FUSA)
 	u32 inst_id = 0;
 	const char *desc_fw_name;
 	const char *image_fw_name;
-#endif
 
 	nvgpu_log(g, gpu_dbg_mme, " ");
 
@@ -66,7 +67,6 @@ s32 nvgpu_nvenc_sw_init(struct gk20a *g)
 		break;
 #endif
 	default:
-#if defined(CONFIG_NVGPU_NON_FUSA)
 		if (g->nvenc->nvenc_riscv[0] != NULL) {
 			/* Initialized already, reuse the same to perform boot faster. Return EOK */
 			return err;
@@ -74,6 +74,18 @@ s32 nvgpu_nvenc_sw_init(struct gk20a *g)
 
 		for (inst_id = 0; inst_id < NVENC_INST_MAX; inst_id++) {
 			g->nvenc->nvenc_riscv[inst_id] = &g->nvenc_riscv[inst_id];
+
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+			err = nvgpu_multimedia_alloc_trace_buf_mem(g, &g->nvenc->trace_buf_mem[inst_id]);
+			if (err != 0) {
+				nvgpu_err(g, "nvenc trace buffer alloc failed:%x", err);
+			}
+#endif
+		}
+
+		if (nvgpu_is_vf(g)) {
+			/* VF is enabled, engine will be booted from server */
+			goto done;
 		}
 
 		if (nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY)) {
@@ -92,9 +104,7 @@ s32 nvgpu_nvenc_sw_init(struct gk20a *g)
 				nvgpu_kfree(g, g->nvenc);
 				g->nvenc = NULL;
 			}
-		} else
-#endif
-		{
+		} else {
 			err = -ENODEV;
 			nvgpu_kfree(g, g->nvenc);
 			g->nvenc = NULL;
@@ -114,7 +124,12 @@ s32 nvgpu_nvenc_sw_deinit(struct gk20a *g)
 	struct nvgpu_nvenc *nvenc = g->nvenc;
 
 	nvgpu_log(g, gpu_dbg_mme, " ");
-	if (!nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY)) {
+#ifdef CONFIG_NVGPU_MULTIMEDIA_TRACE
+	for (u32 inst_id = 0; inst_id < NVENC_INST_MAX; inst_id++) {
+		nvgpu_multimedia_free_trace_buf_mem(g, &g->nvenc->trace_buf_mem[inst_id]);
+	}
+#endif
+	if (!nvgpu_is_enabled(g, NVGPU_SEC_PRIVSECURITY) && !nvgpu_is_vf(g)) {
 		/* Priv sec is enabled, Engine will be secure booted by ACR */
 		nvgpu_dma_free(g, &nvenc->nvenc_mem_desc);
 	}

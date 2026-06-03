@@ -43,10 +43,12 @@ void gb10b_tsg_bind_channel_eng_method_buffers(struct nvgpu_tsg *tsg,
 			gpu_va = tsg->eng_method_buffers[NVDEC_RUNQUE].gpu_va;
 		} else if (tsg->runlist->id == nvgpu_engine_get_nvdec_runlist_id(g, 1)) {
 			gpu_va = tsg->eng_method_buffers[NVDEC1_RUNQUE].gpu_va;
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 		} else if (tsg->runlist->id == nvgpu_engine_get_nvjpg_runlist_id(g, 0)) {
 			gpu_va = tsg->eng_method_buffers[NVJPG_RUNQUE].gpu_va;
 		} else if (tsg->runlist->id == nvgpu_engine_get_nvjpg_runlist_id(g, 1)) {
 			gpu_va = tsg->eng_method_buffers[NVJPG1_RUNQUE].gpu_va;
+#endif
 		}
 	}
 

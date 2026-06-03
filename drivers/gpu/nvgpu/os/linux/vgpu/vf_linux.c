@@ -12,6 +12,7 @@
 #include "os/linux/platform_gk20a.h"
 #include "os/linux/vgpu/vgpu_common.h"
 #include "vf_linux.h"
+#include "vgpu_linux.h"
 
 static irqreturn_t vf_isr(int irq, void *dev_id)
 {
@@ -165,12 +166,19 @@ int vf_probe(struct pci_dev *pdev, struct gk20a_platform *platform)
 		return err;
 	}
 
+	vgpu_create_sysfs(&pdev->dev);
+
 	nvgpu_set_enabled(g, NVGPU_IS_VIRTUAL_FUNCTION, true);
 	pm_runtime_disable(&pdev->dev);
 
 	g->probe_done = true;
 
+	/* power on gpu to create dev nodes, otherwise first gpu app will fail
+	 * because udev does not create nodes in sync.
+	 */
 	gk20a_busy(g);
+	/* release refcount */
+	gk20a_idle(g);
 
 	return 0;
 }
