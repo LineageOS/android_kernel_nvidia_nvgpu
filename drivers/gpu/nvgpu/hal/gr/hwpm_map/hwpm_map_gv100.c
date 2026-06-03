@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/types.h>
@@ -49,4 +30,34 @@ u32 gv100_gr_hwpm_map_get_active_fbpa_mask(struct gk20a *g)
 	active_fbpa_mask = active_fbpa_mask & (BIT32(num_fbpas) - 1U);
 
 	return active_fbpa_mask;
+}
+
+int gv100_hwpm_map_add_gpc_perf_entries_to_map(struct gk20a *g,
+		struct ctxsw_buf_offset_map_entry *map,
+		struct netlist_aiv_list *regs, u32 *count, u32 *offset,
+		u32 max_cnt, u32 base, u32 mask, u32 gpc_num)
+{
+	u32 idx;
+	u32 cnt = *count;
+	u32 off = *offset;
+
+	(void) g;
+	(void) gpc_num;
+
+	if (nvgpu_safe_add_u32(cnt, regs->count) > max_cnt) {
+		return -EINVAL;
+	}
+
+	for (idx = 0; idx < regs->count; idx++) {
+		map[cnt].addr = base + (regs->l[idx].addr & mask);
+		map[cnt].offset = off;
+		cnt = nvgpu_safe_add_u32(cnt, 1U);
+		if (nvgpu_safe_add_u32_return(off, 4U, &off) == false) {
+			nvgpu_err(g, "buffer overflow");
+			return -EOVERFLOW;
+		}
+	}
+	*count = cnt;
+	*offset = off;
+	return 0;
 }

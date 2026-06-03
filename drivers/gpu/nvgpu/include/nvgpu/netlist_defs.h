@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_NETLIST_DEFS_H
@@ -30,6 +12,56 @@
 #define NVGPU_NETLIST_IMAGE_B	"NETB_img.bin"
 #define NVGPU_NETLIST_IMAGE_C	"NETC_img.bin"
 #define NVGPU_NETLIST_IMAGE_D	"NETD_img.bin"
+
+/* Encrypted dbg and prod netlists */
+#define NVGPU_NETLIST_DBG_IMAGE_A	"NETA_img_debug_encrypted.bin"
+#define NVGPU_NETLIST_DBG_IMAGE_B	"NETB_img_debug_encrypted.bin"
+#define NVGPU_NETLIST_DBG_IMAGE_C	"NETC_img_debug_encrypted.bin"
+#define NVGPU_NETLIST_DBG_IMAGE_D	"NETD_img_debug_encrypted.bin"
+
+#define NVGPU_NETLIST_PROD_IMAGE_A	"NETA_img_prod_encrypted.bin"
+#define NVGPU_NETLIST_PROD_IMAGE_B	"NETB_img_prod_encrypted.bin"
+#define NVGPU_NETLIST_PROD_IMAGE_C	"NETC_img_prod_encrypted.bin"
+#define NVGPU_NETLIST_PROD_IMAGE_D	"NETD_img_prod_encrypted.bin"
+
+#define NVGPU_PROD_TEST_NSR_NETLIST_DBG_IMAGE_A		"prod_test_nsr/NETA_img_debug_encrypted.bin"
+
+#define NVGPU_PROD_TEST_NSR_NETLIST_PROD_IMAGE_A	"prod_test_nsr/NETA_img_prod_encrypted.bin"
+
+#define NVGPU_SAFETY_NETLIST_DBG_IMAGE_A	"safety/NETA_img_debug_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_DBG_IMAGE_B	"safety/NETB_img_debug_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_DBG_IMAGE_C	"safety/NETC_img_debug_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_DBG_IMAGE_D	"safety/NETD_img_debug_encrypted.bin"
+
+#define NVGPU_SAFETY_NETLIST_PROD_IMAGE_A	"safety/NETA_img_prod_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_PROD_IMAGE_B	"safety/NETB_img_prod_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_PROD_IMAGE_C	"safety/NETC_img_prod_encrypted.bin"
+#define NVGPU_SAFETY_NETLIST_PROD_IMAGE_D	"safety/NETD_img_prod_encrypted.bin"
+
+/* Encrypted fecs and gpccs netlists*/
+#define NVGPU_FECS_DESC_A  "NETA_fecs_riscv_desc.bin"
+#define NVGPU_FECS_DESC_B  "NETB_fecs_riscv_desc.bin"
+#define NVGPU_FECS_DESC_C  "NETC_fecs_riscv_desc.bin"
+#define NVGPU_FECS_DESC_D  "NETD_fecs_riscv_desc.bin"
+
+#define NVGPU_GPCCS_DESC_A  "NETA_gpccs_riscv_desc.bin"
+#define NVGPU_GPCCS_DESC_B  "NETB_gpccs_riscv_desc.bin"
+#define NVGPU_GPCCS_DESC_C  "NETC_gpccs_riscv_desc.bin"
+#define NVGPU_GPCCS_DESC_D  "NETD_gpccs_riscv_desc.bin"
+
+#define NVGPU_PROD_TEST_NSR_FECS_DESC_A  "prod_test_nsr/NETA_fecs_riscv_desc.bin"
+
+#define NVGPU_PROD_TEST_NSR_GPCCS_DESC_A  "prod_test_nsr/NETA_gpccs_riscv_desc.bin"
+
+#define NVGPU_SAFETY_FECS_DESC_A  "safety/NETA_fecs_riscv_desc.bin"
+#define NVGPU_SAFETY_FECS_DESC_B  "safety/NETB_fecs_riscv_desc.bin"
+#define NVGPU_SAFETY_FECS_DESC_C  "safety/NETC_fecs_riscv_desc.bin"
+#define NVGPU_SAFETY_FECS_DESC_D  "safety/NETD_fecs_riscv_desc.bin"
+
+#define NVGPU_SAFETY_GPCCS_DESC_A  "safety/NETA_gpccs_riscv_desc.bin"
+#define NVGPU_SAFETY_GPCCS_DESC_B  "safety/NETB_gpccs_riscv_desc.bin"
+#define NVGPU_SAFETY_GPCCS_DESC_C  "safety/NETC_gpccs_riscv_desc.bin"
+#define NVGPU_SAFETY_GPCCS_DESC_D  "safety/NETD_gpccs_riscv_desc.bin"
 
 /* index for emulation netlists */
 #define NETLIST_FINAL		-1

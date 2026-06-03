@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_MC_TU104_H
@@ -25,8 +7,8 @@
 
 #include <nvgpu/types.h>
 
-#define NV_CPU_INTR_SUBTREE_TO_TOP_IDX(i)	((i) / 32U)
-#define NV_CPU_INTR_SUBTREE_TO_TOP_BIT(i)	((i) % 32U)
+#define NV_CPU_INTR_SUBTREE_TO_TOP_IDX(i)	((u32)(i) / 32U)
+#define NV_CPU_INTR_SUBTREE_TO_TOP_BIT(i)	((u32)(i) % 32U)
 #define NV_CPU_INTR_SUBTREE_TO_LEAF_REG0(i)	((i)*2U)
 #define NV_CPU_INTR_SUBTREE_TO_LEAF_REG1(i)	(((i)*2U) + 1U)
 
@@ -37,7 +19,7 @@
 #define NV_CPU_INTR_TOP_NONSTALL_SUBTREE	0U
 
 struct gk20a;
-
+#ifdef CONFIG_NVGPU_DGPU
 void intr_tu104_leaf_en_set(struct gk20a *g, u32 leaf_reg_index,
 	u32 leaf_reg_bit);
 void intr_tu104_leaf_en_clear(struct gk20a *g, u32 leaf_reg_index,
@@ -62,7 +44,8 @@ u32  intr_tu104_isr_nonstall(struct gk20a *g);
 bool intr_tu104_is_intr_hub_pending(struct gk20a *g, u32 mc_intr_0);
 void intr_tu104_log_pending_intrs(struct gk20a *g);
 void mc_tu104_fbpa_isr(struct gk20a *g);
-void mc_tu104_ltc_isr(struct gk20a *g);
 void mc_tu104_isr_stall(struct gk20a *g);
+#endif
 
+void mc_tu104_ltc_isr(struct gk20a *g);
 #endif /* NVGPU_MC_TU104_H */

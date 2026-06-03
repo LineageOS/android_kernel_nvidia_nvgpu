@@ -1,20 +1,5 @@
-/*
- * gk20a clock scaling profile
- *
- * Copyright (c) 2013-2023, NVIDIA Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/devfreq.h>
 #ifdef CONFIG_DEVFREQ_THERMAL
@@ -183,7 +168,7 @@ int gk20a_scale_qos_notify(struct notifier_block *nb,
 
 	/* Update gpu load because we may scale the emc target
 	 * if the gpu load changed. */
-	nvgpu_pmu_load_update(g);
+	nvgpu_pmu_sysfs_load_refresh(g, NULL, NVGPU_PMU_PERFMON_CLASS_GR);
 	platform->postscale(profile->dev, freq);
 
 	return NOTIFY_OK;
@@ -234,80 +219,18 @@ static int gk20a_scale_target(struct device *dev, unsigned long *freq,
 			      u32 flags)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
-	struct gk20a *g = platform->g;
-	struct gk20a_scale_profile *profile = g->scale_profile;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
-	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
-	struct devfreq *devfreq = l->devfreq;
-#endif
-	unsigned long local_freq = *freq;
-	unsigned long rounded_rate = 0;
-	unsigned long min_freq = 0, max_freq = 0;
+	struct gk20a *g = get_gk20a(dev);
 
-	if (nvgpu_clk_arb_has_active_req(g)) {
-		rounded_rate = g->last_freq;
-		goto post_scale;
-	}
-	/*
-	 * Calculate floor and cap frequency values
-	 *
-	 * Policy :
-	 * We have two APIs to clip the frequency
-	 *  1. devfreq
-	 *  2. pm_qos
-	 *
-	 * To calculate floor (min) freq, we select MAX of floor frequencies
-	 * requested from both APIs
-	 * To get cap (max) freq, we select MIN of max frequencies
-	 *
-	 * In case we have conflict (min_freq > max_freq) after above
-	 * steps, we ensure that max_freq wins over min_freq
-	 */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
-	min_freq = max_t(u32, devfreq->min_freq, profile->qos_min_freq);
-	max_freq = min_t(u32, devfreq->max_freq, profile->qos_max_freq);
-#else
-	/*
-	 * devfreq takes care of min/max freq clipping in update_devfreq() then
-	 * invoked devfreq->profile->target(), thus we only need to do freq
-	 * clipping based on pm_qos constraint
-	 */
-	min_freq = profile->qos_min_freq;
-	max_freq = profile->qos_max_freq;
-#endif
-
-	if (min_freq > max_freq)
-		min_freq = max_freq;
-
-	/* Clip requested frequency */
-	if (local_freq < min_freq)
-		local_freq = min_freq;
-
-	if (local_freq > max_freq)
-		local_freq = max_freq;
-
-	/* set the final frequency */
-	rounded_rate = platform->clk_round_rate(dev, local_freq);
-
-	/* Check for duplicate request */
-	if (rounded_rate == g->last_freq)
-		return 0;
-
-	if (g->ops.clk.get_rate(g, CTRL_CLK_DOMAIN_GPCCLK) == rounded_rate)
-		*freq = rounded_rate;
-	else {
-		g->ops.clk.set_rate(g, CTRL_CLK_DOMAIN_GPCCLK, rounded_rate);
-		*freq = g->ops.clk.get_rate(g, CTRL_CLK_DOMAIN_GPCCLK);
-	}
+	g->ops.clk.set_rate(g, CTRL_CLK_DOMAIN_GPCCLK, *freq);
+	*freq = g->ops.clk.get_rate(g, CTRL_CLK_DOMAIN_GPCCLK);
 
 	g->last_freq = *freq;
 
-post_scale:
 	/* postscale will only scale emc (dram clock) if evaluating
 	 * gk20a_tegra_get_emc_rate() produces a new or different emc
 	 * target because the load or_and gpufreq has changed */
 	if (platform->postscale)
-		platform->postscale(dev, rounded_rate);
+		platform->postscale(dev, *freq);
 
 	return 0;
 }
@@ -332,7 +255,7 @@ static void update_load_estimate_busy_cycles(struct device *dev)
 
 	profile->dev_stat.total_time = dt;
 	profile->last_event_time = t;
-	nvgpu_pmu_busy_cycles_norm(g, &busy_cycles_norm);
+	nvgpu_pmu_load_query(g, &busy_cycles_norm, NVGPU_PMU_PERFMON_CLASS_GR);
 	profile->dev_stat.busy_time =
 		(busy_cycles_norm * dt) / PMU_BUSY_CYCLES_NORM_MAX;
 }
@@ -543,16 +466,15 @@ void gk20a_scale_init(struct device *dev)
 
 		l->devfreq = devfreq;
 
-#ifdef CONFIG_DEVFREQ_THERMAL
-		cooling = of_devfreq_cooling_register(dev->of_node, devfreq);
-		if (IS_ERR(cooling))
-			dev_info(dev, "Failed to register cooling device\n");
-		else
-			l->cooling = cooling;
-#endif
-
-		/* create symlink /sys/devices/gpu.0/devfreq_dev */
 		if (devfreq != NULL) {
+#ifdef CONFIG_DEVFREQ_THERMAL
+			cooling = of_devfreq_cooling_register(dev->of_node, devfreq);
+			if (IS_ERR(cooling))
+				dev_info(dev, "Failed to register cooling device\n");
+			else
+				l->cooling = cooling;
+#endif
+			/* create symlink /sys/devices/gpu.0/devfreq_dev */
 			error = sysfs_create_link(&dev->kobj,
 				&devfreq->dev.kobj, "devfreq_dev");
 

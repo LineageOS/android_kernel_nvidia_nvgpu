@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/static_analysis.h>
@@ -31,6 +12,7 @@
 #include <nvgpu/dma.h>
 #include <nvgpu/string.h>
 #include <nvgpu/tsg_subctx.h>
+#include <nvgpu/log2.h>
 
 #include <nvgpu/power_features/pg.h>
 #include "common/gr/ctx_priv.h"
@@ -55,12 +37,14 @@ void nvgpu_gr_ctx_set_size(struct nvgpu_gr_ctx_desc *gr_ctx_desc,
 	gr_ctx_desc->size[index] = size;
 }
 
+#ifdef CONFIG_NVGPU_GFXP
 u32 nvgpu_gr_ctx_get_size(struct nvgpu_gr_ctx_desc *gr_ctx_desc,
 	u32 index)
 {
 	nvgpu_assert(index < NVGPU_GR_CTX_COUNT);
 	return gr_ctx_desc->size[index];
 }
+#endif
 
 struct nvgpu_gr_ctx *nvgpu_alloc_gr_ctx_struct(struct gk20a *g)
 {
@@ -532,6 +516,14 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 		return false;
 	}
 
+	/*
+	 * Make sure exactly one (or no) mode is requested for each of GFX and compute.
+	 */
+	if ((graphics_preempt_mode != 0U && !is_power_of_2(graphics_preempt_mode)) ||
+	    (compute_preempt_mode != 0U && !is_power_of_2(compute_preempt_mode))) {
+		return false;
+	}
+
 	g->ops.gr.init.get_supported__preemption_modes(
 			&supported_graphics_preempt_mode,
 			&supported_compute_preempt_mode);
@@ -640,6 +632,7 @@ u32 nvgpu_gr_ctx_get_graphics_preemption_mode(struct nvgpu_gr_ctx *gr_ctx)
 	return gr_ctx->graphics_preempt_mode;
 }
 
+#ifdef CONFIG_NVGPU_ZCULL
 void nvgpu_gr_ctx_set_zcull_ctx(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx,
 	u32 mode, u64 gpu_va)
 {
@@ -690,6 +683,7 @@ int nvgpu_gr_ctx_zcull_setup(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx,
 
 	return 0;
 }
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
 
 #ifdef CONFIG_NVGPU_GFXP
@@ -721,18 +715,27 @@ bool nvgpu_gr_ctx_desc_force_preemption_cilp(struct nvgpu_gr_ctx_desc *gr_ctx_de
 {
 	return gr_ctx_desc->force_preemption_cilp;
 }
-
-bool nvgpu_gr_ctx_get_cilp_preempt_pending(struct nvgpu_gr_ctx *gr_ctx)
-{
-	return gr_ctx->cilp_preempt_pending;
-}
-
-void nvgpu_gr_ctx_set_cilp_preempt_pending(struct nvgpu_gr_ctx *gr_ctx,
-	bool cilp_preempt_pending)
-{
-	gr_ctx->cilp_preempt_pending = cilp_preempt_pending;
-}
 #endif
+
+u32 nvgpu_gr_ctx_get_ctx_id(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx)
+{
+	struct nvgpu_mem *mem = &gr_ctx->mem[NVGPU_GR_CTX_CTX];
+
+	if (!gr_ctx->ctx_id_valid) {
+		gr_ctx->ctx_id = g->ops.gr.ctxsw_prog.get_main_image_ctx_id(g,
+					mem);
+		gr_ctx->ctx_id_valid = true;
+	}
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_intr, "ctx_id: 0x%x", gr_ctx->ctx_id);
+
+	return gr_ctx->ctx_id;
+}
+
+u32 nvgpu_gr_ctx_read_ctx_id(struct nvgpu_gr_ctx *gr_ctx)
+{
+	return gr_ctx->ctx_id;
+}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 void nvgpu_gr_ctx_reset_patch_count(struct gk20a *g,
@@ -846,26 +849,6 @@ void nvgpu_gr_ctx_set_pm_ctx_pm_mode(struct nvgpu_gr_ctx *gr_ctx, u32 pm_mode)
 u32 nvgpu_gr_ctx_get_pm_ctx_pm_mode(struct nvgpu_gr_ctx *gr_ctx)
 {
 	return gr_ctx->pm_ctx.pm_mode;
-}
-
-u32 nvgpu_gr_ctx_get_ctx_id(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx)
-{
-	struct nvgpu_mem *mem = &gr_ctx->mem[NVGPU_GR_CTX_CTX];
-
-	if (!gr_ctx->ctx_id_valid) {
-		gr_ctx->ctx_id = g->ops.gr.ctxsw_prog.get_main_image_ctx_id(g,
-					mem);
-		gr_ctx->ctx_id_valid = true;
-	}
-
-	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_intr, "ctx_id: 0x%x", gr_ctx->ctx_id);
-
-	return gr_ctx->ctx_id;
-}
-
-u32 nvgpu_gr_ctx_read_ctx_id(struct nvgpu_gr_ctx *gr_ctx)
-{
-	return gr_ctx->ctx_id;
 }
 
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_SCHEDULING

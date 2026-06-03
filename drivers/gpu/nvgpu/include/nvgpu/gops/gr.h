@@ -1,27 +1,11 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_GOPS_GR_H
 #define NVGPU_GOPS_GR_H
 
+#include "hal/gr/intr/gr_intr_gv11b.h"
 #include <nvgpu/types.h>
 
 /**
@@ -50,7 +34,7 @@ struct nvgpu_gr_sm_ecc_status;
 struct nvgpu_gr_zbc_table_indices;
 struct nvgpu_gr_obj_ctx_gfx_regs;
 
-enum nvgpu_gr_sm_ecc_error_types;
+
 
 #ifdef CONFIG_NVGPU_FECS_TRACE
 struct nvgpu_gr_subctx;
@@ -62,8 +46,10 @@ struct nvgpu_gpu_ctxsw_trace_entry;
 struct nvgpu_gr_zbc;
 struct nvgpu_gr_zbc_entry;
 struct nvgpu_gr_zbc_query_params;
+#ifdef CONFIG_NVGPU_ZCULL
 struct nvgpu_gr_zcull;
 struct nvgpu_gr_zcull_info;
+#endif
 #endif
 
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -72,6 +58,7 @@ struct nvgpu_warpstate;
 struct dbg_session_gk20a;
 struct netlist_aiv_list;
 struct ctxsw_buf_offset_map_entry;
+struct nvgpu_gr_obj_ctx_golden_image;
 
 enum ctxsw_addr_type;
 enum nvgpu_event_id_type;
@@ -246,9 +233,33 @@ struct gops_gr_setup {
 				   u32 graphics_preempt_mode,
 				   u32 compute_preempt_mode,
 				   u32 gr_instance_id);
+#ifdef CONFIG_NVGPU_DEBUGGER
+	/**
+	 * @brief Setup PRI address buffer to capture registers context
+	 *        switched over ramchain.
+	 *
+	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_blcok [in]	Pointer to memory describing instance block.
+	 * @param gr_ctx [in]		Pointer to GR engine context image.
+	 * @param golden_image[in]	Pointer to the golden image context descriptor.
+	 *
+	 * This function will send a method to FECS ucode to save the pri
+	 * address map into a local buffer. The size of the buffer is
+	 * expected to be equal to golden context buffer. Content would
+	 * be a mirror of the context buffer but with addresses where there
+	 * is PRI data. The pri address map is stored onto a local datastructure
+	 * which is then consumed during regops.
+	 *
+	 * @return 0 in case of success, < 0 in case of failure.
+	 * @retval -ENOMEM if any memory allocation operations failed.
+	 */
+	int (*setup_pri_address_buffer)(struct gk20a *g,
+		struct nvgpu_mem *inst_block, struct nvgpu_gr_ctx *gr_ctx,
+		struct nvgpu_gr_obj_ctx_golden_image *golden_image);
+#endif
 
 	/** @cond DOXYGEN_SHOULD_SKIP_THIS */
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	int (*bind_ctxsw_zcull)(struct gk20a *g,
 				struct nvgpu_channel *c,
 				u64 zcull_va,
@@ -351,10 +362,11 @@ struct gops_gr_falcon {
 	 * @param g [in]	Pointer to GPU driver struct.
 	 *
 	 * Wait for CTXSW falcon to get ready by waiting for upto
-	 * \a NVGPU_DEFAULT_POLL_TIMEOUT_MS to get correct response
+	 * #NVGPU_DEFAULT_POLL_TIMEOUT_MS to get correct response
 	 * codes in falcon mailboxes.
 	 * Configure CTXSW watchdog timeout with value of
-	 * \a CTXSW_WDT_DEFAULT_VALUE.
+	 * #CTXSW_WDT_DEFAULT_VALUE. CTXSW checks that this value is
+	 * set to non-zero value.
 	 *
 	 * @return 0 in case of success, < 0 in case of failure.
 	 * @retval -ETIMEDOUT if communication with falcon timed out.
@@ -369,7 +381,9 @@ struct gops_gr_falcon {
 	u32 (*fecs_host_intr_status)(struct gk20a *g,
 		struct nvgpu_fecs_host_intr_status *fecs_host_intr);
 	u32 (*fecs_base_addr)(void);
+	u32 (*fecs2_base_addr)(void);
 	u32 (*gpccs_base_addr)(void);
+	u32 (*gpccs2_base_addr)(void);
 	void (*set_current_ctx_invalid)(struct gk20a *g);
 	u32 (*fecs_ctxsw_mailbox_size)(void);
 	void (*start_gpccs)(struct gk20a *g);
@@ -377,14 +391,20 @@ struct gops_gr_falcon {
 	u32 (*get_gpccs_start_reg_offset)(void);
 	int (*load_ctxsw_ucode)(struct gk20a *g,
 				struct nvgpu_gr_falcon *falcon);
+	void (*reset_ctxsw_mailbox_scratch)(struct gk20a *g);
 	u32 (*get_current_ctx)(struct gk20a *g);
 	u32 (*get_ctx_ptr)(u32 ctx);
+	u32 (*get_current_ctx_id)(struct gk20a *g);
 	u32 (*get_fecs_current_ctx_data)(struct gk20a *g,
+					 struct nvgpu_mem *inst_block);
+	u32 (*get_fecs_current_ctx_hi_data)(struct gk20a *g,
 					 struct nvgpu_mem *inst_block);
 	int (*init_ctx_state)(struct gk20a *g,
 			struct nvgpu_gr_falcon_query_sizes *sizes);
+#ifdef CONFIG_NVGPU_ZCULL
 	int (*get_zcull_image_size)(struct gk20a *g,
 			struct nvgpu_gr_falcon_query_sizes *sizes);
+#endif
 	void (*fecs_host_int_enable)(struct gk20a *g);
 	u32 (*read_fecs_ctxsw_status0)(struct gk20a *g);
 	u32 (*read_fecs_ctxsw_status1)(struct gk20a *g);
@@ -420,10 +440,9 @@ struct gops_gr_falcon {
 	void (*configure_fmodel)(struct gk20a *g);
 #endif
 	void (*get_fw_name)(struct gk20a *g, const char **ucode_name, u32 falcon_id);
-#ifndef CONFIG_NVGPU_HAL_NON_FUSA
 	void (*set_null_fecs_method_data)(struct gk20a *g,
 			struct nvgpu_fecs_method_op *op, u32 fecs_method);
-#endif
+	u32 (*get_compute_preemption_mode)(struct gk20a *g);
 	/** @endcond */
 
 };
@@ -490,7 +509,7 @@ struct gops_gr_intr {
 	 * @param tpc [in]		Index of TPC that includes SM.
 	 * @param sm [in]		Index of SM within TPC for which
 	 * 				error state should be recorded.
-	 * @param fault_ch [in]		Pointer to faulting channel.
+	 * @param isr_data [in]		Pointer to gr isr_data.
 	 *
 	 * SM error state needs to be recorded from Error status registers
 	 * upon any SM exception. This error state can be later queried by
@@ -503,8 +522,7 @@ struct gops_gr_intr {
 	 * @return Logical global SM index of requested \a sm.
 	 */
 	u32 (*record_sm_error_state)(struct gk20a *g, u32 gpc,
-				     u32 tpc, u32 sm,
-				     struct nvgpu_channel *fault_ch);
+				     u32 tpc, u32 sm, struct nvgpu_gr_isr_data *isr_data);
 
 	/** @cond DOXYGEN_SHOULD_SKIP_THIS */
 	int (*retrigger)(struct gk20a *g);
@@ -512,13 +530,16 @@ struct gops_gr_intr {
 	int (*handle_fecs_error)(struct gk20a *g,
 				 struct nvgpu_channel *ch,
 				 struct nvgpu_gr_isr_data *isr_data);
+	bool (*is_valid_sw_method)(struct gk20a *g, u32 class_num, u32 offset);
 	int (*handle_sw_method)(struct gk20a *g, u32 addr,
 				u32 class_num, u32 offset, u32 data);
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA)
+	bool (*is_valid_compute_sw_method)(struct gk20a *g, u32 offset);
 	int (*handle_compute_sw_method)(struct gk20a *g, u32 addr,
 				u32 class_num, u32 offset, u32 data);
 #endif
 #if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_GRAPHICS)
+	int (*is_valid_gfx_sw_method)(struct gk20a *g, u32 offset);
 	int (*handle_gfx_sw_method)(struct gk20a *g, u32 addr,
 				u32 class_num, u32 offset, u32 data);
 #endif
@@ -530,6 +551,7 @@ struct gops_gr_intr {
 					 u32 gr_intr);
 	u32 (*read_pending_interrupts)(struct gk20a *g,
 				struct nvgpu_gr_intr_info *intr_info);
+	bool (*is_illegal_method_pending)(struct gk20a *g);
 	bool (*handle_exceptions)(struct gk20a *g,
 				  bool *is_gpc_exception);
 	u32 (*read_gpc_tpc_exception)(u32 gpc_exception);
@@ -545,8 +567,10 @@ struct gops_gr_intr {
 			u32 gpc_exception);
 	void (*handle_gpc_crop_hww)(struct gk20a *g, u32 gpc,
 			u32 gpc_exception);
+	u32 (*get_gpc0_rop0_crop_hww_esr_offset)(void);
 	void (*handle_gpc_rrh_hww)(struct gk20a *g, u32 gpc,
 			u32 gpc_exception);
+	u32 (*get_gpc0_rop0_rrh_status_offset)(void);
 	void (*handle_gcc_exception)(struct gk20a *g, u32 gpc,
 			u32 gpc_exception,
 			u32 *corrected_err, u32 *uncorrected_err);
@@ -564,10 +588,14 @@ struct gops_gr_intr {
 	void (*handle_gpc_gpccs_exception)(struct gk20a *g,
 			u32 gpc, u32 gpc_exception,
 			u32 *corrected_err, u32 *uncorrected_err);
+	void (*handle_gpc_wdxps_hww)(struct gk20a *g,
+					   u32 gpc, u32 gpc_exception);
 	u32 (*get_tpc_exception)(struct gk20a *g, u32 offset,
 			struct nvgpu_gr_tpc_exception *pending_tpc);
 	void (*handle_tpc_mpc_exception)(struct gk20a *g,
 					 u32 gpc, u32 tpc);
+	void (*handle_tpc_tpccs_exception)(struct gk20a *g,
+						u32 gpc, u32 tpc);
 	void (*handle_tpc_pe_exception)(struct gk20a *g,
 					u32 gpc, u32 tpc);
 	void (*enable_hww_exceptions)(struct gk20a *g);
@@ -575,6 +603,7 @@ struct gops_gr_intr {
 	void (*enable_exceptions)(struct gk20a *g,
 				  struct nvgpu_gr_config *gr_config,
 				  bool enable);
+	void (*configure_sked_interrupts)(struct gk20a *g);
 	void (*enable_gpc_crop_hww)(struct gk20a *g);
 	void (*enable_gpc_zrop_hww)(struct gk20a *g);
 	void (*enable_gpc_exceptions)(struct gk20a *g,
@@ -583,7 +612,7 @@ struct gops_gr_intr {
 	int (*handle_sm_exception)(struct gk20a *g,
 				   u32 gpc, u32 tpc, u32 sm,
 				   bool *post_event,
-				   struct nvgpu_channel *fault_ch,
+				   struct nvgpu_gr_isr_data *isr_data,
 				   u32 *hww_global_esr);
 	void (*set_hww_esr_report_mask)(struct gk20a *g);
 	void (*handle_tpc_sm_ecc_exception)(struct gk20a *g,
@@ -597,6 +626,10 @@ struct gops_gr_intr {
 				   u32 gpc, u32 tpc, u32 sm);
 	u32 (*get_sm_hww_global_esr)(struct gk20a *g,
 				     u32 gpc, u32 tpc, u32 sm);
+	u32 (*get_sm_hww_cga_esr)(struct gk20a *g,
+				     u32 gpc, u32 tpc, u32 sm);
+	void (*handle_sm_hww_cga_esr)(struct gk20a *g, u32 cga_esr,
+				     u32 gpc, u32 tpc, u32 sm);
 	u64 (*get_sm_hww_warp_esr_pc)(struct gk20a *g, u32 offset);
 	u32 (*get_sm_no_lock_down_hww_global_esr_mask)(
 						struct gk20a *g);
@@ -604,6 +637,18 @@ struct gops_gr_intr {
 	bool (*sm_ecc_status_errors)(struct gk20a *g, u32 ecc_status_reg,
 				enum nvgpu_gr_sm_ecc_error_types err_type,
 				struct nvgpu_gr_sm_ecc_status *ecc_status);
+	bool (*sm_l1_data_ecc_status_errors)(struct gk20a *g,
+				u32 l1_data_ecc_status,
+				struct nvgpu_gr_sm_ecc_status *ecc_status);
+	bool (*sm_l1_tag_ecc_status_errors)(struct gk20a *g,
+				u32 l1_tag_ecc_status,
+				struct nvgpu_gr_sm_ecc_status *ecc_status);
+	bool (*sm_rams_ecc_status_errors)(struct gk20a *g,
+				u32 rams_ecc_status,
+				struct nvgpu_gr_sm_ecc_status *ecc_status);
+	void (*get_fault_context)(struct gk20a *g, u32 gr_intr,
+				struct nvgpu_gr_isr_data *isr_data);
+	void (*handle_sm_poison_error)(struct gk20a *g, u32 global_esr);
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	void (*handle_tex_exception)(struct gk20a *g,
 				     u32 gpc, u32 tpc);
@@ -615,6 +660,7 @@ struct gops_gr_intr {
 	void (*tpc_exception_sm_disable)(struct gk20a *g,
 					 u32 offset);
 	u64 (*tpc_enabled_exceptions)(struct gk20a *g);
+	void (*handle_cilp_save_completed)(struct gk20a *g, u32 gfid, u32 tsgid);
 #endif
 	/** @endcond */
 };
@@ -637,7 +683,7 @@ struct gops_gr_init {
 	 *
 	 * @see nvgpu_gr_get_no_of_sm
 	 */
-	u32 (*get_no_of_sm)(struct gk20a *g);
+	u32 (*get_no_of_sm)(struct gk20a *g, u32 instance_id);
 
 	/**
 	 * @brief Get the count of tpc not attached PES unit.
@@ -900,13 +946,14 @@ struct gops_gr_init {
 				bool patch);
 #endif
 #ifdef CONFIG_NVGPU_GRAPHICS
-	void (*rop_mapping)(struct gk20a *g,
+	int (*rop_mapping)(struct gk20a *g,
 		struct nvgpu_gr_config *gr_config);
 	u32 (*get_rtv_cb_size)(struct gk20a *g);
 	void (*commit_rtv_cb)(struct gk20a *g, u64 addr,
 			      struct nvgpu_gr_ctx *gr_ctx, bool patch);
 	void (*commit_rops_crop_override)(struct gk20a *g,
 			      struct nvgpu_gr_ctx *gr_ctx, bool patch);
+	u32 (*get_gpcs_rops_crop_debug1_off)(void);
 #endif
 #ifdef CONFIG_NVGPU_GFXP
 	int (*preemption_state)(struct gk20a *g);
@@ -947,7 +994,8 @@ struct gops_gr_init {
 	bool (*is_allowed_reg)(struct gk20a *g, u32 addr);
 	void (*auto_go_idle)(struct gk20a *g, bool enable);
 	void (*eng_config)(struct gk20a *g);
-	int (*reset_gpcs)(struct gk20a *g);
+	void (*set_gpcs_reset)(struct gk20a *g, bool assert_reset);
+	void (*set_engine_reset)(struct gk20a *g, bool assert_reset);
 #ifdef CONFIG_NVGPU_GRAPHICS
 	void (*setup_gfx_tpcs)(struct gk20a *g);
 #endif
@@ -956,6 +1004,7 @@ struct gops_gr_init {
 	int (*load_sm_id_config)(struct gk20a *g,
 			struct nvgpu_gr_config *config);
 	void (*set_sm_l1tag_surface_collector)(struct gk20a *g);
+	bool (*is_cwd_gpc_tpc_id_removed)(void);
 	/** @endcond */
 };
 
@@ -982,7 +1031,7 @@ struct gops_gr_config {
 	u32 (*get_pd_dist_skip_table_size)(void);
 	int (*init_sm_id_table)(struct gk20a *g,
 				struct nvgpu_gr_config *gr_config);
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	u32 (*get_zcull_count_in_gpc)(struct gk20a *g,
 				      struct nvgpu_gr_config *config,
 				      u32 gpc_index);
@@ -1006,6 +1055,8 @@ struct gops_gr_ctxsw_prog {
 				       u64 addr);
 	void (*set_type_per_veid_header)(struct gk20a *g,
 					 struct nvgpu_mem *ctx_mem);
+	u32 (*get_main_image_ctx_id)(struct gk20a *g,
+				     struct nvgpu_mem *ctx_mem);
 #ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
 	void (*set_priv_access_map_config_mode)(struct gk20a *g,
 			struct nvgpu_mem *ctx_mem, bool allow_all);
@@ -1019,7 +1070,7 @@ struct gops_gr_ctxsw_prog {
 	void (*init_ctxsw_hdr_data)(struct gk20a *g,
 				    struct nvgpu_mem *ctx_mem);
 #endif
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	void (*set_zcull_ptr)(struct gk20a *g,
 			      struct nvgpu_mem *ctx_mem, u64 addr);
 	void (*set_zcull)(struct gk20a *g,
@@ -1047,8 +1098,6 @@ struct gops_gr_ctxsw_prog {
 	u32 (*hw_extended_marker_size_in_bytes)(void);
 	u32 (*hw_get_perf_counter_control_register_stride)(void);
 	u32 (*hw_get_perf_counter_register_stride)(void);
-	u32 (*get_main_image_ctx_id)(struct gk20a *g,
-				     struct nvgpu_mem *ctx_mem);
 	void (*set_pm_ptr)(struct gk20a *g,
 			   struct nvgpu_mem *ctx_mem, u64 addr);
 	void (*set_pm_mode)(struct gk20a *g,
@@ -1164,6 +1213,20 @@ struct gops_gr_fecs_trace {
 	struct gops_gr_hwpm_map {
 		void (*align_regs_perf_pma)(u32 *offset);
 		u32 (*get_active_fbpa_mask)(struct gk20a *g);
+		int (*add_ctxsw_buffer_gpc_perf_entries_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			struct netlist_aiv_list *regs, u32 *count,
+			u32 *offset, u32 max_cnt, u32 base, u32 mask,
+			u32 gpc_num);
+		int (*add_ctxsw_buffer_pm_ucgpc_entries_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			struct netlist_aiv_list *regs, u32 *count,
+			u32 *offset, u32 max_cnt, u32 base, u32 mask,
+			u32 gpc_num);
+		int (*add_ctxsw_buffer_lrcc_entries_to_map)(struct gk20a *g,
+			struct ctxsw_buf_offset_map_entry *map,
+			struct netlist_aiv_list *regs, u32 *count,
+			u32 *offset, u32 max_cnt, u32 num_lrc);
 	};
 #endif
 /** @endcond */
@@ -1177,9 +1240,11 @@ struct gops_gr_zbc {
 	void (*add_depth)(struct gk20a *g,
 		struct nvgpu_gr_zbc_entry *depth_val,
 		u32 index);
+#ifdef CONFIG_NVGPU_ZBC_USER
 	int (*set_table)(struct gk20a *g,
 		struct nvgpu_gr_zbc *zbc,
 		struct nvgpu_gr_zbc_entry *zbc_val);
+#endif
 	int (*query_table)(struct gk20a *g,
 		struct nvgpu_gr_zbc *zbc,
 		struct nvgpu_gr_zbc_query_params *query_params);
@@ -1191,7 +1256,9 @@ struct gops_gr_zbc {
 			struct nvgpu_gr_zbc_table_indices *zbc_indices);
 	void (*load_default_sw_table)(struct gk20a *g,
 		struct nvgpu_gr_zbc *zbc);
+	u32 (*get_gr_pri_gpcs_rops_crop_zbc_index_address_max)(void);
 };
+#ifdef CONFIG_NVGPU_ZCULL
 struct gops_gr_zcull {
 	int (*init_zcull_hw)(struct gk20a *g,
 			     struct nvgpu_gr_zcull *gr_zcull,
@@ -1204,6 +1271,7 @@ struct gops_gr_zcull {
 				      u32 zcull_alloc_num,
 				      u32 *zcull_map_tiles);
 };
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
 /** @endcond */
 
@@ -1265,6 +1333,20 @@ struct gops_gr {
 					  u32 *num_sm_dsm_perf_regs,
 					  u32 **sm_dsm_perf_regs,
 					  u32 *perf_register_stride);
+
+	/*
+	 * These functions return the corresponding SM register
+	 * for (GPC0, TPC0, SM0).
+	 */
+	u32 (*get_sm_dbgr_ctrl_base)(void);
+	u32 (*get_sm_dbgr_status_base)(void);
+	u32 (*get_sm_hww_global_esr_base)(void);
+	u32 (*get_sm_hww_warp_esr_base)(void);
+
+	u32 (*get_gpcs_pri_mmu_debug_ctrl_reg)(void);
+	u32 (*get_gpcs_tpcs_tex_in_dbg_reg)(void);
+	u32 (*get_gpcs_tpcs_sm_l1tag_ctrl_reg)(void);
+
 	void (*get_ovr_perf_regs)(struct gk20a *g,
 				  u32 *num_ovr_perf_regs,
 				  u32 **ovr_perf_regsr);
@@ -1285,6 +1367,7 @@ struct gops_gr {
 	void (*get_egpc_etpc_num)(struct gk20a *g, u32 addr,
 				  u32 *gpc_num, u32 *tpc_num);
 	u32 (*get_egpc_base)(struct gk20a *g);
+	u32 (*get_egpc_shared_base)(struct gk20a *g);
 	int (*update_smpc_ctxsw_mode)(struct gk20a *g,
 				      struct nvgpu_tsg *tsg,
 				      bool enable);
@@ -1299,6 +1382,8 @@ struct gops_gr {
 			    struct nvgpu_gr_ctx *gr_ctx);
 	int (*dump_gr_regs)(struct gk20a *g,
 			    struct nvgpu_debug_context *o);
+	int (*dump_fecs_gr_regs)(struct gk20a *g,
+			    struct nvgpu_debug_context *o);
 	int (*update_pc_sampling)(struct nvgpu_channel *ch,
 				  bool enable);
 	void (*init_sm_dsm_reg_info)(void);
@@ -1311,8 +1396,9 @@ struct gops_gr {
 	int (*pre_process_sm_exception)(struct gk20a *g,
 					u32 gpc, u32 tpc, u32 sm,
 					u32 global_esr, u32 warp_esr,
+					u32 cga_esr,
 					bool sm_debugger_attached,
-					struct nvgpu_channel *fault_ch,
+					struct nvgpu_gr_isr_data *isr_data,
 					bool *early_exit,
 					bool *ignore_debugger);
 	int  (*lock_down_sm)(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
@@ -1385,7 +1471,9 @@ struct gops_gr {
 	int (*find_priv_offset_in_buffer)(struct gk20a *g, u32 addr,
 					u32 *context_buffer,
 					u32 context_buffer_size,
-					u32 *priv_offset);
+					u32 max_offsets,
+					u32 *priv_offset,
+					u32 *num_offsets);
 	int (*process_context_buffer_priv_segment)(struct gk20a *g,
 					     enum ctxsw_addr_type addr_type,
 					     u32 pri_addr,
@@ -1396,18 +1484,21 @@ struct gops_gr {
 	int (*set_sched_wait_for_errbar)(struct gk20a *g,
 					struct nvgpu_channel *ch, bool enable);
 	int (*set_mmu_debug_mode)(struct gk20a *g,
-				  struct nvgpu_channel *ch, bool enable);
+				  struct nvgpu_channel *ch, bool enable, bool enable_gcc);
 	bool (*esr_bpt_pending_events)(u32 global_esr,
 				       enum nvgpu_event_id_type bpt_event);
 	bool (*check_warp_esr_error)(struct gk20a *g, u32 warp_esr_error);
+	int (*set_cilp_preempt_pending)(struct gk20a *g, u32 gfid, u32 tsgid);
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_SCHEDULING
 	int (*set_boosted_ctx)(struct nvgpu_channel *ch, bool boost);
 #endif
 #endif
-	void (*disable_cau)(struct gk20a *g);
+	int (*disable_cau)(struct gk20a *g, u32 gr_instance_id);
 	void (*disable_smpc)(struct gk20a *g);
 	const u32 *(*get_hwpm_cau_init_data)(u32 *count);
-	void (*init_cau)(struct gk20a *g);
+	int (*init_cau)(struct gk20a *g, u32 gr_instance_id);
+	bool (*set_mmu_nack_pending)(struct gk20a *g, u32 gr_instance_id,
+			u32 gr_ctx_id);
 	/** @endcond */
 
 	/** This structure stores the GR ecc subunit hal pointers. */
@@ -1432,7 +1523,9 @@ struct gops_gr {
 #endif
 #ifdef CONFIG_NVGPU_GRAPHICS
 	struct gops_gr_zbc		zbc;
+#ifdef CONFIG_NVGPU_ZCULL
 	struct gops_gr_zcull		zcull;
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	void (*vab_reserve)(struct gk20a *g, u32 vab_reg, u32 num_range_checkers,

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GR_SETUP_H
 #define NVGPU_GR_SETUP_H
@@ -55,6 +37,9 @@ struct nvgpu_gr_ctx;
  * This function allocates and sets up object context for a GPU channel.
  * The steps include:
  *
+ * - If \ref CONFIG_NVGPU_VPR is set:
+ *   - If args->flags has the \ref NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR bit set:
+ *     set c->vpr to true.
  * - Validating GPU class ID in parameter list.
  * - Allocating GR engine context image.
  * - Allocating subcontext image.
@@ -154,7 +139,32 @@ int nvgpu_gr_setup_set_preemption_mode(struct nvgpu_channel *ch,
 		u32 graphics_preempt_mode, u32 compute_preempt_mode,
 		u32 gr_instance_id);
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#ifdef CONFIG_NVGPU_DEBUGGER
+/**
+ * @brief Setup PRI address buffer to capture registers context
+ *        switched over ramchain.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ * @param inst_blcok [in]	Pointer to memory describing instance block.
+ * @param gr_ctx [in]		Pointer to GR engine context image.
+ * @param golden_image[in]	Pointer to the golden image context descriptor.
+ *
+ * This function will send a method to FECS ucode to save the pri
+ * address map into a local buffer. The size of the buffer is
+ * expected to be equal to golden context buffer. Content would
+ * be a mirror of the context buffer but with addresses where there
+ * is PRI data. The pri address map is stored onto a local datastructure
+ * which is then consumed during regops.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ * @retval -ENOMEM if any memory allocation operations failed.
+ */
+int nvgpu_gr_setup_pri_address_buffer(struct gk20a *g,
+		struct nvgpu_mem *inst_block, struct nvgpu_gr_ctx *gr_ctx,
+		struct nvgpu_gr_obj_ctx_golden_image *golden_image);
+#endif
+
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 int nvgpu_gr_setup_bind_ctxsw_zcull(struct gk20a *g, struct nvgpu_channel *c,
 			u64 zcull_va, u32 mode);
 #endif

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/wait.h>
 #include <linux/ktime.h>
@@ -402,7 +402,7 @@ long gk20a_ctxsw_dev_ioctl(struct file *filp, unsigned int cmd,
 {
 	struct gk20a_ctxsw_dev *dev = filp->private_data;
 	struct gk20a *g = dev->g;
-	u8 buf[NVGPU_CTXSW_IOCTL_MAX_ARG_SIZE];
+	void *buf = NULL;
 	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn|gpu_dbg_ctxsw, "nr=%d", _IOC_NR(cmd));
@@ -413,10 +413,16 @@ long gk20a_ctxsw_dev_ioctl(struct file *filp, unsigned int cmd,
 		(_IOC_SIZE(cmd) > NVGPU_CTXSW_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_CTXSW_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *) arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *) arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto cleanup;
+                }
 	}
 
 	switch (cmd) {
@@ -450,6 +456,8 @@ long gk20a_ctxsw_dev_ioctl(struct file *filp, unsigned int cmd,
 	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
 		err = copy_to_user((void __user *) arg, buf, _IOC_SIZE(cmd));
 
+cleanup:
+	nvgpu_kfree(g, buf);
 	return err;
 }
 
@@ -565,6 +573,12 @@ int gk20a_ctxsw_trace_init(struct gk20a *g)
 	int err;
 
 	nvgpu_log(g, gpu_dbg_fn|gpu_dbg_ctxsw, "g=%p trace=%p", g, trace);
+
+	if (!g->support_gpu_tools) {
+		nvgpu_log_info(g, "ctxsw tracing initialization skipped. disabled via DT.");
+		nvgpu_set_enabled(g, NVGPU_SUPPORT_FECS_CTXSW_TRACE, false);
+		return 0;
+	}
 
 	/* if tracing is not supported, skip this */
 	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_FECS_CTXSW_TRACE))

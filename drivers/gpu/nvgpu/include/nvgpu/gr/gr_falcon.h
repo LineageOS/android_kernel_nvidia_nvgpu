@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_FALCON_H
@@ -48,7 +30,7 @@ struct nvgpu_gr_falcon;
 /** Falcon method to query golden context image size. */
 #define NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_IMAGE_SIZE	4
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 #define NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_ZCULL_IMAGE_SIZE 	5
 #endif
 
@@ -81,6 +63,15 @@ defined(CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING)
 #define NVGPU_GR_FALCON_METHOD_STOP_SMPC_GLOBAL_MODE		16
 #endif
 
+#ifdef CONFIG_NVGPU_MIG
+#define NVGPU_GR_FALCON_METHOD_SET_SMC_LTS_MASK_INDEX          17
+#define NVGPU_GR_FALCON_METHOD_ASSIGN_SMC_LTS_MASK             18
+#endif
+
+#define NVGPU_GR_FALCON_METHOD_REGLIST_BIND_INSTANCE_HI         19
+#define NVGPU_GR_FALCON_METHOD_REGLIST_SET_VIRTUAL_ADDRESS_HI   20
+#define NVGPU_PRI_FECS_METHOD_PUSH_ADR_BUILD_PRI_ADDRESS_MAP    21
+
 /** Sleep while waiting for Falcon ACK */
 #define NVGPU_GR_FALCON_SUBMIT_METHOD_F_SLEEP		BIT32(0)
 
@@ -99,6 +90,14 @@ defined(CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING)
 #define NVGPU_GR_FALCON_FECS_CTXSW_MAILBOX6 6U
 /** Falcon index of mailbox 7. */
 #define NVGPU_GR_FALCON_FECS_CTXSW_MAILBOX7 7U
+
+// 2-stage Boot-plugin mailbox signals
+#define NV_UPROC_BOOT_PLUGIN_MAILBOX_STAGE1_COMPLETE    (0x1)
+#define NV_UPROC_BOOT_PLUGIN_MAILBOX_FIRMWARE_LOADED    (0x2)
+#define NV_UPROC_BOOT_PLUGIN_MAILBOX_TARGETMASK_LOWERED (0x3)
+
+// pre determined maximum size of second stage boot-plugin
+#define NV_UPROC_BOOT_PLUGIN_STAGE_TWO_BYTE_SIZE_LIMIT (512)
 
 /**
  * Description of one ucode segment.
@@ -141,12 +140,24 @@ struct nvgpu_fecs_host_intr_status {
 	 * interrupt.
 	 */
 	u32 ctxsw_intr1;
+	/** This value is used for "warnings" during ctxsw transaction. */
+	u32 ctxsw_intr2;
 	/** This flag is set for fault raised during ctxsw transaction. */
 	bool fault_during_ctxsw_active;
 	/** This flag is set for unhandled firmware method. */
 	bool unimp_fw_method_active;
 	/** This flag is set if falcon watchdog expires. */
 	bool watchdog_active;
+	/**
+	 * This flag is set when a parity error is
+	 * detected when FECS receives a poison bit.
+	 */
+	bool poisoned_read;
+	/**
+	 * This flag is set when a context load is
+	 * requested after a halt.
+	 */
+	bool ctx_load_after_halt;
 };
 
 /**
@@ -333,7 +344,7 @@ int nvgpu_gr_falcon_load_ctxsw_ucode(struct gk20a *g,
 					struct nvgpu_gr_falcon *falcon);
 #endif
 #ifdef CONFIG_NVGPU_POWER_PG
-int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g);
+int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g, u32 buf_id);
 #endif
 #ifdef CONFIG_NVGPU_ENGINE_RESET
 struct nvgpu_mutex *nvgpu_gr_falcon_get_fecs_mutex(

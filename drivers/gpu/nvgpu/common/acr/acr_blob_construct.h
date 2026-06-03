@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef ACR_BLOB_CONSTRUCT_H
@@ -26,6 +8,9 @@
 #include <nvgpu/falcon.h>
 #include <nvgpu/flcnif_cmn.h>
 #include <nvgpu/pmu.h>
+#include <nvgpu/riscv.h>
+#include <nvgpu/firmware.h>
+#include <nvgpu/nvgpu_mem.h>
 
 #include "nvgpu_acr_interface_v2.h"
 
@@ -109,10 +94,18 @@ struct flcn_ucode_img {
 	u32 data_size;
 	struct lsf_ucode_desc *lsf_desc;
 	bool is_next_core_img;
+	bool is_riscv_core_img;
+	bool is_riscv_eb_img;
 	struct lsf_ucode_desc_wrapper *lsf_desc_wrapper;
+	LSF_LSB_HEADER_WRAPPER *lsb_header_wrapper;
 #ifdef CONFIG_NVGPU_LS_PMU
 	struct falcon_next_core_ucode_desc *ndesc;
 #endif
+	struct nvgpu_nvriscv_fw_desc  *rdesc;
+	struct nvgpu_mem *ucode_image;
+	struct nvgpu_firmware *desc_fw;
+	struct nvgpu_firmware *image_fw;
+	struct nvgpu_firmware *pkc_sig;
 };
 
 struct lsfm_managed_ucode_img {
@@ -163,16 +156,20 @@ struct ls_flcn_mgr {
 #endif
 };
 
-int nvgpu_acr_prepare_ucode_blob(struct gk20a *g);
+struct nvgpu_firmware *nvgpu_acr_lsf_fecs_get_firmware(struct gk20a *g, u32 version);
+struct nvgpu_firmware *nvgpu_acr_lsf_gpccs_get_firmware(struct gk20a *g, u32 version);
+int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img);
+int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img);
 void nvgpu_acr_free_resources(struct gk20a *g, struct ls_flcn_mgr *plsfm);
+#if defined(CONFIG_NVGPU_NON_FUSA)
+int nvgpu_acr_prepare_ucode_blob(struct gk20a *g);
 #ifdef CONFIG_NVGPU_LS_PMU
 int nvgpu_acr_lsf_pmu_ucode_details(struct gk20a *g, void *lsf_ucode_img);
 s32 nvgpu_acr_lsf_pmu_ncore_ucode_details(struct gk20a *g, void *lsf_ucode_img);
 #endif
-int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img);
-int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img);
 #ifdef CONFIG_NVGPU_DGPU
 int nvgpu_acr_lsf_sec2_ucode_details(struct gk20a *g, void *lsf_ucode_img);
 #endif
+#endif /* defined(CONFIG_NVGPU_NON_FUSA) */
 
 #endif /* ACR_BLOB_CONSTRUCT_H */

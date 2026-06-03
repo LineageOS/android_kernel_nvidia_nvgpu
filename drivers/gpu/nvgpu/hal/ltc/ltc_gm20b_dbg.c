@@ -1,26 +1,5 @@
-/*
- * GM20B L2
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/timers.h>
@@ -68,9 +47,21 @@ bool gm20b_ltc_is_ltcn_ltss_addr(struct gk20a *g, u32 addr)
 {
 	u32 lts_shared_base = ltc_ltc0_ltss_v();
 	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
-	u32 addr_mask = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE) - 1U;
-	u32 base_offset = lts_shared_base & addr_mask;
-	u32 end_offset = nvgpu_safe_add_u32(base_offset, lts_stride);
+	u32 addr_mask;
+	u32 base_offset;
+	u32 end_offset;
+
+	if (nvgpu_safe_sub_u32_return(nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE), 1U, &addr_mask) == false) {
+		nvgpu_err(g, "buffer underflow");
+		return false;
+	}
+
+	base_offset = lts_shared_base & addr_mask;
+
+	if (nvgpu_safe_add_u32_return(base_offset, lts_stride, &end_offset) == false) {
+		nvgpu_err(g, "buffer overflow");
+		return false;
+	}
 
 	return (!gm20b_ltc_is_ltcs_ltss_addr(g, addr)) &&
 		((addr & addr_mask) >= base_offset) &&

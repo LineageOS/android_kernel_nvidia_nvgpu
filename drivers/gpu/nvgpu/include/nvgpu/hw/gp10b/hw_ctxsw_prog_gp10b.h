@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2014-2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -143,6 +125,7 @@
 				(0x0U)
 #define ctxsw_prog_main_image_context_timestamp_buffer_ptr_hi_target_sys_mem_coherent_f()\
 				(0x20000000U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define ctxsw_prog_main_image_context_timestamp_buffer_ptr_hi_target_sys_mem_noncoherent_f()\
 				(0x30000000U)
 #define ctxsw_prog_main_image_context_timestamp_buffer_ptr_o()     (0x000000b4U)
@@ -166,6 +149,7 @@
 				((U32(v) & 0xffU) << 24U)
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_m()     (U32(0xffU) << 24U)
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_v(r) (((r) >> 24U) & 0xffU)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_ctxsw_req_by_host_v()\
 				(0x00000001U)
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_ctxsw_req_by_host_f()\
@@ -197,6 +181,7 @@
 				(0x00000005U)
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_context_start_f()\
 				(0x5000000U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_invalid_timestamp_v()\
 				(0x000000ffU)
 #define ctxsw_prog_record_timestamp_timestamp_hi_tag_invalid_timestamp_f()\

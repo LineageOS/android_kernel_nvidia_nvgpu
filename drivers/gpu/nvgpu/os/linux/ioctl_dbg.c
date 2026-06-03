@@ -1,20 +1,5 @@
-/*
- * Tegra GK20A GPU Debugger/Profiler Driver
- *
- * Copyright (c) 2017-2024, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/fs.h>
 #include <linux/file.h>
@@ -228,7 +213,8 @@ int gk20a_dbg_gpu_dev_release(struct inode *inode, struct file *filp)
 				nvgpu_profiler_object, prof_obj_entry) {
 		if (prof_obj->session_id == dbg_s->id) {
 			nvgpu_profiler_pm_resource_release(prof_obj,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY,
+				prof_obj->pma_channel_id);
 			nvgpu_profiler_free(prof_obj);
 		}
 	}
@@ -301,7 +287,8 @@ static int nvgpu_dbg_gpu_ioctl_read_single_sm_error_state(
 
 	nvgpu_speculation_barrier();
 
-	sm_error_state = nvgpu_tsg_get_sm_error_state(tsg, sm_id);
+	sm_error_state = nvgpu_tsg_get_sm_error_state(tsg, sm_id,
+			dbg_s->gpu_instance_id);
 	if (sm_error_state == NULL) {
 		return -EINVAL;
 	}
@@ -316,9 +303,11 @@ static int nvgpu_dbg_gpu_ioctl_read_single_sm_error_state(
 		sm_error_state->hww_global_esr_report_mask;
 	sm_error_state_record.hww_warp_esr_report_mask =
 		sm_error_state->hww_warp_esr_report_mask;
+	sm_error_state_record.hww_cga_esr =
+		sm_error_state->hww_cga_esr;
 
 	if (args->sm_error_state_record_size > 0) {
-		size_t write_size = sizeof(*sm_error_state);
+		size_t write_size = sizeof(sm_error_state_record);
 
 		nvgpu_speculation_barrier();
 		if (write_size > args->sm_error_state_record_size)
@@ -350,11 +339,13 @@ static int nvgpu_dbg_gpu_ioctl_set_next_stop_trigger_type(
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
 
-	gk20a_dbg_session_nvgpu_mutex_acquire(dbg_s);
-
-	dbg_s->broadcast_stop_trigger = (args->broadcast != 0);
-
-	gk20a_dbg_session_nvgpu_mutex_release(dbg_s);
+	/*
+	 * Broadcast STOP_TRIGGER mode is forced by default and cannot be changed
+	 * by the user.
+	 */
+	if (args->broadcast == 0U) {
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -427,6 +418,7 @@ static int gk20a_dbg_gpu_do_dev_open(struct gk20a *g,
 	dbg_s->is_pg_disabled = false;
 	dbg_s->is_timeout_disabled = false;
 	dbg_s->gpu_instance_id = gpu_instance_id;
+	dbg_s->all_ctx_suspended = false;
 
 	nvgpu_cond_init(&dbg_s->dbg_events.wait_queue);
 	nvgpu_init_list_node(&dbg_s->ch_list);
@@ -471,7 +463,8 @@ static int dbg_unbind_single_channel_gk20a(struct dbg_session_gk20a *dbg_s,
 		if ((prof_obj->session_id == dbg_s->id) &&
 				(prof_obj->tsg->tsgid == ch->tsgid)) {
 			nvgpu_profiler_pm_resource_release(prof_obj,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY,
+				prof_obj->pma_channel_id);
 			nvgpu_profiler_free(prof_obj);
 		}
 	}
@@ -1191,20 +1184,29 @@ static int nvgpu_dbg_gpu_ioctl_hwpm_ctxsw_mode(struct dbg_session_gk20a *dbg_s,
 	return  err;
 }
 
-static int nvgpu_dbg_gpu_ioctl_set_mmu_debug_mode(
-		struct dbg_session_gk20a *dbg_s,
-		struct nvgpu_dbg_gpu_set_ctx_mmu_debug_mode_args *args)
+static int
+nvgpu_dbg_gpu_ioctl_set_mmu_debug_mode(struct dbg_session_gk20a *dbg_s,
+				       struct nvgpu_dbg_gpu_set_ctx_mmu_debug_mode_args *args)
 {
-	int err;
 	struct gk20a *g = dbg_s->g;
 	struct nvgpu_channel *ch;
-	bool enable = (args->mode == NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_ENABLED);
-	u32 gr_instance_id =
-		nvgpu_grmgr_get_gr_instance_id(g, dbg_s->gpu_instance_id);
+	u32 gr_instance_id;
+	int err;
 
 	nvgpu_log_fn(g, "mode=%u", args->mode);
 
 	if (args->reserved != 0U) {
+		return -EINVAL;
+	}
+
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_SET_CTX_MMU_DEBUG_MODE)) {
+		nvgpu_err(g, "MMU debug mode is not supported");
+		return -EINVAL;
+	}
+
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_SET_CTX_MMU_DEBUG_MODE_GCC) &&
+	    (args->mode > NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_ENABLED)) {
+		nvgpu_err(g, "GCC MMU debug mode is not supported");
 		return -EINVAL;
 	}
 
@@ -1229,10 +1231,45 @@ static int nvgpu_dbg_gpu_ioctl_set_mmu_debug_mode(
 		goto clean_up;
 	}
 
-	err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
-			nvgpu_tsg_set_mmu_debug_mode(ch, enable));
-	if (err) {
-		nvgpu_err(g, "set mmu debug mode failed, err=%d", err);
+	gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, dbg_s->gpu_instance_id);
+
+	switch (args->mode) {
+	case NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_DISABLED:
+		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+				nvgpu_tsg_set_mmu_debug_mode(ch, false));
+		if (err) {
+			nvgpu_err(g, "set mmu debug mode failed, err=%d", err);
+			goto clean_up;
+		}
+		break;
+	case NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_ENABLED:
+		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+				nvgpu_tsg_set_mmu_debug_mode(ch, true));
+		if (err) {
+			nvgpu_err(g, "set mmu debug mode failed, err=%d", err);
+			goto clean_up;
+		}
+		break;
+	case NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_GCC_DISABLED:
+		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+				nvgpu_tsg_set_mmu_debug_gcc_mode(ch, false));
+		if (err) {
+			nvgpu_err(g, "set mmu debug gcc mode failed, err=%d", err);
+			goto clean_up;
+		}
+		break;
+	case NVGPU_DBG_GPU_CTX_MMU_DEBUG_MODE_GCC_ENABLED:
+		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+				nvgpu_tsg_set_mmu_debug_gcc_mode(ch, true));
+		if (err) {
+			nvgpu_err(g, "set mmu debug gcc mode failed, err=%d", err);
+			goto clean_up;
+		}
+		break;
+	default:
+		nvgpu_err(g, "invalid mmu debug mode");
+		err = -EINVAL;
+		goto clean_up;
 	}
 
 clean_up:
@@ -1424,7 +1461,8 @@ static int nvgpu_ioctl_free_profiler_object(
 				break;
 			}
 			nvgpu_profiler_pm_resource_release(prof_obj,
-				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+				NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY,
+				prof_obj->pma_channel_id);
 			nvgpu_profiler_free(prof_obj);
 			obj_found = true;
 			break;
@@ -1591,7 +1629,8 @@ static int nvgpu_perfbuf_reserve_pma(struct dbg_session_gk20a *dbg_s)
 	}
 
 	err = nvgpu_profiler_pm_resource_reserve(dbg_s->prof,
-			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM);
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM,
+			&dbg_s->prof->pma_channel_id);
 	if (err != 0) {
 		nvgpu_err(g, "Failed to reserve PMA stream");
 		nvgpu_mutex_acquire(&g->prof_obj_lock);
@@ -1609,7 +1648,8 @@ static void nvgpu_perfbuf_release_pma(struct dbg_session_gk20a *dbg_s)
 	int err;
 
 	err = nvgpu_profiler_pm_resource_release(dbg_s->prof,
-			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM);
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM,
+			dbg_s->prof->pma_channel_id);
 	if (err != 0) {
 		nvgpu_err(g, "Failed to release PMA stream");
 	}
@@ -1621,9 +1661,11 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 		struct nvgpu_dbg_gpu_perfbuf_map_args *args)
 {
 	struct gk20a *g = dbg_s->g;
-	struct mm_gk20a *mm = &g->mm;
-	int err;
+	struct perfbuf *perfbuf;
+	u32 perfbuf_channel_idx;
 	u32 virt_size;
+	u64 result;
+	int err;
 
 	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
 
@@ -1638,13 +1680,17 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 		return err;
 	}
 
-	err = nvgpu_perfbuf_init_vm(g);
+	err = nvgpu_perfbuf_init_vm(g, dbg_s->prof->pma_channel_id);
 	if (err != 0) {
 		goto err_release_pma;
 	}
 
-	args->offset = mm->perfbuf.pma_buffer_gpu_va;
-	err = nvgpu_vm_map_buffer(mm->perfbuf.vm,
+	perfbuf = nvgpu_perfbuf_get_perfbuf(g, dbg_s->prof->pma_channel_id,
+						&perfbuf_channel_idx);
+
+	args->offset = perfbuf->pma_buffer_gpu_va[perfbuf_channel_idx];
+
+	err = nvgpu_vm_map_buffer(perfbuf->vm,
 			args->dmabuf_fd,
 			&args->offset,
 			NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET,
@@ -1659,12 +1705,26 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 
 	/* perf output buffer may not cross a 4GB boundary */
 	virt_size = u64_lo32(args->mapping_size);
-	if (u64_hi32(args->offset) != u64_hi32(args->offset + virt_size - 1)) {
+
+	if (!nvgpu_safe_add_u64_return(args->offset, virt_size, &result)) {
+		nvgpu_err(g, "offset overflow");
+		err = -EOVERFLOW;
+		goto err_unmap;
+	}
+
+	if (result == 0UL) {
+		nvgpu_err(g, "offset underflow");
+		err = -EOVERFLOW;
+		goto err_unmap;
+	}
+
+	if (u64_hi32(args->offset) != u64_hi32(result - 1UL)) {
 		err = -EINVAL;
 		goto err_unmap;
 	}
 
-	err = g->ops.perfbuf.perfbuf_enable(g, args->offset, virt_size);
+	err = g->ops.perfbuf.perfbuf_enable(g, dbg_s->prof->pma_channel_id,
+					    args->offset, virt_size);
 	if (err)
 		goto err_unmap;
 
@@ -1675,9 +1735,9 @@ static int gk20a_perfbuf_map(struct dbg_session_gk20a *dbg_s,
 	return 0;
 
 err_unmap:
-	nvgpu_vm_unmap(mm->perfbuf.vm, args->offset, NULL);
+	nvgpu_vm_unmap(perfbuf->vm, args->offset, NULL);
 err_remove_vm:
-	nvgpu_perfbuf_deinit_vm(g);
+	nvgpu_perfbuf_deinit_vm(g, dbg_s->prof->pma_channel_id);
 err_release_pma:
 	nvgpu_perfbuf_release_pma(dbg_s);
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
@@ -1769,6 +1829,8 @@ nvgpu_dbg_gpu_ioctl_suspend_resume_contexts(struct dbg_session_gk20a *dbg_s,
 	struct gk20a *g = dbg_s->g;
 	int err = 0;
 	int ctx_resident_ch_fd = -1;
+	struct nvgpu_channel *ch = NULL;
+	struct nvgpu_tsg *tsg = NULL;
 	u32 gr_instance_id =
 		nvgpu_grmgr_get_gr_instance_id(g, dbg_s->gpu_instance_id);
 
@@ -1776,18 +1838,61 @@ nvgpu_dbg_gpu_ioctl_suspend_resume_contexts(struct dbg_session_gk20a *dbg_s,
 	if (err)
 		return err;
 
+	ch = nvgpu_dbg_gpu_get_session_channel(dbg_s);
+	if (ch == NULL) {
+		nvgpu_err(g, "no bound channel");
+		return -EINVAL;
+	}
+
+	tsg = nvgpu_tsg_from_ch(ch);
+	if (tsg == NULL) {
+		nvgpu_err(ch->g, "chid: %d is not bound to tsg", ch->chid);
+		return -EINVAL;
+	}
+
 	nvgpu_speculation_barrier();
 	switch (args->action) {
 	case NVGPU_DBG_GPU_SUSPEND_ALL_CONTEXTS:
-		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
-				g->ops.gr.suspend_contexts(g, dbg_s,
-					&ctx_resident_ch_fd));
+		if (dbg_s->all_ctx_suspended == false) {
+			err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+					g->ops.gr.suspend_contexts(g, dbg_s,
+						&ctx_resident_ch_fd));
+		}
+		dbg_s->all_ctx_suspended = true;
 		break;
 
 	case NVGPU_DBG_GPU_RESUME_ALL_CONTEXTS:
-		err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
-				g->ops.gr.resume_contexts(g, dbg_s,
-					&ctx_resident_ch_fd));
+		if (dbg_s->all_ctx_suspended == true) {
+			err = nvgpu_gr_exec_with_err_for_instance(g, gr_instance_id,
+					g->ops.gr.resume_contexts(g, dbg_s,
+						&ctx_resident_ch_fd));
+		}
+
+		/*
+		 * 4742305: Use-Case: Counting TSG enable / disable.
+		 * A counter tracks calls to tsg disable and enable.
+		 *
+		 * For the case when SM exception results in a CILP
+		 * preemption, tsg is disabled once and a user-event is posted
+		 * notifying CILP preemption start and completion. After CILP
+		 * preemption completion, the TSG still remains in disabled
+		 * state (counter = 1).
+		 *
+		 * With devtools test: L0.WriteRegister(+ more), after CILP
+		 * preemption, either:
+		 * - RESUME_ALL_CONTEXTS is issued in which case the tsg must
+		 *   be enabled for CILP preemption completion OR
+		 * - combination of SUSPEND_ALL_CONTEXTS + RESUME_ALL_CONTEXTS
+		 *   is issued in which case the tsg must be enabled via
+		 *   resume_contexts(above) and once for CILP preemption
+		 *   completion.
+		 *
+		 * The interface internally tests cilp completion flag and
+		 * enables the tsg only when cilp completion flag was set,
+		 * once enabled the flag is reset.
+		 */
+		nvgpu_tsg_enable_for_cilp_cmpl(tsg);
+		dbg_s->all_ctx_suspended = false;
 		break;
 	}
 
@@ -2091,15 +2196,15 @@ done:
 static int gk20a_perfbuf_release_locked(struct gk20a *g,
 		struct dbg_session_gk20a *dbg_s, u64 offset)
 {
-	struct mm_gk20a *mm = &g->mm;
-	struct vm_gk20a *vm = mm->perfbuf.vm;
+	struct perfbuf *perfbuf;
 	int err;
 
-	err = g->ops.perfbuf.perfbuf_disable(g);
+	perfbuf = nvgpu_perfbuf_get_perfbuf(g, dbg_s->prof->pma_channel_id, NULL);
+	err = g->ops.perfbuf.perfbuf_disable(g, dbg_s->prof->pma_channel_id);
 
-	nvgpu_vm_unmap(vm, offset, NULL);
+	nvgpu_vm_unmap(perfbuf->vm, offset, NULL);
 
-	nvgpu_perfbuf_deinit_vm(g);
+	nvgpu_perfbuf_deinit_vm(g, dbg_s->prof->pma_channel_id);
 
 	nvgpu_perfbuf_release_pma(dbg_s);
 
@@ -2129,7 +2234,7 @@ static int nvgpu_profiler_reserve_release(struct dbg_session_gk20a *dbg_s,
 	}
 
 	err = nvgpu_profiler_pm_resource_release(prof_obj,
-			NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY, 0);
 
 exit:
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
@@ -2176,7 +2281,7 @@ static int nvgpu_profiler_reserve_acquire(struct dbg_session_gk20a *dbg_s,
 	}
 
 	err = nvgpu_profiler_pm_resource_reserve(prof_obj,
-		NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY);
+		NVGPU_PROFILER_PM_RESOURCE_TYPE_HWPM_LEGACY, NULL);
 
 exit:
 	nvgpu_mutex_release(&g->prof_obj_lock);
@@ -2809,7 +2914,7 @@ long gk20a_dbg_gpu_dev_ioctl(struct file *filp, unsigned int cmd,
 	struct dbg_session_gk20a_linux *dbg_s_linux = filp->private_data;
 	struct dbg_session_gk20a *dbg_s = &dbg_s_linux->dbg_s;
 	struct gk20a *g = dbg_s->g;
-	u8 buf[NVGPU_DBG_GPU_IOCTL_MAX_ARG_SIZE];
+	u8 *buf = NULL;
 	int err = 0;
 	u32 gr_instance_id =
 		nvgpu_grmgr_get_gr_instance_id(g, dbg_s->gpu_instance_id);
@@ -2827,16 +2932,23 @@ long gk20a_dbg_gpu_dev_ioctl(struct file *filp, unsigned int cmd,
 	    (_IOC_SIZE(cmd) > NVGPU_DBG_GPU_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_DBG_GPU_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	if (!g->sw_ready) {
 		err = gk20a_busy(g);
-		if (err)
-			return err;
+		if (err) {
+			goto exit;
+		}
 
 		gk20a_idle(g);
 	}
@@ -3012,6 +3124,16 @@ long gk20a_dbg_gpu_dev_ioctl(struct file *filp, unsigned int cmd,
 			(struct nvgpu_sched_exit_wait_for_errbar_args *)buf);
 		break;
 
+	case NVGPU_DBG_GPU_IOCTL_SET_SM_DBGR_CTRL_SINGLE_STEP_MODE:
+	{
+		struct nvgpu_set_sm_dbgr_ctrl_single_step_mode_args *args;
+
+		args = (struct nvgpu_set_sm_dbgr_ctrl_single_step_mode_args *)buf;
+		err = nvgpu_dbg_gpu_set_sm_dbgr_ctrl_single_step_mode(dbg_s, args->sm_id,
+				args->enable == NVGPU_DBG_GPU_SET_SM_DBGR_CTRL_SINGLE_STEP_MODE_ENABLE);
+		break;
+	}
+
 	default:
 		nvgpu_err(g,
 			   "unrecognized dbg gpu ioctl cmd: 0x%x",
@@ -3027,6 +3149,9 @@ long gk20a_dbg_gpu_dev_ioctl(struct file *filp, unsigned int cmd,
 	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
 		err = copy_to_user((void __user *)arg,
 				   buf, _IOC_SIZE(cmd));
+
+exit:
+	nvgpu_kfree(g, buf);
 
 	return err;
 }

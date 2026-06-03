@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/log.h>
@@ -72,10 +53,44 @@ static int pd_allocate(struct vm_gk20a *vm,
 		       struct nvgpu_gmmu_attrs *attrs);
 static u32 pd_get_size(const struct gk20a_mmu_level *l,
 		struct nvgpu_gmmu_attrs *attrs);
-/*
- * Core GMMU map function for the kernel to use. If @addr is 0 then the GPU
- * VA will be allocated for you. If addr is non-zero then the buffer will be
- * mapped at @addr.
+
+/**
+ * @brief Map a memory buffer into the GPU's address space.
+ *
+ * This function maps a given memory buffer into the GPU's virtual address space,
+ * returning the GPU virtual address (VA) where the mapping starts. It handles
+ * the creation of a scatter-gather table (SGT) from the memory buffer, manages
+ * the GPU VA space, and invokes the actual mapping operation. If the provided
+ * address is non-zero, the function assumes that the caller manages the GPU VA
+ * space and will not attempt to free it later. Otherwise, it marks the memory
+ * buffer to indicate that the GPU VA space should be freed when the mapping is
+ * no longer needed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GPU's memory management state from the virtual memory context.
+ * -# Create a scatter-gather table (SGT) from the memory buffer using 'nvgpu_sgt_create_from_mem()'.
+ * -# If the SGT creation fails, return 0 indicating failure to map.
+ * -# Determine if the GPU VA space should be managed by checking if the provided
+ *    address is non-zero. If non-zero, set the flag to not free GPU VA space; otherwise,
+ *    set the flag to free GPU VA space when done.
+ * -# Acquire the mutex lock for updating the GMMU (GPU's Memory Management Unit).
+ * -# Perform the actual mapping operation using the GPU operations structure
+ *    and store the resulting GPU VA in a local variable.
+ * -# Release the mutex lock acquired earlier.
+ * -# Free the SGT created earlier using 'nvgpu_sgt_free()'.
+ * -# If the mapping operation failed (indicated by a GPU VA of 0), return 0.
+ * -# Return the GPU VA where the mapping starts.
+ *
+ * @param [in]  vm        Virtual memory context.
+ * @param [in]  mem       Memory buffer to map.
+ * @param [in]  addr      Desired GPU VA for the mapping, or 0 for dynamic allocation.
+ * @param [in]  size      Size of the memory buffer to map.
+ * @param [in]  flags     Flags for mapping attributes.
+ * @param [in]  rw_flag   Read/write permissions for the mapping.
+ * @param [in]  priv      Flag indicating if the mapping should be privileged.
+ * @param [in]  aperture  Target aperture for the mapping.
+ *
+ * @return GPU virtual address where the mapping starts, or 0 on failure.
  */
 static u64 nvgpu_gmmu_map_core(struct vm_gk20a *vm,
 			       struct nvgpu_mem *mem,
@@ -182,9 +197,10 @@ u64 nvgpu_gmmu_map_fixed(struct vm_gk20a *vm,
 void nvgpu_gmmu_unmap_addr(struct vm_gk20a *vm, struct nvgpu_mem *mem, u64 gpu_va)
 {
 	struct gk20a *g = gk20a_from_vm(vm);
+	int err = 0;
 
 	nvgpu_mutex_acquire(&vm->update_gmmu_lock);
-	g->ops.mm.gmmu.unmap(vm,
+	err = g->ops.mm.gmmu.unmap(vm,
 			     gpu_va,
 			     mem->size,
 			     GMMU_PAGE_SIZE_KERNEL,
@@ -192,6 +208,10 @@ void nvgpu_gmmu_unmap_addr(struct vm_gk20a *vm, struct nvgpu_mem *mem, u64 gpu_v
 			     gk20a_mem_flag_none,
 			     false,
 			     NULL);
+	if (err != 0) {
+		nvgpu_err(g, "Unmap a buffer from the GPU virtual memory \
+						space is failed [%d]", err);
+	}
 
 	nvgpu_mutex_release(&vm->update_gmmu_lock);
 }
@@ -379,8 +399,26 @@ int nvgpu_gmmu_init_page_table(struct vm_gk20a *vm)
 	return err;
 }
 
-/*
- * Return the aligned length based on the page size in attrs.
+/**
+ * @brief Align the length of a memory mapping to the GPU's page size.
+ *
+ * This function takes a length and aligns it up to the nearest multiple of the
+ * GPU's page size specified by the attributes. This ensures that the length of
+ * the memory mapping is compatible with the GPU's memory management unit (MMU)
+ * requirements.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the page size from the virtual memory context's array of page sizes
+ *    using the page size index specified in the attributes.
+ * -# Align the provided length to the nearest multiple of the page size using
+ *    the 'NVGPU_ALIGN()' macro.
+ * -# Return the aligned length.
+ *
+ * @param [in]  vm     Virtual memory context containing the GPU's page sizes.
+ * @param [in]  length Length of the memory mapping to be aligned.
+ * @param [in]  attrs  Attributes containing the index of the page size to use.
+ *
+ * @return The length aligned to the nearest multiple of the GPU's page size.
  */
 static u64 nvgpu_align_map_length(struct vm_gk20a *vm, u64 length,
 				  struct nvgpu_gmmu_attrs *attrs)
@@ -390,6 +428,38 @@ static u64 nvgpu_align_map_length(struct vm_gk20a *vm, u64 length,
 	return NVGPU_ALIGN(length, page_size);
 }
 
+static u32 get_index_for_page_size_table(u32 pgsz)
+{
+	/*
+	 * Only pde0 supports two page sizes SMALL and BIG, where pgsz is used to
+	 * index the page size table
+	 */
+	if (pgsz <= GMMU_PAGE_SIZE_BIG)
+		return pgsz;
+
+	return 0;
+}
+
+/**
+ * @brief Calculate the number of entries in a page directory.
+ *
+ * This function computes the number of entries in a page directory (PD) based on
+ * the range of bits used to index the PD. The number of entries is 2 raised to
+ * the number of bits in the range.
+ *
+ * The steps performed by the function are as follows:
+ * -# Subtract the lower bit index of the PD range from the higher bit index
+ *    using 'nvgpu_safe_sub_u32()' to get the number of bits used for indexing.
+ * -# Increment the result by 1 to account for the zero-based index using
+ *    'nvgpu_safe_add_u32()'.
+ * -# Return the number of entries by raising 2 to the power of the number of
+ *    bits calculated, using the 'BIT32()' macro.
+ *
+ * @param [in]  l     Pointer to the structure describing the GMMU level.
+ * @param [in]  attrs Attributes containing the page size index.
+ *
+ * @return The number of entries in the page directory.
+ */
 static u32 pd_entries(const struct gk20a_mmu_level *l,
 		      struct nvgpu_gmmu_attrs *attrs)
 {
@@ -401,14 +471,30 @@ static u32 pd_entries(const struct gk20a_mmu_level *l,
 
 	u32 bit;
 
-	bit = nvgpu_safe_sub_u32(l->hi_bit[attrs->pgsz],
-			l->lo_bit[attrs->pgsz]);
+	bit = nvgpu_safe_sub_u32(l->hi_bit[get_index_for_page_size_table(attrs->pgsz)],
+				 l->lo_bit[get_index_for_page_size_table(attrs->pgsz)]);
 	bit = nvgpu_safe_add_u32(bit, 1U);
 	return BIT32(bit);
 }
 
-/*
- * Computes the size of a PD table (in bytes).
+/**
+ * @brief Calculate the size of a page directory in bytes.
+ *
+ * This function computes the total size of a page directory (PD) by multiplying
+ * the number of entries in the PD by the size of each entry. The number of
+ * entries is determined by the 'pd_entries()' function, and the size of each
+ * entry is specified in the GMMU level structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the number of entries in the PD by calling 'pd_entries()'.
+ * -# Multiply the number of entries by the size of each entry using
+ *    'nvgpu_safe_mult_u32()' to get the total size of the PD in bytes.
+ * -# Return the total size of the PD.
+ *
+ * @param [in]  l     Pointer to the structure describing the GMMU level.
+ * @param [in]  attrs Attributes containing the page size index.
+ *
+ * @return The total size of the page directory in bytes.
  */
 static u32 pd_get_size(const struct gk20a_mmu_level *l,
 		   struct nvgpu_gmmu_attrs *attrs)
@@ -416,10 +502,34 @@ static u32 pd_get_size(const struct gk20a_mmu_level *l,
 	return nvgpu_safe_mult_u32(pd_entries(l, attrs), l->entry_size);
 }
 
-/*
- * Allocate a physically contiguous region big enough for a gmmu page table
- * of the specified level and page size. The whole range is zeroed so that any
- * accesses will fault until proper values are programmed.
+/**
+ * @brief Allocate memory for a page directory.
+ *
+ * This function allocates the necessary DMA memory for a page directory (PD)
+ * based on the size required for the given GMMU level and attributes. If the PD
+ * already has memory allocated and the size is sufficient, no action is taken.
+ * Otherwise, the existing memory is freed and new memory is allocated. The
+ * function also sets a flag to skip the write memory barrier after PD writes.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the PD already has memory allocated and if the current size is
+ *    sufficient by comparing it with the size obtained from 'pd_get_size()'.
+ * -# If the size is sufficient, return 0 indicating no further action is needed.
+ * -# If the PD memory is not sufficient, free the existing memory using
+ *    'nvgpu_pd_free()' and set the PD memory pointer to NULL.
+ * -# Allocate new memory for the PD by calling 'nvgpu_pd_alloc()' with the size
+ *    obtained from 'pd_get_size()'.
+ * -# If the memory allocation fails, log an error message and return the error
+ *    code.
+ * -# Set the flag to skip the write memory barrier after PD writes.
+ * -# Return 0 indicating successful allocation.
+ *
+ * @param [in]  vm   Virtual memory context.
+ * @param [in]  pd   Pointer to the GMMU page directory structure.
+ * @param [in]  l    Pointer to the structure describing the GMMU level.
+ * @param [in]  attrs Attributes containing the page size index.
+ *
+ * @return 0 for successful allocation, or a negative error code on failure.
  */
 static int pd_allocate(struct vm_gk20a *vm,
 		       struct nvgpu_gmmu_pd *pd,
@@ -455,10 +565,29 @@ static int pd_allocate(struct vm_gk20a *vm,
 	return 0;
 }
 
-/*
- * Compute what page directory index at the passed level the passed virtual
- * address corresponds to. @attrs is necessary for determining the page size
- * which is used to pick the right bit offsets for the GMMU level.
+/**
+ * @brief Calculate the index within a page directory for a given virtual address.
+ *
+ * This function computes the index within a page directory (PD) that corresponds
+ * to a given virtual address (VA). The index is determined based on the bit range
+ * specified for the PD level and the page size attributes.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assert that the page size index is within the valid range of the low bit array.
+ * -# Retrieve the shift value for the PD index from the low bit array using the
+ *    page size index.
+ * -# Calculate the mask for the PD index by raising 2 to the power of one plus
+ *    the high bit index, then subtracting one using 'nvgpu_safe_sub_u64()'.
+ * -# Apply the mask to the virtual address and shift right by the PD shift value
+ *    to obtain the temporary index.
+ * -# Assert that the temporary index is within the range of a 32-bit unsigned integer.
+ * -# Cast the temporary index to a 32-bit unsigned integer and return it as the PD index.
+ *
+ * @param [in]  l     Pointer to the structure describing the GMMU level.
+ * @param [in]  virt  Virtual address for which the PD index is calculated.
+ * @param [in]  attrs Attributes containing the page size index.
+ *
+ * @return The index within the page directory for the given virtual address.
  */
 static u32 pd_index(const struct gk20a_mmu_level *l, u64 virt,
 		    struct nvgpu_gmmu_attrs *attrs)
@@ -467,10 +596,10 @@ static u32 pd_index(const struct gk20a_mmu_level *l, u64 virt,
 	u32 pd_shift;
 	u64 tmp_index;
 
-	nvgpu_assert(attrs->pgsz < ARRAY_SIZE(l->lo_bit));
-	pd_shift = l->lo_bit[attrs->pgsz];
+	nvgpu_assert(get_index_for_page_size_table(attrs->pgsz) < ARRAY_SIZE(l->lo_bit));
+	pd_shift = l->lo_bit[get_index_for_page_size_table(attrs->pgsz)];
 
-	pd_mask = BIT64(nvgpu_safe_add_u64((u64)l->hi_bit[attrs->pgsz], 1ULL));
+	pd_mask = BIT64(nvgpu_safe_add_u64((u64)l->hi_bit[get_index_for_page_size_table(attrs->pgsz)], 1ULL));
 	pd_mask = nvgpu_safe_sub_u64(pd_mask, 1ULL);
 
 	/*
@@ -482,6 +611,39 @@ static u32 pd_index(const struct gk20a_mmu_level *l, u64 virt,
 	return U32(tmp_index);
 }
 
+/**
+ * @brief Allocate memory for the children of a page directory.
+ *
+ * This function ensures that a page directory (PD) has enough entries to cover
+ * the required virtual address (VA) range based on the given GMMU level and
+ * attributes. It handles cases where the PD is new, has insufficient entries,
+ * or needs to be reallocated due to a change in page size mapping. The function
+ * allocates or reallocates memory for the PD entries as needed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GPU's memory management state from the virtual memory context.
+ * -# Check if the current number of entries in the PD is sufficient by comparing
+ *    it with the number of entries required, obtained from 'pd_entries()'.
+ * -# If the number of entries is sufficient, return 0 indicating no further action
+ *    is needed.
+ * -# If the PD already has entries allocated but not enough, free the existing
+ *    entries using 'nvgpu_vfree()'.
+ * -# Calculate the required number of entries for the PD by calling 'pd_entries()'
+ *    and store it in the PD structure.
+ * -# Allocate memory for the PD entries using 'nvgpu_vzalloc()' with the size
+ *    calculated by multiplying the number of entries by the size of a single PD
+ *    entry structure.
+ * -# If the memory allocation fails, set the number of entries in the PD to 0
+ *    and return -ENOMEM.
+ * -# Return 0 indicating successful allocation or reallocation of PD entries.
+ *
+ * @param [in]  vm     Virtual memory context.
+ * @param [in]  l      Pointer to the structure describing the GMMU level.
+ * @param [in]  pd     Pointer to the GMMU page directory structure.
+ * @param [in]  attrs  Attributes containing the page size index.
+ *
+ * @return 0 for successful allocation, or -ENOMEM if memory allocation fails.
+ */
 static int pd_allocate_children(struct vm_gk20a *vm,
 				const struct gk20a_mmu_level *l,
 				struct nvgpu_gmmu_pd *pd,
@@ -535,10 +697,65 @@ static int pd_allocate_children(struct vm_gk20a *vm,
 	return 0;
 }
 
+static bool nvgpu_pde_is_pte(struct vm_gk20a *vm,
+			     const struct gk20a_mmu_level *l,
+			     u64 chunk_size,
+			     struct nvgpu_gmmu_attrs *attrs)
+{
+	u64 page_size;
+	u64 pde_range;
+
+	pde_range = 1ULL << (u64)l->lo_bit[get_index_for_page_size_table(attrs->pgsz)];
+	page_size = vm->gmmu_page_sizes[attrs->pgsz];
+	/*
+	 * For a pde, when the page size requested and chunk size is equal to
+	 * the range of the pde, then we can use that pde as a pte to point to
+	 * the final page.
+	 */
+	if (chunk_size == page_size &&
+	    chunk_size == pde_range)
+		return true;
+
+	return false;
+}
+
 /*
  * If the next level has an update_entry function then we know
  * that _this_ level points to PDEs (not PTEs). Thus we need to
  * have a bunch of children PDs.
+ */
+
+/**
+ * @brief Set the page directory entry for the next level page directory.
+ *
+ * This function prepares a page directory entry (PDE) for the next level page
+ * directory (PD) by ensuring that the current PD has enough entries and by
+ * allocating memory for the next level PD if necessary. It updates the pointer
+ * to the next level PD to point to the newly allocated or existing PD.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the next level has an 'update_entry' function, indicating that
+ *    it is not the last level (which would be PTEs).
+ * -# If the next level is not PTEs, ensure that the current PD has enough
+ *    entries by calling 'pd_allocate_children()'. If allocation fails, return
+ *    -ENOMEM.
+ * -# Get the pointer to the next level PD by indexing into the current PD's
+ *    entries array with the provided index.
+ * -# Allocate memory for the next level PD by calling 'pd_allocate()'. If
+ *    allocation fails, return the error code.
+ * -# Update the pointer to the next level PD to point to the allocated or
+ *    existing next level PD.
+ * -# Return 0 indicating success.
+ *
+ * @param [in]  vm           Virtual memory context.
+ * @param [in]  pd           Pointer to the current GMMU page directory structure.
+ * @param [out] next_pd_ptr  Pointer to the pointer to the next level GMMU page directory.
+ * @param [in]  l            Pointer to the structure describing the current GMMU level.
+ * @param [in]  next_l       Pointer to the structure describing the next GMMU level.
+ * @param [in]  pd_idx       Index within the current PD's entries for the next level PD.
+ * @param [in]  attrs        Attributes containing the page size index.
+ *
+ * @return 0 for success, or an error code for failure.
  */
 static int nvgpu_set_pd_level_is_next_level_pde(struct vm_gk20a *vm,
 				struct nvgpu_gmmu_pd *pd,
@@ -546,11 +763,13 @@ static int nvgpu_set_pd_level_is_next_level_pde(struct vm_gk20a *vm,
 				const struct gk20a_mmu_level *l,
 				const struct gk20a_mmu_level *next_l,
 				u32 pd_idx,
+				u64 chunk_size,
 				struct nvgpu_gmmu_attrs *attrs)
 {
 	struct nvgpu_gmmu_pd *next_pd = *next_pd_ptr;
 
-	if (next_l->update_entry != NULL) {
+	if (next_l->update_entry != NULL &&
+	    !nvgpu_pde_is_pte(vm, l, chunk_size, attrs)) {
 		int err = 0;
 
 		if (pd_allocate_children(vm, l, pd, attrs) != 0) {
@@ -594,6 +813,44 @@ static int nvgpu_set_pd_level_is_next_level_pde(struct vm_gk20a *vm,
  * of DMA buffers is taken care of at the layer above this.
  */
 NVGPU_COV_WHITELIST_BLOCK_BEGIN(deviate, 1, NVGPU_MISRA(Rule, 17_2), "TID-278")
+/**
+ * @brief Set up page directory levels for a given virtual address range.
+ *
+ * This function recursively programs the page directory entries (PDEs) and page
+ * table entries (PTEs) for a given range of virtual addresses. It handles the
+ * mapping from virtual to physical addresses, allocating page directories for
+ * new mappings, and setting up the entries at each level of the page directory.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize error code to 0.
+ * -# Retrieve the GPU's memory management state from the virtual memory context.
+ * -# Get the current and next level GMMU structures based on the provided level index.
+ * -# Assert that the level index is within the maximum allowed page table levels.
+ * -# Calculate the range of addresses covered by a single PDE at this level.
+ * -# Loop over the virtual address range, processing chunks of size 'pde_range' at a time.
+ *    -# Calculate the index within the PD for the current virtual address using 'pd_index()'.
+ *    -# Determine the size of the current chunk to map, which is the minimum of the remaining
+ *       length and the size up to the next PDE boundary.
+ *    -# Determine if the next level is PDEs or PTEs and allocate the next level PD if necessary
+ *       using 'nvgpu_set_pd_level_is_next_level_pde()'.
+ *    -# Calculate the target address to program into the PDE/PTE.
+ *    -# Update the current level's PDE/PTE with the target address using the 'update_entry'
+ *       function of the current GMMU level structure.
+ *    -# If the next level exists, recursively call 'nvgpu_set_pd_level()' to set up the next
+ *       level's PDEs/PTEs.
+ *    -# Update the virtual address, physical address, and remaining length for the next iteration.
+ * -# Return 0 indicating success.
+ *
+ * @param [in]  vm         Virtual memory context.
+ * @param [in]  pd         Pointer to the GMMU page directory structure.
+ * @param [in]  lvl        Current level index of the GMMU page directory.
+ * @param [in]  phys_addr  Physical address corresponding to the virtual address.
+ * @param [in]  virt_addr  Starting virtual address of the range to map.
+ * @param [in]  length     Length of the virtual address range to map.
+ * @param [in]  attrs      Attributes containing the page size index and other flags.
+ *
+ * @return 0 for success, or an error code for failure.
+ */
 static int nvgpu_set_pd_level(struct vm_gk20a *vm,
 			      struct nvgpu_gmmu_pd *pd,
 			      u32 lvl,
@@ -636,7 +893,7 @@ static int nvgpu_set_pd_level(struct vm_gk20a *vm,
 	/* This limits recursion */
 	nvgpu_assert(lvl < g->ops.mm.gmmu.get_max_page_table_levels(g));
 
-	pde_range = 1ULL << (u64)l->lo_bit[attrs->pgsz];
+	pde_range = 1ULL << (u64)l->lo_bit[get_index_for_page_size_table(attrs->pgsz)];
 
 	/*
 	 * Iterate across the mapping in chunks the size of this level's PDE.
@@ -659,7 +916,8 @@ static int nvgpu_set_pd_level(struct vm_gk20a *vm,
 		chunk_size = min(length, tmp_len);
 
 		err = nvgpu_set_pd_level_is_next_level_pde(vm, pd, &next_pd,
-						l, next_l, pd_idx, attrs);
+						l, next_l, pd_idx, chunk_size,
+						attrs);
 		if (err != 0) {
 			return err;
 		}
@@ -672,23 +930,34 @@ static int nvgpu_set_pd_level(struct vm_gk20a *vm,
 		 */
 		target_addr = (next_pd != NULL) ?
 			nvgpu_pd_gpu_addr(g, next_pd) : phys_addr;
+		/*
+		 * When next_pd is not allocated and the level is a pde means
+		 * this pde is a pte pointing to a huge page.
+		 */
+		if (next_pd == NULL &&
+		    l->update_pde_entry_as_pte != NULL) {
+			l->update_pde_entry_as_pte(vm, l,
+						   pd, pd_idx,
+						   virt_addr,
+						   target_addr,
+						   attrs);
+		} else {
+			l->update_entry(vm, l,
+					pd, pd_idx,
+					virt_addr,
+					target_addr,
+					attrs);
+			if (next_l->update_entry != NULL) {
+				err = nvgpu_set_pd_level(vm, next_pd,
+							 nvgpu_safe_add_u32(lvl, 1U),
+							 phys_addr,
+							 virt_addr,
+							 chunk_size,
+							 attrs);
 
-		l->update_entry(vm, l,
-				pd, pd_idx,
-				virt_addr,
-				target_addr,
-				attrs);
-
-		if (next_l->update_entry != NULL) {
-			err = nvgpu_set_pd_level(vm, next_pd,
-						 nvgpu_safe_add_u32(lvl, 1U),
-						 phys_addr,
-						 virt_addr,
-						 chunk_size,
-						 attrs);
-
-			if (err != 0) {
-				return err;
+				if (err != 0) {
+					return err;
+				}
 			}
 		}
 
@@ -714,7 +983,48 @@ static int nvgpu_set_pd_level(struct vm_gk20a *vm,
 	return 0;
 }
 NVGPU_COV_WHITELIST_BLOCK_END(NVGPU_MISRA(Rule, 17_2))
-
+/**
+ * @brief Update the page table for a scatter-gather list.
+ *
+ * This function iterates over a scatter-gather list (SGL) and updates the page
+ * directory (PD) for each contiguous memory chunk. It handles the translation
+ * from intermediate physical addresses (IPA) to physical addresses (PA) for
+ * virtualized OSes and accounts for any space that needs to be skipped in the
+ * mapping.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize local variables with values from pointers and parameters.
+ * -# Loop over the SGL while there is length to map and SGL length remaining.
+ *    -# Translate IPA to PA if necessary using 'nvgpu_sgt_ipa_to_pa()'.
+ *    -# Adjust the physical address by adding any space that needs to be skipped.
+ *    -# If space_to_skip is greater than or equal to the physical length of the
+ *       current chunk, adjust the pointers and lengths accordingly and continue
+ *       to the next chunk.
+ *    -# Calculate the contiguous length of the current SGL entry and the length
+ *       of the mapping after accounting for space_to_skip.
+ *    -# Update the page directory level with the new mapping using 'nvgpu_set_pd_level()'.
+ *       If an error occurs, return the error code.
+ *    -# Update the virtual address, length, SGL length, and IPA address for the
+ *       next iteration.
+ *    -# Reset space_to_skip to 0 for future chunks.
+ * -# Update the original pointers with the final values of space_to_skip, virt_addr,
+ *    and length.
+ * -# Return 0 indicating success.
+ *
+ * @param [in]  vm                Virtual memory context.
+ * @param [in]  sgt               Scatter-gather table.
+ * @param [in]  sgl               Current scatter-gather list entry.
+ * @param [in,out] space_to_skip_ptr Pointer to the amount of space to skip in the mapping.
+ * @param [in,out] virt_addr_ptr  Pointer to the current virtual address.
+ * @param [in,out] length_ptr     Pointer to the remaining length to map.
+ * @param [in]  phys_addr_val     Physical address value for the current chunk.
+ * @param [in]  ipa_addr_val      Intermediate physical address value for the current chunk.
+ * @param [in]  phys_length_val   Physical length value for the current chunk.
+ * @param [in]  sgl_length_val    SGL length value for the current chunk.
+ * @param [in]  attrs             Attributes for the GMMU mapping.
+ *
+ * @return 0 for success, or an error code for failure.
+ */
 static int nvgpu_gmmu_do_update_page_table_sgl(struct vm_gk20a *vm,
 				struct nvgpu_sgt *sgt, void *sgl,
 				u64 *space_to_skip_ptr,
@@ -810,6 +1120,38 @@ static int nvgpu_gmmu_do_update_page_table_sgl(struct vm_gk20a *vm,
 	return 0;
 }
 
+/**
+ * @brief Update the page table for a scatter-gather list without IOMMU.
+ *
+ * This function iterates over a scatter-gather list (SGL) and updates the page
+ * directory (PD) for each contiguous memory chunk in a non-virtualized OS
+ * environment where the physical address (PA) and intermediate physical address
+ * (IPA) are the same. It accounts for any space that needs to be skipped in the
+ * mapping and updates the PD for each chunk.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize local variables with values from parameters.
+ * -# Loop over each scatter-gather list entry.
+ *    -# If there is space to skip and it is greater than or equal to the length
+ *       of the current SGL entry, subtract the SGL entry length from the space
+ *       to skip and continue to the next entry.
+ *    -# Set IPA and PA to have a 1:1 mapping for non-virtualized OSes.
+ *    -# Retrieve the length of the current SGL entry, which is the same as the
+ *       physical length for non-virtualized OSes.
+ *    -# Call 'nvgpu_gmmu_do_update_page_table_sgl()' to update the PD for the
+ *       current SGL entry. If an error occurs, return the error code.
+ *    -# If the remaining length to map reaches zero, exit the loop.
+ * -# Return 0 indicating success.
+ *
+ * @param [in]  vm                Virtual memory context.
+ * @param [in]  sgt               Scatter-gather table.
+ * @param [in]  space_to_skip_val Amount of space to skip in the mapping.
+ * @param [in]  virt_addr_val     Current virtual address.
+ * @param [in]  length_val        Remaining length to map.
+ * @param [in]  attrs             Attributes for the GMMU mapping.
+ *
+ * @return 0 for success, or an error code for failure.
+ */
 static int nvgpu_gmmu_do_update_page_table_no_iommu(struct vm_gk20a *vm,
 				struct nvgpu_sgt *sgt, u64 space_to_skip_val,
 				u64 virt_addr_val, u64 length_val,
@@ -876,6 +1218,26 @@ static int nvgpu_gmmu_do_update_page_table_no_iommu(struct vm_gk20a *vm,
 	return 0;
 }
 
+/**
+ * @brief Create attributes for unmapping a GMMU page directory entry.
+ *
+ * This function initializes and returns a 'nvgpu_gmmu_attrs' structure with
+ * attributes suitable for unmapping a page directory entry (PDE) or page table
+ * entry (PTE). It sets the page size to match the original mapping and marks
+ * the aperture as invalid to indicate that the physical address is zero, which
+ * is used for unmapping. It also explicitly sets the sparse attribute to false.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize a 'nvgpu_gmmu_attrs' structure with default values.
+ *    -# Set the page size index to match the original mapping.
+ *    -# Set the aperture to #APERTURE_INVALID to indicate an unmapping operation.
+ *    -# Set the sparse attribute to false explicitly.
+ * -# Return the initialized 'nvgpu_gmmu_attrs' structure.
+ *
+ * @param [in]  pgsz  Page size index used for the original mapping.
+ *
+ * @return A 'nvgpu_gmmu_attrs' structure with attributes for unmapping.
+ */
 static struct nvgpu_gmmu_attrs gmmu_unmap_attrs(u32 pgsz)
 {
 	/*
@@ -899,6 +1261,37 @@ static struct nvgpu_gmmu_attrs gmmu_unmap_attrs(u32 pgsz)
 	};
 }
 
+/**
+ * @brief Update the page table for a given virtual address range.
+ *
+ * This function handles the mapping or unmapping of a virtual address range to
+ * physical memory. It deals with both IOMMU-enabled and non-IOMMU scenarios,
+ * iterating over a scatter-gather list (SGL) and updating the page directory
+ * (PD) for each chunk of memory. For unmapping, it simply passes a zero
+ * physical address to clear the entries.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the error code to 0 and retrieve the GPU's memory management state.
+ * -# If the scatter-gather table (SGT) is NULL, perform an unmap operation by
+ *    calling 'nvgpu_set_pd_level()' with a zero physical address and return the result.
+ * -# Determine if the system is IOMMU-enabled and if the SGT supports IOMMU.
+ * -# If the system is IOMMU-enabled and the SGT supports it, calculate the IO
+ *    address and call 'nvgpu_set_pd_level()' to perform the mapping.
+ * -# If the system is not IOMMU-enabled or the SGT does not support it, call
+ *    'nvgpu_gmmu_do_update_page_table_no_iommu()' to handle the mapping.
+ * -# If an error occurs during the mapping, attempt to unmap the range to clean up
+ *    by calling 'nvgpu_set_pd_level()' with a zero physical address.
+ * -# Return the error code, which is 0 on success or a negative value on failure.
+ *
+ * @param [in]  vm             Virtual memory context.
+ * @param [in]  sgt            Scatter-gather table for the memory to map.
+ * @param [in]  space_to_skip  Amount of space to skip before starting the mapping.
+ * @param [in]  virt_addr      Starting virtual address for the mapping.
+ * @param [in]  length         Length of the virtual address range to map.
+ * @param [in]  attrs          Attributes for the GMMU mapping.
+ *
+ * @return 0 for success, or a negative error code for failure.
+ */
 static int nvgpu_gmmu_do_update_page_table(struct vm_gk20a *vm,
 					   struct nvgpu_sgt *sgt,
 					   u64 space_to_skip,
@@ -991,14 +1384,36 @@ static int nvgpu_gmmu_do_update_page_table(struct vm_gk20a *vm,
 	return err;
 }
 
+/**
+ * @brief Perform cache maintenance after a GMMU mapping operation.
+ *
+ * This function invalidates the TLB (Translation Lookaside Buffer) after a GMMU
+ * mapping operation. If a mapping batch is provided, it marks the batch to
+ * indicate that a TLB invalidate is needed. Otherwise, it performs the TLB
+ * invalidate immediately within a power-gated protected call.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the error code to 0.
+ * -# If the mapping batch is NULL, perform a TLB invalidate immediately using
+ *    'nvgpu_pg_elpg_ms_protected_call()' with the gops_fb.tlb_invalidate()
+ *    operation. If an error occurs, log the error message.
+ * -# If a mapping batch is provided, set the 'need_tlb_invalidate' flag in the
+ *    batch to true, indicating that a TLB invalidate is required later.
+ * -# Return the error code, which is 0 on success or a negative value on failure.
+ *
+ * @param [in]  g      Pointer to the GPU structure.
+ * @param [in]  vm     Virtual memory context.
+ * @param [in]  batch  Mapping batch that may require a TLB invalidate.
+ *
+ * @return 0 for success, or a negative error code for failure.
+ */
 static int nvgpu_gmmu_cache_maint_map(struct gk20a *g, struct vm_gk20a *vm,
 		struct vm_gk20a_mapping_batch *batch)
 {
 	int err = 0;
 
 	if (batch == NULL) {
-		err = nvgpu_pg_elpg_ms_protected_call(g,
-				g->ops.fb.tlb_invalidate(g, vm->pdb.mem));
+		err = g->ops.fb.tlb_invalidate(g, vm->pdb.mem);
 		if (err != 0) {
 			nvgpu_err(g, "fb.tlb_invalidate() failed err=%d", err);
 		}
@@ -1006,28 +1421,58 @@ static int nvgpu_gmmu_cache_maint_map(struct gk20a *g, struct vm_gk20a *vm,
 		batch->need_tlb_invalidate = true;
 	}
 
+	if (nvgpu_iommuable(g) &&
+			nvgpu_is_enabled(g, NVGPU_MM_SUPPORT_NONPASID_ATS)) {
+		err = g->ops.fb.tlb_flush(g);
+	}
+
 	return err;
 }
 
+/**
+ * @brief Perform cache maintenance after a GMMU unmapping operation.
+ *
+ * This function flushes the L2 cache and invalidates the TLB (Translation Lookaside Buffer)
+ * after a GMMU unmapping operation. If a mapping batch is provided, it marks the batch to
+ * indicate that a TLB invalidate and L2 flush are needed. Otherwise, it performs the L2 flush
+ * and TLB invalidate immediately within a power-gated protected call.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the error code to 0.
+ * -# If the mapping batch is NULL, perform an L2 cache flush immediately using
+ *    'nvgpu_pg_elpg_ms_protected_call()' with the gops_mm_cache.l2_flush()
+ *    operation. If an error occurs, log the error message.
+ * -# Perform a TLB invalidate immediately using 'nvgpu_pg_elpg_ms_protected_call()'
+ *    with the gops_fb.tlb_invalidate() operation. If an error occurs, log the
+ *    error message and set the error code.
+ * -# If a mapping batch is provided and the L2 cache has not been flushed yet,
+ *    perform an L2 cache flush and set the 'gpu_l2_flushed' flag in the batch to true.
+ * -# Set the 'need_tlb_invalidate' flag in the batch to true, indicating that a TLB
+ *    invalidate is required later.
+ * -# Return the error code, which is 0 on success or a negative value on failure.
+ *
+ * @param [in]  g      Pointer to the GPU structure.
+ * @param [in]  vm     Virtual memory context.
+ * @param [in]  batch  Mapping batch that may require a TLB invalidate and L2 flush.
+ *
+ * @return 0 for success, or a negative error code for failure.
+ */
 static int nvgpu_gmmu_cache_maint_unmap(struct gk20a *g, struct vm_gk20a *vm,
 		struct vm_gk20a_mapping_batch *batch)
 {
 	int err = 0;
 
 	if (batch == NULL) {
-		if ((nvgpu_pg_elpg_ms_protected_call(g,
-			g->ops.mm.cache.l2_flush(g, true))) != 0) {
+		if (g->ops.mm.cache.l2_flush(g, true) != 0) {
 			nvgpu_err(g, "gk20a_mm_l2_flush[1] failed");
 		}
-		err = nvgpu_pg_elpg_ms_protected_call(g,
-				g->ops.fb.tlb_invalidate(g, vm->pdb.mem));
+		err = g->ops.fb.tlb_invalidate(g, vm->pdb.mem);
 		if (err != 0) {
 			nvgpu_err(g, "fb.tlb_invalidate() failed err=%d", err);
 		}
 	} else {
 		if (!batch->gpu_l2_flushed) {
-			if ((nvgpu_pg_elpg_ms_protected_call(g,
-				g->ops.mm.cache.l2_flush(g, true))) != 0) {
+			if (g->ops.mm.cache.l2_flush(g, true) != 0) {
 				nvgpu_err(g, "gk20a_mm_l2_flush[2] failed");
 			}
 			batch->gpu_l2_flushed = true;
@@ -1091,6 +1536,38 @@ static void nvgpu_gmmu_update_page_table_dbg_print(struct gk20a *g,
 #endif /* CONFIG_NVGPU_TRACE */
 }
 
+/**
+ * @brief Update the GMMU page table for a given virtual address range.
+ *
+ * This function updates the GMMU page table to map or unmap a given range of
+ * virtual addresses to physical memory. It ensures that the page size is valid
+ * and that the length is aligned to the page size. It then calls the appropriate
+ * function to perform the actual update of the page table.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the error code to 0 and retrieve the GPU's memory management state.
+ * -# If the page size attribute is set to kernel page size, adjust it to small
+ *    page size as the low-level MMU code assumes 0 for small pages.
+ * -# Retrieve the actual page size from the virtual memory context's page size array.
+ * -# Check if the page size is valid and if the space to skip is aligned to the
+ *    page size. If not, return -EINVAL.
+ * -# Align the length to the page size using 'nvgpu_align_map_length()'.
+ * -# Print debug information about the page table update using
+ *    'nvgpu_gmmu_update_page_table_dbg_print()'.
+ * -# Perform the actual update of the page table using 'nvgpu_gmmu_do_update_page_table()'.
+ *    If an error occurs, log the error message.
+ * -# Perform a memory barrier to ensure all writes are completed.
+ * -# Return the error code, which is 0 on success or a negative value on failure.
+ *
+ * @param [in]  vm           Virtual memory context.
+ * @param [in]  sgt          Scatter-gather table for the memory to map.
+ * @param [in]  space_to_skip Amount of space to skip before starting the mapping.
+ * @param [in]  virt_addr    Starting virtual address for the mapping.
+ * @param [in]  length       Length of the virtual address range to map.
+ * @param [in]  attrs        Attributes for the GMMU mapping.
+ *
+ * @return 0 for success, or a negative error code for failure.
+ */
 static int nvgpu_gmmu_update_page_table(struct vm_gk20a *vm,
 					struct nvgpu_sgt *sgt,
 					u64 space_to_skip,
@@ -1186,9 +1663,10 @@ u64 nvgpu_gmmu_map_locked(struct vm_gk20a *vm,
 		.aperture  = aperture,
 	};
 #ifdef CONFIG_NVGPU_COMPRESSION
+	u64 ctag_granularity = 0U;
+	attrs.ctag = 0U;
 	if (!g->cbc_use_raw_mode) {
-		u64 ctag_granularity = g->ops.fb.compression_page_size(g);
-
+		ctag_granularity = g->ops.fb.compression_page_size(g);
 		attrs.ctag      = (u64)ctag_offset * ctag_granularity;
 		/*
 		 * We need to add the buffer_offset within compression_page_size so that
@@ -1234,7 +1712,9 @@ u64 nvgpu_gmmu_map_locked(struct vm_gk20a *vm,
 	 * GPU VA range. This facilitates fixed mappings.
 	 */
 	if (vaddr == 0ULL) {
-		vaddr = nvgpu_vm_alloc_va(vm, size, pgsz_idx);
+		vaddr = nvgpu_vm_alloc_va(vm, size, pgsz_idx,
+				(attrs.ctag != 0),
+				ctag_granularity);
 		if (vaddr == 0ULL) {
 			nvgpu_err(g, "failed to allocate va space");
 			err = -ENOMEM;
@@ -1309,7 +1789,7 @@ fail_alloc:
 	return 0;
 }
 
-void nvgpu_gmmu_unmap_locked(struct vm_gk20a *vm,
+int nvgpu_gmmu_unmap_locked(struct vm_gk20a *vm,
 			     u64 vaddr,
 			     u64 size,
 			     u32 pgsz_idx,
@@ -1336,7 +1816,13 @@ void nvgpu_gmmu_unmap_locked(struct vm_gk20a *vm,
 		nvgpu_err(g, "failed to update gmmu ptes on unmap");
 	}
 
-	(void)nvgpu_gmmu_cache_maint_unmap(g, vm, batch);
+	err = nvgpu_gmmu_cache_maint_unmap(g, vm, batch);
+	if (err != 0) {
+		nvgpu_err(g,
+			"failed cache maintenance on map, err=%d", err);
+	}
+
+	return err;
 }
 
 u32 nvgpu_pte_words(struct gk20a *g)
@@ -1361,7 +1847,35 @@ u32 nvgpu_pte_words(struct gk20a *g)
 	return l->entry_size / (u32)sizeof(u32);
 }
 
-/* Walk last level of page table to find PTE */
+/**
+ * @brief Locate the PTE (Page Table Entry) at the last level for a given PD (Page Directory) index.
+ *
+ * This function calculates the base address and size of the PTE within the GPU memory
+ * and optionally reads the PTE data if a non-NULL pointer is provided. It also updates
+ * the output parameters with the PD, PD index, and PD offset corresponding to the PTE.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the memory associated with the PD is valid; if not, return -EINVAL.
+ * -# Calculate the base address of the PTE within the GPU memory, taking into account
+ *    the real offset of the PD due to PD packing.
+ * -# Calculate the size of the PTE based on the entry size defined in the GMMU level structure.
+ * -# If the 'data' pointer is not NULL, read the PTE data from the GPU memory into the 'data' array.
+ * -# If the 'pd_out' pointer is not NULL, update it with the pointer to the PD.
+ * -# If the 'pd_idx_out' pointer is not NULL, update it with the PD index.
+ * -# If the 'pd_offs_out' pointer is not NULL, update it with the PD offset calculated from the index.
+ * -# Return 0 indicating success.
+ *
+ * @param [in]  g         Pointer to the GPU structure.
+ * @param [in]  pd        Pointer to the GMMU page directory structure.
+ * @param [in]  l         Pointer to the structure describing the GMMU level.
+ * @param [out] pd_out    Pointer to store the PD associated with the PTE.
+ * @param [out] pd_idx_out Pointer to store the PD index associated with the PTE.
+ * @param [out] pd_offs_out Pointer to store the PD offset associated with the PTE.
+ * @param [out] data      Array to store the PTE data if not NULL.
+ * @param [in]  pd_idx    PD index for which the PTE is to be located.
+ *
+ * @return 0 for success, or -EINVAL if the PD memory is not valid.
+ */
 static int nvgpu_locate_pte_last_level(struct gk20a *g,
 				struct nvgpu_gmmu_pd *pd,
 				const struct gk20a_mmu_level *l,
@@ -1411,8 +1925,44 @@ static int nvgpu_locate_pte_last_level(struct gk20a *g,
 	return 0;
 }
 
-/*
- * Recursively walk the pages tables to find the PTE.
+/**
+ * @brief Recursively locate the Page Table Entry (PTE) for a given virtual address.
+ *
+ * This function traverses the page directory levels to find the PTE corresponding
+ * to a given virtual address. It handles the recursion through the page directory
+ * levels and updates the output parameters with the final PTE location details.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the loop control variable 'done' to false.
+ * -# Start a loop that continues until the PTE is found ('done' is true).
+ *    -# Retrieve the current and next GMMU level structures based on the level index.
+ *    -# Calculate the page directory index for the current level using 'pd_index()'.
+ *    -# If there is a valid next level (not the final PTE level), proceed to find
+ *       the next level page directory.
+ *       -# If the current level PD's entries are NULL, indicating it's not mapped yet,
+ *          return -EINVAL.
+ *       -# Retrieve the next level PD using the calculated index.
+ *       -# If the next level PD is invalid (NULL memory), return -EINVAL.
+ *       -# Update the page size index in the attributes based on the current level's
+ *          page size using 'l->get_pgsz()'. If the page size index is invalid,
+ *          return -EINVAL.
+ *       -# Update the PD and level index to the next level PD and continue the loop.
+ *    -# If the current level is the final PTE level, call 'nvgpu_locate_pte_last_level()'
+ *       to get the PTE details and set 'done' to true.
+ * -# Return 0 indicating success in locating the PTE.
+ *
+ * @param [in]  g           Pointer to the GPU structure.
+ * @param [in]  vm          Virtual memory context.
+ * @param [in]  pd          Pointer to the GMMU page directory structure.
+ * @param [in]  vaddr       Virtual address for which the PTE is to be located.
+ * @param [in]  lvl         Current level index of the GMMU page directory.
+ * @param [in]  attrs       Attributes containing the page size index and other flags.
+ * @param [out] data        Array to store the PTE data if not NULL.
+ * @param [out] pd_out      Pointer to store the PD associated with the PTE.
+ * @param [out] pd_idx_out  Pointer to store the PD index associated with the PTE.
+ * @param [out] pd_offs_out Pointer to store the PD offset associated with the PTE.
+ *
+ * @return 0 for success, or -EINVAL if any invalid entries are encountered.
  */
 static int nvgpu_locate_pte(struct gk20a *g, struct vm_gk20a *vm,
 			    struct nvgpu_gmmu_pd *pd,

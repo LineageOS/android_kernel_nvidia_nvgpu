@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/dma.h>
@@ -46,8 +27,10 @@ int nvgpu_pmu_super_surface_buf_alloc(struct gk20a *g, struct nvgpu_pmu *pmu,
 		return 0;
 	}
 
-	err = nvgpu_dma_alloc_map(vm, sizeof(struct super_surface),
-		&ss->super_surface_buf);
+	err = nvgpu_dma_alloc_map(vm,
+			(size_t)nvgpu_safe_add_u64(sizeof(struct super_surface),
+					pmu->ss_unmapped_members_size_add),
+			&ss->super_surface_buf);
 	if (err != 0) {
 		nvgpu_err(g, "failed to allocate pmu suffer surface\n");
 		return err;
@@ -182,6 +165,17 @@ u32 nvgpu_pmu_get_ss_member_get_status_size(struct gk20a *g,
 {
 	(void)g;
 	return pmu->super_surface->ssmd_get_status[member_id].size;
+}
+
+u32 nvgpu_pmu_get_fbq_ptcb_ss_offset(struct gk20a *g,
+	struct nvgpu_pmu *pmu, struct nvgpu_pmu_super_surface *ss,
+	u32 ptcb_index,	u32 queue_pos)
+{
+	(void)g;
+	(void)pmu;
+	(void)ss;
+	return (u32)offsetof(struct super_surface,
+			fbq.cmd_queues.queue[ptcb_index].element[queue_pos]);
 }
 
 u32 nvgpu_pmu_get_ss_cmd_fbq_offset(struct gk20a *g,

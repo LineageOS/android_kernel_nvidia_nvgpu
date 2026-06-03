@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/mm.h>
@@ -35,29 +16,37 @@
 
 #define PMM_ROUTER_OFFSET	0x200U
 
-bool gv11b_perf_get_membuf_overflow_status(struct gk20a *g)
+bool gv11b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id)
 {
 	const u32 st = perf_pmasys_control_membuf_status_overflowed_f();
+	(void)pma_channel_id;
+
 	return st == (nvgpu_readl(g, perf_pmasys_control_r()) & st);
 }
 
-u32 gv11b_perf_get_membuf_pending_bytes(struct gk20a *g)
+u32 gv11b_perf_get_membuf_pending_bytes(struct gk20a *g, u32 pma_channel_id)
 {
+	(void)pma_channel_id;
+
 	return nvgpu_readl(g, perf_pmasys_mem_bytes_r());
 }
 
-void gv11b_perf_set_membuf_handled_bytes(struct gk20a *g,
-	u32 entries, u32 entry_size)
+void gv11b_perf_set_membuf_handled_bytes(struct gk20a *g, u32 pma_channel_id,
+					 u32 entries, u32 entry_size)
 {
+	(void)pma_channel_id;
+
 	if (entries > 0U) {
 		nvgpu_writel(g, perf_pmasys_mem_bump_r(), entries * entry_size);
 	}
 }
 
-void gv11b_perf_membuf_reset_streaming(struct gk20a *g)
+void gv11b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id)
 {
 	u32 engine_status;
 	u32 num_unread_bytes;
+
+	(void)pma_channel_id;
 
 	engine_status = nvgpu_readl(g, perf_pmasys_enginestatus_r());
 	WARN_ON(0U ==
@@ -72,10 +61,12 @@ void gv11b_perf_membuf_reset_streaming(struct gk20a *g)
 	}
 }
 
-void gv11b_perf_enable_membuf(struct gk20a *g, u32 size, u64 buf_addr)
+void gv11b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
+			      u64 buf_addr)
 {
 	u32 addr_lo;
 	u32 addr_hi;
+	(void)pma_channel_id;
 
 	addr_lo = u64_lo32(buf_addr);
 	addr_hi = u64_hi32(buf_addr);
@@ -86,17 +77,20 @@ void gv11b_perf_enable_membuf(struct gk20a *g, u32 size, u64 buf_addr)
 	nvgpu_writel(g, perf_pmasys_outsize_r(), size);
 }
 
-void gv11b_perf_disable_membuf(struct gk20a *g)
+void gv11b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id)
 {
+	(void)pma_channel_id;
+
 	nvgpu_writel(g, perf_pmasys_outbase_r(), 0);
 	nvgpu_writel(g, perf_pmasys_outbaseupper_r(),
 			perf_pmasys_outbaseupper_ptr_f(0));
 	nvgpu_writel(g, perf_pmasys_outsize_r(), 0);
 }
 
-void gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u64 buf_addr)
+void gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id, u64 buf_addr)
 {
 	u32 addr_lo;
+	(void)pma_channel_id;
 
 	/*
 	 * For mem bytes addr, the upper 8 bits of the 40bit VA is taken
@@ -111,9 +105,9 @@ void gv11b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u64 buf_addr)
 		perf_pmasys_mem_bytes_addr_ptr_f(addr_lo));
 }
 
-int gv11b_perf_update_get_put(struct gk20a *g, u64 bytes_consumed,
-		bool update_available_bytes, u64 *put_ptr,
-		bool *overflowed)
+int gv11b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
+			      u64 bytes_consumed, bool update_available_bytes,
+			      u64 *put_ptr, bool *overflowed)
 {
 	u32 val;
 
@@ -133,27 +127,33 @@ int gv11b_perf_update_get_put(struct gk20a *g, u64 bytes_consumed,
 	}
 
 	if (overflowed) {
-		*overflowed = g->ops.perf.get_membuf_overflow_status(g);
+		*overflowed = g->ops.perf.get_membuf_overflow_status(g, pma_channel_id);
 	}
 
 	return 0;
 }
 
-void gv11b_perf_init_inst_block(struct gk20a *g, struct nvgpu_mem *inst_block)
+int gv11b_perf_init_inst_block(struct gk20a *g, u32 pma_channel_id,
+			       u32 inst_blk_ptr, u32 aperture, u32 gfid)
 {
-	u32 inst_block_ptr = nvgpu_inst_block_ptr(g, inst_block);
+
+	(void) pma_channel_id;
+	(void) gfid;
 
 	nvgpu_writel(g, perf_pmasys_mem_block_r(),
-		     perf_pmasys_mem_block_base_f(inst_block_ptr) |
+		     perf_pmasys_mem_block_base_f(inst_blk_ptr) |
 		     perf_pmasys_mem_block_valid_true_f() |
-		     nvgpu_aperture_mask(g, inst_block,
+		     nvgpu_aperture_mask_raw(g, aperture,
 				perf_pmasys_mem_block_target_sys_ncoh_f(),
 				perf_pmasys_mem_block_target_sys_coh_f(),
 				perf_pmasys_mem_block_target_lfb_f()));
+	return 0;
 }
 
-void gv11b_perf_deinit_inst_block(struct gk20a *g)
+void gv11b_perf_deinit_inst_block(struct gk20a *g, u32 pma_channel_id)
 {
+	(void)pma_channel_id;
+
 	nvgpu_writel(g, perf_pmasys_mem_block_r(),
 			perf_pmasys_mem_block_base_f(0) |
 			perf_pmasys_mem_block_valid_false_f() |
@@ -466,11 +466,12 @@ void gv11b_perf_get_num_hwpm_perfmon(struct gk20a *g, u32 *num_sys_perfmon,
 	*num_gpc_perfmon = perfmon_index;
 }
 
-void gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g)
+void gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g, u32 gr_instance_id)
 {
 	u32 count;
 	const u32 *perfmon_regs;
 	u32 i;
+	(void)gr_instance_id;
 
 	perfmon_regs = g->ops.perf.get_hwpm_sys_perfmon_regs(&count);
 
@@ -506,8 +507,9 @@ void gv11b_perf_reset_hwpm_pmm_registers(struct gk20a *g)
 	}
 }
 
-void gv11b_perf_init_hwpm_pmm_register(struct gk20a *g)
+void gv11b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 {
+	(void)gr_instance_id;
 	g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(0), 0xFFFFFFFFU,
 		1U, g->ops.perf.get_pmmsys_per_chiplet_offset(),
 		g->num_sys_perfmon);
@@ -521,9 +523,11 @@ void gv11b_perf_init_hwpm_pmm_register(struct gk20a *g)
 		g->num_gpc_perfmon);
 }
 
-void gv11b_perf_pma_stream_enable(struct gk20a *g, bool enable)
+void gv11b_perf_pma_stream_enable(struct gk20a *g, u32 pma_channel_id,
+				  bool enable)
 {
 	u32 reg_val;
+	(void)pma_channel_id;
 
 	reg_val = nvgpu_readl(g, perf_pmasys_control_r());
 
@@ -540,8 +544,10 @@ void gv11b_perf_pma_stream_enable(struct gk20a *g, bool enable)
 	nvgpu_writel(g, perf_pmasys_control_r(), reg_val);
 }
 
-void gv11b_perf_disable_all_perfmons(struct gk20a *g)
+void gv11b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id)
 {
+	(void)gr_instance_id;
+
 	g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
 		g->ops.perf.get_pmmsys_per_chiplet_offset(),
 		g->num_sys_perfmon);
@@ -582,11 +588,13 @@ static int poll_for_pmm_router_idle(struct gk20a *g, u32 offset, u32 timeout_ms)
 	return -ETIMEDOUT;
 }
 
-int gv11b_perf_wait_for_idle_pmm_routers(struct gk20a *g)
+int gv11b_perf_wait_for_idle_pmm_routers(struct gk20a *g, u32 gr_instance_id, u32 pma_channel_id)
 {
 	u32 num_gpc, num_fbp;
 	int err;
 	u32 i;
+	(void)gr_instance_id;
+	(void)pma_channel_id;
 
 	num_gpc = nvgpu_gr_config_get_gpc_count(nvgpu_gr_get_config_ptr(g));
 	num_fbp = nvgpu_fbp_get_num_fbps(g->fbp);
@@ -666,4 +674,39 @@ int gv11b_perf_wait_for_idle_pma(struct gk20a *g)
 	} while (nvgpu_timeout_expired(&timeout) == 0);
 
 	return -ETIMEDOUT;
+}
+
+u32 gv11b_perf_get_hwpm_fbp_fbpgs_ltcs_base_addr(void)
+{
+	return 0x250800U;
+}
+
+u32 gv11b_perf_get_hwpm_gpcgs_gpctpca_base_addr(void)
+{
+	return 0x250000U;
+}
+
+u32 gv11b_perf_get_hwpm_gpcgs_gpctpcb_base_addr(void)
+{
+	return 0x250200U;
+}
+
+u32 gv11b_perf_get_hwpm_gpcs_base_addr(void)
+{
+	return 0x278000U;
+}
+
+u32 gv11b_perf_get_hwpm_gpcsrouter_base_addr(void)
+{
+	return 0x251800U;
+}
+
+u32 gv11b_perf_get_hwpm_fbps_base_addr(void)
+{
+	return 0x27c000U;
+}
+
+u32 gv11b_perf_get_hwpm_fbpsrouter_base_addr(void)
+{
+	return 0x251a00U;
 }

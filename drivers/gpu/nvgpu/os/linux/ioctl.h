@@ -1,14 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef __NVGPU_IOCTL_H__
 #define __NVGPU_IOCTL_H__
@@ -30,6 +21,7 @@ struct nvgpu_class {
 
 	enum nvgpu_mig_gpu_instance_type instance_type;
 	bool power_node;
+	char *name;
 };
 
 static inline struct class *nvgpu_class_get_class(struct nvgpu_class *class)
@@ -57,6 +49,7 @@ struct nvgpu_cdev_class_priv_data {
 	u32 major_instance_id;
 	u32 minor_instance_id;
 	bool pci;
+	bool is_pci_igpu;
 };
 
 static inline struct nvgpu_class *

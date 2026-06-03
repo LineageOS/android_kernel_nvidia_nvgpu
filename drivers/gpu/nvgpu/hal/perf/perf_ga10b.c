@@ -1,26 +1,5 @@
-// SPDX-License-Identifier: MIT
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2023, NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/mm.h>
@@ -274,7 +253,7 @@ const u32 *ga10b_perf_get_hwpm_fbp_perfmon_regs(u32 *count)
 	return hwpm_fbp_perfmon_regs;
 }
 
-bool ga10b_perf_get_membuf_overflow_status(struct gk20a *g)
+bool ga10b_perf_get_membuf_overflow_status(struct gk20a *g, u32 pma_channel_id)
 {
 	const u32 st =
 		perf_pmasys_channel_status_secure_membuf_status_overflowed_f();
@@ -283,36 +262,38 @@ bool ga10b_perf_get_membuf_overflow_status(struct gk20a *g)
 				pmasys_channel_instance_max_size);
 
 	return st == (nvgpu_readl(g,
-			perf_pmasys_channel_status_secure_r(inst_zero)) & st);
+			perf_pmasys_channel_status_secure_r(pma_channel_id)) & st);
 }
 
-u32 ga10b_perf_get_membuf_pending_bytes(struct gk20a *g)
+u32 ga10b_perf_get_membuf_pending_bytes(struct gk20a *g, u32 pma_channel_id)
 {
 	nvgpu_assert(perf_pmasys_channel_mem_bytes__size_1_v() ==
 				pmasys_channel_instance_max_size);
 
 	return nvgpu_readl(g,
-		perf_pmasys_channel_mem_bytes_r(inst_zero));
+		perf_pmasys_channel_mem_bytes_r(pma_channel_id));
 }
 
-void ga10b_perf_set_membuf_handled_bytes(struct gk20a *g,
-	u32 entries, u32 entry_size)
+void ga10b_perf_set_membuf_handled_bytes(struct gk20a *g, u32 pma_channel_id,
+					 u32 entries, u32 entry_size)
 {
 	nvgpu_assert(perf_pmasys_channel_mem_bump__size_1_v() ==
 				pmasys_channel_instance_max_size);
 
 	if (entries > 0U) {
 		nvgpu_writel(g,
-			perf_pmasys_channel_mem_bump_r(inst_zero),
+			perf_pmasys_channel_mem_bump_r(pma_channel_id),
 			entries * entry_size);
 	}
 }
 
-void ga10b_perf_membuf_reset_streaming(struct gk20a *g)
+void ga10b_perf_membuf_reset_streaming(struct gk20a *g, u32 pma_channel_id)
 {
 	u32 engine_status;
 	u32 num_unread_bytes;
 	u32 i;
+
+	(void)pma_channel_id;
 
 	nvgpu_assert(perf_pmasys_channel_control_user__size_1_v() ==
 				pmasys_channel_instance_max_size);
@@ -340,12 +321,14 @@ void ga10b_perf_membuf_reset_streaming(struct gk20a *g)
 	}
 }
 
-void ga10b_perf_enable_membuf(struct gk20a *g, u32 size, u64 buf_addr)
+void ga10b_perf_enable_membuf(struct gk20a *g, u32 pma_channel_id, u32 size,
+			      u64 buf_addr)
 {
 	u32 addr_lo;
 	u32 addr_hi;
 	u32 i;
 
+	(void)pma_channel_id;
 	nvgpu_assert(perf_pmasys_channel_outbase__size_1_v() ==
 				pmasys_channel_instance_max_size);
 	nvgpu_assert(perf_pmasys_channel_outbaseupper__size_1_v() ==
@@ -370,11 +353,12 @@ void ga10b_perf_enable_membuf(struct gk20a *g, u32 size, u64 buf_addr)
 	}
 }
 
-void ga10b_perf_disable_membuf(struct gk20a *g)
+void ga10b_perf_disable_membuf(struct gk20a *g, u32 pma_channel_id)
 {
 	u32 zero_value = 0U;
 	u32 i;
 
+	(void)pma_channel_id;
 	nvgpu_assert(perf_pmasys_channel_outbase__size_1_v() ==
 				pmasys_channel_instance_max_size);
 	nvgpu_assert(perf_pmasys_channel_outbaseupper__size_1_v() ==
@@ -396,10 +380,12 @@ void ga10b_perf_disable_membuf(struct gk20a *g)
 	}
 }
 
-void ga10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u64 buf_addr)
+void ga10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u32 pma_channel_id,
+					   u64 buf_addr)
 {
 	u32 addr_lo;
 	u32 i;
+	(void)pma_channel_id;
 
 	nvgpu_assert(perf_pmasys_channel_mem_bytes_addr__size_1_v() ==
 				pmasys_channel_instance_max_size);
@@ -419,31 +405,35 @@ void ga10b_perf_bind_mem_bytes_buffer_addr(struct gk20a *g, u64 buf_addr)
 	}
 }
 
-void ga10b_perf_init_inst_block(struct gk20a *g, struct nvgpu_mem *inst_block)
+int ga10b_perf_init_inst_block(struct gk20a *g, u32 pma_channel_id,
+			       u32 inst_blk_ptr, u32 aperture, u32 gfid)
 {
-	u32 inst_block_ptr;
 	u32 i;
+
+	(void) pma_channel_id;
+	(void) gfid;
 
 	nvgpu_assert(perf_pmasys_channel_mem_block__size_1_v() ==
 				pmasys_channel_instance_max_size);
 
 	for (i = 0U; i < perf_pmasys_channel_mem_block__size_1_v(); i++) {
-		inst_block_ptr = nvgpu_inst_block_ptr(g, inst_block);
-
 		nvgpu_writel(g, perf_pmasys_channel_mem_block_r(i),
-		     perf_pmasys_channel_mem_block_base_f(inst_block_ptr) |
+		     perf_pmasys_channel_mem_block_base_f(inst_blk_ptr) |
 		     perf_pmasys_channel_mem_block_valid_true_f() |
-			nvgpu_aperture_mask(g, inst_block,
+			nvgpu_aperture_mask_raw(g, aperture,
 			     perf_pmasys_channel_mem_block_target_sys_ncoh_f(),
 			     perf_pmasys_channel_mem_block_target_sys_coh_f(),
 			     perf_pmasys_channel_mem_block_target_lfb_f()));
 	}
+	return 0;
 }
 
-void ga10b_perf_deinit_inst_block(struct gk20a *g)
+void ga10b_perf_deinit_inst_block(struct gk20a *g, u32 pma_channel_id)
 {
 	int zero_value = 0;
 	u32 i;
+
+	(void)pma_channel_id;
 
 	nvgpu_assert(perf_pmasys_channel_mem_block__size_1_v() ==
 				pmasys_channel_instance_max_size);
@@ -582,13 +572,14 @@ void ga10b_perf_get_num_hwpm_perfmon(struct gk20a *g, u32 *num_sys_perfmon,
 	*num_gpc_perfmon = perfmon_index;
 }
 
-void ga10b_perf_init_hwpm_pmm_register(struct gk20a *g)
+void ga10b_perf_init_hwpm_pmm_register(struct gk20a *g, u32 gr_instance_id)
 {
 	/* Recheck g10ab can support more  than one chiplet */
 	u32 num_chiplets    = 1U;
 	u32 base_index      = 0U;
 	u32 data            = 0U;
 	u32 i               = 0U;
+	(void)gr_instance_id;
 
 	g->ops.perf.set_pmm_register(g, perf_pmmsys_engine_sel_r(base_index),
 				   U32_MAX, num_chiplets,
@@ -627,8 +618,10 @@ void ga10b_perf_init_hwpm_pmm_register(struct gk20a *g)
 	}
 }
 
-void ga10b_perf_disable_all_perfmons(struct gk20a *g)
+void ga10b_perf_disable_all_perfmons(struct gk20a *g, u32 gr_instance_id)
 {
+	(void)gr_instance_id;
+
 	g->ops.perf.set_pmm_register(g, perf_pmmsys_control_r(0U), 0U, 1U,
 		g->ops.perf.get_pmmsys_per_chiplet_offset(),
 		g->num_sys_perfmon);
@@ -646,9 +639,9 @@ void ga10b_perf_disable_all_perfmons(struct gk20a *g)
 	}
 }
 
-int ga10b_perf_update_get_put(struct gk20a *g, u64 bytes_consumed,
-		bool update_available_bytes, u64 *put_ptr,
-		bool *overflowed)
+int ga10b_perf_update_get_put(struct gk20a *g, u32 pma_channel_id,
+		u64 bytes_consumed, bool update_available_bytes,
+		u64 *put_ptr, bool *overflowed)
 {
 	u32 val;
 
@@ -661,35 +654,36 @@ int ga10b_perf_update_get_put(struct gk20a *g, u64 bytes_consumed,
 
 
 	if (bytes_consumed != 0U) {
-		nvgpu_writel(g, perf_pmasys_channel_mem_bump_r(inst_zero), (u32)bytes_consumed);
+		nvgpu_writel(g, perf_pmasys_channel_mem_bump_r(pma_channel_id), (u32)bytes_consumed);
 	}
 
 	if (update_available_bytes) {
-		val = nvgpu_readl(g, perf_pmasys_channel_control_user_r(inst_zero));
+		val = nvgpu_readl(g, perf_pmasys_channel_control_user_r(pma_channel_id));
 		val = set_field(val, perf_pmasys_channel_control_user_update_bytes_m(),
 				     perf_pmasys_channel_control_user_update_bytes_doit_f());
-		nvgpu_writel(g, perf_pmasys_channel_control_user_r(inst_zero), val);
+		nvgpu_writel(g, perf_pmasys_channel_control_user_r(pma_channel_id), val);
 	}
 
 	if (put_ptr) {
-		*put_ptr = (u64)nvgpu_readl(g, perf_pmasys_channel_mem_head_r(inst_zero));
+		*put_ptr = (u64)nvgpu_readl(g, perf_pmasys_channel_mem_head_r(pma_channel_id));
 	}
 
 	if (overflowed) {
-		*overflowed = g->ops.perf.get_membuf_overflow_status(g);
+		*overflowed = g->ops.perf.get_membuf_overflow_status(g, pma_channel_id);
 	}
 
 	return 0;
 }
 
-void ga10b_perf_pma_stream_enable(struct gk20a *g, bool enable)
+void ga10b_perf_pma_stream_enable(struct gk20a *g, u32 pma_channel_id,
+				  bool enable)
 {
 	u32 reg_val;
 
 	nvgpu_assert(perf_pmasys_channel_control_user__size_1_v() ==
 				pmasys_channel_instance_max_size);
 
-	reg_val = nvgpu_readl(g, perf_pmasys_channel_control_user_r(inst_zero));
+	reg_val = nvgpu_readl(g, perf_pmasys_channel_control_user_r(pma_channel_id));
 
 	if (enable) {
 		reg_val = set_field(reg_val,
@@ -701,7 +695,7 @@ void ga10b_perf_pma_stream_enable(struct gk20a *g, bool enable)
 				perf_pmasys_channel_control_user_stream_disable_f());
 	}
 
-	nvgpu_writel(g, perf_pmasys_channel_control_user_r(inst_zero), reg_val);
+	nvgpu_writel(g, perf_pmasys_channel_control_user_r(pma_channel_id), reg_val);
 }
 
 int ga10b_perf_wait_for_idle_pma(struct gk20a *g)
@@ -970,4 +964,45 @@ void ga10b_perf_reset_pmasys_channel_registers(struct gk20a *g)
 			perf_pmasys_channel_control_user_update_bytes_init_f());
 		nvgpu_writel(g, perf_pmasys_channel_control_user_r(i), val);
 	}
+}
+
+u32 ga10b_perf_get_pma_channel_count(struct gk20a *g)
+{
+	(void)g;
+	return 1U;
+}
+
+u32 ga10b_perf_get_hwpm_fbp_fbpgs_ltcs_base_addr(void)
+{
+	return perf_pmmfbp_fbpgs_ltcs_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_gpcgs_gpctpca_base_addr(void)
+{
+	return perf_pmmgpc_gpcgs_gpctpca_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_gpcgs_gpctpcb_base_addr(void)
+{
+	return perf_pmmgpc_gpcgs_gpctpcb_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_gpcs_base_addr(void)
+{
+	return perf_pmmgpc_gpcs_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_gpcsrouter_base_addr(void)
+{
+	return perf_pmmgpc_gpcsrouter_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_fbps_base_addr(void)
+{
+	return perf_pmmfbp_fbps_base_v();
+}
+
+u32 ga10b_perf_get_hwpm_fbpsrouter_base_addr(void)
+{
+	return perf_pmmfbp_fbpsrouter_base_v();
 }

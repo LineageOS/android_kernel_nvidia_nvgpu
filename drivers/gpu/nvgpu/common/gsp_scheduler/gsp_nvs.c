@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
 #include <nvgpu/gsp.h>
@@ -13,6 +16,32 @@
 #include <nvgpu/utils.h>
 #include "gsp_runlist.h"
 
+/**
+ * @brief Updates the GSP runlist information with the current runlist domain data.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the IOVA (Input/Output Virtual Address) of the runlist from the
+ *    runlist domain's hardware memory structure by calling nvgpu_mem_get_addr().
+ * -# Retrieve the number of entries in the runlist domain's hardware memory structure.
+ * -# Retrieve the aperture of the runlist domain's hardware memory structure using
+ *    the GPU operations structure by calling gops_runlist.get_runlist_aperture().
+ * -# Populate the GSP runlist information structure with the domain ID, runlist ID,
+ *    aperture, lower and higher 32 bits of the runlist IOVA, number of entries, and
+ *    set the runlist as valid.
+ * -# Retrieve the device ID associated with the runlist using the GPU operations
+ *    by calling nvgpu_runlist_get_device_id().
+ * -# If retrieving the device ID fails, log an error.
+ * -# Populate the GSP runlist information structure with the device ID.
+ * -# Return the error code, which will be 0 if no errors occurred during the process.
+ *
+ * @param [in] g             The GPU structure.
+ * @param [out] gsp_runlist  The GSP runlist information structure to be updated.
+ * @param [in] rl            The runlist structure associated with the runlist domain.
+ * @param [in] domain        The runlist domain containing the runlist data.
+ *
+ * @return 0 if the GSP runlist information is successfully updated.
+ * @return Non-zero error code if retrieving the device ID fails.
+ */
 static int gsp_nvs_update_runlist_info(struct gk20a *g,
     struct nvgpu_gsp_runlist_info *gsp_runlist, struct nvgpu_runlist *rl,
     struct nvgpu_runlist_domain *domain)
@@ -44,6 +73,35 @@ static int gsp_nvs_update_runlist_info(struct gk20a *g,
 
 #ifdef CONFIG_NVS_PRESENT
 
+/**
+ * @brief Retrieves and populates runlist information for a specific GSP domain.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the total number of runlists for the GPU using nvgpu_runlist_get_num_runlists().
+ * -# Iterate over each runlist index up to the total number of runlists.
+ *  - For each runlist:
+ *    -# Obtain a pointer to the current GSP runlist information structure.
+ *    -# Retrieve domain-specific information for the current runlist index using
+ *       nvgpu_nvs_gsp_get_runlist_domain_info(), which includes the number of entries,
+ *       the IOVA, and the aperture.
+ *    -# If there is an error in retrieving domain-specific information, log the error
+ *       and continue to the next runlist.
+ *    -# Retrieve runlist-specific information, including the runlist ID and device ID,
+ *       using nvgpu_runlist_get_runlist_info().
+ *    -# If there is an error in retrieving runlist-specific information, log the error
+ *      and continue to the next runlist.
+ *    -# Update the GSP runlist information structure with the retrieved information,
+ *       marking the runlist as valid and populating it with the aperture, device ID,
+ *       domain ID, number of entries, and the lower and higher 32 bits of the runlist IOVA.
+ * -# Return the error code, which will be 0 if all runlists are processed successfully.
+ *
+ * @param [in] g              The GPU structure.
+ * @param [out] gsp_domain    The GSP domain info structure to be updated with runlist information.
+ * @param [in] nvgpu_domain_id The domain ID for which runlist information is being retrieved.
+ *
+ * @return 0 if the runlist information is successfully retrieved and updated for all runlists.
+ * @return Non-zero error code if retrieving domain-specific or runlist-specific information fails.
+ */
 static int gsp_nvs_get_runlist_info(struct gk20a *g, struct nvgpu_gsp_domain_info *gsp_domain,
         u64 nvgpu_domain_id)
 {
@@ -77,7 +135,7 @@ static int gsp_nvs_get_runlist_info(struct gk20a *g, struct nvgpu_gsp_domain_inf
         gsp_runlist->aperture = aperture;
         gsp_runlist->device_id = device_id;
         gsp_runlist->domain_id = gsp_domain->domain_id;
-        gsp_runlist->is_runlist_valid = true;
+	gsp_runlist->is_runlist_valid = false;
         gsp_runlist->num_entries = num_entries;
         gsp_runlist->runlist_base_lo = u64_lo32(runlist_iova);
         gsp_runlist->runlist_base_hi = u64_hi32(runlist_iova);
@@ -87,15 +145,44 @@ static int gsp_nvs_get_runlist_info(struct gk20a *g, struct nvgpu_gsp_domain_inf
 return err;
 }
 
+/**
+ * @brief Retrieves domain information for the GSP and updates the GSP domain structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GSP domain information, including the domain ID and timeslice in
+ *    nanoseconds, using nvgpu_nvs_get_gsp_domain_info().
+ * -# If an error occurs while retrieving the GSP domain information, log the error
+ *    and exit the function.
+ * -# Update the GSP domain structure with the retrieved domain ID and timeslice.
+ *    Set the priority to 0 as a default value.
+ * -# Retrieve the runlist information associated with the GSP domain using
+ *    gsp_nvs_get_runlist_info().
+ * -# If an error occurs while retrieving the runlist information, log the error
+ *    and exit the function.
+ * -# Return the error code, which will be 0 if no errors occurred during the process.
+ *
+ * @param [in] g              The GPU structure.
+ * @param [in] nvgpu_domain_id The domain ID for which information is being retrieved.
+ * @param [out] gsp_domain    The GSP domain structure to be updated with domain information.
+ *
+ * @return 0 if the GSP domain information is successfully retrieved and updated.
+ * @return Non-zero error code if retrieving the GSP domain information or runlist information fails.
+ */
 static int gsp_nvs_get_domain_info(struct gk20a *g, u64 nvgpu_domain_id,
                                 struct nvgpu_gsp_domain_info *gsp_domain)
 {
     int err = 0;
-    u32 domain_id;
-    u32 timeslice_ns;
+    u32 domain_id = 0U;
+    u32 timeslice_ns = 0U;
+
     nvgpu_gsp_dbg(g, " ");
-    nvgpu_nvs_get_gsp_domain_info(g, nvgpu_domain_id,
+
+    err = nvgpu_nvs_get_gsp_domain_info(g, nvgpu_domain_id,
             &domain_id, &timeslice_ns);
+    if (err != 0) {
+        nvgpu_err(g, "gsp domain info is NULL");
+		goto exit;
+    }
 
     gsp_domain->domain_id = domain_id;
     gsp_domain->priority = 0;

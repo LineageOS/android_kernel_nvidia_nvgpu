@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/gk20a.h>
@@ -243,6 +224,7 @@ void gk20a_fifo_handle_mmu_fault_locked(
 	unsigned long engine_mmu_fault_id;
 	struct nvgpu_engine_status_info engine_status;
 	bool deferred_reset_pending = false;
+	const struct nvgpu_device *dev;
 
 	nvgpu_log_fn(g, " ");
 
@@ -296,6 +278,15 @@ void gk20a_fifo_handle_mmu_fault_locked(
 			nvgpu_err(g, "  gr_status_r: 0x%x",
 				  g->ops.gr.get_gr_status(g));
 #endif
+		}
+
+		dev = nvgpu_engine_get_active_eng_info(g, engine_id);
+		if (dev != NULL) {
+			if (nvgpu_device_is_multimedia(g, dev)) {
+				nvgpu_multimedia_debug_dump(g, dev);
+			}
+		} else {
+			nvgpu_info(g, "Multimedia debug dump skipped");
 		}
 
 		/* get the channel/TSG */
@@ -369,12 +360,14 @@ void gk20a_fifo_handle_mmu_fault_locked(
 					mmfault_info.faulted_engine,
 					mmfault_info.client_type, false)) {
 #endif
-					nvgpu_tsg_set_ctx_mmu_error(g, tsg);
+					/* dead code, use gfid 0 */
+					nvgpu_tsg_set_ctx_mmu_error(g, 0U, tsg->tsgid);
 #ifdef CONFIG_NVGPU_DEBUGGER
 				}
 #endif
 			}
-			nvgpu_tsg_set_unserviceable(g, tsg);
+			/* use gfid 0 since not used on sr-iov gpu server */
+			nvgpu_tsg_set_unserviceable(g, 0U, tsg->tsgid);
 		}
 
 		/* check if engine reset should be deferred */
@@ -416,7 +409,7 @@ void gk20a_fifo_handle_mmu_fault_locked(
 		 */
 		if (tsg != NULL) {
 			if (deferred_reset_pending) {
-				g->ops.tsg.disable(tsg);
+				nvgpu_tsg_disable(tsg);
 			} else {
 				nvgpu_tsg_wakeup_wqs(g, tsg);
 				nvgpu_tsg_abort(g, tsg, false);

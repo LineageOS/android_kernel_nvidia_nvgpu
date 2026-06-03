@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_INIT_GM20B_H
@@ -51,14 +33,14 @@ void gm20b_gr_init_pd_skip_table_gpc(struct gk20a *g,
 			      struct nvgpu_gr_config *gr_config);
 void gm20b_gr_init_cwd_gpcs_tpcs_num(struct gk20a *g,
 				     u32 gpc_count, u32 tpc_count);
-void gm20b_gr_init_load_tpc_mask(struct gk20a *g,
-				struct nvgpu_gr_config *gr_config);
 int gm20b_gr_init_wait_idle(struct gk20a *g);
 int gm20b_gr_init_wait_fe_idle(struct gk20a *g);
 int gm20b_gr_init_fe_pwr_mode_force_on(struct gk20a *g, bool force_on);
 void gm20b_gr_init_override_context_reset(struct gk20a *g);
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_init_fe_go_idle_timeout(struct gk20a *g, bool enable);
+void gm20b_gr_init_load_tpc_mask(struct gk20a *g,
+				struct nvgpu_gr_config *gr_config);
 #endif
 void gm20b_gr_init_pipe_mode_override(struct gk20a *g, bool enable);
 void gm20b_gr_init_load_method_init(struct gk20a *g,

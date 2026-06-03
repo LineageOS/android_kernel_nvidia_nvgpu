@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/string.h>
@@ -147,13 +128,10 @@ void nvgpu_pmu_lsfm_rpc_handler(struct gk20a *g,
 	struct rpc_handler_payload *rpc_payload)
 {
 	struct nvgpu_pmu *pmu = g->pmu;
-	struct nv_pmu_rpc_struct_acr_bootstrap_gr_falcons acr_rpc;
+	struct nv_pmu_rpc_header *rpc =
+			(struct nv_pmu_rpc_header *)rpc_payload->rpc_buff;
 
-	(void) memset(&acr_rpc, 0, sizeof(struct nv_pmu_rpc_header));
-	nvgpu_memcpy((u8 *)&acr_rpc, (u8 *)rpc_payload->rpc_buff,
-		sizeof(struct nv_pmu_rpc_header));
-
-	switch (acr_rpc.hdr.function) {
+	switch (rpc->function) {
 	case NV_PMU_RPC_ID_ACR_INIT_WPR_REGION:
 		nvgpu_pmu_dbg(g,
 			"reply NV_PMU_RPC_ID_ACR_INIT_WPR_REGION");
@@ -229,6 +207,19 @@ int nvgpu_pmu_lsfm_init(struct gk20a *g, struct nvgpu_pmu_lsfm **lsfm)
 		nvgpu_gv100_lsfm_sw_init(g, *lsfm);
 		break;
 #endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		/* skip lsfm_sw_init */
+		break;
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+		/* skip lsfm_sw_init */
+		break;
+#endif
+
 	default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 		if (nvgpu_next_lsfm_sw_init(g, lsfm))

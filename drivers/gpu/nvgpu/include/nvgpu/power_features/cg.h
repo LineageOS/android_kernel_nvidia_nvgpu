@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 
@@ -26,7 +8,7 @@
 
 /**
  * @file
- * @page unit-cg Unit Clock Gating (CG)
+ * @page cg Clock Gating (CG)
  *
  * Overview
  * ========
@@ -188,7 +170,86 @@
  */
 #define INVALID_MODE	BIT32(2U)
 
+#define CG_ELCG_CTRL_ENGINE_COUNT	80U
+
+/* HW engine ID */
+#define CG_ENGINE_ID_ELCG_GRAPHICS0	0U
+#define CG_ENGINE_ID_ELCG_GRAPHICS1	8U
+#define CG_ENGINE_ID_ELCG_NVENC0	11U
+#define CG_ENGINE_ID_ELCG_NVENC1	12U
+#define CG_ENGINE_ID_ELCG_OFA0		10U
+#define CG_ENGINE_ID_ELCG_NVDEC0	4U
+#define CG_ENGINE_ID_ELCG_NVDEC1	6U
+#define CG_ENGINE_ID_ELCG_NVJPG0	7U
+#define CG_ENGINE_ID_ELCG_NVJPG1	13U
+#define CG_ENGINE_ID_ELCG_LCE0		1U
+#define CG_ENGINE_ID_ELCG_LCE2		3U
+#define CG_ENGINE_ID_ELCG_LCE3		9U
+
+/*
+ * Sub feature id for ELCG supported engines
+ * This ID will be used for ELCG entry_count/residency
+ */
+#define CG_SUBFEATURE_ID_ELCG_CTRL_GR		(0x0000U)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVDEC0	(0x0001U)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVDEC1	(0x0002U)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVENC0	(0x0009U)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVENC1	(0x000AU)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVJPG0	(0x000DU)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_NVJPG1	(0x000EU)
+#define CG_SUBFEATURE_ID_ELCG_CTRL_OFA0		(0x0015U)
+
+/*
+ * This ELCG status mask is used when ELCG is enabled for
+ * all the enignes and is calculated by setting the bits
+ * corresponding to all the engines as '1'. For example,
+ * the sub feature ID of GR engine is 0 so we set 0th bit to 1,
+ * then the sub feature ID of NVDEC0 is 1 so we set 1st bit to 1,
+ * and so on. So, after setting the bits for all the eight engines
+ * as '1' we get the binary form of bitmask as following
+ * 0010 0000 0110 0110 0000 0111
+ */
+#define CG_ELCG_ALL_ENGINE_ENABLED_MASK	0X206607U
+
+/*
+ * define a bitmask with ELCG enabled for all
+ * supported multimdeia engines. This bitmask is used
+ * to check if ELCG is enabled for atleast one video engine
+ * then we can enable nvdclk flcg
+ */
+#define CG_ELCG_MM_ENGINE_ENABLED_MASK	0x206606U
+
+/**
+ * ELCG Monitor Mode IDs for sending RPC to PMU
+ */
+#define ELCG_MON_ENTRY_COUNT_MODE	0x803U
+#define ELCG_MON_RESIDENCY_MODE		0x809U
+
+/*
+ * enum for ELCG engines
+ */
+enum residency_source_engine {
+	ELCG_GR,
+	ELCG_NVENC0,
+	ELCG_NVENC1,
+	ELCG_NVDEC0,
+	ELCG_NVDEC1,
+	ELCG_NVJPG0,
+	ELCG_NVJPG1,
+	ELCG_OFA0,
+	FLCG_GPCCLK,
+};
+
+/*
+ * enum for polarity
+ */
+enum residency_polarity {
+	POLARITY_LOW_ACTIVE = 0x0,
+	POLARITY_HIGH_ACTIVE,
+};
+
 struct gk20a;
+struct nvgpu_falcon;
 
 /**
  * @brief During nvgpu power-on, this function is called as part of GR
@@ -386,6 +447,24 @@ void nvgpu_cg_blcg_gr_load_enable(struct gk20a *g);
 void nvgpu_cg_slcg_fb_load_enable(struct gk20a *g);
 
 /**
+ * @brief During nvgpu power-on, as part of CTRL initialization,
+ *        this function is called to load register configuration
+ *        for blcg for CTRL unit.
+ *
+ * @param g [in] The GPU driver struct.
+ *
+ * Checks the platform software capability blcg_enabled and programs registers
+ * for configuring production gating values for blcg for CTRL.
+ *
+ * Steps:
+ * - Acquire the mutex #cg_pg_lock.
+ * - Check if #blcg_enabled is set, else skip blcg programming.
+ * - Load blcg prod settings for CTRL.
+ * - Release the mutex #cg_pg_lock.
+ */
+void nvgpu_cg_blcg_ctrl_load_enable(struct gk20a *g, bool enable);
+
+/**
  * @brief During nvgpu power-on, as part of initialization,
  *        this function is called to load register configuration
  *        for SLCG for LTC.
@@ -552,6 +631,8 @@ void nvgpu_cg_slcg_gsp_load_enable(struct gk20a *g, bool enable);
  */
 void nvgpu_cg_slcg_ctrl_load_enable(struct gk20a *g, bool enable);
 
+void nvgpu_cg_load_enable(struct gk20a *g, struct nvgpu_falcon *flcn);
+
 #ifdef CONFIG_NVGPU_NON_FUSA
 
 void nvgpu_cg_elcg_enable(struct gk20a *g);
@@ -565,15 +646,27 @@ void nvgpu_cg_blcg_set_blcg_enabled(struct gk20a *g, bool enable);
 void nvgpu_cg_slcg_gr_perf_ltc_load_enable(struct gk20a *g);
 void nvgpu_cg_slcg_gr_perf_ltc_load_disable(struct gk20a *g);
 void nvgpu_cg_slcg_set_slcg_enabled(struct gk20a *g, bool enable);
-#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
-void nvgpu_cg_slcg_timer_load_enable(struct gk20a *g);
-#endif
-#endif
+void nvgpu_cg_flcg_set_flcg_enabled(struct gk20a *g, bool enable);
+#endif /* CONFIG_NVGPU_NON_FUSA */
 
 #ifdef CONFIG_NVGPU_PROFILER
 void nvgpu_cg_flcg_perf_load_enable(struct gk20a *g, bool enable);
 void nvgpu_cg_slcg_perf_load_enable(struct gk20a *g, bool enable);
 #endif
 
-void nvgpu_cg_flcg_set_flcg_enabled(struct gk20a *g, bool enable);
+void nvgpu_cg_slcg_timer_load_enable(struct gk20a *g);
+int nvgpu_cg_elcg_set_monitor_config(struct gk20a *g, u32 mode);
+int nvgpu_cg_elcg_set_monitor_start(struct gk20a *g, u32 ctrl_id);
+int nvgpu_cg_elcg_set_monitor_stop(struct gk20a *g, u32 ctrl_id);
+void nvgpu_cg_set_elcg_source(struct gk20a *g, u32 sub_feature_id);
+u32 nvgpu_cg_get_elcg_residency(struct gk20a *g);
+u32 nvgpu_cg_get_elcg_entry_count(struct gk20a *g);
+int nvgpu_cg_flcg_set_gpcclk_flcg_enabled(struct gk20a *g, bool enable);
+int nvgpu_cg_elcg_ctrl_init(struct gk20a *g);
+void nvgpu_cg_elcg_ctrl_deinit(struct gk20a *g);
+void nvgpu_cg_elcg_set_engine_elcg_enable(struct gk20a *g,
+				unsigned long new_engine_bitmask);
+int nvgpu_cg_flcg_set_nvdclk_flcg_enabled(struct gk20a *g, bool enable);
+int nvgpu_cg_set_sysclk_slowdown_enabled(struct gk20a *g, bool enable);
+u32 nvgpu_cg_get_sysclk_slowdown_entry_count(struct gk20a *g);
 #endif /*NVGPU_POWER_FEATURES_CG_H*/

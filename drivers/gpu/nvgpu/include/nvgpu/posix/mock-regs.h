@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_POSIX_MOCK_REGS_H
@@ -33,22 +15,42 @@ struct nvgpu_mock_iospace {
 	const uint32_t *data;
 };
 
+#ifndef NVGPU_MON_PRESENT
+#define MOCK_REGS_FB		0U
+#define MOCK_REGS_GR		1U
+#define MOCK_REGS_FUSE		2U
+#define MOCK_REGS_MASTER	3U
+#define MOCK_REGS_TOP		4U
+#define MOCK_REGS_FIFO		5U
+#define MOCK_REGS_PRI		6U
+#define MOCK_REGS_PBDMA		7U
+#define MOCK_REGS_CCSR		8U
+#define MOCK_REGS_USERMODE	9U
+#define MOCK_REGS_RUNLIST1	10U
+#define MOCK_REGS_RUNLIST2	11U
+#define MOCK_REGS_RUNLIST3	12U
+#define MOCK_REGS_RUNLIST4	13U
+#define MOCK_REGS_CHRAM1	14U
+#define MOCK_REGS_CHRAM2	15U
+#define MOCK_REGS_CHRAM3	16U
+#define MOCK_REGS_CHRAM4	17U
+#define MOCK_REGS_LTC		18U
+#define MOCK_REGS_PGSP		19U
+#define MOCK_REGS_FUNC		20U
+#define MOCK_REGS_CE		21U
+#define MOCK_REGS_PBUS		22U
+#define MOCK_REGS_HSHUB		23U
+#define MOCK_REGS_CTRL		24U
+#define MOCK_REGS_LAST		25U
+#else
 #define MOCK_REGS_GR		0U
-#define MOCK_REGS_FUSE		1U
-#define MOCK_REGS_MASTER	2U
-#define MOCK_REGS_TOP		3U
-#define MOCK_REGS_FIFO		4U
-#define MOCK_REGS_PRI		5U
-#define MOCK_REGS_PBDMA		6U
-#define MOCK_REGS_CCSR		7U
-#define MOCK_REGS_USERMODE	8U
-#define MOCK_REGS_CE		9U
-#define MOCK_REGS_PBUS		10U
-#define MOCK_REGS_HSHUB		11U
-#define MOCK_REGS_FB		12U
-#define MOCK_REGS_RUNLIST	13U
-#define MOCK_REGS_CHRAM		14U
-#define MOCK_REGS_LAST		15U
+#define MOCK_REGS_MASTER	1U
+#define MOCK_REGS_PRI		2U
+#define MOCK_REGS_LTC		3U
+#define MOCK_REGS_PGSP		4U
+#define MOCK_REGS_FUNC		5U
+#define MOCK_REGS_LAST		6U
+#endif
 
 /**
  * Load a mocked register list into the passed IO space description.

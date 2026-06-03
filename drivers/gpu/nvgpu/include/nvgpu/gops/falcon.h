@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_FALCON_H
 #define NVGPU_GOPS_FALCON_H
@@ -57,6 +39,7 @@ struct gops_falcon {
 	u32 (*dmemc_blk_mask)(void);
 	bool (*check_brom_passed)(u32 retcode);
 	bool (*check_brom_failed)(u32 retcode);
+	bool (*check_brom_init_done)(u32 retcode);
 	void (*brom_config)(struct nvgpu_falcon *flcn, u64 fmc_code_addr,
 			u64 fmc_data_addr, u64 manifest_addr);
 	u32 (*imemc_blk_field)(u32 blk);
@@ -72,6 +55,8 @@ struct gops_falcon {
 	void (*dump_falcon_stats)(struct nvgpu_falcon *flcn);
 	void (*dump_falcon_info)(struct nvgpu_falcon *flcn);
 #endif
+	void (*dump_debug_regs)(struct nvgpu_falcon *flcn,
+			struct nvgpu_debug_context *o);
 #if defined(CONFIG_NVGPU_FALCON_DEBUG) || defined(CONFIG_NVGPU_FALCON_NON_FUSA)
 	int (*copy_from_dmem)(struct nvgpu_falcon *flcn,
 			      u32 src, u8 *dst, u32 size, u8 port);
@@ -87,6 +72,9 @@ struct gops_falcon {
 	int (*load_ucode)(struct nvgpu_falcon *flcn,
 			struct nvgpu_mem *mem_desc, u32 *ucode_header);
 	u32 (*debuginfo_offset)(void);
+	void (*write_dmatrfbase)(struct nvgpu_falcon *flcn, u64 dma_base);
+	u32 (*video_boot_done_value)(void);
+	void (*get_bootplugin_fw_name)(struct gk20a *g, const char **name, u32 falcon_id);
 
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 

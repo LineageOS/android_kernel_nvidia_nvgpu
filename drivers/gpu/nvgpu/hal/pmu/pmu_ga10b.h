@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PMU_GA10B_H
@@ -36,9 +18,13 @@ struct nvgpu_pmu;
 
 bool ga10b_is_pmu_supported(struct gk20a *g);
 u32 ga10b_pmu_falcon2_base_addr(void);
+
+#ifdef CONFIG_NVGPU_LS_PMU
 int ga10b_pmu_ns_bootstrap(struct gk20a *g, struct nvgpu_pmu *pmu,
 		u32 args_offset);
 u32 ga10b_pmu_get_inst_block_config(struct gk20a *g);
+#endif /* CONFIG_NVGPU_LS_PMU */
+
 void ga10b_pmu_dump_elpg_stats(struct nvgpu_pmu *pmu);
 void ga10b_pmu_init_perfmon_counter(struct gk20a *g);
 u32 ga10b_pmu_read_idle_counter(struct gk20a *g, u32 counter_id);
@@ -51,4 +37,5 @@ bool ga10b_pmu_is_interrupted(struct nvgpu_pmu *pmu);
 #endif
 void ga10b_pmu_enable_irq(struct nvgpu_pmu *pmu, bool enable);
 void ga10b_pmu_handle_ext_irq(struct gk20a *g, u32 intr0);
+unsigned long long ga10b_get_amap_extmem2_start(void);
 #endif /* NVGPU_PMU_GA10B_H */

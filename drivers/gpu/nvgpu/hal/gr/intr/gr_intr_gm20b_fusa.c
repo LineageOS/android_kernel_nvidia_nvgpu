@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/mc.h>
@@ -47,6 +28,7 @@ void gm20b_gr_intr_clear_pending_interrupts(struct gk20a *g, u32 gr_intr)
 	nvgpu_writel(g, gr_intr_r(), gr_intr);
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 u32 gm20b_gr_intr_read_pending_interrupts(struct gk20a *g,
 					struct nvgpu_gr_intr_info *intr_info)
 {
@@ -54,7 +36,6 @@ u32 gm20b_gr_intr_read_pending_interrupts(struct gk20a *g,
 
 	(void) memset(intr_info, 0, sizeof(struct nvgpu_gr_intr_info));
 
-#ifdef CONFIG_NVGPU_NON_FUSA
 	if ((gr_intr & gr_intr_notify_pending_f()) != 0U) {
 		intr_info->notify = gr_intr_notify_pending_f();
 	}
@@ -62,7 +43,6 @@ u32 gm20b_gr_intr_read_pending_interrupts(struct gk20a *g,
 	if ((gr_intr & gr_intr_semaphore_pending_f()) != 0U) {
 		intr_info->semaphore = gr_intr_semaphore_pending_f();
 	}
-#endif
 
 	if ((gr_intr & gr_intr_illegal_notify_pending_f()) != 0U) {
 		intr_info->illegal_notify = gr_intr_illegal_notify_pending_f();
@@ -96,6 +76,7 @@ u32 gm20b_gr_intr_read_pending_interrupts(struct gk20a *g,
 
 	return gr_intr;
 }
+#endif
 
 u32 gm20b_gr_intr_check_gr_ssync_exception(struct gk20a *g, u32 exception)
 {
@@ -152,6 +133,7 @@ u32 gm20b_gr_intr_check_gr_sked_exception(struct gk20a *g, u32 exception)
 	return 0U;
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static u32 gr_gm20b_intr_check_gr_be_crop_exception(struct gk20a *g,
 							u32 exception)
 {
@@ -183,6 +165,7 @@ static u32 gr_gm20b_intr_check_gr_be_zrop_exception(struct gk20a *g,
 	}
 	return 0U;
 }
+#endif
 
 u32 gm20b_gr_intr_check_gr_fe_exception(struct gk20a *g, u32 exception)
 {
@@ -261,6 +244,7 @@ u32 gm20b_gr_intr_check_gr_ds_exception(struct gk20a *g, u32 exception)
 	return 0U;
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 bool gm20b_gr_intr_handle_exceptions(struct gk20a *g, bool *is_gpc_exception)
 {
 	u32 gpc_reset = 0U;
@@ -287,6 +271,7 @@ bool gm20b_gr_intr_handle_exceptions(struct gk20a *g, bool *is_gpc_exception)
 
 	return (gpc_reset != 0U)? true: false;
 }
+#endif
 
 u32 gm20b_gr_intr_read_gpc_tpc_exception(u32 gpc_exception)
 {
@@ -324,6 +309,7 @@ void gm20b_gr_intr_get_trapped_method_info(struct gk20a *g,
 	isr_data->class_num = gr_fe_object_table_nvclass_v(obj_table);
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 u32 gm20b_gr_intr_get_tpc_exception(struct gk20a *g, u32 offset,
 				    struct nvgpu_gr_tpc_exception *pending_tpc)
 {
@@ -381,6 +367,7 @@ u32 gm20b_gr_intr_nonstall_isr(struct gk20a *g)
 	}
 	return nonstall_ops;
 }
+#endif
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 void gm20b_gr_intr_tpc_exception_sm_disable(struct gk20a *g, u32 offset)

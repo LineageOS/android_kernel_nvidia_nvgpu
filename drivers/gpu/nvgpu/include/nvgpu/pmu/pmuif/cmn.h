@@ -1,24 +1,7 @@
-/*
- * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_PMUIF_CMN_H
 #define NVGPU_PMUIF_CMN_H
 
@@ -94,18 +77,52 @@ union name##_aligned {		                         \
 #define NV_PMU_RPC_FLAGS_TYPE_SYNC 0x00000000U
 
 struct nv_pmu_rpc_header {
-	/* Identifies the unit servicing requested RPC*/
-	u8  unit_id;
-	/* Identifies the requested RPC (within the unit)*/
-	u8  function;
-	/* RPC call flags (@see PMU_RPC_FLAGS) */
+	/*
+	 * RPC call flags (@see PMU_RPC_FLAGS)
+	 *   PMU may modify this field.
+	 */
 	u8  flags;
-	/* Falcon's status code to describe failures*/
+	/*
+	 * Identifies the unit servicing requested RPC
+	 * PMU must not modify this field.
+	 */
+	u8  unit_id;
+	/*
+	 * Identifies the requested RPC (within the unit
+	 * PMU must not modify this field.
+	 */
+	u8  function;
+	/*
+	 *  Carries the RM's index of seq struct
+	 *  Used only in responses to the NvGPU issued requests.
+	 *  PMU must not modify this field.
+	 */
+	u8 seq_num_id;
+	/* ID of task in PMU that handled this RPC */
+	u8 task_id;
+	/*
+	 * Falcon's status code to describe failures
+	 * Used only in responses to the NvGPU issued requests.
+	 */
 	falcon_status  flcn_status;
-	/* RPC's total exec. time (measured on nvgpu driver side)*/
-	u32  exec_time_nv_ns;
-	/* RPC's actual exec. time (measured on PMU side)*/
-	u32  exec_time_pmu_ns;
+	/* Size of the RPC structure.*/
+	u16 rpc_size;
+	/* queue level seq number */
+	u16 seq_number;
+	/* negative checksum of entire queue entry */
+	u16 check_sum;
+	union {
+		/*
+		 *  RPC's actual exec. time (measured on PMU side).
+		 *  Used only in responses to the nvgpu issued requests.
+		 */
+		u32 exec_pmu_ns;
+		/*
+		 * PTimer [ns] when the RPC was triggered by the PMU.
+		 * Used only in PMU triggered RPCs
+		 */
+		u32 rpc_triggered;
+	} time;
 };
 
 /* PMU to NVGPU RPC header structure.*/

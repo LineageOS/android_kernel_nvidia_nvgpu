@@ -1,24 +1,7 @@
-/*
- * Copyright (c) 2011-2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_CE_APP_H
 #define NVGPU_CE_APP_H
 
@@ -30,11 +13,18 @@ struct nvgpu_fence_type;
 #define NVGPU_CE_INVAL_CTX_ID	~U32(0U)
 
 /* CE command utility macros */
+/* CE Supports 57-bit addresses in Blackwell */
 #define NVGPU_CE_LOWER_ADDRESS_OFFSET_MASK U32_MAX
-#define NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK 0xffU
+#define NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK 0x1ffffffU
 #define NVGPU_CE_MAX_ADDRESS \
 	((U64(NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK) << 32U) | \
 	 U64(NVGPU_CE_LOWER_ADDRESS_OFFSET_MASK))
+/*
+ * Maximum copy size supported by CE operations
+ * Size should be multiple of 4KB, so the the maximum it can support is 4GB-4KB.
+ * This limit applies to all chips up to Blackwell.
+ */
+#define NVGPU_CE_MAX_COPY_SIZE	(0xFFFFF000U)
 
 #define NVGPU_CE_MAX_INFLIGHT_JOBS 32U
 
@@ -50,26 +40,34 @@ struct nvgpu_fence_type;
 #define NVGPU_CE_MAX_COMMAND_BUFF_BYTES_PER_SUBMIT \
 	((2U + 2U * 16U) * sizeof(u32))
 
-/* dma launch_flags */
-	/* location */
-#define NVGPU_CE_SRC_LOCATION_COHERENT_SYSMEM			BIT32(0)
-#define NVGPU_CE_SRC_LOCATION_NONCOHERENT_SYSMEM		BIT32(1)
-#define NVGPU_CE_SRC_LOCATION_LOCAL_FB				BIT32(2)
-#define NVGPU_CE_DST_LOCATION_COHERENT_SYSMEM			BIT32(3)
-#define NVGPU_CE_DST_LOCATION_NONCOHERENT_SYSMEM		BIT32(4)
-#define NVGPU_CE_DST_LOCATION_LOCAL_FB				BIT32(5)
-	/* memory layout */
-#define NVGPU_CE_SRC_MEMORY_LAYOUT_PITCH			BIT32(6)
-#define NVGPU_CE_SRC_MEMORY_LAYOUT_BLOCKLINEAR			BIT32(7)
-#define NVGPU_CE_DST_MEMORY_LAYOUT_PITCH			BIT32(8)
-#define NVGPU_CE_DST_MEMORY_LAYOUT_BLOCKLINEAR			BIT32(9)
-	/* transfer type */
-#define NVGPU_CE_DATA_TRANSFER_TYPE_PIPELINED			BIT32(10)
-#define NVGPU_CE_DATA_TRANSFER_TYPE_NON_PIPELINED		BIT32(11)
+/* CE method address and values */
+#define NVC86F_DMA_SEC_OP_INC_METHOD (0x1 << 29)
+#define NVC86F_DMA_METHOD_ADDRESS(x) ((x) >> 2)
+#define NVC86F_DMA_METHOD_COUNT(x)	((x) << 16)
+#define NV_PUSH_INC_METHOD(method, count)	\
+	(NVC86F_DMA_SEC_OP_INC_METHOD |		\
+	 NVC86F_DMA_METHOD_ADDRESS(method) |    \
+	 NVC86F_DMA_METHOD_COUNT(count))
+#define NVC86F_SET_OBJECT	0x00000000
 
-/* CE operation mode */
-#define NVGPU_CE_PHYS_MODE_TRANSFER	BIT32(0)
-#define NVGPU_CE_MEMSET			BIT32(1)
+#define NVC8B5_SET_REMAP_CONST_A	0x00000700
+#define NVC8B5_SET_REMAP_CONST_B	0x00000704
+#define NVC8B5_SET_SRC_PHYS_MODE        0x00000260
+#define NVC8B5_SET_DST_PHYS_MODE        0x00000264
+#define NVC8B5_SET_DST_PHYS_MODE_TARGET_NONCOHERENT_SYSMEM (0x2U << 0)
+
+#define NVC8B5_OFFSET_OUT_UPPER         0x00000408
+#define NVC8B5_OFFSET_OUT_LOWER         0x0000040C
+#define NVC8B5_LINE_LENGTH_IN           0x00000418
+#define NVC8B5_LAUNCH_DMA               0x00000300
+#define NVC8B5_LAUNCH_DMA_DATA_TRANSFER_TYPE_PIPELINED	(0x1U << 0)
+#define NVC8B5_LAUNCH_DMA_FLUSH_ENABLE_TRUE		(0x1U << 2)
+#define NVC8B5_LAUNCH_DMA_SRC_MEMORY_LAYOUT_PITCH	(0x1U << 7)
+#define NVC8B5_LAUNCH_DMA_DST_MEMORY_LAYOUT_PITCH	(0x1U << 8)
+#define NVC8B5_LAUNCH_DMA_SRC_TYPE_PHYSICAL		(0x1U << 12)
+#define NVC8B5_LAUNCH_DMA_DST_TYPE_PHYSICAL		(0x1U << 13)
+#define NVC8B5_LAUNCH_DMA_MEMORY_SCRUB_ENABLE_TRUE	(0x1U << 23)
+#define NVC8B5_LAUNCH_DMA_DISABLE_PLC_TRUE		(0x1U << 26)
 
 /* CE app state machine flags */
 enum {
@@ -97,12 +95,8 @@ void nvgpu_ce_app_delete_context(struct gk20a *g,
 		u32 ce_ctx_id);
 int nvgpu_ce_execute_ops(struct gk20a *g,
 		u32 ce_ctx_id,
-		u64 src_paddr,
 		u64 dst_paddr,
 		u64 size,
 		u32 payload,
-		u32 launch_flags,
-		u32 request_operation,
-		u32 submit_flags,
 		struct nvgpu_fence_type **fence_out);
 #endif /*NVGPU_CE_APP_H*/

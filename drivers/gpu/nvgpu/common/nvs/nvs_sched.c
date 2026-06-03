@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 #include <nvs/nvs_sched.h>
@@ -67,6 +48,7 @@ struct nvgpu_nvs_worker_item {
 	struct nvgpu_list_node list;
 	nvgpu_atomic_t state;
 };
+
 
 static inline struct nvgpu_nvs_worker_item *
 nvgpu_nvs_worker_item_from_worker_item(struct nvgpu_list_node *node)
@@ -227,7 +209,7 @@ static void nvgpu_nvs_worker_wakeup_process_item(struct nvgpu_list_node *work_it
 		}
 
 		if ((sched->active_domain->id == SHADOW_DOMAIN_ID) &&
-				rl_domain->remove) {
+				rl_domain->removed) {
 			rl_domain = runlist->shadow_rl_domain;
 			is_shadow_part_remove = true;
 			nvs_dbg(g, "remove flag is set for domain %llu",
@@ -245,6 +227,10 @@ static void nvgpu_nvs_worker_wakeup_process_item(struct nvgpu_list_node *work_it
 	if ((sched->active_domain == nvs_domain->priv) || is_shadow_part_remove) {
 		/* Instantly switch domain and force runlist updates */
 		ret = nvgpu_rl_domain_sync_submit(g, runlist, rl_domain, work->wait_for_finish);
+		if (ret != 0) {
+			nvgpu_err(g, "failed to submit runlist domain [%llu]", runlist->domain->domain_id);
+			goto done;
+			}
 		nvs_dbg(g, "Active thread updated");
 	} else {
 		ret = 1;
@@ -287,7 +273,11 @@ static int nvgpu_nvs_worker_submit(struct gk20a *g, struct nvgpu_runlist *rl,
 	work->g = g;
 	work->rl = rl;
 	work->rl_domain = rl_domain;
-	nvgpu_cond_init(&work->cond);
+	ret = nvgpu_cond_init(&work->cond);
+	if (ret != 0) {
+		nvgpu_err(g, "sw irq cond init failed");
+		goto free_domain;
+	}
 	nvgpu_init_list_node(&work->list);
 	work->wait_for_finish = wait_for_finish;
 	nvgpu_atomic_set(&work->state, 0);
@@ -355,6 +345,8 @@ static bool nvgpu_nvs_worker_wakeup_condition(struct nvgpu_worker *worker)
 		nvs_dbg(g, "nvs set for resume");
 	} else if (nvs_worker_state == NVS_WORKER_STATE_SHOULD_PAUSE) {
 		return true;
+	} else {
+		/* do nothing */
 	}
 
 	return false;
@@ -386,7 +378,7 @@ static void nvgpu_nvs_handle_pause_requests(struct nvgpu_worker *worker)
 static void nvgpu_nvs_worker_wakeup_post_process(struct nvgpu_worker *worker)
 {
 	if (nvgpu_nvs_ctrl_fifo_is_enabled(worker->g)) {
-		nvgpu_nvs_ctrl_fifo_scheduler_handle_requests(worker->g);
+		(void)nvgpu_nvs_ctrl_fifo_scheduler_handle_requests(worker->g);
 	} else {
 #ifndef CONFIG_NVS_ROUND_ROBIN_SCHEDULER_DISABLE
 		nvgpu_nvs_worker_multi_domain_process(worker);
@@ -412,9 +404,9 @@ void nvgpu_nvs_worker_pause(struct gk20a *g)
 	struct nvgpu_nvs_worker *nvs_worker = &g->scheduler->worker;
 	int nvs_worker_state;
 
-	if (g->scheduler == NULL)
+	if (g->scheduler == NULL) {
 		return;
-
+	}
 	if (g->is_virtual) {
 		return;
 	}
@@ -482,7 +474,11 @@ static int nvgpu_nvs_worker_init(struct gk20a *g)
 		return 0;
 	}
 
-	nvgpu_cond_init(&nvs_worker->wq_request);
+	err = nvgpu_cond_init(&nvs_worker->wq_request);
+	if (err != 0) {
+		nvgpu_err(g, "workqueue init failed\n");
+		goto fail;
+	}
 	(void)nvgpu_atomic_xchg(&nvs_worker->nvs_sched_state, NVS_WORKER_STATE_STOPPED);
 
 	nvgpu_worker_init_name(worker, "nvgpu_nvs", g->name);
@@ -515,6 +511,7 @@ static int nvgpu_nvs_worker_init(struct gk20a *g)
 		nvs_dbg(g, "Thread started");
 	}
 
+fail:
 	return err;
 }
 
@@ -536,6 +533,42 @@ static void nvgpu_nvs_worker_deinit(struct gk20a *g)
 }
 #endif /* CONFIG_KMD_SCHEDULING_WORKER_THREAD */
 
+/**
+ * @brief Generate and initialize a new NVS domain.
+ *
+ * This function creates a new NVS domain with the given name, id, timeslice,
+ * and preempt grace period. It allocates memory for the domain and its runlist
+ * domains, sets the initial reference count, and links it to the NVS domain
+ * created by the NVS scheduler.
+ *
+ * The steps performed by the function are as follows:
+ * -# Allocate memory for the new NVS domain using nvgpu_kzalloc().
+ * -# If the allocation fails, return NULL.
+ * -# Using nvgpu_kzalloc() allocate memory for the runlist domains array based on
+ *    the number of runlists in the GPU FIFO structure.
+ * -# If the allocation fails, using nvgpu_kfree() free the previously allocated
+ *    NVS domain memory and return NULL.
+ * -# Set the domain id and initialize the reference count to 1.
+ * -# Create a new NVS domain using nvs_domain_create() with the provided name,
+ *    timeslice, and preempt grace period, and associate it with the allocated NVS
+ *    domain structure.
+ * -# If the NVS domain creation fails, using nvgpu_kfree() free the allocated memory
+ *    for the NVS domain and its runlist domains array, then return NULL.
+ * -# Link the NVS domain to the parent NVS domain structure.
+ * -# Return a pointer to the allocated and initialized NVS domain structure.
+ *
+ * @param [in] g             The GPU super structure.
+ * @param [in] name          The name of the domain to be created.
+ * @param [in] id            The unique identifier for the domain.
+ *                           Range: Any valid u64 value.
+ * @param [in] timeslice     The timeslice duration for the domain.
+ *                           Range: Any valid u64 value.
+ * @param [in] preempt_grace The preempt grace period for the domain.
+ *                           Range: Any valid u64 value.
+ *
+ * @return A pointer to the newly created NVS domain structure on success.
+ * @return NULL if memory allocation or NVS domain creation fails.
+ */
 static struct nvgpu_nvs_domain *
 	nvgpu_nvs_gen_domain(struct gk20a *g, const char *name, u64 id,
 		u64 timeslice, u64 preempt_grace)
@@ -580,6 +613,23 @@ static struct nvgpu_nvs_domain *
 	return nvgpu_dom;
 }
 
+/**
+ * @brief Link NVS domain to shadow runlist domains.
+ *
+ * This function iterates over all active runlists in the GPU FIFO structure
+ * and links each runlist's shadow runlist domain to the NVS domain's runlist
+ * domains array.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the number of runlists from the GPU FIFO structure.
+ * -# Iterate over each active runlist in the GPU FIFO structure.
+ * -# For each active runlist, link its shadow runlist domain to the
+ *    corresponding index in the NVS domain's runlist domains array.
+ *
+ * @param [in] g            The GPU super structure.
+ * @param [in] nvgpu_dom    The NVS domain structure to be linked with shadow
+ *                          runlist domains.
+ */
 static void nvgpu_nvs_link_shadow_rl_domains(struct gk20a *g,
 		struct nvgpu_nvs_domain *nvgpu_dom)
 {
@@ -593,6 +643,33 @@ static void nvgpu_nvs_link_shadow_rl_domains(struct gk20a *g,
 	}
 }
 
+/**
+ * @brief Generate and initialize the shadow NVS domain.
+ *
+ * This function creates a shadow NVS domain with predefined parameters, links it
+ * to shadow runlist domains, and sets it as the active domain in the scheduler.
+ * If GSP scheduler support is enabled, it also adds the shadow domain to the GSP.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the shadow domain is already set in the scheduler; if so, skip
+ *    domain generation.
+ * -# Generate a new NVS domain with a predefined name, maximum u64 ID, specific
+ *    timeslice, and zero preempt grace period using nvgpu_nvs_gen_domain().
+ * -# If domain generation fails due to memory allocation error, set the error
+ *    code and go to the error handling section.
+ * -# Link the generated NVS domain with shadow runlist domains using
+ *    nvgpu_nvs_link_shadow_rl_domains().
+ * -# Set the generated NVS domain as the shadow domain in the scheduler.
+ * -# Set the scheduler's active domain to the newly created shadow domain.
+ * -# If GSP scheduler support is enabled, add the shadow domain to the GSP using
+ *    nvgpu_gsp_nvs_add_domain(). If adding fails, log the error.
+ * -# Return the error code, which is 0 if the function succeeds or an error
+ *    code if any step fails.
+ *
+ * @param [in] g    The GPU super structure.
+ *
+ * @return 0 on success, or a negative error code on failure.
+ */
 static int nvgpu_nvs_gen_shadow_domain(struct gk20a *g)
 {
 	int err = 0;
@@ -629,16 +706,33 @@ error:
 	return err;
 }
 
+/**
+ * @brief Remove the shadow NVS domain from the scheduler.
+ *
+ * This function destroys the shadow NVS domain, frees the associated memory,
+ * and clears the references in the scheduler. It also logs a warning if the
+ * domain is still in use during shutdown.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the shadow domain is set in the scheduler; if not, exit the
+ *    function.
+ * -# If the reference count of the shadow domain is not 1, log a warning
+ *    indicating that the domain is still in use during shutdown.
+ * -# Retrieve the parent NVS domain from the shadow domain.
+ * -# Destroy the NVS domain using nvs_domain_destroy().
+ * -# Using nvgpu_kfree() free the memory allocated for the runlist domains array
+ *    in the shadow domain.
+ * -# Set the pointer to the runlist domains array to NULL.
+ * -# Using nvgpu_kfree() free the memory allocated for the shadow domain.
+ * -# Set the scheduler's shadow domain pointer to NULL.
+ *
+ * @param [in] g    The GPU super structure.
+ */
 static void nvgpu_nvs_remove_shadow_domain(struct gk20a *g)
 {
 	struct nvgpu_nvs_scheduler *sched = g->scheduler;
 	struct nvs_domain *nvs_dom;
 	s32 err = 0;
-
-	if (sched == NULL) {
-		/* never powered on to init anything */
-		return;
-	}
 
 	if (sched->shadow_domain == NULL) {
 		return;
@@ -741,7 +835,7 @@ int nvgpu_nvs_open(struct gk20a *g)
 	g->scheduler = nvgpu_kzalloc(g, sizeof(*g->scheduler));
 	if (g->scheduler == NULL) {
 		err = -ENOMEM;
-		goto unlock;
+		goto fail;
 	}
 
 	nvgpu_atomic64_set(&g->scheduler->id_counter, 0);
@@ -751,7 +845,7 @@ int nvgpu_nvs_open(struct gk20a *g)
 		g->sched_ctrl_fifo = nvgpu_nvs_ctrl_fifo_create(g);
 		if (g->sched_ctrl_fifo == NULL) {
 			err = -ENOMEM;
-			goto unlock;
+			goto fail;
 		}
 	}
 
@@ -759,13 +853,13 @@ int nvgpu_nvs_open(struct gk20a *g)
 	g->scheduler->sched = nvgpu_kzalloc(g, sizeof(*g->scheduler->sched));
 	if (g->scheduler->sched == NULL) {
 		err = -ENOMEM;
-		goto unlock;
+		goto fail;
 	}
 
 	nvs_dbg(g, "  Creating NVS scheduler.");
 	err = nvs_sched_create(g->scheduler->sched, &nvgpu_nvs_ops, g);
 	if (err != 0) {
-		goto unlock;
+		goto fail;
 	}
 
 	/* Ensure all the previous writes are seen */
@@ -773,7 +867,7 @@ int nvgpu_nvs_open(struct gk20a *g)
 
 	err = nvgpu_nvs_gen_shadow_domain(g);
 	if (err != 0) {
-		goto unlock;
+		goto fail1;
 	}
 
 	/* Ensure all the previous writes are seen */
@@ -784,45 +878,49 @@ int nvgpu_nvs_open(struct gk20a *g)
 		err = nvgpu_nvs_worker_init(g);
 		if (err != 0) {
 			nvgpu_nvs_remove_shadow_domain(g);
-			goto unlock;
+			goto fail1;
 		}
 
 		g->nvs_worker_submit = nvgpu_nvs_worker_submit;
-#endif
-unlock:
-
-#ifdef CONFIG_KMD_SCHEDULING_WORKER_THREAD
-		if (err) {
-			nvs_dbg(g, "  Failed! Error code: %d", err);
-			if (g->scheduler) {
-				nvgpu_kfree(g, g->scheduler->sched);
-				nvgpu_kfree(g, g->scheduler);
-				g->scheduler = NULL;
-			}
-			if (g->sched_ctrl_fifo)
-				nvgpu_nvs_ctrl_fifo_destroy(g);
-		}
 	}
 #endif
+	nvgpu_mutex_release(&g->sched_mutex);
+	return err;
+fail1:
+	nvs_dbg(g, "  Failed! Error code: %d", err);
+	nvs_sched_close(g->scheduler->sched);
+fail:
 
-#ifdef CONFIG_NVGPU_GSP_SCHEDULER
-	if (err != 0) {
-		if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
-			err = nvgpu_gsp_nvs_delete_domain(g, g->scheduler->shadow_domain->id);
-			if (err != 0) {
-				nvgpu_err(g, "delete domain for shadow domain failed");
-			}
+	if (g->scheduler != NULL) {
+		if (g->scheduler->sched != NULL) {
+			nvgpu_kfree(g, g->scheduler->sched);
 		}
+		nvgpu_kfree(g, g->scheduler);
+		g->scheduler = NULL;
 	}
-#endif
+	if (g->sched_ctrl_fifo != NULL) {
+		nvgpu_nvs_ctrl_fifo_destroy(g);
+	}
 
 	nvgpu_mutex_release(&g->sched_mutex);
 
 	return err;
 }
 
-/*
- * A trivial allocator for now.
+/**
+ * @brief Generates a new unique identifier for NVS use.
+ *
+ * The function increments the NVS ID counter and returns the new value as a
+ * unique identifier. This ID can be used for tracking NVS-related entities.
+ *
+ * The steps performed by the function are as follows:
+ * -# Increment the NVS ID counter atomically to ensure thread safety.
+ * -# Using nvgpu_safe_cast_s64_to_u64() cast the incremented signed 64-bit value
+ *    to an unsigned 64-bit value to obtain the new unique ID.
+ *
+ * @param [in] g - The GPU super structure.
+ *
+ * @return The new unique identifier as an unsigned 64-bit integer.
  */
 static u64 nvgpu_nvs_new_id(struct gk20a *g)
 {
@@ -830,6 +928,30 @@ static u64 nvgpu_nvs_new_id(struct gk20a *g)
 		nvgpu_atomic64_inc_return(&g->scheduler->id_counter));
 }
 
+/**
+ * @brief Allocates runlist domain memory for each runlist in the NVS domain.
+ *
+ * This function iterates over all runlists and allocates a runlist domain for
+ * each one. If allocation fails at any point, it cleans up any previously
+ * allocated runlist domains before returning an error.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over the number of runlists available in the GPU FIFO structure.
+ * -# For each runlist, allocate a runlist domain using nvgpu_runlist_domain_alloc().
+ * -# If allocation fails, store the error code and break out of the loop.
+ * -# If an error occurred during allocation, iterate over the allocated
+ *    runlist domains and free each one using nvgpu_runlist_domain_free().
+ * -# Set the pointer of the freed runlist domain to NULL.
+ * -# Return the error code if an error occurred, otherwise return 0 indicating
+ *    successful allocation of runlist domains.
+ *
+ * @param [in] g - The GPU super structure.
+ * @param [in] domain - The NVS domain structure for which runlist domains are
+ *                      being allocated.
+ *
+ * @return 0 on successful allocation of all runlist domains.
+ * @return -ENOMEM if memory allocation fails for any runlist domain.
+ */
 static int nvgpu_nvs_create_rl_domain_mem(struct gk20a *g,
 		struct nvgpu_nvs_domain *domain)
 {
@@ -855,6 +977,20 @@ static int nvgpu_nvs_create_rl_domain_mem(struct gk20a *g,
 	return err;
 }
 
+/**
+ * @brief Links each runlist with its corresponding domain in the NVS domain.
+ *
+ * This function iterates over all active runlists and links each one to its
+ * corresponding runlist domain within the NVS domain.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over the number of runlists available in the GPU FIFO structure.
+ * -# For each runlist, retrieve the pointer to the active runlist structure.
+ * -# Link the runlist with its corresponding domain using nvgpu_runlist_link_domain().
+ *
+ * @param [in] g - The GPU super structure.
+ * @param [in] domain - The NVS domain structure containing the runlist domains.
+ */
 static void nvgpu_nvs_link_rl_domains(struct gk20a *g,
 		struct nvgpu_nvs_domain *domain)
 {
@@ -949,7 +1085,7 @@ nvgpu_nvs_domain_by_id_locked(struct gk20a *g, u64 domain_id)
 			return nvgpu_dom;
 		}
 	}
-	
+
 	return NULL;
 }
 
@@ -1036,6 +1172,23 @@ void nvgpu_nvs_domain_put(struct gk20a *g, struct nvgpu_nvs_domain *dom)
 	nvgpu_mutex_release(&g->sched_mutex);
 }
 
+/**
+ * @brief Frees the runlist domain memory associated with a given NVS domain.
+ *
+ * The function iterates over all runlists associated with the NVS domain and
+ * frees the memory allocated for each runlist domain. It then sets the pointer
+ * to the runlist domain to NULL, indicating that the memory has been freed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over all runlists associated with the NVS domain.
+ * -# For each runlist, call nvgpu_runlist_domain_free() to free the allocated
+ *    memory for the runlist domain.
+ * -# Set the pointer to the runlist domain to NULL.
+ *
+ * @param [in] g    The GPU super structure.
+ * @param [in] dom  The NVS domain structure which contains the runlist domains
+ *                  to be freed.
+ */
 static void nvgpu_nvs_delete_rl_domain_mem(struct gk20a *g, struct nvgpu_nvs_domain *dom)
 {
 	struct nvgpu_fifo *f = &g->fifo;
@@ -1047,6 +1200,24 @@ static void nvgpu_nvs_delete_rl_domain_mem(struct gk20a *g, struct nvgpu_nvs_dom
 	}
 }
 
+/**
+ * @brief Unlinks the runlist domains from their associated runlists.
+ *
+ * This function iterates through each runlist within the GPU's FIFO structure
+ * and unlinks the corresponding runlist domain from the NVS domain. This is
+ * typically done in preparation for freeing or reassigning the runlist domains.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over each runlist within the GPU's FIFO structure.
+ * -# Retrieve the pointer to the current runlist in the iteration.
+ * -# Call nvgpu_runlist_unlink_domain() to unlink the runlist domain from the
+ *    current runlist.
+ *
+ * @Param [in] g       The GPU super structure which contains the FIFO structure
+ *                     and the runlists.
+ * @Param [in] domain  The NVS domain structure which contains the runlist domains
+ *                     to be unlinked.
+ */
 static void nvgpu_nvs_unlink_rl_domains(struct gk20a *g, struct nvgpu_nvs_domain *domain)
 {
 	struct nvgpu_fifo *f = &g->fifo;

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_LOG_COMMON_H
@@ -90,4 +72,10 @@ enum nvgpu_log_type {
 #endif
 #define gpu_dbg_gsp		BIT(47) /* GSP Scheduler debugging */
 #define gpu_dbg_mme		BIT(48) /* Multimedia Engines debugging */
+#define gpu_dbg_init            BIT(49) /* Driver SW init debugging. E.g
+					   dev-node creation, etc. */
+#define gpu_dbg_checker		BIT(50) /* Checker debugging messages */
+#define gpu_dbg_intf		BIT(51) /* Driver interface (ioctl, dev-ctl)
+					   debugging. */
+#define gpu_dbg_pm		BIT(52) /* Power management */
 #endif

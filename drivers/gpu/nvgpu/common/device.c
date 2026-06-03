@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/device.h>
@@ -30,11 +11,12 @@
 #define device_dbg(g, fmt, args...)					\
 	do {								\
 		nvgpu_log(g, gpu_dbg_device, fmt, ##args);		\
-	} while (0)
+		NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 14_4), "SWE-NVGPU-053-SWSADR.docx") \
+	} while (false)
 
 static inline const char *nvgpu_device_type_to_str(const struct nvgpu_device *dev)
 {
-	const char *str = "Unknown";
+	const char *str;
 
 	switch (dev->type) {
 	case NVGPU_DEVTYPE_GRAPHICS:
@@ -70,7 +52,11 @@ static inline const char *nvgpu_device_type_to_str(const struct nvgpu_device *de
 	case NVGPU_DEVTYPE_NVJPG:
 		str = "NVJPG";
 		break;
+	case NVGPU_DEVTYPE_NVGSP:
+		str = "NVGSP";
+		break;
 	default:
+		str = "Unknown";
 		break;
 	}
 
@@ -114,7 +100,8 @@ static int nvgpu_device_parse_hw_table(struct gk20a *g)
 		devlist = &g->devs->devlist_heads[dev->type];
 
 		nvgpu_list_add_tail(&dev->dev_list_node, devlist);
-		g->devs->dev_counts[dev->type] += 1;
+		g->devs->dev_counts[dev->type] =
+			nvgpu_safe_add_u32(g->devs->dev_counts[dev->type], 1U);
 	}
 
 	return ret;
@@ -323,6 +310,32 @@ u32 nvgpu_device_get_copies(struct gk20a *g,
 	return nvgpu_device_do_get_copies(g, false, ces, max);
 }
 
+u32 nvgpu_device_get_by_type(struct gk20a *g,
+			const struct nvgpu_device **devs,
+			u32 type,
+			u32 max)
+{
+	u32 index = 0U;
+	const struct nvgpu_device *dev;
+
+	if (max == 0U) {
+		return 0U;
+	}
+
+	if (type >= NVGPU_MAX_DEVTYPE) {
+		return 0U;
+	}
+	nvgpu_device_for_each(g, dev, type) {
+		devs[index] = dev;
+		index = nvgpu_safe_add_u32(index, 1U);
+		if (index == max) {
+			return index;
+		}
+	}
+
+	return index;
+}
+
 /*
  * Note: this kind of bleeds HW details into the core code. Eventually this
  * should be handled by a translation table. However, for now, HW has kept the
@@ -390,16 +403,15 @@ bool nvgpu_device_is_nvjpg(struct gk20a *g, const struct nvgpu_device *dev)
 
 bool nvgpu_device_is_multimedia(struct gk20a *g, const struct nvgpu_device *dev)
 {
-	u32 dev_type, instance;
-	s32 mm_engine;
+	u32 mm_engine;
+	const struct nvgpu_device *mm_dev;
 	(void)g;
 
 	for (mm_engine = NVGPU_MULTIMEDIA_ENGINE_NVENC; mm_engine < NVGPU_MULTIMEDIA_ENGINE_MAX;
 		mm_engine++) {
-		if (nvgpu_multimedia_get_devtype(mm_engine, &dev_type, &instance)) {
-			if (dev->type == dev_type) {
-				return true;
-			}
+		mm_dev = nvgpu_multimedia_get_dev(g, mm_engine);
+		if ((mm_dev != NULL) && (dev->type == mm_dev->type)) {
+			return true;
 		}
 	}
 	return false;

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 
 #include <nvgpu/channel.h>
@@ -47,7 +28,7 @@ u32 ga10b_channel_count(struct gk20a *g)
 	u32 num_channels = 0U;
 	/* Limit number of channels, avoids unnecessary memory allocation */
 	nvgpu_log(g, gpu_dbg_info, "Number of channels supported by hw = %u",
-		((0x1U) << runlist_channel_config_num_channels_log2_2k_v()));
+		BIT32(runlist_channel_config_num_channels_log2_2k_v()));
 
 	num_channels = nvgpu_channel_get_synpoints(g);
 	nvgpu_log(g, gpu_dbg_info, "Number of channels supported by sw = %u",
@@ -80,16 +61,15 @@ void ga10b_channel_bind(struct nvgpu_channel *ch)
 	int err;
 
 	/* Enable subcontext */
-	if (g->ops.tsg.add_subctx_channel_hw != NULL) {
+	if (g->ops.tsg.add_subctx_channel_hw != NULL &&
+		!nvgpu_engine_is_multimedia_runlist_id(g, ch->runlist->id)) {
+
 		err = g->ops.tsg.add_subctx_channel_hw(ch, ch->replayable);
 		if (err != 0) {
 			nvgpu_err(g, "Subcontext addition failed %d", err);
 			return;
 		}
 	}
-
-	/* Enable channel */
-	nvgpu_channel_enable(ch);
 
 	nvgpu_atomic_set(&ch->bound, CHANNEL_BOUND);
 }
@@ -153,6 +133,26 @@ void ga10b_channel_clear(struct gk20a *g, u32 runlist_id, u32 chid)
 
 #define NUM_STATUS_STR		8U
 
+/**
+ * @brief Constructs a mask for channel status bits.
+ *
+ * This function creates a bitmask that represents various status flags for a channel
+ * in the channel RAM (CHRAM). The status flags include whether the channel is on PBDMA,
+ * on ENG (engine), pending, context reload, PBDMA busy, ENG busy, and acquire fail.
+ *
+ * The steps performed by the function are as follows:
+ * -# Create a bitmask by combining the following status flags using bitwise OR:
+ *    - Channel is on PBDMA
+ *    - Channel is on an engine
+ *    - Channel is pending
+ *    - Context reload is required for the channel
+ *    - PBDMA is busy with the channel
+ *    - Engine is busy with the channel
+ *    - Channel has failed to acquire resources
+ * -# Return the constructed bitmask.
+ *
+ * @return The bitmask representing the channel status flags.
+ */
 static u32 ga10b_channel_status_mask(void)
 {
 	u32 mask = (runlist_chram_channel_on_pbdma_m() |
@@ -166,7 +166,11 @@ static u32 ga10b_channel_status_mask(void)
 	return mask;
 }
 
-static const char * const chram_status_str[] = {
+/**
+ * MISRA mandates to specify the size of the array when designated initializers are used to
+ * initialize an array. Make sure the array size is highest index + 1.
+ */
+static const char * const chram_status_str[runlist_chram_channel_acquire_fail_m() + 1] = {
 	[runlist_chram_channel_on_pbdma_m()] = "on_pbdma",
 	[runlist_chram_channel_on_eng_m()] = "on_eng",
 	[runlist_chram_channel_pending_m()] = "pending",
@@ -182,6 +186,7 @@ void ga10b_channel_read_state(struct gk20a *g, u32 runlist_id, u32 chid,
 	u32 reg = 0U;
 	unsigned long bit = 0UL;
 	unsigned long status_str_bits = 0UL;
+	unsigned long ilog2 = 0UL;
 	u32 status_str_count = 0U;
 	bool idle = true;
 	struct nvgpu_runlist *runlist = g->fifo.runlists[runlist_id];
@@ -208,22 +213,23 @@ void ga10b_channel_read_state(struct gk20a *g, u32 runlist_id, u32 chid,
 				runlist_chram_channel_eng_faulted_true_v();
 
 	/* Construct status string for below status fields */
-	status_str_bits = (u64)(reg & ga10b_channel_status_mask());
+	status_str_bits = ((u64)reg & ga10b_channel_status_mask());
 
 	/*
 	 * Status is true if the corresponding bit is set.
 	 * Go through each set bit and copy status string to status string list.
 	 */
-	for_each_set_bit(bit, &status_str_bits, nvgpu_ilog2(U32_MAX)) {
+	ilog2 = nvgpu_ilog2(U32_MAX);
+	for_each_set_bit(bit, &status_str_bits, ilog2) {
 		chram_status_list[status_str_count] =
 					chram_status_str[BIT32(bit)];
-		status_str_count = nvgpu_safe_add_u32(status_str_count, 1UL);
+		status_str_count = nvgpu_safe_add_u32(status_str_count, 1U);
 		idle = false;
 	}
 
 	if (idle) {
 		chram_status_list[status_str_count] = "idle";
-		status_str_count = nvgpu_safe_add_u32(status_str_count, 1UL);
+		status_str_count = nvgpu_safe_add_u32(status_str_count, 1U);
 	}
 
 	/* Combine all status strings */
@@ -242,25 +248,19 @@ void ga10b_channel_read_state(struct gk20a *g, u32 runlist_id, u32 chid,
 		state->eng_faulted ? "true" : "false", state->status_string);
 }
 
-void ga10b_channel_reset_faulted(struct gk20a *g, struct nvgpu_channel *ch,
-		bool eng, bool pbdma)
+void ga10b_channel_reset_faulted(struct gk20a *g, u32 runlist_id, u32 chid)
 {
-	struct nvgpu_runlist *runlist = NULL;
+	struct nvgpu_runlist *runlist = g->fifo.runlists[runlist_id];
 
-	runlist = ch->runlist;
+	nvgpu_chram_bar0_writel(g, runlist,
+			runlist_chram_channel_r(chid),
+			runlist_chram_channel_update_f(
+				runlist_chram_channel_update_reset_eng_faulted_v()));
 
-	if (eng) {
-		nvgpu_chram_bar0_writel(g, runlist,
-			runlist_chram_channel_r(ch->chid),
+	nvgpu_chram_bar0_writel(g, runlist,
+			runlist_chram_channel_r(chid),
 			runlist_chram_channel_update_f(
-			runlist_chram_channel_update_reset_eng_faulted_v()));
-	}
-	if (pbdma) {
-		nvgpu_chram_bar0_writel(g, runlist,
-			runlist_chram_channel_r(ch->chid),
-			runlist_chram_channel_update_f(
-			runlist_chram_channel_update_reset_pbdma_faulted_v()));
-	}
+				runlist_chram_channel_update_reset_pbdma_faulted_v()));
 
 	/*
 	 * At this point the fault is handled and *_FAULTED bit is cleared.
@@ -269,7 +269,7 @@ void ga10b_channel_reset_faulted(struct gk20a *g, struct nvgpu_channel *ch,
 	 * doorbell is written or a new runlist is submitted. Hence, ring the
 	 * runlist doorbell once the fault is cleared.
 	 */
-	g->ops.usermode.ring_doorbell(ch);
+	g->ops.usermode.ring_doorbell(g, runlist_id, chid);
 
 }
 

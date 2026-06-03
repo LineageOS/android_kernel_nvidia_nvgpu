@@ -1,25 +1,5 @@
-/* SPDX-License-Identifier: MIT */
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2023, NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -73,6 +53,20 @@
 #define perf_pmmfbprouter_extent_v()                               (0x002461ffU)
 #define perf_pmmgpcrouter_base_v()                                 (0x00244000U)
 #define perf_pmmgpcrouter_extent_v()                               (0x002441ffU)
+#define perf_pmmfbp_fbpgs_ltcs_base_v()                            (0x00250800U)
+#define perf_pmmfbp_fbpgs_ltcs_extent_v()                          (0x002509ffU)
+#define perf_pmmgpc_gpcgs_gpctpca_base_v()                         (0x00250000U)
+#define perf_pmmgpc_gpcgs_gpctpca_extent_v()                       (0x002501ffU)
+#define perf_pmmgpc_gpcgs_gpctpcb_base_v()                         (0x00250200U)
+#define perf_pmmgpc_gpcgs_gpctpcb_extent_v()                       (0x002503ffU)
+#define perf_pmmgpc_gpcs_base_v()                                  (0x00278000U)
+#define perf_pmmgpc_gpcs_extent_v()                                (0x0027bfffU)
+#define perf_pmmgpc_gpcsrouter_base_v()                            (0x00251800U)
+#define perf_pmmgpc_gpcsrouter_extent_v()                          (0x002519ffU)
+#define perf_pmmfbp_fbps_base_v()                                  (0x0027c000U)
+#define perf_pmmfbp_fbps_extent_v()                                (0x0027ffffU)
+#define perf_pmmfbp_fbpsrouter_base_v()                            (0x00251a00U)
+#define perf_pmmfbp_fbpsrouter_extent_v()                          (0x00251bffU)
 #define perf_pmasys_control_r()                                    (0x0024a000U)
 #define perf_pmasys_channel_control_user_r(i)\
 		(nvgpu_safe_add_u32(0x0024a620U, nvgpu_safe_mult_u32((i), 384U)))

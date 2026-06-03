@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_CONFIG_H
@@ -68,6 +50,13 @@ struct tpc_vgpc_table;
  *         NULL in case of failure.
  */
 struct nvgpu_gr_config *nvgpu_gr_config_init(struct gk20a *g);
+
+/**
+ * @brief Initialize rop config structures
+ * 
+ * @param config [in]		Pointer to GR configuration struct.
+ */
+int nvgpu_gr_config_init_gpc_rop_config(struct nvgpu_gr_config *config);
 
 /**
  * @brief Deinitialize GR engine configuration.
@@ -288,6 +277,19 @@ u32 *nvgpu_gr_config_get_gpc_tpc_mask_physical_base(
 		struct nvgpu_gr_config *config);
 
 /**
+ * @brief Get base address of array that stores mask of PPCs in GPC.
+ *
+ * @param config [in]		Pointer to GR configuration struct.
+ *
+ * Get base address of array that stores mask of PPCs in GPC, ordered
+ * in GPC physical id.
+ *
+ * @return base address of array that stores mask of PPCs in GPC.
+ */
+u32 *nvgpu_gr_config_get_gpc_ppc_mask_physical_base(
+		struct nvgpu_gr_config *config);
+
+/**
  * @brief Get TPC mask for given logical GPC index.
  *
  * @param config [in]		Pointer to GR configuration struct.
@@ -321,6 +323,22 @@ u32 nvgpu_gr_config_get_gpc_tpc_mask(struct nvgpu_gr_config *config,
  */
 u32 nvgpu_gr_config_get_gpc_tpc_mask_physical(struct nvgpu_gr_config *config,
 	u32 gpc_index);
+
+/**
+ * @brief Get TPC physical idx for given physical GPC index and logical tpc index.
+ *
+ * @param config [in]		Pointer to GR configuration struct.
+ * @param gpc_phy_id [in]	Valid GPC physical id.
+ * @param tpc_logical_id [in]	Valid TPC logical id.
+ *
+ * This function returns physical index of TPCs for given GPC physical index and TPC logical index,
+ * GPC physical index must be less than value returned by
+ * #nvgpu_gr_config_get_max_gpc_count(), otherwise an assert is raised.
+ *
+ * @return physical id of TPC for given GPC physical index and tpc logical index.
+ */
+u32 nvgpu_gr_config_get_gpc_tpc_phy_id(struct nvgpu_gr_config *config, u32 gpc_phy_id,
+	u32 tpc_logical_id);
 
 /**
  * @brief Set TPC mask for given GPC.
@@ -728,6 +746,19 @@ const u32 *gr_config_get_gpc_rop_logical_id_map(struct nvgpu_gr_config *config,
 		u32 gpc);
 
 /**
+ * @brief Get base address of array that stores mask of ROPs in GPC.
+ *
+ * @param config [in]		Pointer to GR configuration struct.
+ *
+ * Get base address of array that stores mask of ROPs in GPC, ordered
+ * in GPC physical id.
+ *
+ * @return base address of array that stores mask of ROPs in GPC.
+ */
+u32 *nvgpu_gr_config_get_gpc_rop_mask_physical_base(
+		struct nvgpu_gr_config *config);
+
+/**
  * @brief Get the physical to logical id map for all the PESs in the specified
  *        gpc.
  *
@@ -736,6 +767,7 @@ const u32 *gr_config_get_gpc_rop_logical_id_map(struct nvgpu_gr_config *config,
  *
  * @return pointer to u32 array.
  */
+
 const u32 *gr_config_get_gpc_pes_logical_id_map(struct nvgpu_gr_config *config,
 		u32 gpc);
 
@@ -746,10 +778,12 @@ u32 nvgpu_gr_config_get_map_row_offset(struct nvgpu_gr_config *config);
 u32 nvgpu_gr_config_get_map_tile_count(struct nvgpu_gr_config *config,
 	u32 index);
 u8 *nvgpu_gr_config_get_map_tiles(struct nvgpu_gr_config *config);
+#ifdef CONFIG_NVGPU_ZCULL
 u32 nvgpu_gr_config_get_max_zcull_per_gpc_count(struct nvgpu_gr_config *config);
 u32 nvgpu_gr_config_get_zcb_count(struct nvgpu_gr_config *config);
 u32 nvgpu_gr_config_get_gpc_zcb_count(struct nvgpu_gr_config *config,
 	u32 gpc_index);
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
 
 #endif /* NVGPU_GR_CONFIG_H */

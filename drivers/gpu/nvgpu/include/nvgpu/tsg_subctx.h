@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_TSG_SUBCTX_H
 #define NVGPU_TSG_SUBCTX_H
@@ -85,7 +67,7 @@ int nvgpu_tsg_subctx_bind_channel(struct nvgpu_tsg *tsg,
  *   - Free the VEID corresponding to the channel if force is true.
  *   - Update the instance blocks of all channels to remove the
  *     subctx pdb.
- *   - Invoke g->ops.gr.setup.free_subctx to free the GR subcontext
+ *   - Invoke gops_gr_setup.free_subctx() to free the GR subcontext
  *     struct (and GR subcontext mappings struct).
  *   - Remove the subctx from the TSG #subctx_list.
  *   - Free the subctx memory. If this was the only active channel
@@ -134,7 +116,7 @@ int nvgpu_tsg_subctx_setup_subctx_header(struct gk20a *g,
  * - Return #gr_subctx from #nvgpu_tsg_subctx.
  */
 struct nvgpu_gr_subctx *nvgpu_tsg_subctx_get_gr_subctx(
-				struct nvgpu_tsg_subctx *tsg_subctx);
+				struct nvgpu_tsg_subctx *subctx);
 
 /**
  * @brief Get id of a TSG subcontext.
@@ -143,7 +125,7 @@ struct nvgpu_gr_subctx *nvgpu_tsg_subctx_get_gr_subctx(
  *
  * - Return #subctx_id from #nvgpu_tsg_subctx.
  */
-u32 nvgpu_tsg_subctx_get_id(struct nvgpu_tsg_subctx *tsg_subctx);
+u32 nvgpu_tsg_subctx_get_id(struct nvgpu_tsg_subctx *subctx);
 
 /**
  * @brief Set replayable state for a TSG subcontext.

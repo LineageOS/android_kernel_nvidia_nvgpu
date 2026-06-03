@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -33,6 +14,7 @@
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/ltc.h>
+#include <nvgpu/grmgr.h>
 
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/config.h>
@@ -365,9 +347,9 @@ void gm20b_gr_init_load_method_init(struct gk20a *g,
 		class_num = gr_pri_mme_shadow_ram_index_nvclass_v(
 			sw_method_init->l[i].addr);
 #ifdef CONFIG_NVGPU_MIG
-		if ((nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) &&
-				(!g->ops.gpu_class.is_valid_compute(
-					class_num))) {
+		if ((g->numa_node_id == 1) || (((nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) &&
+				!(nvgpu_grmgr_is_cur_instance_support_gfx(g))) &&
+				(!g->ops.gpu_class.is_valid_compute(class_num)))) {
 			nvgpu_log(g, gpu_dbg_mig | gpu_dbg_gr,
 				"(MIG) Skip graphics sw method index[%u] "
 					"addr[%x] value[%x] class_num[%x] ",
@@ -449,7 +431,8 @@ u32 gm20b_gr_init_get_patch_slots(struct gk20a *g,
 bool gm20b_gr_init_is_allowed_sw_bundle(struct gk20a *g,
 	u32 bundle_addr, u32 bundle_value, int *context)
 {
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+		(nvgpu_grmgr_is_cur_instance_support_gfx(g))) {
 		nvgpu_log(g, gpu_dbg_mig,
 			"Allowed bundle addr[%x] value[%x] ",
 			bundle_addr, bundle_value);
@@ -461,7 +444,7 @@ bool gm20b_gr_init_is_allowed_sw_bundle(struct gk20a *g,
 	 */
 	if (gr_pipe_bundle_address_value_v(bundle_addr) ==
 			GR_PIPE_MODE_BUNDLE) {
-		*context = (bundle_value == GR_PIPE_MODE_MAJOR_COMPUTE);
+		*context = (bundle_value == GR_PIPE_MODE_MAJOR_COMPUTE) ? 1 : 0;
 		nvgpu_log(g, gpu_dbg_mig, "(MIG) Bundle start "
 			"addr[%x] bundle_value[%x] is_compute_start[%d]",
 			bundle_addr, bundle_value, (*context != 0));

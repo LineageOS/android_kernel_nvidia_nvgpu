@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_DEVICE_H
@@ -26,7 +8,28 @@
 /**
  * @file
  *
+ * @page device device
+ *
+ * Overview
+ * ========
+ *
+ * Manage different types of devices.
  * Declare device info specific struct and defines.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_device_init()
+ *   + nvgpu_device_cleanup()
+ *   + nvgpu_device_get()
+ *   + nvgpu_device_count()
+ *   + nvgpu_device_is_ce()
+ *   + nvgpu_device_is_graphics()
+ *   + nvgpu_device_get_copies()
+ *   + nvgpu_device_get_async_copies()
+ *   + nvgpu_device_dump_dev()
  */
 
 #include <nvgpu/types.h>
@@ -107,6 +110,12 @@ struct gk20a;
  */
 #define NVGPU_DEVTYPE_LCE		19U
 
+/**
+ * @ingroup NVGPU_TOP_DEVICE_INFO_DEFINES
+ *
+ * Device type for NVGSP engine instances.
+ */
+#define NVGPU_DEVTYPE_NVGSP		20U
 /**
  * @ingroup NVGPU_TOP_DEVICE_INFO_DEFINES
  *
@@ -213,6 +222,23 @@ struct nvgpu_device {
 	 * it may make sense to not have this link.
 	 */
 	struct nvgpu_pbdma_info pbdma_info;
+	/**
+	 * PCE bitmask if it is CE engine.
+	 */
+	u32 pce_bitmask;
+	/**
+	 * Flag to indicate it is GRCE or not.
+	 */
+	bool is_grce;
+	/**
+	 * Flag to indicate it is valid LCE device or not.
+	 */
+	bool is_invalid_lce;
+	/**
+	 * This is used for MM assignment for MIG instances.
+	 */
+	bool is_in_use;
+
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };
 
@@ -419,7 +445,22 @@ u32 nvgpu_device_get_copies(struct gk20a *g,
 u32 nvgpu_device_get_async_copies(struct gk20a *g,
 				  const struct nvgpu_device **ces,
 				  u32 max);
-
+/**
+ * @brief Query list of engines with specified type in the chip.
+ *
+ * @param g [in]	The GPU.
+ * @param devs [out]	List to store engine pointers.
+ * @param type [in]	Type of the engine.
+ *
+ * Walk the device list and get the device with specified type
+ * from the list.
+ *
+ * @return The number of engine pointers written to the \a devs array.
+ */
+u32 nvgpu_device_get_by_type(struct gk20a *g,
+				const struct nvgpu_device **devs,
+				u32 type,
+				u32 max);
 /**
  * @brief Dubug dump for a device. Prints under the gpu_dbg_device log
  *        level.

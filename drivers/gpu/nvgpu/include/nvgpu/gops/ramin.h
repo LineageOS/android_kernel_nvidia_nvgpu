@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_RAMIN_H
 #define NVGPU_GOPS_RAMIN_H
@@ -212,12 +194,41 @@ struct gops_ramin {
 
 	void (*set_adr_limit)(struct gk20a *g,
 			struct nvgpu_mem *inst_block, u64 va_limit);
-	void (*set_eng_method_buffer)(struct gk20a *g,
+	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+
+	/**
+	 * @brief Set the engine method buffer address in the RAMIN area.
+	 *
+	 * This function programs the address of the engine method buffer into the
+	 * instance block of a channel. The steps are as follows:
+	 * -# Extract the lower 32 bits of the GPU virtual address of the engine method
+	 *    buffer and write it to the lower address field of the engine method buffer
+	 *    in the instance block using nvgpu_mem_wr32().
+	 * -# Extract the upper 32 bits of the GPU virtual address of the engine method
+	 *    buffer and write it to the higher address field of the engine method buffer
+	 *    in the instance block using nvgpu_mem_wr32().
+	 *
+	 * @param [in] g          Pointer to the GPU driver structure.
+	 * @param [in] inst_block Pointer to the instance block memory descriptor.
+	 * @param [in] gpu_va     GPU virtual address of the engine method buffer.
+	 */
+	void (*set_eng_method_buffer)(struct gk20a	 *g,
 			struct nvgpu_mem *inst_block, u64 gpu_va);
+
+	/**
+	 * @brief Set a magic value in the RAMIN area for engine firmware.
+	 *
+	 * This function programs a predefined magic value into the instance block of a
+	 * channel to indicate the presence of engine firmware. The steps are as follows:
+	 * -# Write the predefined magic value #ram_in_engine_fw_magic_value_v() to the
+	 *    magic value field #ram_in_engine_fw_magic_value_w() in the instance block using
+	 *    nvgpu_mem_wr32().
+	 *
+	 * @param [in] g          Pointer to the GPU driver structure.
+	 * @param [in] inst_block Pointer to the instance block memory descriptor.
+	 */
 	void (*set_magic_value)(struct gk20a *g,
 			struct nvgpu_mem *inst_block);
-
-	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };
 
 #endif

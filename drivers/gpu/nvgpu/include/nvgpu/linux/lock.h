@@ -1,17 +1,5 @@
-/*
- * Copyright (c) 2017, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_LOCK_LINUX_H
@@ -19,6 +7,7 @@
 
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/semaphore.h>
 
 struct nvgpu_mutex {
 	struct mutex mutex;
@@ -28,6 +17,10 @@ struct nvgpu_spinlock {
 };
 struct nvgpu_raw_spinlock {
 	raw_spinlock_t spinlock;
+};
+
+struct nvgpu_sem {
+	struct semaphore sem;
 };
 
 static inline void nvgpu_mutex_init(struct nvgpu_mutex *mutex)
@@ -69,7 +62,7 @@ static inline void nvgpu_spinlock_release(struct nvgpu_spinlock *spinlock)
 
 #define nvgpu_spinunlock_irqrestore(lock, flags) \
 		spin_unlock_irqrestore(lock.spinlock, flags)
-
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static inline void nvgpu_raw_spinlock_init(struct nvgpu_raw_spinlock *spinlock)
 {
 	raw_spin_lock_init(&spinlock->spinlock);
@@ -82,5 +75,32 @@ static inline void nvgpu_raw_spinlock_release(struct nvgpu_raw_spinlock *spinloc
 {
 	raw_spin_unlock(&spinlock->spinlock);
 };
+#endif
+
+static inline int nvgpu_sem_init(struct nvgpu_sem *sem, unsigned int count)
+{
+	sema_init(&sem->sem, count);
+	return 0;
+}
+
+static inline void nvgpu_sem_destroy(struct nvgpu_sem *sem)
+{
+}
+
+static inline int nvgpu_sem_wait(struct nvgpu_sem *sem)
+{
+	int err = down_killable(&sem->sem);
+
+	if (err)
+		return -ERESTARTSYS;
+	else
+		return 0;
+};
+
+static inline int nvgpu_sem_post(struct nvgpu_sem *sem)
+{
+	up(&sem->sem);
+	return 0;
+}
 
 #endif /* NVGPU_LOCK_LINUX_H */

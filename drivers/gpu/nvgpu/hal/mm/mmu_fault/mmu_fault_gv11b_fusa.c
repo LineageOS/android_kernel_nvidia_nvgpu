@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
@@ -43,6 +24,9 @@
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/power_features/pg.h>
 #include <nvgpu/string.h>
+#include <nvgpu/device.h>
+#include <nvgpu/gr/ctx.h>
+#include <nvgpu/gr/gr.h>
 
 #include <nvgpu/hw/gv11b/hw_gmmu_gv11b.h>
 
@@ -59,7 +43,7 @@ static void gv11b_mm_mmu_fault_handle_replayable(struct gk20a *g,
 		struct mmu_fault_info *mmufault, u32 *invalidate_replay_val);
 #endif
 
-static const char mmufault_invalid_str[] = "invalid";
+static const char gv11b_mmufault_invalid_str[] = "invalid";
 
 static const char *const gv11b_fault_type_descs[] = {
 	"invalid pde",
@@ -141,7 +125,7 @@ void gv11b_mm_mmu_fault_parse_mmu_fault_info(struct mmu_fault_info *mmufault)
 	}
 	if (mmufault->fault_type >= ARRAY_SIZE(gv11b_fault_type_descs)) {
 		nvgpu_do_assert();
-		mmufault->fault_type_desc = mmufault_invalid_str;
+		mmufault->fault_type_desc = gv11b_mmufault_invalid_str;
 	} else {
 		mmufault->fault_type_desc =
 			 gv11b_fault_type_descs[mmufault->fault_type];
@@ -150,13 +134,13 @@ void gv11b_mm_mmu_fault_parse_mmu_fault_info(struct mmu_fault_info *mmufault)
 	if (mmufault->client_type >=
 			ARRAY_SIZE(gv11b_fault_client_type_descs)) {
 		nvgpu_do_assert();
-		mmufault->client_type_desc = mmufault_invalid_str;
+		mmufault->client_type_desc = gv11b_mmufault_invalid_str;
 	} else {
 		mmufault->client_type_desc =
 			 gv11b_fault_client_type_descs[mmufault->client_type];
 	}
 
-	mmufault->client_id_desc = mmufault_invalid_str;
+	mmufault->client_id_desc = gv11b_mmufault_invalid_str;
 	if (mmufault->client_type == gmmu_fault_client_type_hub_v()) {
 		if (!(mmufault->client_id >=
 				 ARRAY_SIZE(gv11b_hub_client_descs))) {
@@ -308,28 +292,22 @@ void gv11b_fb_copy_from_hw_fault_buf(struct gk20a *g,
 static bool gv11b_mm_mmu_fault_handle_mmu_fault_ce(struct gk20a *g,
 		struct mmu_fault_info *mmufault, u32 *invalidate_replay_val)
 {
-	struct nvgpu_tsg *tsg = NULL;
 #ifdef CONFIG_NVGPU_REPLAYABLE_FAULT
 	int err;
+	struct nvgpu_tsg *tsg = NULL;
 #endif
 
 	/* CE page faults are not reported as replayable */
 	nvgpu_log(g, gpu_dbg_intr, "CE Faulted");
 #ifdef CONFIG_NVGPU_REPLAYABLE_FAULT
 	err = gv11b_fb_fix_page_fault(g, mmufault);
-#endif
-
-	if (mmufault->refch != NULL) {
-		tsg = nvgpu_tsg_from_ch(mmufault->refch);
-		nvgpu_tsg_reset_faulted_eng_pbdma(g, tsg, true, true);
-	}
-
-#ifdef CONFIG_NVGPU_REPLAYABLE_FAULT
 	if (err == 0) {
 		*invalidate_replay_val = 0;
 		nvgpu_log(g, gpu_dbg_intr, "CE Page Fault Fixed");
 
 		if (mmufault->refch != NULL) {
+			tsg = nvgpu_tsg_from_ch(mmufault->refch);
+			nvgpu_tsg_reset_faulted_eng_pbdma(g, tsg);
 			nvgpu_channel_put(mmufault->refch);
 			mmufault->refch = NULL;
 		}
@@ -337,6 +315,7 @@ static bool gv11b_mm_mmu_fault_handle_mmu_fault_ce(struct gk20a *g,
 	}
 #else
 	(void)invalidate_replay_val;
+	(void)mmufault;
 #endif
 	/* Do recovery */
 	nvgpu_log(g, gpu_dbg_intr, "CE Page Fault Not Fixed");
@@ -344,42 +323,47 @@ static bool gv11b_mm_mmu_fault_handle_mmu_fault_ce(struct gk20a *g,
 	return false;
 }
 
+static bool gv11b_mm_mmu_fault_set_mmu_nack_pending(struct gk20a *g,
+		struct mmu_fault_info *mmufault)
+{
+	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(mmufault->refch);
+	const struct nvgpu_device *dev = NULL;
+
+	dev = nvgpu_engine_get_active_eng_info(g, mmufault->faulted_engine);
+	if (dev == NULL) {
+		return false;
+	}
+
+	if (tsg == NULL) {
+		nvgpu_err(g, "chid: %d is referenceable but not bound to tsg",
+				mmufault->refch->chid);
+		return false;
+	}
+
+	if (!(nvgpu_device_is_graphics(g, dev) &&
+				mmufault->client_type == gmmu_fault_client_type_gpc_v())) {
+		return false;
+	}
+
+	return nvgpu_gr_set_mmu_nack_pending(g, dev->inst_id,
+			nvgpu_gr_ctx_get_ctx_id(g, tsg->gr_ctx));
+}
+
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 bool gv11b_mm_mmu_fault_handle_mmu_fault_refch(struct gk20a *g,
 		struct mmu_fault_info *mmufault, u32 *id_ptr,
 		unsigned int *id_type_ptr, unsigned int *rc_type_ptr)
 {
 	struct nvgpu_tsg *tsg = NULL;
 
-	if (mmufault->client_type == gmmu_fault_client_type_gpc_v()) {
-		if (mmufault->refch->mmu_nack_handled) {
-			/*
-			 * We have already recovered for the same
-			 * context, skip doing another recovery.
-			 */
-			mmufault->refch->mmu_nack_handled = false;
-			/*
-			 * Recovery path can be entered twice for the
-			 * same error in case of mmu nack. If mmu
-			 * nack interrupt is handled before mmu fault
-			 * then channel reference is increased to avoid
-			 * closing the channel by userspace. Decrement
-			 * channel reference.
-			 */
-			nvgpu_channel_put(mmufault->refch);
-			/*
-			 * refch in mmufault is assigned at the time
-			 * of copying fault info from snap reg or bar2
-			 * fault buf.
-			 */
-			nvgpu_channel_put(mmufault->refch);
-			return true;
-		} else {
-			/*
-			 * Indicate recovery is handled if mmu fault is
-			 * a result of mmu nack.
-			 */
-			mmufault->refch->mmu_nack_handled = true;
-		}
+	if (gv11b_mm_mmu_fault_set_mmu_nack_pending(g, mmufault)) {
+		/*
+		 * refch in mmufault is assigned at the time
+		 * of copying fault info from snap reg or bar2
+		 * fault buf.
+		 */
+		nvgpu_channel_put(mmufault->refch);
+		return true;
 	}
 
 	tsg = nvgpu_tsg_from_ch(mmufault->refch);
@@ -452,11 +436,28 @@ static bool gv11b_mm_mmu_fault_handle_non_replayable(struct gk20a *g,
 	return ret;
 }
 
+u32 gv11b_gmmu_fault_mmu_eng_id_ce0_val(void)
+{
+	return gmmu_fault_mmu_eng_id_ce0_v();
+}
+
+static bool gv11b_mm_mmu_fault_is_ce_fault(struct gk20a *g,
+		struct mmu_fault_info *mmufault)
+{
+	const struct nvgpu_device *dev = NULL;
+
+	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_LCE) {
+		if (dev->fault_id == mmufault->mmu_engine_id) {
+			return true;
+		}
+	}
+
+	return false;
+}
 
 void gv11b_mm_mmu_fault_handle_mmu_fault_common(struct gk20a *g,
 		 struct mmu_fault_info *mmufault, u32 *invalidate_replay_val)
 {
-	u32 num_lce;
 	bool ret = false;
 
 	if (!mmufault->valid) {
@@ -477,12 +478,9 @@ void gv11b_mm_mmu_fault_handle_mmu_fault_common(struct gk20a *g,
 		return;
 	}
 
-	num_lce = g->ops.top.get_num_lce(g);
-	if ((mmufault->mmu_engine_id >= gmmu_fault_mmu_eng_id_ce0_v()) &&
-	    (mmufault->mmu_engine_id <
-		nvgpu_safe_add_u32(gmmu_fault_mmu_eng_id_ce0_v(), num_lce))) {
+	if (gv11b_mm_mmu_fault_is_ce_fault(g, mmufault)) {
 		ret = gv11b_mm_mmu_fault_handle_mmu_fault_ce(g, mmufault,
-			invalidate_replay_val);
+				invalidate_replay_val);
 		if (ret) {
 			return;
 		}
@@ -673,6 +671,7 @@ void gv11b_mm_mmu_fault_handle_other_fault_notify(struct gk20a *g,
 	/* BAR2/Physical faults will not be snapped in hw fault buf */
 	if (mmufault->mmu_engine_id_type == NVGPU_MMU_ENGINE_ID_TYPE_BAR2) {
 		nvgpu_err(g, "BAR2 MMU FAULT");
+		gv11b_fb_mmu_fault_info_dump(g, mmufault);
 		gv11b_fb_handle_bar2_fault(g, mmufault, fault_status);
 
 	} else if (mmufault->mmu_engine_id_type ==
@@ -900,8 +899,7 @@ static int gv11b_fb_fix_page_fault(struct gk20a *g,
 		return err;
 	}
 	/* invalidate tlb so that GMMU does not use old cached translation */
-	err = nvgpu_pg_elpg_ms_protected_call(g,
-			g->ops.fb.tlb_invalidate(g, mmufault->refch->vm->pdb.mem));
+	err = g->ops.fb.tlb_invalidate(g, mmufault->refch->vm->pdb.mem);
 	if (err != 0) {
 		nvgpu_err(g, "tlb invalidate failed");
 		return err;

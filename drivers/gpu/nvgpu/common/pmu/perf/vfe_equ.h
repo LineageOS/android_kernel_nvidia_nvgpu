@@ -1,33 +1,23 @@
-/*
- * general perf structures & definitions
- *
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_PERF_VFE_EQU_H
 #define NVGPU_PERF_VFE_EQU_H
 
 #include "ucode_perf_vfe_inf.h"
 
+struct vfe_params {
+	u8 param_type;
+	union {
+		u32 literal_value;
+		u8 var_idx;
+		u16 equ_idx;
+	} param;
+};
+
 struct vfe_equs {
-	struct boardobjgrp_e255 super;
+	struct boardobjgrp_e2048 super;
+	bool b_vfe_equ_16bit_idx_supported;
 };
 
 struct vfe_equ {
@@ -37,7 +27,7 @@ struct vfe_equ {
 	u8 output_type;
 	u32 out_range_min;
 	u32 out_range_max;
-	struct boardobjgrpmask_e32 mask_depending_vars;
+	struct boardobjgrpmask_e255 mask_depending_vars;
 	int (*mask_depending_build)(struct gk20a *g,
 			struct boardobjgrp *pboardobjgrp,
 			struct vfe_equ *pvfe_equ);
@@ -48,6 +38,7 @@ struct vfe_equ {
 struct vfe_equ_compare {
 	struct vfe_equ super;
 	u8 func_id;
+	bool b_is_criteria_equ;
 	u8 equ_idx_true;
 	u8 equ_idx_false;
 	u32 criteria;
@@ -60,6 +51,30 @@ struct vfe_equ_minmax {
 	u8 equ_idx1;
 };
 
+ // Type-Specific Parameter DWORD 0 - Type = _QUADRATIC_N
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_PARAM_START_IDX             15:0 // Index to the first entry in the param table for this equation
+
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_PARAM_START_IDX_MASK       0xFFFF
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_PARAM_START_IDX_SHIFT      0U
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR                     19:16 // Class or structure of this QuadraticN equation
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_MASK                0xF0000U
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_SHIFT               16U
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_INVALID               0x0
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_3           0x1
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_6           0x2
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_10          0x3
+#define VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_RSVD                       31:20 // Must be zero
+
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_3_ARG_COUNT         0x01U
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_6_ARG_COUNT         0x02U
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_10_ARG_COUNT        0x03U
+
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_3_COEFF_COUNT       0x03U
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_6_COEFF_COUNT       0x06U
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_10_COEFF_COUNT      0x0AU
+
+#define CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT     0x03U
+
 struct vfe_equ_quadratic {
 	struct vfe_equ super;
 	u32 coeffs[CTRL_PERF_VFE_EQU_QUADRATIC_COEFF_COUNT];
@@ -68,6 +83,28 @@ struct vfe_equ_quadratic {
 struct vfe_equ_scalar {
 	struct vfe_equ super;
 	u8 equ_idx_to_scale;
+};
+
+struct vbios_vfe_param_3x {
+	u8 type;
+	u32 value;
+}__attribute__((packed));
+
+struct ctrl_perf_vfe_param {
+	u8 param_type;
+	union {
+		u32 literal_value;
+		u8 var_idx;
+		u16 equ_idx;
+	} param;
+};
+
+struct vfe_equ_quadratic_n {
+	struct vfe_equ super;
+	struct ctrl_perf_vfe_param args[CTRL_PERF_VFE_EQU_QUADRATIC_N_10_ARG_COUNT];
+	u8 arg_count;
+	struct ctrl_perf_vfe_param coeffs[CTRL_PERF_VFE_EQU_QUADRATIC_N_MAX_COEFF_COUNT];
+	u8 coeff_count;
 };
 
 int perf_vfe_equ_sw_setup(struct gk20a *g);

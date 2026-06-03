@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/enabled.h>
 #include <nvgpu/pmu.h>
@@ -38,6 +19,9 @@
 #include <nvgpu/pmu/fw.h>
 #include <nvgpu/pmu/allocator.h>
 #include <nvgpu/pmu/seq.h>
+#include <nvgpu/io.h>
+#include <nvgpu/pmu/super_surface.h>
+#include <nvgpu/hw/gk20a/hw_pwr_gk20a.h>
 
 static bool pmu_validate_in_out_payload(struct nvgpu_pmu *pmu, struct pmu_cmd *cmd,
 					struct pmu_in_out_payload_desc *payload)
@@ -549,6 +533,116 @@ exit:
 	return err;
 }
 
+u32 nvgpu_pmu_get_next_head(u32 head)
+{
+	head = nvgpu_safe_add_u32(head, 1U);
+	if (head >= NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
+		if (head > NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
+			/* to-do add breakpoint */
+		}
+		head = 0;
+	}
+	return head;
+}
+
+static bool pmu_fbq_ptcb_has_room(struct nvgpu_pmu *pmu)
+{
+	struct gk20a *g = pmu->g;
+	u32 head, tail, next_head;
+
+	head = nvgpu_readl(g, g->ops.pmu.pmu_get_queue_head(0));
+	tail = nvgpu_readl(g, g->ops.pmu.pmu_get_queue_tail(0));
+
+	next_head = nvgpu_pmu_get_next_head(head);
+
+	return (next_head != tail);
+}
+
+static s32 pmu_write_cmd_ptcb(struct nvgpu_pmu *pmu, struct nv_pmu_rpc_header *rpc_header,
+			u32 size_rpc)
+{
+	s32 err = 0;
+	struct gk20a *g = pmu->g;
+	u32 head, next_head;
+	u64 fbq_ptcb_ss_offset = 0U;
+
+	nvgpu_mutex_acquire(&pmu->ptcb_queue_mutex);
+
+	if (!pmu_fbq_ptcb_has_room(pmu)) {
+		nvgpu_err(g, "queue is full");
+		err = -EAGAIN;
+		goto exit;
+	}
+
+	head =  pwr_pmu_queue_head_address_v(
+			nvgpu_readl(g, g->ops.pmu.pmu_get_queue_head(0)));
+
+	fbq_ptcb_ss_offset =
+		nvgpu_pmu_get_fbq_ptcb_ss_offset(g, pmu,
+				pmu->super_surface, 0, head);
+
+	nvgpu_mem_wr_n(g, nvgpu_pmu_super_surface_mem(g, pmu,
+			pmu->super_surface), fbq_ptcb_ss_offset, rpc_header,
+			size_rpc);
+
+	next_head = nvgpu_pmu_get_next_head(head);
+
+	nvgpu_writel(g,
+		g->ops.pmu.pmu_get_queue_head(0),
+		pwr_pmu_queue_head_address_f(next_head));
+
+	head =  pwr_pmu_queue_head_address_v(
+			nvgpu_readl(g, g->ops.pmu.pmu_get_queue_head(0)));
+exit:
+	nvgpu_mutex_release(&pmu->ptcb_queue_mutex);
+	return err;
+}
+
+s32 nvgpu_pmu_cmd_post_ptcb(struct gk20a *g, struct nv_pmu_rpc_header *rpc_header,
+		u32 size_rpc, pmu_callback callback, void *cb_param)
+{
+	struct nvgpu_pmu *pmu = g->pmu;
+	struct pmu_sequence *seq = NULL;
+	struct rpc_handler_payload *rpc_payload = NULL;
+	void *rpc_buff = NULL;
+	s32 err;
+
+	if (!nvgpu_pmu_get_fw_ready(g, pmu)) {
+		nvgpu_err(g, "PMU is not ready");
+		return -EINVAL;
+	}
+
+	err = nvgpu_pmu_seq_acquire(g, pmu->sequences, &seq, callback,
+				    cb_param);
+	if (err != 0) {
+		return err;
+	}
+
+	/* allocate rpc_payload */
+	rpc_payload = (struct rpc_handler_payload *)cb_param;
+	rpc_buff = rpc_payload->rpc_buff;
+
+	rpc_header->seq_num_id = nvgpu_pmu_seq_get_id(seq);
+
+	nvgpu_pmu_seq_set_state(seq, PMU_SEQ_STATE_USED);
+
+	/* set out_payload in the sequence to point to the rpc */
+	nvgpu_pmu_seq_set_out_payload(seq, rpc_buff);
+	/*
+	 * set buffer_size to the size of rpc
+	 * This is used when RPC is ack'd back and we copy the rpc data back to
+	 * our local buffer
+	 */
+	nvgpu_pmu_seq_set_buffer_size(seq, nvgpu_safe_cast_u32_to_u16(size_rpc));
+
+	err = pmu_write_cmd_ptcb(pmu, rpc_header, size_rpc);
+	if (err != 0) {
+		nvgpu_pmu_seq_set_state(seq, PMU_SEQ_STATE_PENDING);
+	}
+
+	return err;
+}
+
 int nvgpu_pmu_cmd_post(struct gk20a *g, struct pmu_cmd *cmd,
 		struct pmu_payload *payload,
 		u32 queue_id, pmu_callback callback, void *cb_param)
@@ -710,6 +804,9 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 	(void) memset(&cmd, 0, sizeof(struct pmu_cmd));
 	(void) memset(&payload, 0, sizeof(struct pmu_payload));
 
+	rpc_header->time.exec_pmu_ns = 0;
+	rpc_header->task_id = NV_PMU_TASK_ID__END;
+
 	cmd.hdr.unit_id = rpc_header->unit_id;
 	cmd.hdr.size = (u8)(PMU_CMD_HDR_SIZE + sizeof(struct nv_pmu_rpc_cmd));
 	cmd.cmd.rpc.cmd_type = NV_PMU_RPC_CMD_ID;
@@ -720,9 +817,15 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 	payload.rpc.size_rpc = size_rpc;
 	payload.rpc.size_scratch = size_scratch;
 
-	status = nvgpu_pmu_cmd_post(g, &cmd, &payload,
-			PMU_COMMAND_QUEUE_LPQ, callback,
-			rpc_payload);
+	if (pmu->is_fbq_ptcb_enabled) {
+		/* RPC post using PTCB method */
+		status = nvgpu_pmu_cmd_post_ptcb(g, rpc_header, size_rpc,
+				callback, rpc_payload);
+	} else {
+		status = nvgpu_pmu_cmd_post(g, &cmd, &payload,
+				PMU_COMMAND_QUEUE_LPQ, callback,
+				rpc_payload);
+	}
 	if (status != 0) {
 		nvgpu_err(g, "Failed to execute RPC status=0x%x, func=0x%x",
 				status, rpc_header->function);
@@ -768,7 +871,6 @@ int nvgpu_pmu_rpc_execute(struct nvgpu_pmu *pmu, u8 *rpc,
 			}
 		}
 	}
-
 	return 0;
 
 cleanup:

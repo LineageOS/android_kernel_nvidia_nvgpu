@@ -1,14 +1,5 @@
-/*
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef __NVGPU_COMMON_LINUX_MODULE_H__
 #define __NVGPU_COMMON_LINUX_MODULE_H__
@@ -24,8 +15,13 @@ int gk20a_pm_late_init(struct device *dev);
 int nvgpu_read_fuse_overrides(struct gk20a *g);
 int nvgpu_kernel_shutdown_notification(struct notifier_block *nb,
 					unsigned long event, void *unused);
-
+int gk20a_pm_railgate(struct device *dev);
+int gk20a_pm_runtime_suspend(struct device *dev);
+int gk20a_pm_runtime_resume(struct device *dev);
+int gk20a_pm_prepare_poweroff(struct device *dev);
 int gk20a_pm_finalize_poweron(struct device *dev);
+int gk20a_pm_suspend(struct device *dev);
+int gk20a_pm_resume(struct device *dev);
 int nvgpu_finalize_poweron_linux(struct nvgpu_os_linux *l);
 void gk20a_remove_support(struct gk20a *g);
 /*

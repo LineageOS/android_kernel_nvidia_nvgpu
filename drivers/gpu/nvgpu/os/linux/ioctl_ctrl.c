@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2011-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if defined(CONFIG_NVIDIA_CONFTEST)
 #include <nvidia/conftest.h>
@@ -30,6 +30,7 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/engines.h>
 #include <nvgpu/device.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/gr/config.h>
 #ifdef CONFIG_NVGPU_GRAPHICS
 #include <nvgpu/gr/zbc.h>
@@ -52,6 +53,8 @@
 #include <nvgpu/grmgr.h>
 #include <nvgpu/string.h>
 #include <nvgpu/kmem.h>
+
+#include "common/gr/gr_priv.h"
 
 #include "ioctl_ctrl.h"
 #include "ioctl_dbg.h"
@@ -80,6 +83,55 @@ struct nvgpu_tsg_share_token_node {
 	struct nvgpu_tsg *tsg;
 	struct nvgpu_list_node ctrl_entry;
 };
+
+void nvgpu_gpu_encode_share_token(struct gk20a *g,
+				  u64 source_device_instance_id,
+				  u64 token, size_t share_token_sz,
+				  u8 *share_token)
+{
+	size_t src_inst_id_sz = sizeof(source_device_instance_id);
+	size_t token_sz = sizeof(token);
+	u8 *tmp = share_token;
+	u64 first_part, second_part;
+
+	nvgpu_assert(share_token_sz == (src_inst_id_sz + token_sz));
+
+	nvgpu_memcpy(tmp, (u8 *)&source_device_instance_id, src_inst_id_sz);
+	tmp += src_inst_id_sz;
+	nvgpu_memcpy(tmp, (u8 *)&token, token_sz);
+
+	/* Safely copy the data to properly aligned variables */
+	memcpy(&first_part, share_token, sizeof(u64));
+	memcpy(&second_part, share_token + src_inst_id_sz, sizeof(u64));
+
+	nvgpu_log(g, gpu_dbg_fn,
+		"Source: 0x%08llx Token: 0x%08llx Share Token: 0x%08llx%08llx",
+		source_device_instance_id, token, first_part, second_part);
+}
+
+void nvgpu_gpu_decode_share_token(struct gk20a *g, u8 *share_token,
+				  size_t share_token_sz,
+				  u64 *source_device_instance_id, u64 *token)
+{
+	size_t src_inst_id_sz = sizeof(source_device_instance_id);
+	size_t token_sz = sizeof(token);
+	u8 *tmp = share_token;
+	u64 first_part, second_part;
+
+	nvgpu_assert(share_token_sz == (src_inst_id_sz + token_sz));
+
+	nvgpu_memcpy((u8 *)source_device_instance_id, tmp, src_inst_id_sz);
+	tmp += src_inst_id_sz;
+	nvgpu_memcpy((u8 *)token, tmp, token_sz);
+
+	/* Safely copy the data to properly aligned variables */
+	memcpy(&first_part, share_token, sizeof(u64));
+	memcpy(&second_part, share_token + src_inst_id_sz, sizeof(u64));
+
+	nvgpu_log(g, gpu_dbg_fn,
+		"Share Token: 0x%08llx%08llx Source: 0x%08llx Token: 0x%08llx",
+		first_part, second_part, *source_device_instance_id, *token);
+}
 #endif
 
 static inline struct gk20a_ctrl_priv *
@@ -321,16 +373,26 @@ static struct nvgpu_flags_mapping flags_mapping[] = {
 		NVGPU_SUPPORT_MULTI_PROCESS_TSG_SHARING},
 	{NVGPU_GPU_FLAGS_SUPPORT_GPU_MMIO,
 		NVGPU_SUPPORT_GPU_MMIO},
+	{NVGPU_GPU_FLAGS_SUPPORT_SEMA_BASED_GP_GET_TRACKING,
+		NVGPU_SUPPORT_SEMA_BASED_GPFIFO_GET},
+	{NVGPU_GPU_FLAGS_IS_VIRTUALIZATION,
+		NVGPU_IS_VIRTUALIZATION},
+	{NVGPU_GPU_FLAGS_IS_VIRTUAL_FUNCTION,
+		NVGPU_IS_VIRTUAL_FUNCTION},
 };
 
-static u64 nvgpu_ctrl_ioctl_gpu_characteristics_flags(struct gk20a *g)
+static u64 nvgpu_ctrl_ioctl_gpu_characteristics_flags(struct gk20a *g, u32 gpu_instance_id)
 {
 	unsigned int i;
 	u64 ioctl_flags = 0;
+	u32 cur_gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, gpu_instance_id);
 
 	for (i = 0; i < sizeof(flags_mapping)/sizeof(*flags_mapping); i++) {
-		if (nvgpu_is_enabled(g, flags_mapping[i].enabled_flag))
+		if (nvgpu_is_enabled(g, flags_mapping[i].enabled_flag) ||
+				nvgpu_is_gr_class_enabled(g, flags_mapping[i].enabled_flag,
+				cur_gr_instance_id)) {
 			ioctl_flags |= flags_mapping[i].ioctl_flag;
+		}
 	}
 
 	if (!capable(CAP_SYS_NICE)) {
@@ -395,7 +457,6 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 
 	gpu.numa_domain_id = dev_to_node(dev_from_gk20a(g));
 
-	gpu.L2_cache_size = g->ops.ltc.determine_L2_size_bytes(g);
 	gpu.on_board_video_memory_size = 0; /* integrated GPU */
 
 	gpu.num_gpc = nvgpu_gr_config_get_gpc_count(gr_config);
@@ -430,10 +491,11 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 	}
 #endif
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) ||
+	if ((g->numa_node_id != 1) || (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) ||
 			(gpu_instance_id != 0U) ||
-			(!nvgpu_grmgr_is_multi_gr_enabled(g))) {
-		gpu.flags = nvgpu_ctrl_ioctl_gpu_characteristics_flags(g);
+			(!nvgpu_grmgr_is_multi_gr_enabled(g)))) {
+		gpu.flags = nvgpu_ctrl_ioctl_gpu_characteristics_flags(g,
+				gpu_instance_id);
 		nvgpu_set_preemption_mode_flags(g, &gpu);
 	} else {
 		gpu.flags = (NVGPU_GPU_FLAGS_SUPPORT_CLOCK_CONTROLS |
@@ -456,7 +518,8 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 	gpu.map_buffer_batch_limit = nvgpu_is_enabled(g, NVGPU_SUPPORT_MAP_BUFFER_BATCH) ?
 		NVGPU_IOCTL_AS_MAP_BUFFER_BATCH_LIMIT : 0;
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_support_gfx_with_numa(g) || ((nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		if (gpu_instance_id != 0U) {
 			gpu.compute_class = g->ops.get_litter_value(g, GPU_LIT_COMPUTE_CLASS);
 			gpu.gpfifo_class = g->ops.get_litter_value(g, GPU_LIT_GPFIFO_CLASS);
@@ -465,8 +528,10 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 		}
 	} else {
 #ifdef CONFIG_NVGPU_GRAPHICS
+		if (g->numa_node_id != 1) {
 		gpu.twod_class = g->ops.get_litter_value(g, GPU_LIT_TWOD_CLASS);
 		gpu.threed_class = g->ops.get_litter_value(g, GPU_LIT_THREED_CLASS);
+		}
 #endif
 		gpu.compute_class = g->ops.get_litter_value(g, GPU_LIT_COMPUTE_CLASS);
 		gpu.gpfifo_class = g->ops.get_litter_value(g, GPU_LIT_GPFIFO_CLASS);
@@ -484,6 +549,7 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 	gpu.vbios_oem_version = 0;
 #endif
 	gpu.big_page_size = nvgpu_mm_get_default_big_page_size(g);
+	gpu.huge_page_size = nvgpu_mm_get_default_huge_page_size(g);
 	gpu.pde_coverage_bit_count =
 		g->ops.mm.gmmu.get_mmu_levels(g,
 					gpu.big_page_size)[0].lo_bit[0];
@@ -517,29 +583,24 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 	gpu.max_ltc_per_fbp =  g->ops.top.get_max_ltc_per_fbp(g);
 	gpu.max_lts_per_ltc = g->ops.top.get_max_lts_per_ltc(g);
 	gpu.num_ltc = nvgpu_ltc_get_ltc_count(g);
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+		gpu.L2_cache_size = g->ops.ltc.determine_L2_size_bytes(g);
+	} else {
+		err = nvgpu_grmgr_get_l2_size(g, gpu.num_ltc,
+				gpu.fbp_en_mask,
+				g->ops.ltc.determine_L2_size_bytes(g), &gpu.L2_cache_size);
+		if (err != 0) {
+			nvgpu_err(g, "failed to get l2 size");
+			return err;
+		}
+	}
+
 	gpu.lts_per_ltc = nvgpu_ltc_get_slices_per_ltc(g);
 	gpu.cbc_cache_line_size = nvgpu_ltc_get_cacheline_size(g);
 	if (g->ops.fuse.fuse_status_opt_emc) {
 		gpu.emc_en_mask = g->ops.fuse.fuse_status_opt_emc(g);
 	}
-
-	/*
-	 * TODO : Need to replace with proper HAL.
-	 */
-	if (g->pci_device_id != (u16)0) {
-		/* All nvgpu supported dGPUs have 64 bit FBIO channel
-		 * So number of Sub partition per FBPA is always 0x2.
-		 * Half FBPA (32BIT channel mode) enablement
-		 * (1 sub partition per FBPA) is disabled for tegra dGPUs.
-		 */
-		gpu.num_sub_partition_per_fbpa = 0x2;
-	} else {
-		/*
-		 * All iGPUs don't have real FBPA/FBSP units at all.
-		 * So num_sub_partition_per_fbpa should be 0 for iGPUs.
-		 */
-		gpu.num_sub_partition_per_fbpa = 0x00;
-	}
+	gpu.num_sub_partition_per_fbpa = g->ops.get_litter_value(g, GPU_LIT_NUM_FBPAS);
 
 	if ((g->ops.clk.get_maxrate) && nvgpu_platform_is_silicon(g)) {
 		gpu.max_freq = g->ops.clk.get_maxrate(g,
@@ -556,10 +617,8 @@ static long gk20a_ctrl_ioctl_gpu_characteristics(
 	gpu.pci_subsystem_device_id = g->pci_subsystem_device_id;
 	gpu.pci_class = g->pci_class;
 	gpu.pci_revision = g->pci_revision;
-
 	gpu.per_device_identifier = g->per_device_identifier;
-
-	gpu.gpu_instance_id = gpu_instance->gpu_instance_id;
+	gpu.gpu_instance_id = gpu_instance->swizzle_id;
 	gpu.gr_instance_id = gpu_instance->gr_syspipe.gr_syspipe_id;
 
 	gpu.max_gpfifo_entries = rounddown_pow_of_two(U32_MAX /
@@ -716,8 +775,10 @@ clean_up:
 static int gk20a_ctrl_open_tsg(struct gk20a *g, struct gk20a_ctrl_priv *priv,
 			       struct nvgpu_gpu_open_tsg_args *args)
 {
+	u64 source_device_instance_id = 0UL;
 	u64 device_instance_id = 0ULL;
 	bool open_share = false;
+	u64 token = 0UL;
 	struct file *file;
 	char name[64];
 	int err;
@@ -727,16 +788,20 @@ static int gk20a_ctrl_open_tsg(struct gk20a *g, struct gk20a_ctrl_priv *priv,
 	open_share =
 		(args->flags & NVGPU_GPU_IOCTL_OPEN_TSG_FLAGS_SHARE) != 0U;
 
+	nvgpu_gpu_decode_share_token(g, args->share_token,
+				     sizeof(args->share_token),
+				     &source_device_instance_id, &token);
+
 	if (!open_share) {
-		if (args->source_device_instance_id != 0UL ||
-		    args->share_token != 0UL) {
+		if (source_device_instance_id != 0UL ||
+		    token != 0UL) {
 			nvgpu_err(g, "Source device inst id/token specified");
 			return -EINVAL;
 		}
 
 	} else {
-		if (args->source_device_instance_id == 0UL ||
-		    args->share_token == 0UL) {
+		if (source_device_instance_id == 0UL ||
+		    token == 0UL) {
 			nvgpu_err(g, "Source device inst id/token not specified");
 			return -EINVAL;
 		}
@@ -759,9 +824,9 @@ static int gk20a_ctrl_open_tsg(struct gk20a *g, struct gk20a_ctrl_priv *priv,
 	}
 
 	err = nvgpu_ioctl_tsg_open(g, priv, priv->cdev, file, open_share,
-				   args->source_device_instance_id,
+				   source_device_instance_id,
 				   device_instance_id,
-				   args->share_token);
+				   token);
 	if (err)
 		goto clean_up_file;
 
@@ -846,6 +911,78 @@ static int gk20a_ctrl_get_gpc_local_to_logical_map(struct gk20a *g, struct nvgpu
 	return 0;
 }
 
+static int gk20a_ctrl_get_fbp_local_to_physical_map(struct gk20a *g,
+	u32 gr_instance_id, struct nvgpu_gpu_get_fbp_physical_map_args *args)
+{
+	u32 fbp_count, logical_index, fbp_local_index;
+	u32 *physical_map;
+	u32 map_size;
+
+	fbp_count = nvgpu_grmgr_get_gr_num_fbps(g, gr_instance_id);
+	map_size = sizeof(u32) * fbp_count;
+
+	if (map_size != args->map_buf_size) {
+		return -EINVAL;
+	}
+
+	physical_map = (u32 *)nvgpu_kzalloc(g, map_size);
+	if (physical_map == NULL) {
+		return -ENOMEM;
+	}
+
+	for (fbp_local_index = 0U; fbp_local_index < fbp_count; ++fbp_local_index) {
+		logical_index = nvgpu_grmgr_get_fbp_logical_id(g, gr_instance_id, fbp_local_index);
+		physical_map[fbp_local_index] =
+				nvgpu_fbp_get_fbp_physical_index(g->fbp, logical_index);
+	}
+
+	if (copy_to_user((void __user *)(uintptr_t)args->physical_fbp_buf_addr,
+				physical_map, map_size)) {
+		nvgpu_kfree(g, physical_map);
+		return -EFAULT;
+	}
+
+	nvgpu_kfree(g, physical_map);
+
+	return 0;
+}
+
+static int gk20a_ctrl_get_fbp_local_to_logical_map(struct gk20a *g,
+	u32 gr_instance_id, struct nvgpu_gpu_get_fbp_logical_map_args *args)
+{
+	u32 fbp_count;
+	u32 map_size;
+	u32 fbp_local_index;
+	u32 *logical_map;
+
+	fbp_count = nvgpu_grmgr_get_gr_num_fbps(g, gr_instance_id);
+	map_size = sizeof(u32) * fbp_count;
+
+	if (map_size != args->map_buf_size) {
+		return -EINVAL;
+	}
+
+	logical_map = (u32 *)nvgpu_kzalloc(g, map_size);
+	if (logical_map == NULL) {
+		return -ENOMEM;
+	}
+
+	for (fbp_local_index = 0U; fbp_local_index < fbp_count; ++fbp_local_index) {
+		logical_map[fbp_local_index] =
+			nvgpu_grmgr_get_fbp_logical_id(g, gr_instance_id, fbp_local_index);
+	}
+
+	if (copy_to_user((void __user *)(uintptr_t)args->logical_fbp_buf_addr,
+				logical_map, map_size)) {
+		nvgpu_kfree(g, logical_map);
+		return -EFAULT;
+	}
+
+	nvgpu_kfree(g, logical_map);
+
+	return 0;
+}
+
 static int gk20a_ctrl_get_tpc_masks(struct gk20a *g, struct nvgpu_gr_config *gr_config,
 				    struct nvgpu_gpu_get_tpc_masks_args *args)
 {
@@ -868,6 +1005,63 @@ static int gk20a_ctrl_get_tpc_masks(struct gk20a *g, struct nvgpu_gr_config *gr_
 
 	if (err == 0)
 		args->mask_buf_size = gpc_tpc_mask_size;
+
+	return err;
+}
+
+static int gk20a_ctrl_get_ppc_masks(struct gk20a *g, struct nvgpu_gr_config *gr_config,
+				    struct nvgpu_gpu_get_ppc_masks_args *args)
+{
+	int err = 0;
+	const u32 gpc_ppc_mask_size = sizeof(u32) *
+		nvgpu_gr_config_get_max_gpc_count(gr_config);
+
+	if (args->mask_buf_size > 0) {
+		size_t write_size = gpc_ppc_mask_size;
+
+		nvgpu_speculation_barrier();
+		if (write_size > args->mask_buf_size)
+			write_size = args->mask_buf_size;
+
+		err = copy_to_user((void __user *)(uintptr_t)
+			args->mask_buf_addr,
+			nvgpu_gr_config_get_gpc_ppc_mask_physical_base(gr_config),
+			write_size);
+	}
+
+	if (err == 0)
+		args->mask_buf_size = gpc_ppc_mask_size;
+
+	return err;
+}
+
+static int gk20a_ctrl_get_rop_masks(struct gk20a *g, struct nvgpu_gr_config *gr_config,
+				    struct nvgpu_gpu_get_rop_masks_args *args)
+{
+	int err = 0;
+	const u32 gpc_rop_mask_size = sizeof(u32) *
+		nvgpu_gr_config_get_max_gpc_count(gr_config);
+
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_ROP_IN_GPC)) {
+		nvgpu_err(g, "NVGPU_SUPPORT_ROP_IN_GPC is not supported");
+		err = -EINVAL;
+	}
+
+	if (args->mask_buf_size > 0 && err == 0) {
+		size_t write_size = gpc_rop_mask_size;
+
+		nvgpu_speculation_barrier();
+		if (write_size > args->mask_buf_size)
+			write_size = args->mask_buf_size;
+
+		err = copy_to_user((void __user *)(uintptr_t)
+			args->mask_buf_addr,
+			nvgpu_gr_config_get_gpc_rop_mask_physical_base(gr_config),
+			write_size);
+	}
+
+	if (err == 0)
+		args->mask_buf_size = gpc_rop_mask_size;
 
 	return err;
 }
@@ -921,16 +1115,18 @@ static int nvgpu_gpu_ioctl_l2_fb_ops(struct gk20a *g,
 	}
 
 	if (args->l2_flush) {
-		err = nvgpu_pg_elpg_ms_protected_call(g,
-			g->ops.mm.cache.l2_flush(g, args->l2_invalidate ?
-							true : false));
+		err = g->ops.mm.cache.l2_flush(g, args->l2_invalidate ?
+							true : false);
 		if (err != 0) {
 			nvgpu_err(g, "l2_flush failed");
 			goto out;
 		}
 	}
 
-	if (args->fb_flush) {
+	/* fb_flush is being done as part of l2_flush, which makes this operation
+	 * redundant. Skip fb_flush if l2_flush is set.
+	 */
+	if (args->fb_flush && !args->l2_flush) {
 		err = g->ops.mm.cache.fb_flush(g);
 		if (err != 0) {
 			nvgpu_err(g, "mm.cache.fb_flush() failed err=%d", err);
@@ -1185,7 +1381,7 @@ static int gk20a_ctrl_vsm_mapping(struct gk20a *g,
 			tpc_local_logical_index = nvgpu_gr_config_get_sm_info_tpc_index(sm_info);
 		tpc_global_logical_index = nvgpu_gr_config_get_sm_info_global_tpc_index(sm_info);
 		sm_local_id = nvgpu_gr_config_get_sm_info_sm_index(sm_info);
-		if (vsms_buf[i].gpc_virtual_index < gpc_max_count)
+		if (gpc_virtual_index < gpc_max_count)
 			tpc_migratable_index = tpc_local_logical_index;
 		else {
 			/*
@@ -1232,7 +1428,7 @@ static int nvgpu_gpu_get_cpu_time_correlation_info(
 	if (args->count > NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_MAX_COUNT)
 		return -EINVAL;
 
-	switch(args->source_id) {
+	switch (args->source_id) {
 	case NVGPU_GPU_GET_CPU_TIME_CORRELATION_INFO_SRC_ID_TSC:
 		timestamp_source = NVGPU_CPU_TIMESTAMP_SOURCE_TSC;
 		break;
@@ -1369,6 +1565,7 @@ static int nvgpu_gpu_get_gpu_instance_engine_info(
 	u32 report_index = 0U;
 	u32 i;
 	const struct nvgpu_device *gr_dev;
+	const struct nvgpu_device *dev;
 	const u32 max_buffer_engines = args->engine_info_buf_size /
 		sizeof(struct nvgpu_gpu_get_engine_info_item);
 	struct nvgpu_gpu_get_engine_info_item __user *dst_item_list =
@@ -1394,7 +1591,7 @@ static int nvgpu_gpu_get_gpu_instance_engine_info(
 	for (i = 0U; i < gpu_instance->num_lce; i++) {
 		const struct nvgpu_device *dev = gpu_instance->lce_devs[i];
 
-		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, i, gr_dev->runlist_id);
+		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, dev->inst_id, gr_dev->runlist_id);
 
 		if (report_index < max_buffer_engines) {
 			err = copy_to_user(&dst_item_list[report_index],
@@ -1403,6 +1600,54 @@ static int nvgpu_gpu_get_gpu_instance_engine_info(
 				goto clean_up;
 		}
 
+		++report_index;
+	}
+
+	for (i = 0U; i < gpu_instance->num_ofa; i++) {
+		dev = gpu_instance->ofa_devs[i];
+		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, dev->inst_id, gr_dev->runlist_id);
+		if (report_index < max_buffer_engines) {
+			err = copy_to_user(&dst_item_list[report_index],
+					&dst_info, sizeof(dst_info));
+			if (err)
+				goto clean_up;
+		}
+		++report_index;
+	}
+
+	for (i = 0U; i < gpu_instance->num_nvjpg; i++) {
+		dev = gpu_instance->nvjpg_devs[i];
+		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, dev->inst_id, gr_dev->runlist_id);
+		if (report_index < max_buffer_engines) {
+			err = copy_to_user(&dst_item_list[report_index],
+					&dst_info, sizeof(dst_info));
+			if (err)
+				goto clean_up;
+		}
+		++report_index;
+	}
+
+	for (i = 0U; i < gpu_instance->num_nvenc; i++) {
+		dev = gpu_instance->nvenc_devs[i];
+		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, dev->inst_id, gr_dev->runlist_id);
+		if (report_index < max_buffer_engines) {
+			err = copy_to_user(&dst_item_list[report_index],
+					&dst_info, sizeof(dst_info));
+			if (err)
+				goto clean_up;
+		}
+		++report_index;
+	}
+
+	for (i = 0U; i < gpu_instance->num_nvdec; i++) {
+		dev = gpu_instance->nvdec_devs[i];
+		nvgpu_gpu_fetch_engine_info_item(g, &dst_info, dev, dev->inst_id, gr_dev->runlist_id);
+		if (report_index < max_buffer_engines) {
+			err = copy_to_user(&dst_item_list[report_index],
+					&dst_info, sizeof(dst_info));
+			if (err)
+				goto clean_up;
+		}
 		++report_index;
 	}
 
@@ -2237,6 +2482,8 @@ static int nvgpu_handle_comptags_control(struct gk20a *g,
 			 */
 			priv->comptags.enabled = false;
 			nvgpu_log_info(g, "Comptags disabled.");
+		} else {
+			nvgpu_log_info(g, "Comptags not allocated..");
 		}
 
 		return 0;
@@ -2266,27 +2513,25 @@ static int nvgpu_handle_comptags_control(struct gk20a *g,
 	os_buf.dev = dev_from_gk20a(g);
 
 	/*
-	 * In raw mode, comptaglines are not used to map the compressible memory
-	 * address to the CBC address, instead raw address is used by the
-	 * hardrdware to offset to the CBC address. Mark comptags as enabled and
-	 * return. In the comptagline mode, comptags will be marked as enabled
-	 * once the comptags are successfuly allocated in the
-	 * gk20a_alloc_comptags().
+	 * In CBC_RAW mode, comptaglines are not allocated by SW or used by SW
+	 * when updating the PTEs/PDEs. Rather, HW determines the address in CBC
+	 * by swizzling the accessed address. Because Tegra UMDs use existence
+	 * of comptags to determine if the buffer is compressible or not, NvGpu
+	 * still updates the state that comptags are allocated and enabled.
+	 *
+	 * State update is consolidated in gk20a_alloc_comptags() which handles
+	 * both comptagline mode and cbc_raw mode.
 	 */
-	if (g->cbc_use_raw_mode) {
-		priv->comptags.enabled = true;
-	} else {
-		err = gk20a_alloc_comptags(g, &os_buf, &g->cbc->comp_tags);
-		if (err != 0) {
-			if (comptags_alloc_control ==
-			    NVGPU_GPU_COMPTAGS_ALLOC_REQUIRED) {
-				nvgpu_err(g, "Comptags allocation (required) failed (%d)",
-					  err);
-			} else {
-				nvgpu_err(g, "Comptags allocation (requested) failed (%d)",
-					  err);
-				err = 0;
-			}
+	err = gk20a_alloc_comptags(g, &os_buf, &g->cbc->comp_tags);
+	if (err != 0) {
+		if (comptags_alloc_control ==
+			NVGPU_GPU_COMPTAGS_ALLOC_REQUIRED) {
+			nvgpu_err(g, "Comptags allocation (required) failed (%d)",
+				  err);
+		} else {
+			nvgpu_err(g, "Comptags allocation (requested) failed (%d)",
+				  err);
+			err = 0;
 		}
 	}
 
@@ -2423,15 +2668,16 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 {
 	struct gk20a_ctrl_priv *priv = filp->private_data;
 	struct gk20a *g = priv->g;
-	u8 buf[NVGPU_GPU_IOCTL_MAX_ARG_SIZE];
+	u8 *buf = NULL;
 	u32 gpu_instance_id, gr_instance_id;
 	struct nvgpu_gr_config *gr_config;
 #ifdef CONFIG_NVGPU_GRAPHICS
 	struct nvgpu_gpu_zcull_get_ctx_size_args *get_ctx_size_args;
 	struct nvgpu_gpu_zcull_get_info_args *get_info_args;
 	struct nvgpu_gr_zcull_info *zcull_info;
-	struct nvgpu_gr_zcull *gr_zcull = nvgpu_gr_get_zcull_ptr(g);
-	struct nvgpu_gr_zbc *gr_zbc = nvgpu_gr_get_zbc_ptr(g);
+	struct nvgpu_gr_zcull *gr_zcull;
+	struct nvgpu_gr_zbc *gr_zbc;
+	struct nvgpu_gr *gr;
 	struct nvgpu_gr_zbc_entry *zbc_val;
 	struct nvgpu_gr_zbc_query_params *zbc_tbl;
 	struct nvgpu_gpu_zbc_set_table_args *set_table_args;
@@ -2448,16 +2694,22 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		(_IOC_SIZE(cmd) > NVGPU_GPU_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_GPU_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	if (!g->sw_ready) {
 		err = gk20a_busy(g);
 		if (err)
-			return err;
+			goto exit;
 
 		gk20a_idle(g);
 	}
@@ -2469,31 +2721,38 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	nvgpu_assert(gr_instance_id < g->num_gr_instances);
 
 	gr_config = nvgpu_gr_get_gpu_instance_config_ptr(g, gpu_instance_id);
+	gr = nvgpu_gr_get_instance_ptr(g, gr_instance_id);
+	gr_zcull = gr->zcull;
+	gr_zbc = gr->zbc;
 
 	nvgpu_speculation_barrier();
 	switch (cmd) {
 #ifdef CONFIG_NVGPU_GRAPHICS
 	case NVGPU_GPU_IOCTL_ZCULL_GET_CTX_SIZE:
-		if (gr_zcull == NULL)
-			return -ENODEV;
+		if (gr_zcull == NULL) {
+			err = -ENODEV;
+			break;
+		}
 
 		get_ctx_size_args = (struct nvgpu_gpu_zcull_get_ctx_size_args *)buf;
-
 		get_ctx_size_args->size = nvgpu_gr_get_ctxsw_zcull_size(g, gr_zcull);
-
 		break;
+
 	case NVGPU_GPU_IOCTL_ZCULL_GET_INFO:
-		if (gr_zcull == NULL)
-			return -ENODEV;
+		if (gr_zcull == NULL) {
+			err = -ENODEV;
+			break;
+		}
 
 		get_info_args = (struct nvgpu_gpu_zcull_get_info_args *)buf;
-
 		(void) memset(get_info_args, 0,
 			sizeof(struct nvgpu_gpu_zcull_get_info_args));
 
 		zcull_info = nvgpu_kzalloc(g, sizeof(*zcull_info));
-		if (zcull_info == NULL)
-			return -ENOMEM;
+		if (zcull_info == NULL) {
+			err = -ENOMEM;
+			break;
+		}
 
 		err = g->ops.gr.zcull.get_zcull_info(g, gr_config,
 					gr_zcull, zcull_info);
@@ -2504,26 +2763,37 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 
 		get_info_args->width_align_pixels = zcull_info->width_align_pixels;
 		get_info_args->height_align_pixels = zcull_info->height_align_pixels;
-		get_info_args->pixel_squares_by_aliquots = zcull_info->pixel_squares_by_aliquots;
+		get_info_args->pixel_squares_by_aliquots =
+			zcull_info->pixel_squares_by_aliquots;
 		get_info_args->aliquot_total = zcull_info->aliquot_total;
-		get_info_args->region_byte_multiplier = zcull_info->region_byte_multiplier;
-		get_info_args->region_header_size = zcull_info->region_header_size;
-		get_info_args->subregion_header_size = zcull_info->subregion_header_size;
-		get_info_args->subregion_width_align_pixels = zcull_info->subregion_width_align_pixels;
-		get_info_args->subregion_height_align_pixels = zcull_info->subregion_height_align_pixels;
+		get_info_args->region_byte_multiplier =
+			zcull_info->region_byte_multiplier;
+		get_info_args->region_header_size =
+			zcull_info->region_header_size;
+		get_info_args->subregion_header_size =
+			zcull_info->subregion_header_size;
+		get_info_args->subregion_width_align_pixels =
+			zcull_info->subregion_width_align_pixels;
+		get_info_args->subregion_height_align_pixels =
+			zcull_info->subregion_height_align_pixels;
 		get_info_args->subregion_count = zcull_info->subregion_count;
 
 		nvgpu_kfree(g, zcull_info);
 		break;
+
 	case NVGPU_GPU_IOCTL_ZBC_SET_TABLE:
-		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC))
-			return -ENODEV;
+		if (!nvgpu_is_gr_class_enabled(g, NVGPU_SUPPORT_ZBC, gr_instance_id)) {
+			err = -ENODEV;
+			break;
+		}
 
 		set_table_args = (struct nvgpu_gpu_zbc_set_table_args *)buf;
 
 		zbc_val = nvgpu_gr_zbc_entry_alloc(g);
-		if (zbc_val == NULL)
-			return -ENOMEM;
+		if (zbc_val == NULL) {
+			err = -ENOMEM;
+			break;
+		}
 
 		nvgpu_gr_zbc_set_entry_format(zbc_val, set_table_args->format);
 		nvgpu_gr_zbc_set_entry_type(zbc_val, set_table_args->type);
@@ -2561,50 +2831,62 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 
 		if (zbc_val)
 			nvgpu_gr_zbc_entry_free(g, zbc_val);
+
 		break;
+
 	case NVGPU_GPU_IOCTL_ZBC_QUERY_TABLE:
-		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC))
-			return -ENODEV;
+		if (!nvgpu_is_gr_class_enabled(g, NVGPU_SUPPORT_ZBC, gr_instance_id)) {
+			err = -ENODEV;
+			break;
+		}
 
 		query_table_args = (struct nvgpu_gpu_zbc_query_table_args *)buf;
 
 		zbc_tbl = nvgpu_kzalloc(g, sizeof(struct nvgpu_gr_zbc_query_params));
-		if (zbc_tbl == NULL)
-			return -ENOMEM;
+		if (zbc_tbl == NULL) {
+			err = -ENOMEM;
+			break;
+		}
 
 		zbc_tbl->type = query_table_args->type;
 		zbc_tbl->index_size = query_table_args->index_size;
 
 		err = g->ops.gr.zbc.query_table(g, gr_zbc, zbc_tbl);
-
-		if (!err) {
-			switch (zbc_tbl->type) {
-			case NVGPU_GR_ZBC_TYPE_COLOR:
-				for (i = 0U; i < NVGPU_GR_ZBC_COLOR_VALUE_SIZE; i++) {
-					query_table_args->color_ds[i] = zbc_tbl->color_ds[i];
-					query_table_args->color_l2[i] = zbc_tbl->color_l2[i];
-				}
-				break;
-			case NVGPU_GR_ZBC_TYPE_DEPTH:
-				query_table_args->depth = zbc_tbl->depth;
-				break;
-			case NVGPU_GR_ZBC_TYPE_STENCIL:
-				query_table_args->stencil = zbc_tbl->stencil;
-				break;
-			case NVGPU_GR_ZBC_TYPE_INVALID:
-				query_table_args->index_size = zbc_tbl->index_size;
-				break;
-			default:
-				err = -EINVAL;
-			}
-			if (!err) {
-				query_table_args->format = zbc_tbl->format;
-				query_table_args->ref_cnt = zbc_tbl->ref_cnt;
-			}
+		if (err) {
+			nvgpu_kfree(g, zbc_tbl);
+			break;
 		}
 
-		if (zbc_tbl)
+		switch (zbc_tbl->type) {
+		case NVGPU_GR_ZBC_TYPE_COLOR:
+			for (i = 0U; i < NVGPU_GR_ZBC_COLOR_VALUE_SIZE; i++) {
+				query_table_args->color_ds[i] = zbc_tbl->color_ds[i];
+				query_table_args->color_l2[i] = zbc_tbl->color_l2[i];
+			}
+			break;
+		case NVGPU_GR_ZBC_TYPE_DEPTH:
+			query_table_args->depth = zbc_tbl->depth;
+			break;
+		case NVGPU_GR_ZBC_TYPE_STENCIL:
+			query_table_args->stencil = zbc_tbl->stencil;
+			break;
+		case NVGPU_GR_ZBC_TYPE_INVALID:
+			query_table_args->index_size = zbc_tbl->index_size;
+			break;
+		default:
+			err = -EINVAL;
 			nvgpu_kfree(g, zbc_tbl);
+			break;
+		}
+
+		if (err != 0) {
+			break;
+		}
+
+		query_table_args->format = zbc_tbl->format;
+		query_table_args->ref_cnt = zbc_tbl->ref_cnt;
+
+		nvgpu_kfree(g, zbc_tbl);
 		break;
 #endif /* CONFIG_NVGPU_GRAPHICS */
 	case NVGPU_GPU_IOCTL_GET_CHARACTERISTICS:
@@ -2631,6 +2913,14 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		err = gk20a_ctrl_get_tpc_masks(g, gr_config,
 			(struct nvgpu_gpu_get_tpc_masks_args *)buf);
 		break;
+	case NVGPU_GPU_IOCTL_GET_PPC_MASKS:
+		err = gk20a_ctrl_get_ppc_masks(g, gr_config,
+			(struct nvgpu_gpu_get_ppc_masks_args *)buf);
+		break;
+	case NVGPU_GPU_IOCTL_GET_ROP_MASKS:
+		err = gk20a_ctrl_get_rop_masks(g, gr_config,
+			(struct nvgpu_gpu_get_rop_masks_args *)buf);
+		break;
 	case NVGPU_GPU_IOCTL_GET_GPC_LOCAL_TO_PHYSICAL_MAP:
 		err = gk20a_ctrl_get_gpc_local_to_physical_map(g, gr_config,
 			gr_instance_id, (struct nvgpu_gpu_get_gpc_physical_map_args *)buf);
@@ -2638,6 +2928,14 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	case NVGPU_GPU_IOCTL_GET_GPC_LOCAL_TO_LOGICAL_MAP:
 		err = gk20a_ctrl_get_gpc_local_to_logical_map(g, gr_config,
 			gr_instance_id, (struct nvgpu_gpu_get_gpc_logical_map_args *)buf);
+		break;
+	case NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_PHYSICAL_MAP:
+		err = gk20a_ctrl_get_fbp_local_to_physical_map(g, gr_instance_id,
+				(struct nvgpu_gpu_get_fbp_physical_map_args *)buf);
+		break;
+	case NVGPU_GPU_IOCTL_GET_FBP_LOCAL_TO_LOGICAL_MAP:
+		err = gk20a_ctrl_get_fbp_local_to_logical_map(g, gr_instance_id,
+				(struct nvgpu_gpu_get_fbp_logical_map_args *)buf);
 		break;
 	case NVGPU_GPU_IOCTL_GET_FBP_L2_MASKS:
 		err = gk20a_ctrl_get_fbp_l2_masks(g, gpu_instance_id,
@@ -2712,7 +3010,7 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 			(struct nvgpu_gpu_get_gpu_time_args *)buf);
 		break;
 
-        case NVGPU_GPU_IOCTL_GET_ENGINE_INFO:
+	case NVGPU_GPU_IOCTL_GET_ENGINE_INFO:
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
 				((gpu_instance_id != 0U) ||
 				(!nvgpu_grmgr_is_multi_gr_enabled(g)))) {
@@ -2810,6 +3108,8 @@ long gk20a_ctrl_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
 		err = copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd));
 
+exit:
+	nvgpu_kfree(g, buf);
 	return err;
 }
 
@@ -3016,7 +3316,7 @@ int nvgpu_gpu_get_share_token(struct gk20a *g,
 			      u64 source_device_instance_id,
 			      u64 target_device_instance_id,
 			      struct nvgpu_tsg *tsg,
-			      u64 *share_token)
+			      u64 *token)
 {
 	struct nvgpu_tsg_share_token_node *token_node;
 	struct gk20a_ctrl_priv *ctrl_priv;
@@ -3057,7 +3357,7 @@ int nvgpu_gpu_get_share_token(struct gk20a *g,
 
 	nvgpu_mutex_release(&ctrl_priv->tokens_lock);
 
-	*share_token = token_node->token;
+	*token = token_node->token;
 
 	nvgpu_log_info(g, "Share token issued.");
 	nvgpu_log_info(g, "Source: %llx Target: %llx Token: %llx", source_device_instance_id,
@@ -3079,7 +3379,7 @@ static inline struct nvgpu_tsg_share_token_node *
 int nvgpu_gpu_revoke_share_token(struct gk20a *g,
 				 u64 source_device_instance_id,
 				 u64 target_device_instance_id,
-				 u64 share_token,
+				 u64 token,
 				 struct nvgpu_tsg *tsg)
 {
 	struct nvgpu_tsg_share_token_node *token_node, *tmp;
@@ -3099,7 +3399,7 @@ int nvgpu_gpu_revoke_share_token(struct gk20a *g,
 	nvgpu_list_for_each_entry_safe(token_node, tmp,
 				&ctrl_priv->tsg_share_tokens_list,
 				nvgpu_tsg_share_token_node, ctrl_entry) {
-		if ((token_node->token == share_token) &&
+		if ((token_node->token == token) &&
 		    (token_node->target_device_instance_id ==
 					target_device_instance_id) &&
 		    (token_node->tsg == tsg)) {
@@ -3112,7 +3412,7 @@ int nvgpu_gpu_revoke_share_token(struct gk20a *g,
 			nvgpu_log_info(g, "Source: %llx Target: %llx Token: %llx",
 				       source_device_instance_id,
 				       target_device_instance_id,
-				       share_token);
+				       token);
 			nvgpu_list_del(&token_node->ctrl_entry);
 			nvgpu_kfree(g, token_node);
 			break;
@@ -3173,7 +3473,7 @@ int nvgpu_gpu_tsg_revoke_share_tokens(struct gk20a *g,
 struct nvgpu_tsg *nvgpu_gpu_open_tsg_with_share_token(struct gk20a *g,
 				 u64 source_device_instance_id,
 				 u64 target_device_instance_id,
-				 u64 share_token)
+				 u64 token)
 {
 	struct nvgpu_tsg_share_token_node *token_node, *tmp;
 	struct gk20a_ctrl_priv *ctrl_priv;
@@ -3187,14 +3487,14 @@ struct nvgpu_tsg *nvgpu_gpu_open_tsg_with_share_token(struct gk20a *g,
 
 	nvgpu_log_info(g, "Using the token src: %llx target: %llx token:%llx",
 		       source_device_instance_id,
-		       target_device_instance_id, share_token);
+		       target_device_instance_id, token);
 
 	nvgpu_mutex_acquire(&ctrl_priv->tokens_lock);
 
 	nvgpu_list_for_each_entry_safe(token_node, tmp,
 				&ctrl_priv->tsg_share_tokens_list,
 				nvgpu_tsg_share_token_node, ctrl_entry) {
-		if ((token_node->token == share_token) &&
+		if ((token_node->token == token) &&
 		    (token_node->target_device_instance_id ==
 					target_device_instance_id)) {
 			tsg = token_node->tsg;

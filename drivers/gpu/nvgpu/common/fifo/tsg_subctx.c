@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/tsg.h>
 #include <nvgpu/tsg_subctx.h>
@@ -33,6 +14,29 @@
 
 #include "tsg_subctx_priv.h"
 
+/**
+ * @brief Retrieve the TSG subcontext structure from a TSG entry node.
+ *
+ * This function computes the starting address of the TSG subcontext structure
+ * given a pointer to a member (tsg_entry) within that structure. It uses the
+ * standard offsetof macro to determine the byte offset of the tsg_entry member
+ * within the nvgpu_tsg_subctx structure, and then subtracts this offset from
+ * the provided node pointer to obtain the base address of the containing
+ * structure.
+ *
+ * @param [in] node  Pointer to the tsg_entry member within the TSG subcontext
+ *                   structure.
+ *
+ * @return Pointer to the containing nvgpu_tsg_subctx structure.
+ *
+ * Steps:
+ * -# Calculate the byte offset of the tsg_entry member within the
+ *    nvgpu_tsg_subctx structure using the offsetof() macro.
+ * -# Subtract the offset from the provided node pointer to get the base address
+ *    of the nvgpu_tsg_subctx structure.
+ * -# Cast the computed address to a pointer of type struct nvgpu_tsg_subctx*.
+ * -# Return the pointer to the nvgpu_tsg_subctx structure.
+ */
 static inline struct nvgpu_tsg_subctx *
 nvgpu_tsg_subctx_from_tsg_entry(struct nvgpu_list_node *node)
 {
@@ -40,6 +44,30 @@ nvgpu_tsg_subctx_from_tsg_entry(struct nvgpu_list_node *node)
 	   ((uintptr_t)node - offsetof(struct nvgpu_tsg_subctx, tsg_entry));
 };
 
+/**
+ * @brief Retrieve the TSG subcontext structure with a specific subcontext ID.
+ *
+ * This function iterates over the list of subcontexts in a TSG and returns the
+ * subcontext that matches the provided subcontext ID. If no matching subcontext
+ * is found, it returns NULL.
+ *
+ * @param [in] tsg        Pointer to the TSG structure containing the subcontext list.
+ * @param [in] subctx_id  The subcontext ID to search for.
+ *
+ * @return Pointer to the matching nvgpu_tsg_subctx structure, or NULL if not found.
+ *
+ * Steps:
+ * -# Initialize a pointer to a nvgpu_tsg_subctx structure to NULL. This will
+ *    be used to store the result.
+ * -# Use nvgpu_list_for_each_entry() to iterate over each subcontext in the
+ *    TSG's subcontext list.
+ *    - The iteration uses the tsg_entry member of the nvgpu_tsg_subctx structure
+ *      to traverse the list.
+ * -# Inside the loop, check if the current subcontext's ID matches the provided
+ *    subctx_id.
+ *    - If a match is found, the current subcontext's pointer is returned.
+ * -# After the loop, return NULL as no match was found.
+ */
 static struct nvgpu_tsg_subctx *nvgpu_tsg_subctx_from_id(struct nvgpu_tsg *tsg,
 					u32 subctx_id)
 {
@@ -385,6 +413,28 @@ void nvgpu_tsg_subctxs_set_pm_buffer_va(struct nvgpu_tsg *tsg,
 }
 #endif /* CONFIG_NVGPU_DEBUGGER */
 
+/**
+ * @brief Retrieve the channel structure from a subcontext entry node.
+ *
+ * This function computes the starting address of the channel structure given a
+ * pointer to a member (subctx_entry) within that structure. It uses the
+ * offsetof() macro to determine the byte offset of the subctx_entry member
+ * within the nvgpu_channel structure, and then subtracts this offset from the
+ * provided node pointer to obtain the base address of the containing structure.
+ *
+ * @param [in] node  Pointer to the subctx_entry member within the channel
+ *                   structure.
+ *
+ * @return Pointer to the containing nvgpu_channel structure.
+ *
+ * Steps:
+ * -# Calculate the byte offset of the subctx_entry member within the
+ *    nvgpu_channel structure using the offsetof() macro.
+ * -# Subtract the offset from the provided node pointer to get the base address
+ *    of the nvgpu_channel structure.
+ * -# Cast the computed address to a pointer of type struct nvgpu_channel*.
+ * -# Return the pointer to the nvgpu_channel structure.
+ */
 static inline struct nvgpu_channel *
 nvgpu_channel_from_subctx_entry(struct nvgpu_list_node *node)
 {

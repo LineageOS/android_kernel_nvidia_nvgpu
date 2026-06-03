@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/swprofile.h>
 #include <nvgpu/lock.h>
@@ -41,7 +22,7 @@
 static inline u32 matrix_to_linear_index(struct nvgpu_swprofiler *p,
 					 u32 row, u32 col)
 {
-	return (row * p->psample_len) + col;
+	return nvgpu_safe_add_u32(nvgpu_safe_mult_u32(row, p->psample_len), col);
 }
 
 /*
@@ -82,6 +63,7 @@ void nvgpu_swprofile_initialize(struct gk20a *g,
 
 int nvgpu_swprofile_open(struct gk20a *g, struct nvgpu_swprofiler *p)
 {
+	u32 size;
 	int ret = 0;
 
 	nvgpu_mutex_acquire(&p->lock);
@@ -98,9 +80,8 @@ int nvgpu_swprofile_open(struct gk20a *g, struct nvgpu_swprofiler *p)
 	/*
 	 * Otherwise allocate the necessary data structures, etc.
 	 */
-	p->samples = nvgpu_vzalloc(g,
-				   PROFILE_ENTRIES * p->psample_len *
-				   sizeof(*p->samples));
+	size = (PROFILE_ENTRIES * p->psample_len) * nvgpu_safe_cast_u64_to_u32(sizeof(*p->samples));
+	p->samples = nvgpu_vzalloc(g, size);
 	if (p->samples == NULL) {
 		ret = -ENOMEM;
 		goto fail;
@@ -188,7 +169,7 @@ void nvgpu_swprofile_snapshot(struct nvgpu_swprofiler *p, u32 idx)
 	 */
 	index = matrix_to_linear_index(p, p->sample_index, idx);
 
-	p->samples[index] = (u64)nvgpu_current_time_ns();
+	p->samples[index] = nvgpu_safe_cast_s64_to_u64(nvgpu_current_time_ns());
 }
 
 void nvgpu_swprofile_begin_sample(struct nvgpu_swprofiler *p)
@@ -196,6 +177,7 @@ void nvgpu_swprofile_begin_sample(struct nvgpu_swprofiler *p)
 	nvgpu_mutex_acquire(&p->lock);
 
 	if (p == NULL || p->samples == NULL) {
+		nvgpu_assert(&p->lock != NULL);
 		nvgpu_mutex_release(&p->lock);
 		return;
 	}
@@ -210,18 +192,19 @@ void nvgpu_swprofile_begin_sample(struct nvgpu_swprofiler *p)
 	/*
 	 * Reference time for subsequent subsamples in this sample.
 	 */
-	p->samples_start[p->sample_index] = (u64)nvgpu_current_time_ns();
+	p->samples_start[p->sample_index] = nvgpu_safe_cast_s64_to_u64(nvgpu_current_time_ns());
 
 	nvgpu_mutex_release(&p->lock);
 }
 
 static int profile_cmp(const void *a, const void *b)
 {
-	return (int)(*((const u64 *) a) - *((const u64 *) b));
+	return nvgpu_safe_cast_u64_to_s32(nvgpu_safe_sub_u64(*((const u64 *) a),
+							     *((const u64 *) b)));
 }
 
-#define PERCENTILE_WIDTH	5
-#define PERCENTILE_RANGES	(100/PERCENTILE_WIDTH)
+#define PERCENTILE_WIDTH	5U
+#define PERCENTILE_RANGES	(100U/PERCENTILE_WIDTH)
 
 static u32 nvgpu_swprofile_build_ranges(struct nvgpu_swprofiler *p,
 					u64 *storage,
@@ -251,7 +234,7 @@ static u32 nvgpu_swprofile_build_ranges(struct nvgpu_swprofiler *p,
 
 		storage[nelem] = p->samples[linear_idx_end] -
 				 p->samples[linear_idx_start];
-		nelem++;
+		nelem = nvgpu_safe_add_u32(nelem, 1U);
 	}
 
 	/* sort it */
@@ -259,8 +242,8 @@ static u32 nvgpu_swprofile_build_ranges(struct nvgpu_swprofiler *p,
 
 	/* build ranges */
 	for (i = 0; i < PERCENTILE_RANGES; i++) {
-		percentiles[i] = nelem < PERCENTILE_RANGES ? 0 :
-			storage[(PERCENTILE_WIDTH * (i + 1) * nelem)/100 - 1];
+		percentiles[i] = nelem < PERCENTILE_RANGES ? 0U :
+			storage[(PERCENTILE_WIDTH * (i + 1U) * nelem)/100U - 1U];
 	}
 
 	return nelem;
@@ -276,7 +259,7 @@ void nvgpu_swprofile_print_ranges(struct gk20a *g,
 				  struct nvgpu_swprofiler *p,
 				  struct nvgpu_debug_context *o)
 {
-	u32 nelem = 0U, i, j;
+	u32 nelem = 0U, i, j, size;
 	u64 *sorted_data = NULL;
 	u64 *percentiles = NULL;
 
@@ -287,13 +270,13 @@ void nvgpu_swprofile_print_ranges(struct gk20a *g,
 		goto done;
 	}
 
-	sorted_data = nvgpu_vzalloc(g,
-				    PROFILE_ENTRIES * p->psample_len *
-				    sizeof(u64));
-	percentiles = nvgpu_vzalloc(g,
-				    PERCENTILE_RANGES * p->psample_len *
-				    sizeof(u64));
-	if (!sorted_data || !percentiles) {
+	size = (PROFILE_ENTRIES * p->psample_len) * nvgpu_safe_cast_u64_to_u32(sizeof(u64));
+	sorted_data = nvgpu_vzalloc(g, size);
+
+	size = (PERCENTILE_RANGES * p->psample_len) * nvgpu_safe_cast_u64_to_u32(sizeof(u64));
+	percentiles = nvgpu_vzalloc(g, size);
+
+	if ((sorted_data == NULL) || (percentiles == NULL)) {
 		nvgpu_err(g, "vzalloc: OOM!");
 		goto done;
 	}
@@ -323,7 +306,7 @@ void nvgpu_swprofile_print_ranges(struct gk20a *g,
 	 * percentiles is another matrix, but this time it's using column major indexing.
 	 */
 	for (i = 0U; i < PERCENTILE_RANGES; i++) {
-		gk20a_debug_output(o, "%3upc ", PERCENTILE_WIDTH * (i + 1));
+		gk20a_debug_output(o, "%3upc ", PERCENTILE_WIDTH * (i + 1U));
 		for (j = 0U; j < p->psample_len; j++) {
 			gk20a_debug_output(o, " %15llu",
 					   percentiles[(j * PERCENTILE_RANGES) + i]);
@@ -369,7 +352,7 @@ void nvgpu_swprofile_print_raw_data(struct gk20a *g,
 			u32 index = matrix_to_linear_index(p, i, j);
 
 			gk20a_debug_output(o, " %15llu",
-					   p->samples[index] - p->samples_start[i]);
+					   nvgpu_safe_sub_u64(p->samples[index], p->samples_start[i]));
 		}
 		gk20a_debug_output(o, "\n");
 	}
@@ -432,8 +415,8 @@ static u32 nvgpu_swprofile_subsample_basic_stats(struct gk20a *g,
 		}
 
 		storage[samples] = sample;
-		sum += sample;
-		samples += 1U;
+		sum = nvgpu_safe_add_u64(sum, sample);
+		samples = nvgpu_safe_add_u64(samples, 1U);
 	}
 
 	/*
@@ -452,7 +435,7 @@ static u32 nvgpu_swprofile_subsample_basic_stats(struct gk20a *g,
 	}
 
 	mean = sum / samples;
-	median = storage[samples / 2];
+	median = storage[samples / 2U];
 
 	/*
 	 * If only 1 sample is found, the min, max, median and mean would be
@@ -467,12 +450,14 @@ static u32 nvgpu_swprofile_subsample_basic_stats(struct gk20a *g,
 	} else {
 		/* Compute the sample variance (i.e sigma squared). */
 		for (i = 0U; i < samples; i++) {
-			sigma_2 += storage[i] * storage[i];
+			sigma_2 = nvgpu_safe_add_u64(sigma_2,
+					nvgpu_safe_mult_u64(storage[i], storage[i]));
 		}
 
 		/* Remember: _sample_ variance. */
 		sigma_2 /= (samples - 1U);
-		sigma_2 -= (mean * mean);
+		sigma_2 = nvgpu_safe_sub_u64(sigma_2,
+					     nvgpu_safe_mult_u64(mean, mean));
 	}
 
 	results[0] = min;

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 #include <nvgpu/nvs.h>
@@ -267,7 +248,7 @@ bool nvgpu_nvs_ctrl_fifo_user_is_active(struct nvs_domain_ctrl_fifo_user *user)
 		return false;
 	}
 
-	return user->active_used_queues != 0;
+	return user->active_used_queues != 0U;
 }
 
 void nvgpu_nvs_ctrl_fifo_remove_user(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
@@ -295,7 +276,13 @@ struct nvgpu_nvs_domain_ctrl_fifo *nvgpu_nvs_ctrl_fifo_create(struct gk20a *g)
 		return NULL;
 	}
 	sched->g = g;
-	sched->capabilities.scheduler_implementation_hw = NVGPU_NVS_DOMAIN_SCHED_KMD;
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_KMD_SCHEDULING_WORKER_THREAD)) {
+		sched->capabilities.scheduler_implementation_hw =
+			NVGPU_NVS_DOMAIN_SCHED_KMD;
+	} else {
+		sched->capabilities.scheduler_implementation_hw =
+			NVGPU_NVS_DOMAIN_SCHED_GSP;
+	}
 
 	nvgpu_spinlock_init(&sched->users.user_lock);
 	nvgpu_mutex_init(&sched->queues.queue_lock);
@@ -320,6 +307,7 @@ void nvgpu_nvs_domain_ctrl_fifo_set_receiver(struct gk20a *g,
 	nvgpu_smp_wmb();
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 void nvgpu_nvs_domain_ctrl_fifo_set_sender(struct gk20a *g,
 		struct nvs_control_fifo_sender *sender)
 {
@@ -347,6 +335,7 @@ struct nvs_control_fifo_receiver *nvgpu_nvs_domain_ctrl_fifo_get_receiver(struct
 	return sched_ctrl->queues.send_queue_receiver;
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 struct nvs_control_fifo_sender *nvgpu_nvs_domain_ctrl_fifo_get_sender(struct gk20a *g)
 {
 	struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl = g->sched_ctrl_fifo;
@@ -359,7 +348,6 @@ struct nvs_control_fifo_sender *nvgpu_nvs_domain_ctrl_fifo_get_sender(struct gk2
 
 	return sched_ctrl->queues.receiver_queue_sender;
 }
-#endif
 
 bool nvgpu_nvs_ctrl_fifo_is_enabled(struct gk20a *g)
 {
@@ -371,35 +359,56 @@ bool nvgpu_nvs_ctrl_fifo_is_enabled(struct gk20a *g)
 
 	return nvgpu_nvs_ctrl_fifo_is_busy(sched_ctrl);
 }
+#endif
 
 void nvgpu_nvs_ctrl_fifo_idle(struct gk20a *g)
 {
 	struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl = g->sched_ctrl_fifo;
+	u32 usage_counter = 0U;
 
 	if (sched_ctrl == NULL) {
 		return;
 	}
 
-	if (nvgpu_nvs_ctrl_fifo_is_busy(sched_ctrl)) {
+	/* There is still a case where gk20a_idle can be missed. Suppose if ctrl
+	 * node ocb calloc is in progress and just before user add when gpu ref
+	 * has been taken, suspend/run callback triggered. As part of these callback
+	 * this API will be called to idle the gpu ref but as user is not added yet
+	 * usage_counter will not up and idle will not be called.
+	 * But this case should not happen as user space should be frozen before
+	 * suspend and APP init would have completed before run().
+	 * This case even avoided by taking queue lock before user lock but probably
+	 * that will be unnecessary as this case should not hit.
+	 */
+	nvgpu_spinlock_acquire(&sched_ctrl->users.user_lock);
+	usage_counter = sched_ctrl->users.usage_counter;
+	while (usage_counter > 0U) {
 		gk20a_idle(g);
+		usage_counter--;
 	}
+	nvgpu_spinlock_release(&sched_ctrl->users.user_lock);
 }
 
 void nvgpu_nvs_ctrl_fifo_unidle(struct gk20a *g)
 {
 	struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl = g->sched_ctrl_fifo;
+	u32 usage_counter = 0U;
 	int err;
 
 	if (sched_ctrl == NULL) {
 		return;
 	}
 
-	if (nvgpu_nvs_ctrl_fifo_is_busy(sched_ctrl)) {
+	nvgpu_spinlock_acquire(&sched_ctrl->users.user_lock);
+	usage_counter = sched_ctrl->users.usage_counter;
+	while (usage_counter > 0U) {
 		err = gk20a_busy(g);
 		if (err != 0) {
 			nvgpu_err(g, "cannot busy() again!");
 		}
+		usage_counter--;
 	}
+	nvgpu_spinlock_release(&sched_ctrl->users.user_lock);
 }
 
 bool nvgpu_nvs_ctrl_fifo_is_busy(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl)
@@ -411,7 +420,7 @@ bool nvgpu_nvs_ctrl_fifo_is_busy(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl)
 	}
 
 	nvgpu_spinlock_acquire(&sched_ctrl->users.user_lock);
-	ret = (sched_ctrl->users.usage_counter != 0);
+	ret = (sched_ctrl->users.usage_counter != 0U);
 	nvgpu_spinlock_release(&sched_ctrl->users.user_lock);
 
 	return ret;
@@ -456,12 +465,16 @@ struct nvgpu_nvs_ctrl_queue *nvgpu_nvs_ctrl_fifo_get_queue(
 		} else if (queue_direction == NVGPU_NVS_DIR_SCHEDULER_TO_CLIENT) {
 			queue = &sched_ctrl->queues.receive;
 			*mask = NVGPU_NVS_CTRL_FIFO_QUEUE_EXCLUSIVE_CLIENT_READ;
+		} else {
+			/* do nothing */
 		}
 	} else if (queue_num == NVGPU_NVS_NUM_EVENT) {
 		if (queue_direction == NVGPU_NVS_DIR_SCHEDULER_TO_CLIENT) {
 			queue = &sched_ctrl->queues.event;
 			*mask = NVGPU_NVS_CTRL_FIFO_QUEUE_CLIENT_EVENTS_READ;
 		}
+	} else {
+		/* do nothing */
 	}
 
 	return queue;
@@ -560,6 +573,8 @@ int nvgpu_nvs_buffer_alloc(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
 				goto fail;
 			}
 			nvgpu_nvs_domain_ctrl_fifo_set_sender(g, receiver_queue_sender);
+		} else {
+			/* do nothing */
 		}
 	}
 #endif
@@ -576,7 +591,7 @@ fail:
 }
 
 void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
-		struct nvgpu_nvs_ctrl_queue *buf)
+		struct nvgpu_nvs_ctrl_queue *buf, bool is_abrupt_close)
 {
 	struct gk20a *g;
 	struct vm_gk20a *system_vm;
@@ -595,7 +610,11 @@ void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
 	}
 
 	g = sched_ctrl->g;
-	system_vm = g->mm.pmu.vm;
+	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_VM))) {
+		system_vm = g->mm.gsp.vm;
+	} else {
+		system_vm = g->mm.pmu.vm;
+	}
 	mask = buf->mask;
 
 #ifdef CONFIG_KMD_SCHEDULING_WORKER_THREAD
@@ -613,6 +632,8 @@ void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
 			if (receiver_queue_sender != NULL) {
 				nvs_control_fifo_sender_exit(g, receiver_queue_sender);
 			}
+		} else {
+			/* do nothing */
 		}
 	}
 #endif
@@ -620,7 +641,7 @@ void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
 	if (nvgpu_mem_is_valid(&buf->mem)) {
 #if defined (CONFIG_NVS_PRESENT) && defined (CONFIG_NVGPU_GSP_SCHEDULER)
 	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
-		nvgpu_gsp_sched_erase_ctrl_fifo(g, buf->queue_direction);
+		nvgpu_gsp_sched_erase_ctrl_fifo(g, buf->queue_direction, is_abrupt_close);
 	}
 #endif
 		nvgpu_dma_unmap_free(system_vm, &buf->mem);
@@ -629,6 +650,7 @@ void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
 	/* Sets buf->valid as false */
 	(void)memset(buf, 0, sizeof(*buf));
 	(void)mask;
+	(void)is_abrupt_close;
 }
 
 void nvgpu_nvs_ctrl_fifo_lock_queues(struct gk20a *g)
@@ -649,7 +671,7 @@ bool nvgpu_nvs_ctrl_fifo_queue_has_subscribed_users(struct nvgpu_nvs_ctrl_queue 
 		return false;
 	}
 
-	return queue->ref != 0;
+	return queue->ref != 0U;
 }
 
 void nvgpu_nvs_ctrl_fifo_user_subscribe_queue(struct nvs_domain_ctrl_fifo_user *user,
@@ -679,7 +701,7 @@ bool nvgpu_nvs_ctrl_fifo_user_is_subscribed_to_queue(struct nvs_domain_ctrl_fifo
 		return false;
 	}
 
-	return (user->active_used_queues & queue->mask);
+	return (user->active_used_queues & queue->mask) != 0U;
 }
 
 void nvgpu_nvs_ctrl_fifo_erase_all_queues(struct gk20a *g)
@@ -689,24 +711,25 @@ void nvgpu_nvs_ctrl_fifo_erase_all_queues(struct gk20a *g)
 	nvgpu_nvs_ctrl_fifo_lock_queues(g);
 
 	if (nvgpu_nvs_buffer_is_valid(g, &sched_ctrl->queues.send)) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.send);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.send, false);
 	}
 
 	if (nvgpu_nvs_buffer_is_valid(g, &sched_ctrl->queues.receive)) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.receive);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.receive, false);
 	}
 
 	if (nvgpu_nvs_buffer_is_valid(g, &sched_ctrl->queues.event)) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.event);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, &sched_ctrl->queues.event, false);
 	}
 
 	nvgpu_nvs_ctrl_fifo_unlock_queues(g);
 }
 
-void nvgpu_nvs_ctrl_fifo_erase_queue_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue)
+void nvgpu_nvs_ctrl_fifo_erase_queue_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue,
+	bool is_abrupt_close)
 {
-	if (queue != NULL && queue->free != NULL) {
-		queue->free(g, queue);
+	if (queue != NULL && queue->free_queue != NULL) {
+		queue->free_queue(g, queue, is_abrupt_close);
 	}
 }
 
@@ -718,9 +741,9 @@ static int nvgpu_nvs_ctrl_fifo_scheduler_process_caps_request(struct gk20a *g,
 	int result;
 
 	struct nvs_domain_msg_ctrl_get_caps_req *request =
-		(struct nvs_domain_msg_ctrl_get_caps_req *)send_queue_receiver->internal_buffer;
+		(struct nvs_domain_msg_ctrl_get_caps_req *)(void *)send_queue_receiver->internal_buffer;
 	struct nvs_domain_msg_ctrl_get_caps_resp *response =
-		(struct nvs_domain_msg_ctrl_get_caps_resp *)receiver_queue_sender->internal_buffer;
+		(struct nvs_domain_msg_ctrl_get_caps_resp *)(void *)receiver_queue_sender->internal_buffer;
 
 	(void)g;
 
@@ -745,7 +768,7 @@ static int nvgpu_nvs_ctrl_fifo_scheduler_process_erroneous_request(struct gk20a 
 		struct nvs_control_fifo_sender * const receiver_queue_sender)
 {
 	struct nvs_domain_msg_ctrl_error_resp *error_response =
-		(struct nvs_domain_msg_ctrl_error_resp *)receiver_queue_sender->internal_buffer;
+		(struct nvs_domain_msg_ctrl_error_resp *)(void *)receiver_queue_sender->internal_buffer;
 
 	(void)g;
 	(void)send_queue_receiver;
@@ -767,9 +790,9 @@ static int nvgpu_nvs_ctrl_fifo_scheduler_process_switch_request(struct gk20a *g,
 	u64 domain_id;
 
 	struct nvs_domain_msg_ctrl_switch_domain_req *request =
-		(struct nvs_domain_msg_ctrl_switch_domain_req *)send_queue_receiver->internal_buffer;
+		(struct nvs_domain_msg_ctrl_switch_domain_req *)(void *)send_queue_receiver->internal_buffer;
 	struct nvs_domain_msg_ctrl_switch_domain_resp *response =
-		(struct nvs_domain_msg_ctrl_switch_domain_resp *)receiver_queue_sender->internal_buffer;
+		(struct nvs_domain_msg_ctrl_switch_domain_resp *)(void *)receiver_queue_sender->internal_buffer;
 
 	domain_id = request->domain_id;
 
@@ -846,7 +869,7 @@ int nvgpu_nvs_ctrl_fifo_scheduler_handle_requests(struct gk20a *g)
 
 	nvgpu_mutex_acquire(&g->sched_mutex);
 
-	if (send_queue_receiver == NULL) {
+	if ((send_queue_receiver == NULL) || (receiver_queue_sender == NULL)) {
 		nvgpu_mutex_release(&g->sched_mutex);
 		return 0;
 	}
@@ -860,17 +883,15 @@ int nvgpu_nvs_ctrl_fifo_scheduler_handle_requests(struct gk20a *g)
 			nvgpu_err(g, "error occured when reading from the SEND control-queue");
 		}
 
-		if (receiver_queue_sender != NULL) {
-			ret = nvs_control_fifo_sender_can_write(receiver_queue_sender);
-			if (ret == -EAGAIN) {
-				nvs_control_fifo_sender_out_of_space(receiver_queue_sender);
-				nvgpu_err(g, "error occured due to lack of space for RECEIVE control-queue");
-			} else {
-				nvs_control_fifo_sender_write_message(receiver_queue_sender,
-					send_queue_receiver->msg_type, send_queue_receiver->msg_sequence,
-						nvgpu_safe_cast_s64_to_u64(nvgpu_current_time_ns()));
-				nvs_dbg(g, " ");
-			}
+		ret = nvs_control_fifo_sender_can_write(receiver_queue_sender);
+		if (ret == -EAGAIN) {
+			nvs_control_fifo_sender_out_of_space(receiver_queue_sender);
+			nvgpu_err(g, "error occured due to lack of space for RECEIVE control-queue");
+		} else {
+			nvs_control_fifo_sender_write_message(receiver_queue_sender,
+				send_queue_receiver->msg_type, send_queue_receiver->msg_sequence,
+					nvgpu_safe_cast_s64_to_u64(nvgpu_current_time_ns()));
+			nvs_dbg(g, " ");
 		}
 	}
 	/*

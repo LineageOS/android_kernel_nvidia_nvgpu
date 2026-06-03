@@ -1,27 +1,12 @@
-/*
- * Copyright (c) 2017-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_PMUIF_PMU_H
 #define NVGPU_PMUIF_PMU_H
 
+#include "nvgpu_cmdif.h"
+#include <nvgpu/pmu/pmuif/perfmon.h>
 #include <nvgpu/flcnif_cmn.h>
 #include <nvgpu/types.h>
 #include "cmn.h"
@@ -52,7 +37,7 @@ struct pmu_cmdline_args_v4 {
 
 struct pmu_cmdline_args_v5 {
 	u32 cpu_freq_hz;
-	struct flcn_mem_desc_v0 trace_buf;
+	struct flcn_mem_desc_v0 nvgpu_trace_buf;
 	u8 secure_mode;
 	u8 raise_priv_sec;
 	struct flcn_mem_desc_v0 gc6_ctx;
@@ -62,7 +47,7 @@ struct pmu_cmdline_args_v5 {
 
 struct pmu_cmdline_args_v6 {
 	u32 cpu_freq_hz;
-	struct flcn_mem_desc_v0 trace_buf;
+	struct flcn_mem_desc_v0 nvgpu_trace_buf;
 	u8 secure_mode;
 	u8 raise_priv_sec;
 	struct flcn_mem_desc_v0 gc6_ctx;
@@ -73,8 +58,6 @@ struct pmu_cmdline_args_v6 {
 
 struct pmu_cmdline_args_v7 {
 	u32 cpu_freq_hz;
-	struct flcn_mem_desc_v0 trace_buf;
-	bool raise_priv_sec;
 	struct flcn_mem_desc_v0 gc6_ctx;
 	struct flcn_mem_desc_v0 gc6_bsod_ctx;
 	struct flcn_mem_desc_v0 super_surface;
@@ -82,8 +65,13 @@ struct pmu_cmdline_args_v7 {
 	u32 ctx_bind_addr;
 };
 
-/* PMU INIT MSG */
+/* PMU INIT MSG from PMU CMDMGMT unit */
 #define PMU_INIT_MSG_TYPE_PMU_INIT	(u8)0
+#define PMU_INIT_MSG_TYPE_DRIVER_REGISTER_EVENT_RESPONSE   0x02
+
+#define PMU_INIT_MSG_TYPE_DRIVER_REGISTER_EVENT_RESPONSE_REGISTER_COMPLETE_HANDLED   0x00
+#define PMU_INIT_MSG_TYPE_DRIVER_REGISTER_EVENT_RESPONSE_REGISTER_COMPLETE_FAILED    0x01
+#define PMU_INIT_MSG_TYPE_DRIVER_REGISTER_EVENT_RESPONSE_UNREGISTER_START_HANDLED    0x02
 
 struct pmu_init_msg_pmu_v1 {
 	u8 msg_type;
@@ -128,7 +116,7 @@ struct pmu_init_msg_pmu_v4 {
 /* Defines the structure that holds data used to execute INIT RPC. */
 struct pmu_nvgpu_rpc_struct_cmdmgmt_init {
 	/* Must be first field in RPC structure. */
-	struct pmu_nvgpu_rpc_header hdr;
+	struct nv_pmu_rpc_header hdr;
 	/*
 	* Notifies the RM if the PMU has encountered any critical
 	* error that would prevent it to operate correctly
@@ -156,6 +144,107 @@ struct pmu_nvgpu_rpc_struct_cmdmgmt_init {
 	u16 os_debug_entry_point;
 	/* BRSS data. */
 	u8 brss_data[24];
+};
+
+/*!
+ * Defines the structure that holds data used to execute DRIVER_REGISTER_EVENT_RESPONSE RPC.
+ */
+struct pmu_nvgpu_rpc_struct_cmdmgmt_driver_register_event_response {
+    /*!
+     *  Must be first field in RPC structure.
+     */
+	struct nv_pmu_rpc_header hdr;
+    /*!
+     *  Enumeration value that indicates for which event this is a response.
+     */
+	u8 register_event_response;
+};
+
+/*
+ *
+ * Defines the structure that holds data used to execute RM_RPC_RESPONSE RPC.
+ */
+struct pmu_nv_rpc_struct_cmdmgmt_nv_rpc_response {
+	/*!
+	 *  Must be first field in RPC structure.
+	 */
+	struct nv_pmu_rpc_header hdr;
+	/*!
+	 *  Sequence ID of the completed RM RPC
+	 */
+	u8 seqnum_id;
+	/*!
+	 *  RPC flags distinguishing between SYNC/ASYNC/POSTED requests
+	 */
+	u8 rpc_flags;
+};
+
+/*!
+ * Defines the structure that holds data used to execute PG_ASYNC_CMD_RESP RPC.
+ */
+struct pmu_nv_rpc_struct_lpwr_pg_async_cmd_resp {
+	/*!
+	 *  Must be first field in RPC structure.
+	 */
+	struct nv_pmu_rpc_header hdr;
+	/*!
+	 *  Control ID of the Async PG Command.
+	 */
+	u8 ctrl_id;
+	/*!
+	 *  Message ID of the Async PG Command.
+	 */
+	u8 msg_id;
+};
+
+/*!
+ * Defines the structure that holds data used to execute PG_IDLE_SNAP RPC.
+ */
+struct pmu_nv_rpc_struct_lpwr_pg_idle_snap {
+	/*!
+	 *  Must be first field in RPC structure.
+	 */
+	struct nv_pmu_rpc_header hdr;
+	/*!
+	 *  PgCtrl ID.
+	 */
+	u8 ctrl_id;
+	/*!
+	 *  Idle Snap reason.
+	 */
+	u8 reason;
+	/*!
+	 *  Primary status from Idle Snap.
+	 */
+	u32 idle_status;
+	/*!
+	 *  Additional status from Idle Snap.
+	 */
+	u32 idle_status1;
+	/*!
+	 *  Additional status from Idle Snap.
+	 */
+	u32 idle_status2;
+};
+
+union pmu_nvgpu_rpc_events {
+	/*!
+	 * RPC header is the first element of both event RPCs and PMU responses.
+	 */
+	struct nv_pmu_rpc_header hdr;
+	struct pmu_nvgpu_rpc_struct_cmdmgmt_init cmdmgmt_init;
+	struct pmu_nvgpu_rpc_perfmon_init perfmon_init;
+	struct pmu_nv_rpc_struct_cmdmgmt_nv_rpc_response cmdmgmt_rpc_response;
+	struct pmu_nv_rpc_struct_lpwr_pg_async_cmd_resp async_cmd;
+	struct pmu_nv_rpc_struct_lpwr_pg_idle_snap idle_snap;
+	struct pmu_nvgpu_rpc_struct_cmdmgmt_driver_register_event_response
+			cmdmgmt_driver_register_event_response;
+	u8 pmu_response[2048];
+};
+
+struct pmu_nvgpu_rpc_struct {
+	struct pmu_hdr hdr;
+	union pmu_nvgpu_rpc_events event_rpc;
 };
 
 union pmu_init_msg_pmu {

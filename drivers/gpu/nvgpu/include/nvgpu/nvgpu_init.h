@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_INIT_H
@@ -30,12 +12,12 @@ struct nvgpu_ref;
 
 /**
  * @file
- * @page unit-init Unit Init
+ * @page common.init common.init
  *
  * Overview
  * ========
  *
- * The Init unit is called by OS (QNX, Linux) to initialize or teardown the
+ * The Init unit is called by [os]_init (QNX, Linux) to initialize or teardown the
  * driver. The Init unit ensures all the other sub-units are initialized so the
  * driver is able to provide general functionality to the application.
  *
@@ -53,6 +35,76 @@ struct nvgpu_ref;
  * The main driver initialization occurs by calling nvgpu_finalize_poweron()
  * which will initialize all of the common units in the driver and must be done
  * before the driver is ready to provide full functionality.
+ *
+ * ### fuse ###
+ *
+ * The nvgpu-rm common.fuse unit provides a set of interfaces to read or write
+ * various fuse registers of SoC of GPU.
+ *
+ * The common.fuse unit initialization part is responsible for:
+ * - Fetching iGPU specific fuse IO region from Device Tree
+ * - Mapping fuse IO region in nvgpu-rm address space
+ * - Un-mapping fuse IO region from nvgpu-rm address space
+ *
+ * Once the common.fuse unit is successfully initialized, it facilitates
+ * reads and writes of FUSEs. Any failure in common.fuse unit initialization
+ * is reported as an error to the common.init unit.
+ *
+ * ### falcon ###
+ *
+ * @ref common.falcon
+ *
+ * ### pmu ###
+ *
+ * @ref common.pmu
+ *
+ * ### bus ###
+ *
+ * @ref common.bus
+ *
+ * ### priv_ring ###
+ *
+ * @ref common.priv_ring
+ *
+ * ### ltc ###
+ *
+ * @ref common.ltc
+ *
+ * mm
+ *
+ * @ref common.mm
+ *
+ * ### fifo ###
+ *
+ * @ref common.fifo
+ *
+ * mc
+ *
+ * @ref common.mc
+ *
+ * ### acr ###
+ *
+ * @ref common.acr
+ *
+ * ### fbp ###
+ *
+ * @ref common.fbp
+ *
+ * gr
+ *
+ * @ref common.gr
+ *
+ * ### ecc ###
+ *
+ * @ref common.ecc
+ *
+ * ### therm ###
+ *
+ * @ref common.therm
+ *
+ * ce
+ *
+ * @ref common.ce
  *
  * Common Teardown
  * ---------------
@@ -118,27 +170,72 @@ struct nvgpu_ref;
 int nvgpu_early_poweron(struct gk20a *g);
 
 /**
- * @brief Final driver initialization
+ * @brief Finalize the power-on sequence by initializing various GPU subsystems.
  *
- * @param g [in] The GPU
- *
- * Initializes GPU units in the GPU driver. Each sub-unit is responsible for HW
- * initialization.
+ * The function performs the following steps to finalize the power-on of the GPU:
+ * -# Define an array of initialization table entries for various GPU subsystems.
+ * -# Iterate over each entry in the initialization table.
+ * -# For each entry, check if the corresponding initialization function needs
+ *    to be called based on the enable flag using needs_init().
+ * -# If initialization is needed, call the initialization function and check
+ *    for errors.
+ * -# If an error occurs during initialization, log the error, free any falcon
+ *    software state using nvgpu_falcons_sw_free(), and return the error code.
+ * -# If all initializations are successful, print enabled flags using nvgpu_print_enabled_flags()
+ *    for tracing if configured.
+ * -# Return the error code indicating the success or failure of the power-on
+ *    finalization.
+ * -# If the static powergate lock is held and an error occurs, release the lock
+ *    using nvgpu_init_release_static_pg_lock() and log any error that occurs during the release.
  *
  * Note: Requires the GPU is already powered on and the HAL is initialized.
  *
- * @return 0 in case of success, < 0 in case of failure.
+ * @param [in] g  The GPU structure to finalize power-on for.
+ *
+ * @return 0 if the power-on finalization is successful.
+ * @return Non-zero error code if any initialization step fails.
  */
 int nvgpu_finalize_poweron(struct gk20a *g);
 
 /**
- * @brief Prepare driver for poweroff
+ * @brief Prepare the GPU for power-off by suspending various subsystems.
  *
- * @param g [in] The GPU
+ * The function performs the following steps to prepare the GPU for power-off:
+ * -# If the operation to suspend all serviceable channels is defined, call it
+ *    using gops_channel.suspend_all_serviceable_ch() and return any error that occurs.
+ * -# If LS PMU is supported, disable ELPG using gops_pmu.pmu_destroy() before suspending
+ *    GR or FIFO, then destroy the PMU and disable PMU interrupts using nvgpu_pmu_enable_irq().
+ * -# If running on a discrete GPU and SEC2 RTOS is supported, destroy the SEC2
+ *    context using gops_sec2.sec2_destroy() and store any error that occurs if no
+ *    previous error has been encountered.
+ * -# Suspend the graphics (GR) context using gops_gr.gr_suspend() and store any error
+ *    that occurs.
+ * -# If the operation to remove the GR manager is defined, call it using
+ *    gops_grmgr.remove_gr_manager() and store any error that occurs.
+ * -# Suspend the memory management (MM) subsystem using gops_mm.mm_suspend() and
+ *    store any error that occurs.
+ * -# Suspend the FIFO subsystem using gops_fifo.fifo_suspend() and store any error that occurs.
+ * -# If GSP stress test is enabled and not on a discrete GPU, halt the GSP
+ *    stress test using nvgpu_gsp_stress_test_halt() and store any error that occurs.
+ * -# If GSP scheduler is supported, suspend the GSP scheduler using nvgpu_gsp_sched_suspend().
+ * -# Free any software state associated with the GPU's falcons using nvgpu_falcons_sw_free().
+ * -# If running on a discrete GPU, suspend the CE app using gops_ce.ce_app_suspend().
+ * -# If running on a discrete GPU and the operation to deinitialize the BIOS
+ *    is defined, call it using gops_bios.bios_sw_deinit().
+ * -# If HAL non-FUSA is configured and the operation to suspend clock support
+ *    is defined, call it using gops_clk.suspend_clk_support().
+ * -# If clock arbitration is enabled and the operation to stop clock arbitration
+ *    threads is defined, call it using gops_clk_arb.stop_clk_arb_threads().
+ * -# Mask all GPU interrupts using gk20a_mask_interrupts().
+ * -# Deinitialize the CIC monitoring subsystem using nvgpu_cic_mon_deinit() and store
+ *    any error that occurs.
+ * -# Return the error code indicating the success or failure of the power-off
+ *    preparation.
  *
- * Prepare the driver subsystems and HW for powering off GPU.
+ * @param [in] g  The GPU structure to be prepared for power-off.
  *
- * @return 0 in case of success, < 0 in case of failure.
+ * @return 0 if the power-off preparation is successful.
+ * @return Non-zero error code if any step in the power-off preparation fails.
  */
 int nvgpu_prepare_poweroff(struct gk20a *g);
 
@@ -187,6 +284,16 @@ void nvgpu_sw_quiesce_remove_support(struct gk20a *g);
  *
  * Set #NVGPU_DRIVER_IS_DYING to prevent allocation of new resources.
  * User API call will fail once this flag is set, as gk20a_busy will fail.
+ */
+void nvgpu_start_gpu_idle_locked(struct gk20a *g);
+
+/**
+ * @brief Start GPU idle after taking module lock
+ *
+ * @param g [in] The GPU
+ *
+ * Takes module lock. Calls nvgpu_start_gpu_idle_locked(). Thereafter releases
+ * the module lock.
  */
 void nvgpu_start_gpu_idle(struct gk20a *g);
 
@@ -265,6 +372,7 @@ void nvgpu_disable_irqs(struct gk20a *g);
  */
 void nvgpu_set_power_state(struct gk20a *g, u32 state);
 
+#ifdef CONFIG_NVGPU_NON_FUSA
 /**
  * @brief Get the nvgpu power state
  *
@@ -273,14 +381,7 @@ void nvgpu_set_power_state(struct gk20a *g, u32 state);
  * Returns the nvgpu power state.
  */
 const char *nvgpu_get_power_state(struct gk20a *g);
-
-/**
- * @brief Get whether power state is
- *  NVGPU_STATE_POWERING_ON or NVGPU_STATE_POWERED_ON
- *
- * @param g [in] The GPU
- */
-bool nvgpu_poweron_started(struct gk20a *g);
+#endif
 
 /**
  * @brief Return the nvgpu power-on state

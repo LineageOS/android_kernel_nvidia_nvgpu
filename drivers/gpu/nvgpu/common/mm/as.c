@@ -1,26 +1,5 @@
-/*
- * GK20A Address Spaces
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/kmem.h>
@@ -33,8 +12,22 @@
 #define VM_NAME_PREFIX	"as_"
 
 static nvgpu_atomic_t unique_share_id = NVGPU_ATOMIC_INIT(0);
-/*
- * Generate unique id by doing atomic increment on unique_share_id.
+
+/**
+ * @brief Generates a unique identifier for sharing resources.
+ *
+ * This function increments a global atomic counter to generate a unique identifier
+ * that can be used for sharing resources among different contexts. It checks for
+ * overflow to ensure that the identifier remains unique.
+ *
+ * The steps performed by the function are as follows:
+ * -# Atomically increment the global counter and obtain the new value using
+ *    nvgpu_atomic_inc_return().
+ * -# Check if the returned value is zero, which indicates an overflow occurred.
+ *    If an overflow is detected, log an error message.
+ *
+ * @return The unique identifier generated, which is a positive integer value.
+ * @retval 0 Indicates that an overflow occurred and the identifier is not unique.
  */
 static int generate_unique_share_id(void)
 {
@@ -47,7 +40,45 @@ static int generate_unique_share_id(void)
 
 	return ret;
 }
-/* address space interfaces for the gk20a module */
+
+/**
+ * @brief Allocate and initialize a GPU address space share.
+ *
+ * This function sets up a GPU address space share, which includes calculating
+ * the size of the user address space, determining if big pages can be used,
+ * and initializing the VM (virtual memory) area with the given parameters.
+ * It also checks for alignment and validity of the provided address space
+ * ranges.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the provided big page size is zero, indicating the default size
+ *    should be used. If not, validate that it is a power of two and is among
+ *    the available big page sizes for the GPU using is_power_of_2() and
+ *    nvgpu_mm_get_available_big_page_sizes().
+ * -# Calculate the size of a page directory entry (PDE) based on the big page
+ *    size using nvgpu_vm_pde_coverage_bit_count() and create a mask for
+ *    validating address alignment using nvgpu_safe_sub_u64().
+ * -# Validate that the start and end of the user-managed address range are
+ *    aligned to the PDE size and that the start is less than the end.
+ * -# If the address space is not unified or big pages are not used, further
+ *    validate the address range split.
+ * -# Append the share ID to the VM name prefix to create a unique VM name using
+ *    strlen(), nvgpu_safe_cast_s32_to_u32(), and nvgpu_strnadd_u32().
+ * -# Initialize the VM with the calculated parameters using nvgpu_vm_init().
+ *    If VM initialization is successful, update the address space share
+ *    structure with the new VM and enable ctags.
+ *
+ * @param [in]  as_share        The address space share structure.
+ * @param [in]  big_page_size   The big page size to use for the VM.
+ * @param [in]  flags           Flags for address space allocation.
+ * @param [in]  va_range_start  The start of the user-managed virtual address range.
+ * @param [in]  va_range_end    The end of the user-managed virtual address range.
+ * @param [in]  va_range_split  The split between small and big page regions.
+ *
+ * @return 0 if the VM was successfully initialized and associated with the address space share.
+ * @return -EINVAL if any parameter checks fail.
+ * @return -ENOMEM if memory allocation for the VM fails.
+ */
 static int gk20a_vm_alloc_share(struct gk20a_as_share *as_share,
 				u32 big_page_size, u32 flags,
 				u64 va_range_start, u64 va_range_end,

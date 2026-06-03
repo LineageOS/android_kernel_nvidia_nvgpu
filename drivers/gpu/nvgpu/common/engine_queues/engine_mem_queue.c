@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/errno.h>
 #include <nvgpu/kmem.h>
@@ -34,6 +15,40 @@
 #include "engine_dmem_queue.h"
 #include "engine_emem_queue.h"
 
+/**
+ * @brief Retrieves the head and tail positions of a memory queue.
+ *
+ * This function queries the current head and tail positions of a given memory
+ * queue by invoking the respective head()[nvgpu_engine_mem_queue_params.queue_head()] and
+ * tail()[nvgpu_engine_mem_queue_params.queue_tail()] functions provided in the
+ * queue structure. If either of these operations fails, the function logs an
+ * error message and returns the error code.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call the head()[]nvgpu_engine_mem_queue_params.queue_head() function with the GPU structure,
+ *    queue identifier, queue index, and a pointer to store the head position, with the intention
+ *    to retrieve (GET) the current head position.
+ * -# If the head()[nvgpu_engine_mem_queue_params.queue_head()] function returns a non-zero error
+ *    code, log an error message indicating that the head GET operation failed.
+ * -# Call the tail()[nvgpu_engine_mem_queue_params.queue_tail()] function with the GPU structure,
+ *    queue identifier, queue index, and a pointer to store the tail position, with the intention
+ *    to retrieve (GET) the current tail position.
+ * -# If the tail()[nvgpu_engine_mem_queue_params.queue_tail()] function returns a non-zero error
+ *    code, log an error message indicating that the tail GET operation failed.
+ * -# If both head()[nvgpu_engine_mem_queue_params.queue_head()] and tail()
+ *    [nvgpu_engine_mem_queue_params.queue_tail()]functions succeed, return 0 indicating success.
+ * -# If an error occurred in either the head()[nvgpu_engine_mem_queue_params.queue_head()] or
+ *    tail()[nvgpu_engine_mem_queue_params.queue_tail()] function, return the error code.
+ *
+ * @param [in]  queue    Pointer to the memory queue structure.
+ * @param [out] q_head   Pointer to store the retrieved head position of the queue.
+ *                       Range: Pointer to a valid memory location.
+ * @param [out] q_tail   Pointer to store the retrieved tail position of the queue.
+ *                       Range: Pointer to a valid memory location.
+ *
+ * @return 0 if the head and tail positions are successfully retrieved.
+ * @return Non-zero error code if the retrieval of head or tail positions fails.
+ */
 static int mem_queue_get_head_tail(struct nvgpu_engine_mem_queue *queue,
 				   u32 *q_head, u32 *q_tail)
 {
@@ -61,6 +76,40 @@ exit:
 }
 
 /* common falcon queue ops */
+/**
+ * @brief Checks if there is enough room in the memory queue for a given size.
+ *
+ * This function determines if a specified size can fit into the memory queue
+ * without exceeding its boundaries. It also indicates whether a rewind is
+ * necessary if the queue is full. The function aligns the size to the queue's
+ * alignment requirement, calculates the available space, and sets the rewind
+ * flag if needed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Align the requested size to the queue's alignment requirement.
+ * -# Retrieve the current head and tail positions of the queue by calling
+ *    'mem_queue_get_head_tail()'.
+ * -# If the head position is greater than or equal to the tail position,
+ *    calculate the free space from the head to the end of the queue.
+ * -# Subtract the size of the command header from the free space to ensure
+ *    there is enough room for the command header.
+ * -# If the aligned size is greater than the free space, set the rewind flag
+ *    and reset the head position to the start of the queue.
+ * -# If the head position is less than the tail position, calculate the free
+ *    space as the difference between the tail and head positions minus one.
+ * -# If the 'need_rewind' pointer is not NULL, update it with the value of the
+ *    rewind flag.
+ * -# Return true if the aligned size is less than or equal to the free space,
+ *    otherwise return false.
+ *
+ * @param [in]  queue        Pointer to the memory queue structure.
+ * @param [in]  size         The size to check for available space in the queue.
+ *                           Range: [0, queue->size - PMU_CMD_HDR_SIZE]
+ * @param [out] need_rewind  Pointer to a boolean that will be set to true if
+ *                           a rewind is needed, otherwise it will be set to false.
+ *
+ * @return True if there is enough room for the specified size, false otherwise.
+ */
 static bool engine_mem_queue_has_room(struct nvgpu_engine_mem_queue *queue,
 			u32 size, bool *need_rewind)
 {
@@ -78,8 +127,8 @@ static bool engine_mem_queue_has_room(struct nvgpu_engine_mem_queue *queue,
 	}
 
 	if (q_head >= q_tail) {
-		q_free = queue->offset + queue->size - q_head;
-		q_free -= (u32)PMU_CMD_HDR_SIZE;
+		q_free = nvgpu_wrapping_add_u32(queue->offset, queue->size) - q_head;
+		q_free = nvgpu_wrapping_sub_u32(q_free, (u32)PMU_CMD_HDR_SIZE);
 
 		if (size > q_free) {
 			q_rewind = true;
@@ -99,6 +148,30 @@ exit:
 	return size <= q_free;
 }
 
+/**
+ * @brief Rewinds the engine memory queue to the start position.
+ *
+ * This function either sends a rewind command to the queue if it is in write mode,
+ * or sets the queue's tail to the start position if it is in read mode. This is
+ * used to reset the queue's position to the beginning.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the queue is opened in write mode.
+ * -# If in write mode, prepare a rewind command with the appropriate unit ID and
+ *    size.
+ * -# Push the rewind command to the queue using the push() function.
+ * -# If the push is successful, update the queue's position to the next aligned
+ *    position using nvgpu_wrapping_add_u32() and NVGPU_ALIGN().
+ * -# If the queue is opened in read mode, set the queue's tail to the start
+ *    offset using the tail() function with #QUEUE_SET operation.
+ * -# Return the error code if any operation fails, otherwise return 0 indicating
+ *    success.
+ *
+ * @param [in]  flcn       Pointer to the Falcon structure.
+ * @param [in]  queue      Pointer to the engine memory queue structure.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
 static int engine_mem_queue_rewind(struct nvgpu_falcon *flcn,
 	struct nvgpu_engine_mem_queue *queue)
 {
@@ -116,8 +189,9 @@ static int engine_mem_queue_rewind(struct nvgpu_falcon *flcn,
 				queue->flcn_id, queue->id);
 			goto exit;
 		} else {
-			queue->position += nvgpu_safe_cast_u32_to_u8(
-				NVGPU_ALIGN(U32(cmd.hdr.size), QUEUE_ALIGNMENT));
+			queue->position = nvgpu_wrapping_add_u32(queue->position,
+								 nvgpu_safe_cast_u32_to_u8(NVGPU_ALIGN(U32(cmd.hdr.size),
+												       QUEUE_ALIGNMENT)));
 			nvgpu_log_info(g, "flcn-%d queue-%d, rewinded",
 			queue->flcn_id, queue->id);
 		}
@@ -140,6 +214,29 @@ exit:
 	return err;
 }
 
+/**
+ * @brief Prepares the memory queue for writing data.
+ *
+ * This function checks if there is enough space in the memory queue to write the
+ * specified size of data. If not enough space is available, it sets an error code
+ * and exits. If there is enough space but a rewind is needed, it performs the rewind
+ * operation. It also retrieves the current head position of the queue.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if there is enough room in the queue to write the specified size of data
+ *    by calling engine_mem_queue_has_room().
+ * -# Retrieve the current head position of the queue by calling the head()
+ *    [nvgpu_engine_mem_queue_params.queue_head()] function with #QUEUE_GET as the operation.
+ * -# If a rewind is needed, as indicated by the q_rewind flag, call the
+ *    engine_mem_queue_rewind() function to rewind the queue.
+ *
+ * @param [in]  flcn       Pointer to the Falcon structure.
+ * @param [in]  queue      Pointer to the engine memory queue structure.
+ * @param [in]  size       Size of the data to be written to the queue.
+ *                         Range: [0, nvgpu_engine_mem_queue_get_size(queue)]
+ *
+ * @return 0 on success, negative error code on failure.
+ */
 static int engine_mem_queue_prepare_write(struct nvgpu_falcon *flcn,
 	struct nvgpu_engine_mem_queue *queue, u32 size)
 {
@@ -164,6 +261,9 @@ static int engine_mem_queue_prepare_write(struct nvgpu_falcon *flcn,
 
 	if (q_rewind) {
 		err = engine_mem_queue_rewind(flcn, queue);
+		if (err != 0) {
+			goto exit;
+		}
 	}
 
 exit:
@@ -207,7 +307,8 @@ int nvgpu_engine_mem_queue_push(struct nvgpu_falcon *flcn,
 		goto unlock_mutex;
 	}
 
-	queue->position += NVGPU_ALIGN(size, QUEUE_ALIGNMENT);
+	queue->position = nvgpu_wrapping_add_u32(queue->position,
+						 NVGPU_ALIGN(size, QUEUE_ALIGNMENT));
 
 	err = queue->head(g, queue->id, queue->index,
 			  &queue->position, QUEUE_SET);
@@ -279,7 +380,8 @@ int nvgpu_engine_mem_queue_pop(struct nvgpu_falcon *flcn,
 		goto unlock_mutex;
 	}
 
-	queue->position += NVGPU_ALIGN(size, QUEUE_ALIGNMENT);
+	queue->position = nvgpu_wrapping_add_u32(queue->position,
+						 NVGPU_ALIGN(size, QUEUE_ALIGNMENT));
 
 	err = queue->tail(g, queue->id, queue->index,
 			  &queue->position, QUEUE_SET);
@@ -311,7 +413,11 @@ int nvgpu_engine_mem_queue_rewind(struct nvgpu_falcon *flcn,
 	nvgpu_mutex_acquire(&queue->mutex);
 
 	err = engine_mem_queue_rewind(flcn, queue);
+	if (err != 0) {
+		goto exit;
+	}
 
+exit:
 	/* release mutex */
 	nvgpu_mutex_release(&queue->mutex);
 
@@ -398,7 +504,7 @@ int nvgpu_engine_mem_queue_init(struct nvgpu_engine_mem_queue **queue_p,
 	queue->position = params.position;
 	queue->size = params.size;
 	queue->oflag = params.oflag;
-	queue->queue_type = params.queue_type;
+	queue->engine_queue_type = params.engine_queue_type;
 
 	queue->head = params.queue_head;
 	queue->tail = params.queue_tail;
@@ -408,7 +514,7 @@ int nvgpu_engine_mem_queue_init(struct nvgpu_engine_mem_queue **queue_p,
 		queue->flcn_id, queue->id, queue->index,
 		queue->offset, queue->size);
 
-	switch (queue->queue_type) {
+	switch (queue->engine_queue_type) {
 	case QUEUE_TYPE_DMEM:
 		engine_dmem_queue_init(queue);
 		break;

@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2016-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/ktime.h>
 #include <linux/delay.h>
@@ -274,12 +261,18 @@ s64 nvgpu_current_time_ns(void)
 /**
  * nvgpu_current_unix_time_us - UNIX time in microseconds from a monotonic clock.
  *
- * Returns the UNIX clock in microseconds units. The start time of the clock is
+ * Outputs the UNIX clock in microseconds units. The start time of the clock is
  * 1970 00:00:00.
+ *
+ * Returns 0 on success and -EINVAL if the clock value has overflowed.
  */
-u64 nvgpu_current_unix_time_us(void)
+int nvgpu_current_unix_time_us(u64 *out_time_us)
 {
-	return (u64)ktime_to_us(ktime_get_real());
+	const s64 time_us = ktime_to_us(ktime_get_real());
+	if (time_us < 0L)
+		return -EINVAL;
+	*out_time_us = (u64)time_us;
+	return 0;
 }
 
 /**

@@ -1,17 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_DMABUF_PRIV_H
@@ -85,6 +73,7 @@ struct gk20a_dmabuf_priv {
 
 	/* Used for retrieving the associated dmabuf from the priv */
 	struct dma_buf *dmabuf;
+	struct sg_table *st;
 	/* 'dma_buf->ops' which is a pointer to a constant struct is
 	 * altered to point to the local copy for the entire lifetime
 	 * of this existing dma-buf until the driver is shutdown or
@@ -125,6 +114,9 @@ int gk20a_dmabuf_get_state(struct dma_buf *dmabuf, struct gk20a *g,
 void gk20a_dma_buf_priv_list_clear(struct nvgpu_os_linux *l);
 struct gk20a_dmabuf_priv *gk20a_dma_buf_get_drvdata(
 		struct dma_buf *dmabuf, struct device *device);
+int gk20a_dmabuf_map_private(struct dma_buf *dmabuf, struct gk20a *g,
+			      struct sg_table *pages);
+
 #endif
 
 void *gk20a_dmabuf_vmap(struct dma_buf *dmabuf);

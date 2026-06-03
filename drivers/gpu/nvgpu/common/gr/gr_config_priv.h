@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_CONFIG_PRIV_H
@@ -176,6 +158,11 @@ struct nvgpu_gr_config {
 	 * Array is indexed by GPC logical index/local IDs when using MIG mode
 	 */
 	u32 *gpc_pes_mask;
+	/**
+	 * Array to hold mask of PESs per GPC. Array is indexed by GPC physical IDs.
+	 */
+	u32 *gpc_pes_mask_physical;
+
 
 	/**
 	 * 2D array to map PES physical id to logical id.
@@ -188,6 +175,11 @@ struct nvgpu_gr_config {
 	 * Array is indexed by GPC logical index/local IDs when using MIG mode
 	 */
 	u32 *gpc_rop_mask;
+
+	/**
+	 * Array to hold mask of ROPs per GPC. Array is indexed by physical GPC IDs.
+	 */
+	u32 *gpc_rop_mask_physical;
 
 	/**
 	 * 2D array to map ROP physical id to logical id.
@@ -211,9 +203,11 @@ struct nvgpu_gr_config {
 #endif
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+#ifdef CONFIG_NVGPU_ZCULL
 	u32 max_zcull_per_gpc_count;
 	u32 zcb_count;
 	u32 *gpc_zcb_count;
+#endif
 
 	u8 *map_tiles;
 	u32 map_tile_count;
@@ -224,7 +218,17 @@ struct nvgpu_gr_config {
 	u32 num_singletons;
 	u32 num_tpc_in_skyline;
 	u32 *gpc_skyline;
+	/*
+	 * The skyline feature is enabled for only THOR-X and
+	 * the maximum supported GPC in GB10B is three. The same
+	 * is applicable for singleton_to_vgpc also.
+	 */
+	u32 virtual_gpc_singleton_cnt[3];
+	u32 skip_gpc_cnt;
+	u32 singleton_to_vgpc[3];
 	struct nvgpu_gpc_info *gpc_info;
+	bool is_gfx_capable;
+	bool is_skyline_enabled;
 };
 
 struct tpc_vgpc_table {

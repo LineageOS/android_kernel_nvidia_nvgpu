@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/log2.h>
@@ -43,7 +24,8 @@
 
 #define PBDMA_SUBDEVICE_ID  1U
 
-static const char *const pbdma_intr_fault_type_desc[] = {
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+static const char *const gm20b_pbdma_intr_fault_type_desc[] = {
 	"MEMREQ timeout", "MEMACK_TIMEOUT", "MEMACK_EXTRA acks",
 	"MEMDAT_TIMEOUT", "MEMDAT_EXTRA acks", "MEMFLUSH noack",
 	"MEMOP noack", "LBCONNECT noack", "NONE - was LBREQ",
@@ -125,7 +107,7 @@ static void gm20b_pbdma_dump_intr_0(struct gk20a *g, u32 pbdma_id,
 		shadow_0, shadow_1, method0, method1, method2, method3);
 }
 
-static u32 pbdma_get_intr_descs(struct gk20a *g)
+static u32 gm20b_pbdma_get_intr_descs(struct gk20a *g)
 {
 	struct nvgpu_fifo *f = &g->fifo;
 	u32 intr_descs = (f->intr.pbdma.device_fatal_0 |
@@ -143,14 +125,14 @@ bool gm20b_pbdma_handle_intr_0(struct gk20a *g, u32 pbdma_id,
 	u32 i;
 	unsigned long pbdma_intr_err;
 	unsigned long bit;
-	u32 intr_descs = pbdma_get_intr_descs(g);
+	u32 intr_descs = gm20b_pbdma_get_intr_descs(g);
 
 	if ((intr_descs & pbdma_intr_0) != 0U) {
 
 		pbdma_intr_err = (unsigned long)pbdma_intr_0;
 		for_each_set_bit(bit, &pbdma_intr_err, 32U) {
 			nvgpu_err(g, "PBDMA intr %s Error",
-				pbdma_intr_fault_type_desc[bit]);
+				gm20b_pbdma_intr_fault_type_desc[bit]);
 		}
 
 		gm20b_pbdma_dump_intr_0(g, pbdma_id, pbdma_intr_0);
@@ -211,6 +193,7 @@ bool gm20b_pbdma_handle_intr_0(struct gk20a *g, u32 pbdma_id,
 
 	return recover;
 }
+#endif
 
 void gm20b_pbdma_reset_header(struct gk20a *g, u32 pbdma_id)
 {
@@ -323,6 +306,7 @@ u32 gm20b_pbdma_restartable_0_intr_descs(void)
 	return restartable_0_intr_descs;
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 int gm20b_pbdma_handle_intr(struct gk20a *g, u32 pbdma_id, bool recover)
 {
 	struct nvgpu_pbdma_status_info pbdma_status;
@@ -377,6 +361,7 @@ int gm20b_pbdma_handle_intr(struct gk20a *g, u32 pbdma_id, bool recover)
 
 	return err;
 }
+#endif
 
 u32 gm20b_pbdma_get_gp_base(u64 gpfifo_base)
 {

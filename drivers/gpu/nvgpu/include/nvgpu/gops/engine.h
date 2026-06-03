@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_ENGINE_H
 #define NVGPU_GOPS_ENGINE_H
@@ -69,15 +51,44 @@ struct gops_engine_status {
 	void (*dump_engine_status)(struct gk20a *g,
 			struct nvgpu_debug_context *o);
 /** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+
+	u32 (*get_rleng_status0_reg_off)(u32 rleng_id);
+	u32 (*get_rleng_status1_reg_off)(u32 rleng_id);
 };
+
+struct gops_engine {
+	/**
+	 * @brief Initializes the Copy Engine (CE) information for a GP10B GPU.
+	 *
+	 * This function iterates over all the devices of type #NVGPU_DEVTYPE_LCE (Light Copy Engine)
+	 * and initializes the PBDMA (Push Buffer DMA) mapping for each device. It updates the
+	 * host_engines and active_engines arrays within the nvgpu_fifo structure with the devices
+	 * found and increments the number of engines.
+	 *
+	 * The steps performed by the function are as follows:
+	 * -# Retrieve the GPU structure from the FIFO structure.
+	 * -# Iterate over each device of type #NVGPU_DEVTYPE_LCE.
+	 * -# For each device, check if the function pointer gops_fifo.find_pbdma_for_runlist() is
+	 *    not NULL.
+	 * -# If the function pointer is valid, call gops_fifo.find_pbdma_for_runlist() with the
+	 *    runlist ID of the device to find the corresponding PBDMA ID.
+	 * -# If the PBDMA ID is not found, log an error and return -EINVAL.
+	 * -# Store the device pointer in the 'host_engines' array using the engine ID as the index.
+	 * -# Add the device pointer to the next available slot in the 'active_engines' array.
+	 * -# Increment the 'num_engines' count in the FIFO structure.
+	 * -# Return 0 to indicate successful initialization.
+	 *
+	 * @param [in] f  Pointer to the FIFO structure that contains information about all FIFOs.
+	 *
+	 * @return 0 if the initialization is successful.
+	 * @return -EINVAL if there is an error in finding the PBDMA ID for any device.
+	 */
+	int (*init_ce_info)(struct nvgpu_fifo *f);
 
 /** @cond DOXYGEN_SHOULD_SKIP_THIS */
-struct gops_engine {
-
 	bool (*is_fault_engine_subid_gpc)(struct gk20a *g,
 				 u32 engine_subid);
-	int (*init_ce_info)(struct nvgpu_fifo *f);
-};
 /** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+};
 
 #endif

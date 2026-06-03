@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/io.h>
@@ -75,26 +56,26 @@ int ga10b_mc_poll_device_enable(struct gk20a *g, u32 reg_idx,
 	u32 reg_val;
 	u32 delay = POLL_DELAY_MIN_US;
 	struct nvgpu_timeout timeout;
+	s32 is_timedout = 0;
 
 	nvgpu_timeout_init_cpu_timer(g, &timeout, MC_ENGINE_RESET_DELAY_US);
 
 	reg_val = nvgpu_readl(g, mc_device_enable_r(reg_idx));
+	is_timedout = nvgpu_timeout_expired(&timeout);
 
 	/*
 	 * Engine disable/enable status can also be checked by using
 	 * status field of mc_device_enable_r().
 	 */
 
-	while ((poll_val != reg_val) &&
-		(nvgpu_timeout_expired(&timeout) == 0)) {
-
+	while ((poll_val != reg_val) && (is_timedout == 0)) {
 		nvgpu_log(g, gpu_dbg_info,
 			"poll device_enable_r(%u) to be set to 0x%08x",
 			reg_idx, poll_val);
-
 		nvgpu_usleep_range(delay, delay * 2U);
 		delay = min_t(u32, delay << 1, POLL_DELAY_MAX_US);
 		reg_val = nvgpu_readl(g, mc_device_enable_r(reg_idx));
+		is_timedout = nvgpu_timeout_expired(&timeout);
 	}
 
 	if (reg_val != poll_val) {
@@ -175,7 +156,7 @@ int ga10b_mc_enable_units(struct gk20a *g, u32 units, bool enable)
 			(enable ? "enable" : "disable"), mask);
 		return -EINVAL;
 	}
-	return 0U;
+	return 0;
 }
 
 static int ga10b_mc_enable_engine(struct gk20a *g, u32 *device_enable_val,

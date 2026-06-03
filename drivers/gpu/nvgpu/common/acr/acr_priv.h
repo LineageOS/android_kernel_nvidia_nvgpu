@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef ACR_H
@@ -109,16 +91,22 @@ struct wpr_carveout_info;
 #define LSF_SEC2_UCODE_DESC_FUSA_BIN "sec2_ucode_fusa_desc.bin"
 #define LSF_SEC2_UCODE_SIG_FUSA_BIN "sec2_fusa_sig.bin"
 
+#define GB10B_GSP_DBG_RISCV_FW "acr_gsp_gb10b_pwm.bin"
+
+#define GB20C_GSP_DBG_RISCV_FW "acr_gsp_gb20c_pwm.bin"
+
 #define ACR_COMPLETION_TIMEOUT_NON_SILICON_MS 10000U /*in msec */
 #define ACR_COMPLETION_TIMEOUT_SILICON_MS 100 /*in msec */
 
 /*
  * ACR firmware returns these error codes when below mentioned error occurs.
  */
+# define ACR_ERROR_CMD_TIMEOUT                 0x04U
 # define ACR_ERROR_WDT                         0x66U
 # define ACR_ERROR_REG_ACCESS_FAILURE          0x1BU
 # define ACR_ERROR_RISCV_EXCEPTION             0x84U
 # define ACR_ERROR_LS_SIG_VERIF_FAIL           0x0BU
+# define ACR_ERROR_WATCHDOG_TIMEOUT            0xAAU
 
 struct acr_lsf_config {
 	u32 falcon_id;
@@ -128,6 +116,12 @@ struct acr_lsf_config {
 
 	int (*get_lsf_ucode_details)(struct gk20a *g, void *lsf_ucode_img);
 	void (*get_cmd_line_args_offset)(struct gk20a *g, u32 *args_offset);
+};
+
+struct nvgpu_acr_msg_status {
+	u32 error_code;
+	u32 error_info;
+	u32 lib_nvriscv_error;
 };
 
 struct nvgpu_acr {
@@ -140,7 +134,13 @@ struct nvgpu_acr {
 	/* LSF properties */
 	u64 lsf_enable_mask;
 	bool is_lsf_encrypt_support;
+	bool is_cold_boot_done;
+	/** Check whether acr lsb V3 is enabled */
+	bool is_acr_lsb_v3_enabled;
 	struct acr_lsf_config lsf[FALCON_ID_END];
+
+	struct nvgpu_acr_msg_status msg_status;
+	struct nvgpu_gsp *gsp;
 
 	/*
 	 * non-wpr space to hold LSF ucodes,

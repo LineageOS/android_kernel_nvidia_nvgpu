@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/lock.h>
@@ -66,6 +47,35 @@ void nvgpu_bug_cb_longjmp(void *arg)
 }
 #endif
 
+/**
+ * @brief Dumps the call stack.
+ *
+ * This function captures and logs the current call stack. The number of initial stack frames
+ * specified by the input parameter are skipped in the log. This is typically used for debugging
+ * purposes to trace the sequence of function calls leading to a particular point in the code.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the QNX source flag is not defined to execute the stack dumping logic.
+ * -# If the QNX source flag is defined, perform a no-operation with the input parameter to
+ *    avoid unused parameter warnings.
+ * -# Return from the function.
+ * -# If the QNX source flag is not defined, define an array to store pointers to stack frames,
+ *    with a size defined by BACKTRACE_MAXSIZE.
+ * -# Capture the current call stack and store the number of frames captured.
+ * -# Allocate memory to store the symbols (function names) for each stack frame.
+ * -# Iterate over each captured stack frame, starting from the frame index specified by the
+ *    input parameter to skip the initial frames.
+ * -# Log the index and symbol of each stack frame using nvgpu_err().
+ * -# Release the memory allocated for storing the stack frame symbols.
+ * -# If the QNX source flag is defined, perform a no-operation with the input parameter to
+ *    avoid unused parameter warnings.
+ * -# Return from the function.
+ *
+ * @param [in] skip_frames The number of initial stack frames to skip when logging.
+ *                         Range: [0, BACKTRACE_MAXSIZE)
+ *
+ * @return None.
+ */
 static void nvgpu_posix_dump_stack(int skip_frames)
 {
 #ifndef _QNX_SOURCE
@@ -159,6 +169,7 @@ void nvgpu_bug_unregister_cb(struct nvgpu_bug_cb *cb)
 void nvgpu_posix_bug(const char *msg, int line_no)
 {
 	int err;
+
 #ifdef __NVGPU_UNIT_TEST__
 	struct nvgpu_bug_cb *cb;
 #endif
@@ -207,6 +218,7 @@ done:
 #ifdef __NVGPU_UNIT_TEST__
 	dump_stack();
 #endif
+
 	while ((err = raise(SIGSEGV)) != 0) {
 		/*
 		 * Make sure that SIGSEGV signal is raised.

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/static_analysis.h>
@@ -86,14 +67,21 @@ int nvgpu_gr_fs_state_init(struct gk20a *g, struct nvgpu_gr_config *config)
 					       config, NULL, false);
 	}
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)){
 		g->ops.gr.init.pd_tpc_per_gpc(g, config);
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		/* gr__setup_pd_mapping */
-		g->ops.gr.init.rop_mapping(g, config);
+		err = g->ops.gr.init.rop_mapping(g, config);
+		if (err != 0) {
+			nvgpu_err(g, "gr__setup_pd_mapping failed");
+			return err;
+		}
+
 		g->ops.gr.init.pd_skip_table_gpc(g, config);
 	}
 #endif
@@ -102,7 +90,8 @@ int nvgpu_gr_fs_state_init(struct gk20a *g, struct nvgpu_gr_config *config)
 	tpc_cnt = nvgpu_gr_config_get_tpc_count(config);
 
 #ifdef CONFIG_NVGPU_NON_FUSA
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		/*
 		 * Fuse registers must be queried with physical gpc-id and not
 		 * the logical ones. For tu104 and before chips logical gpc-id
@@ -159,6 +148,10 @@ int nvgpu_gr_init_sm_id_early_config(struct gk20a *g, struct nvgpu_gr_config *co
 	for (sm_id = 0; sm_id < num_sm; sm_id++) {
 		struct nvgpu_sm_info *sm_info =
 			nvgpu_gr_config_get_sm_info(config, sm_id);
+		if (sm_info == NULL) {
+			nvgpu_err(g, "nvgpu_gr_config_get_sm_info failed");
+			return -EINVAL;
+		}
 		tpc_index = nvgpu_gr_config_get_sm_info_tpc_index(sm_info);
 		gpc_index = nvgpu_gr_config_get_sm_info_gpc_index(sm_info);
 

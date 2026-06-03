@@ -1,26 +1,5 @@
-/*
- * GA10B Runlist
- *
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/soc.h>
@@ -51,10 +30,11 @@ u32 ga10b_runlist_length_max(struct gk20a *g)
 }
 
 void ga10b_runlist_hw_submit(struct gk20a *g, u32 runlist_id,
-		u64 runlist_iova, enum nvgpu_aperture aperture, u32 count)
+		u64 runlist_iova, enum nvgpu_aperture aperture, u32 count, u32 gfid)
 {
 	struct nvgpu_runlist *runlist = g->fifo.runlists[runlist_id];
 	u32 runlist_iova_lo, runlist_iova_hi;
+	(void)gfid;
 
 	runlist_iova_lo = u64_lo32(runlist_iova) >>
 			runlist_submit_base_lo_ptr_align_shift_v();
@@ -101,6 +81,11 @@ u32 ga10b_get_runlist_aperture(struct gk20a *g, struct nvgpu_mem *mem)
 			runlist_submit_base_lo_target_vid_mem_f());
 }
 
+u32 ga10b_sched_disable_reg_off(void)
+{
+	return runlist_sched_disable_r();
+}
+
 void ga10b_runlist_write_state(struct gk20a *g, u32 runlists_mask,
 						u32 runlist_state)
 {
@@ -124,7 +109,7 @@ void ga10b_runlist_write_state(struct gk20a *g, u32 runlists_mask,
 			 */
 			if (runlist != NULL) {
 				nvgpu_runlist_writel(g, runlist,
-					runlist_sched_disable_r(), reg_val);
+					g->ops.runlist.get_sched_disable_reg_off(), reg_val);
 			}
 		}
 		runlists_mask &= ~BIT32(runlist_id);

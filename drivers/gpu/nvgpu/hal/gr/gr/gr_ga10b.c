@@ -1,26 +1,5 @@
-/*
- * GA10b GPU GR
- *
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
@@ -35,6 +14,7 @@
 #include <nvgpu/bitops.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/regops.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr.h>
@@ -62,6 +42,7 @@
 
 #define ILLEGAL_ID	~U32(0U)
 
+#ifdef CONFIG_DEBUG_FS
 static void gr_ga10b_dump_gr_per_sm_regs(struct gk20a *g,
 			struct nvgpu_debug_context *o,
 			u32 gpc, u32 tpc, u32 sm, u32 offset)
@@ -108,7 +89,7 @@ static void gr_ga10b_dump_gr_sm_regs(struct gk20a *g,
 {
 	u32 gpc, tpc, sm, sm_per_tpc;
 	u32 gpc_offset, tpc_offset, offset;
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 
 	gk20a_debug_output(o,
 		"NV_PGRAPH_PRI_GPCS_TPCS_SMS_HWW_GLOBAL_ESR_REPORT_MASK: 0x%x\n",
@@ -159,7 +140,7 @@ static void gr_ga10b_dump_gr_sm_regs(struct gk20a *g,
 static void gr_ga10b_dump_tpc_activity_regs(struct gk20a *g,
 					    struct nvgpu_debug_context *o)
 {
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	u32 gpc_index = 0U;
 	u32 tpc_count = 0U, tpc_stride = 0U;
 	u32 reg_index = 0U, offset = 0U;
@@ -244,7 +225,8 @@ int gr_ga10b_dump_gr_status_regs(struct gk20a *g,
 		nvgpu_readl(g, gr_pri_gpcs_gpccs_gpc_activity_4_r()));
 	gk20a_debug_output(o, "NV_PGRAPH_PRI_GPCS_TPCS_TPCCS_TPC_ACTIVITY0: 0x%x\n",
 		nvgpu_readl(g, gr_pri_gpcs_tpcs_tpccs_tpc_activity_0_r()));
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		gk20a_debug_output(o, "NV_PGRAPH_PRI_DS_MPIPE_STATUS: 0x%x\n",
 			nvgpu_readl(g, gr_pri_ds_mpipe_status_r()));
 	}
@@ -315,23 +297,29 @@ int gr_ga10b_dump_gr_status_regs(struct gk20a *g,
 
 	return 0;
 }
+#endif
 
+#ifdef CONFIG_NVGPU_DEBUGGER
 void gr_ga10b_set_circular_buffer_size(struct gk20a *g, u32 data)
 {
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	u32 gpc_index, ppc_index, stride, val;
 	u32 cb_size_steady = data * 4U, cb_size;
 	u32 attrib_cb_size = g->ops.gr.init.get_attrib_cb_size(g,
 		nvgpu_gr_config_get_tpc_count(gr->config));
+	u32 tmp, tmp1, tmp2;
+	u32 cbm_beta_size, cbm_beta_steady_state_size;
 
 	nvgpu_log_fn(g, " ");
 
 	if (cb_size_steady > attrib_cb_size) {
 		cb_size_steady = attrib_cb_size;
 	}
-	if (nvgpu_readl(g, gr_gpc0_ppc0_cbm_beta_cb_size_r()) !=
-		nvgpu_readl(g,
-			gr_gpc0_ppc0_cbm_beta_steady_state_cb_size_r())) {
+
+	cbm_beta_size = nvgpu_readl(g, gr_gpc0_ppc0_cbm_beta_cb_size_r());
+	cbm_beta_steady_state_size = nvgpu_readl(g, gr_gpc0_ppc0_cbm_beta_steady_state_cb_size_r());
+
+	if (cbm_beta_size != cbm_beta_steady_state_size) {
 		cb_size = cb_size_steady +
 			(gr_gpc0_ppc0_cbm_beta_cb_size_v_gfxp_v() -
 			 gr_gpc0_ppc0_cbm_beta_cb_size_v_default_v());
@@ -352,24 +340,22 @@ void gr_ga10b_set_circular_buffer_size(struct gk20a *g, u32 data)
 		for (ppc_index = 0;
 		     ppc_index < nvgpu_gr_config_get_gpc_ppc_count(gr->config, gpc_index);
 		     ppc_index++) {
-
-			val = nvgpu_readl(g, gr_gpc0_ppc0_cbm_beta_cb_size_r() +
-				stride +
-				proj_ppc_in_gpc_stride_v() * ppc_index);
+			tmp1 = nvgpu_safe_add_u32(gr_gpc0_ppc0_cbm_beta_cb_size_r(), stride);
+			tmp2 = nvgpu_safe_mult_u32(proj_ppc_in_gpc_stride_v(), ppc_index);
+			tmp = nvgpu_safe_add_u32(tmp1, tmp2);
+			val = nvgpu_readl(g, tmp);
 
 			val = set_field(val,
 				gr_gpc0_ppc0_cbm_beta_cb_size_v_m(),
-				gr_gpc0_ppc0_cbm_beta_cb_size_v_f(cb_size *
+				gr_gpc0_ppc0_cbm_beta_cb_size_v_f(nvgpu_safe_mult_u32(cb_size,
 					nvgpu_gr_config_get_pes_tpc_count(gr->config,
-						gpc_index, ppc_index)));
+						gpc_index, ppc_index))));
+			nvgpu_writel(g, tmp, val);
 
-			nvgpu_writel(g, gr_gpc0_ppc0_cbm_beta_cb_size_r() +
-				stride +
-				proj_ppc_in_gpc_stride_v() * ppc_index, val);
-
-			nvgpu_writel(g, proj_ppc_in_gpc_stride_v() * ppc_index +
-				gr_gpc0_ppc0_cbm_beta_steady_state_cb_size_r() +
-				stride,
+			tmp1 = nvgpu_safe_add_u32(gr_gpc0_ppc0_cbm_beta_steady_state_cb_size_r(), stride);
+			tmp2 = nvgpu_safe_mult_u32(proj_ppc_in_gpc_stride_v(), ppc_index);
+			tmp = nvgpu_safe_add_u32(tmp1, tmp2);
+			nvgpu_writel(g, tmp,
 				gr_gpc0_ppc0_cbm_beta_steady_state_cb_size_v_f(
 					cb_size_steady));
 
@@ -413,7 +399,6 @@ void ga10b_gr_set_gpcs_rops_crop_debug4(struct gk20a *g, u32 data)
 	nvgpu_writel(g, gr_pri_gpcs_rops_crop_debug4_r(), val);
 }
 
-#ifdef CONFIG_NVGPU_DEBUGGER
 bool ga10b_gr_check_warp_esr_error(struct gk20a *g, u32 warp_esr_error)
 {
 	u32 index = 0U;
@@ -535,6 +520,7 @@ int gr_ga10b_create_priv_addr_table(struct gk20a *g,
 	u32 gpc_num = 0U, tpc_num = 0U, ppc_num = 0U, be_num = 0U;
 	u32 broadcast_flags = 0U;
 	u32 t;
+	u32 ltc_shared_base;
 	int err;
 
 	t = 0U;
@@ -545,7 +531,6 @@ int gr_ga10b_create_priv_addr_table(struct gk20a *g,
 	err = g->ops.gr.decode_priv_addr(g, addr, &addr_type,
 					&gpc_num, &tpc_num, &ppc_num, &be_num,
 					&broadcast_flags);
-	nvgpu_log(g, gpu_dbg_gpu_dbg, "addr_type = %d", addr_type);
 	if (err != 0) {
 		return err;
 	}
@@ -559,8 +544,13 @@ int gr_ga10b_create_priv_addr_table(struct gk20a *g,
 		if (broadcast_flags & PRI_BROADCAST_FLAGS_LTCS) {
 			priv_addr_table[t++] = addr;
 		} else {
-			priv_addr_table[t++] =
-				g->ops.ltc.pri_shared_addr(g, addr);
+			err = g->ops.ltc.pri_shared_addr(g, addr, &ltc_shared_base);
+			if (err != 0) {
+				nvgpu_err(g, "failed to fetch ltc shared base address");
+				return err;
+			}
+
+			priv_addr_table[t++] = ltc_shared_base;
 		}
 		*num_registers = t;
 		return 0;
@@ -899,7 +889,9 @@ int gr_ga10b_process_context_buffer_priv_segment(struct gk20a *g,
 int gr_ga10b_find_priv_offset_in_buffer(struct gk20a *g, u32 addr,
 					u32 *context_buffer,
 					u32 context_buffer_size,
-					u32 *priv_offset)
+					u32 max_offsets,
+					u32 *priv_offset,
+					u32 *num_offsets)
 {
 	int err;
 	enum ctxsw_addr_type addr_type;
@@ -914,6 +906,7 @@ int gr_ga10b_find_priv_offset_in_buffer(struct gk20a *g, u32 addr,
 	u32 main_hdr_size, fecs_hdr_size, gpccs_hdr_stride;
 	u32 tpc_segment_pri_layout;
 	bool is_tpc_layout_interleaved = false;
+	(void)max_offsets;
 
 	err = g->ops.gr.decode_priv_addr(g, addr, &addr_type,
 					&gpc_num, &tpc_num, &ppc_num, &be_num,
@@ -925,6 +918,7 @@ int gr_ga10b_find_priv_offset_in_buffer(struct gk20a *g, u32 addr,
 		return err;
 	}
 
+	*num_offsets = 1;
 	context = context_buffer;
 	if (!g->ops.gr.ctxsw_prog.check_main_image_header_magic(context)) {
 		nvgpu_err(g, "invalid main header: magic value");
@@ -1025,11 +1019,17 @@ int gr_ga10b_find_priv_offset_in_buffer(struct gk20a *g, u32 addr,
 		return -EINVAL;
 	}
 
-	err = gr_gk20a_determine_ppc_configuration(g, context, &num_ppcs,
-			&ppc_mask, &reg_list_ppc_count);
-	if (err != 0) {
-		nvgpu_err(g, "determine ppc configuration failed");
-		return err;
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+		err = gr_gk20a_determine_ppc_configuration(g, context, &num_ppcs,
+				&ppc_mask, &reg_list_ppc_count);
+		if (err != 0) {
+			nvgpu_err(g, "determine ppc configuration failed");
+			return err;
+		}
+	} else {
+		num_ppcs = 0U;
+		ppc_mask = 0x0U;
+		reg_list_ppc_count = 0U;
 	}
 
 	if (addr_type == CTXSW_ADDR_TYPE_GPC) {
@@ -1150,7 +1150,7 @@ void ga10b_gr_vab_reserve(struct gk20a *g, u32 vab_reg, u32 num_range_checkers,
 	 */
 
 	u32 i = 0U;
-	u32 granularity_shift_bits_base = 16U; /* log(64KB) */
+	u32 granularity_shift_bits_base = 16U; /* log 64KB */
 	u32 granularity_shift_bits = 0U;
 
 	nvgpu_log_fn(g, " ");

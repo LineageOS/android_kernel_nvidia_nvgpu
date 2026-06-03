@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -416,11 +398,33 @@
 #define gr_fe_hww_esr_en_enable_f()                                (0x80000000U)
 #define gr_fe_hww_esr_info_r()                                     (0x004041b0U)
 #define gr_mme_fe1_hww_esr_r()                                     (0x0040a790U)
+#define gr_mme_fe1_hww_esr_dma_dram_access_out_of_bounds_m()  (U32(0x1U) << 16U)
+#define gr_mme_fe1_hww_esr_ecc_uncorrected_m()                (U32(0x1U) << 10U)
 #define gr_mme_fe1_hww_esr_reset_active_f()                        (0x40000000U)
 #define gr_mme_fe1_hww_esr_en_enable_f()                           (0x80000000U)
+#define gr_mme_fe1_ecc0_ecc_address_r()                            (0x0040a820U)
+#define gr_mme_fe1_ecc0_ecc_status_r()                             (0x0040a814U)
+#define gr_mme_fe1_ecc0_ecc_status_uncorrected_err_iram_m()    (U32(0x1U) << 1U)
+#define gr_mme_fe1_ecc0_ecc_status_uncorrected_err_total_counter_overflow_v(r)\
+				(((r) >> 28U) & 0x1U)
+#define gr_mme_fe1_ecc0_ecc_status_reset_task_f()                  (0x40000000U)
+#define gr_mme_fe1_ecc0_ecc_uncorrected_err_count_r()              (0x0040a81cU)
+#define gr_mme_fe1_ecc0_ecc_uncorrected_err_count_total_s()                (16U)
+#define gr_mme_fe1_ecc0_ecc_uncorrected_err_count_total_v(r)\
+				(((r) >> 0U) & 0xffffU)
 #define gr_mme_fe1_hww_esr_info_r()                                (0x0040a794U)
+#define gr_mme_fe1_hww_esr_info_pc_valid_v(r)              (((r) >> 28U) & 0x1U)
+#define gr_mme_fe1_hww_esr_info2_r()                               (0x0040a79cU)
+#define gr_mme_fe1_hww_esr_info3_r()                               (0x0040a7a8U)
+#define gr_mme_fe1_hww_esr_info4_r()                               (0x0040a7acU)
+#define gr_mme_fe1_hww_esr_info_ex_r()                             (0x0040a7a4U)
 #define gr_mme_fe1_hww_esr_info_mthd_r()                           (0x0040a7a0U)
 #define gr_mme_fe1_hww_esr_info_mthd2_r()                          (0x0040a7bcU)
+#define gr_mme_fe1_dma_hww_esr_info_r()                            (0x0040a7c0U)
+#define gr_mme_fe1_dma_hww_esr_info2_r()                           (0x0040a7c4U)
+#define gr_mme_fe1_dma_hww_esr_info3_r()                           (0x0040a7c8U)
+#define gr_mme_fe1_status_r()                                      (0x0040a7b0U)
+#define gr_mme_fe1_status_macro_r()                                (0x0040a7b4U)
 #define gr_gpcs_tpcs_sms_hww_global_esr_report_mask_r()            (0x00419eacU)
 #define gr_gpc0_tpc0_sm0_hww_global_esr_report_mask_r()            (0x0050472cU)
 #define gr_gpc0_tpc0_sm0_hww_global_esr_report_mask_multiple_warp_errors_report_f()\
@@ -461,9 +465,32 @@
 #define gr_pri_mme_fe1_config_config_fe1_ptimer_m()            (U32(0x1U) << 1U)
 #define gr_pri_mme_fe1_config_config_fe1_ptimer_enable_f()                (0x2U)
 #define gr_mme_hww_esr_r()                                         (0x00404490U)
+#define gr_mme_hww_esr_dma_dram_access_out_of_bounds_m()      (U32(0x1U) << 16U)
+#define gr_mme_hww_esr_ecc_uncorrected_m()                    (U32(0x1U) << 10U)
 #define gr_mme_hww_esr_reset_active_f()                            (0x40000000U)
 #define gr_mme_hww_esr_en_enable_f()                               (0x80000000U)
+#define gr_mme_ecc0_ecc_address_r()                                (0x00404520U)
+#define gr_mme_ecc0_ecc_status_r()                                 (0x00404514U)
+#define gr_mme_ecc0_ecc_status_uncorrected_err_iram_m()        (U32(0x1U) << 1U)
+#define gr_mme_ecc0_ecc_status_uncorrected_err_total_counter_overflow_v(r)\
+				(((r) >> 28U) & 0x1U)
+#define gr_mme_ecc0_ecc_status_reset_task_f()                      (0x40000000U)
+#define gr_mme_ecc0_ecc_uncorrected_err_count_r()                  (0x0040451cU)
+#define gr_mme_ecc0_ecc_uncorrected_err_count_total_s()                    (16U)
+#define gr_mme_ecc0_ecc_uncorrected_err_count_total_v(r) (((r) >> 0U) & 0xffffU)
 #define gr_mme_hww_esr_info_r()                                    (0x00404494U)
+#define gr_mme_hww_esr_info_pc_valid_v(r)                  (((r) >> 28U) & 0x1U)
+#define gr_mme_hww_esr_info2_r()                                   (0x0040449cU)
+#define gr_mme_hww_esr_info3_r()                                   (0x004044a8U)
+#define gr_mme_hww_esr_info4_r()                                   (0x004044acU)
+#define gr_mme_hww_esr_info_ex_r()                                 (0x004044a4U)
+#define gr_mme_hww_esr_info_mthd_r()                               (0x004044a0U)
+#define gr_mme_hww_esr_info_mthd2_r()                              (0x004044bcU)
+#define gr_mme_dma_hww_esr_info_r()                                (0x004044c0U)
+#define gr_mme_dma_hww_esr_info2_r()                               (0x004044c4U)
+#define gr_mme_dma_hww_esr_info3_r()                               (0x004044c8U)
+#define gr_mme_status_r()                                          (0x004044b0U)
+#define gr_mme_status_macro_r()                                    (0x004044b4U)
 #define gr_memfmt_hww_esr_r()                                      (0x00404600U)
 #define gr_memfmt_hww_esr_reset_active_f()                         (0x40000000U)
 #define gr_memfmt_hww_esr_en_enable_f()                            (0x80000000U)
@@ -515,6 +542,7 @@
 #define gr_fecs_current_ctx_target_sys_mem_ncoh_f()                (0x30000000U)
 #define gr_fecs_current_ctx_valid_f(v)                  ((U32(v) & 0x1U) << 31U)
 #define gr_fecs_current_ctx_valid_false_f()                               (0x0U)
+#define gr_fecs_ctxsw_current_ctx_id_r()                           (0x00409b74U)
 #define gr_fecs_method_data_r()                                    (0x00409500U)
 #define gr_fecs_method_push_r()                                    (0x00409504U)
 #define gr_fecs_method_push_adr_f(v)                   ((U32(v) & 0xfffU) << 0U)
@@ -679,6 +707,8 @@
 #define gr_sked_hww_esr_en_skedcheck18_l1_config_too_small_disabled_f()   (0x0U)
 #define gr_sked_hww_esr_en_skedcheck18_l1_config_too_small_enabled_f()\
 				(0x2000000U)
+#define gr_sked_hww_esr_en_skedcheck28_pcas_with_sem_m()       (U32(0x1U) << 2U)
+#define gr_sked_hww_esr_en_skedcheck28_pcas_with_sem_false_f()            (0x0U)
 #define gr_cwd_fs_r()                                              (0x00405b00U)
 #define gr_cwd_fs_num_gpcs_f(v)                         ((U32(v) & 0xffU) << 0U)
 #define gr_cwd_fs_num_tpcs_f(v)                         ((U32(v) & 0xffU) << 8U)
@@ -892,6 +922,7 @@
 				(0x10000U)
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_m()\
 				(U32(0x1U) << 18U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_report_f()\
 				(0x40000U)
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_no_report_f()\
@@ -1251,6 +1282,8 @@
 #define gr_gpc0_gpccs_engine_reset_ctl_r()                         (0x00502610U)
 #define gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_v(r)\
 				(((r) >> 0U) & 0x1U)
+#define gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_enabled_v()\
+				(0x00000000U)
 #define gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_disabled_v()\
 				(0x00000001U)
 #define gr_gpcs_tpcs_cau_control_r(i)\

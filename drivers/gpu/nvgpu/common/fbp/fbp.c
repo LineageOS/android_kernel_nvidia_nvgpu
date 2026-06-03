@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/kmem.h>
@@ -39,6 +20,7 @@ int nvgpu_fbp_init_support(struct gk20a *g)
 	unsigned long fbp_en_mask_tmp;
 	u32 tmp;
 #endif
+	u32 j;
 
 	if (g->fbp != NULL) {
 		return 0;
@@ -49,10 +31,8 @@ int nvgpu_fbp_init_support(struct gk20a *g)
 		return -ENOMEM;
 	}
 
-#ifdef CONFIG_NVGPU_NON_FUSA
 	fbp->num_fbps = g->ops.priv_ring.get_fbp_count(g);
 	nvgpu_log_info(g, "fbps: %d", fbp->num_fbps);
-#endif
 
 	fbp->max_fbps_count = g->ops.top.get_max_fbps_count(g);
 	nvgpu_log_info(g, "max_fbps_count: %d", fbp->max_fbps_count);
@@ -91,6 +71,28 @@ int nvgpu_fbp_init_support(struct gk20a *g)
 
 	g->fbp = fbp;
 
+	fbp->fbp_physical_id_map = nvgpu_kzalloc(g,
+			nvgpu_safe_mult_u32(fbp->max_fbps_count, (u32)sizeof(u32)));
+	if (fbp->fbp_physical_id_map == NULL) {
+		nvgpu_err(g, "alloc fbp_physical_id_map failed");
+		nvgpu_kfree(g, fbp->fbp_l2_en_mask);
+		nvgpu_kfree(g, fbp);
+		return -ENOMEM;
+	}
+
+	if (g->ops.priv_ring.init_fbp_physical_logical_id_map != NULL) {
+		/* Initialize all logical index to invalid number. i.e U32_MAX */
+		for (j = 0; j < g->fbp->max_fbps_count; j++) {
+			g->fbp->fbp_physical_id_map[j] = U32_MAX;
+		}
+		g->ops.priv_ring.init_fbp_physical_logical_id_map(g,
+						fbp->fbp_physical_id_map);
+	} else {
+		for (j = 0U; j < g->fbp->max_fbps_count; j++) {
+			g->fbp->fbp_physical_id_map[j] = j;
+		}
+	}
+
 	return 0;
 }
 
@@ -99,6 +101,7 @@ void nvgpu_fbp_remove_support(struct gk20a *g)
 	struct nvgpu_fbp *fbp = g->fbp;
 
 	if (fbp != NULL) {
+		nvgpu_kfree(g, fbp->fbp_physical_id_map);
 		nvgpu_kfree(g, fbp->fbp_l2_en_mask);
 		nvgpu_kfree(g, fbp);
 	}
@@ -116,15 +119,42 @@ u32 nvgpu_fbp_get_fbp_en_mask(struct nvgpu_fbp *fbp)
 	return fbp->fbp_en_mask;
 }
 
-#ifdef CONFIG_NVGPU_NON_FUSA
 u32 nvgpu_fbp_get_num_fbps(struct nvgpu_fbp *fbp)
 {
 	return fbp->num_fbps;
 }
 
-u32 *nvgpu_fbp_get_l2_en_mask(struct nvgpu_fbp *fbp)
+u32 nvgpu_fbp_get_fbp_logical_index(struct nvgpu_fbp *fbp, u32 physical_index)
+{
+	nvgpu_assert(physical_index < fbp->max_fbps_count);
+
+	return fbp->fbp_physical_id_map[physical_index];
+}
+
+u32 nvgpu_fbp_get_fbp_physical_index(struct nvgpu_fbp *fbp, u32 logical_index)
+{
+	u32 i;
+
+	nvgpu_assert(logical_index < fbp->num_fbps);
+
+	for (i = 0U; i < fbp->max_fbps_count; i++) {
+		if (fbp->fbp_physical_id_map[i] == logical_index) {
+			return i;
+		}
+	}
+
+	return U32_MAX;
+}
+
+#ifdef CONFIG_NVGPU_NON_FUSA
+u32 *nvgpu_fbp_get_l2_en_mask_base_addr(struct nvgpu_fbp *fbp)
 {
 	return fbp->fbp_l2_en_mask;
+}
+
+u32 nvgpu_fbp_get_l2_en_mask(struct nvgpu_fbp *fbp, u32 fbp_phy_id)
+{
+	return fbp->fbp_l2_en_mask[fbp_phy_id];
 }
 #endif
 

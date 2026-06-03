@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GOPS_FUSE_H
@@ -105,7 +87,7 @@ struct gops_fuse {
 	 * @return fuse value read from NV_FUSE_STATUS_OPT_FBP.
 	 */
 	u32 (*fuse_status_opt_fbp)(struct gk20a *g);
-
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	/**
 	 * @brief Read NV_FUSE_OPT_EMC_DISABLE_0 fuse.
 	 *
@@ -117,7 +99,7 @@ struct gops_fuse {
 	 * @return fuse value read from NV_FUSE_OPT_EMC_DISABLE_0.
 	 */
 	u32 (*fuse_status_opt_emc)(struct gk20a *g);
-
+#endif
 	/**
 	 * @brief Write NV_FUSE_CTRL_OPT_FBP fuse.
 	 *
@@ -283,11 +265,26 @@ struct gops_fuse {
 			struct nvgpu_fuse_feature_override_ecc *ecc_feature);
 	u32 (*fuse_opt_sm_ttu_en)(struct gk20a *g);
 	u32 (*opt_sec_source_isolation_en)(struct gk20a *g);
+	/**
+	 * @brief Read NV_FUSE_STATUS_OPT_CPC_GPC fuse.
+	 *
+	 * @param g [in]	The GPU driver struct.
+	 * @param gpc [in]	GPC index.
+	 *
+	 * The HAL reads NV_FUSE_STATUS_OPT_CPC_GPC fuse value which provides
+	 * CPC floorsweeping status.
+	 *
+	 * @return fuse value read from NV_FUSE_STATUS_OPT_CPC_GPC.
+	 */
+	u32 (*fuse_status_opt_cpc_gpc)(struct gk20a *g, u32 gpc);
 
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	void (*write_feature_override_ecc)(struct gk20a *g, u32 val);
 	void (*write_feature_override_ecc_1)(struct gk20a *g, u32 val);
 #endif
+	void (*feature_override_ofa_err_contain_en)(struct gk20a *);
+	void (*feature_override_nvenc_err_contain_en)(struct gk20a *);
+	int (*init_hw)(struct gk20a *g);
 
 #if defined(CONFIG_NVGPU_NEXT) && defined(CONFIG_NVGPU_HAL_NON_FUSA)
 #include "gops/nvgpu_next_fuse.h"

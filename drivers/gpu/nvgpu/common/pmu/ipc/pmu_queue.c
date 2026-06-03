@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/engine_mem_queue.h>
 #include <nvgpu/engine_fb_queue.h>
@@ -143,7 +124,7 @@ static int pmu_dmem_queue_init(struct gk20a *g, struct pmu_queues *queues,
 	params.oflag = oflag;
 	params.queue_head = g->ops.pmu.pmu_queue_head;
 	params.queue_tail = g->ops.pmu.pmu_queue_tail;
-	params.queue_type = QUEUE_TYPE_DMEM;
+	params.engine_queue_type = QUEUE_TYPE_DMEM;
 	g->pmu->fw->ops.get_init_msg_queue_params(id, init,
 							 &params.index,
 							 &params.offset,
@@ -164,7 +145,7 @@ static void pmu_queue_free(struct gk20a *g, struct pmu_queues *queues, u32 id)
 		goto exit;
 	}
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		if (queues->fb_queue[id] == NULL) {
 			goto exit;
 		}
@@ -192,7 +173,7 @@ int nvgpu_pmu_queues_init(struct gk20a *g,
 	int err;
 
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_PMU_RTOS_FBQ)) {
-		queues->queue_type = QUEUE_TYPE_FB;
+		queues->engine_queue_type = QUEUE_TYPE_FB;
 		for (i = 0; i < PMU_QUEUE_COUNT; i++) {
 			err = pmu_fb_queue_init(g, queues, i, init,
 						super_surface_buf);
@@ -205,7 +186,7 @@ int nvgpu_pmu_queues_init(struct gk20a *g,
 			}
 		}
 	} else {
-		queues->queue_type = QUEUE_TYPE_DMEM;
+		queues->engine_queue_type = QUEUE_TYPE_DMEM;
 		for (i = 0; i < PMU_QUEUE_COUNT; i++) {
 			err = pmu_dmem_queue_init(g, queues, i, init);
 			if (err != 0) {
@@ -236,7 +217,7 @@ u32 nvgpu_pmu_queue_get_size(struct pmu_queues *queues, u32 queue_id)
 	struct nvgpu_engine_mem_queue *queue = NULL;
 	u32 queue_size;
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		fb_queue = queues->fb_queue[queue_id];
 		if (fb_queue != NULL) {
 			queue_size =
@@ -260,14 +241,20 @@ int nvgpu_pmu_queue_push(struct pmu_queues *queues, struct nvgpu_falcon *flcn,
 	struct nvgpu_engine_mem_queue *queue = NULL;
 	int err;
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		fb_queue = queues->fb_queue[queue_id];
 		err = nvgpu_engine_fb_queue_push(fb_queue,
 						 cmd, cmd->hdr.size);
+		if (err != 0) {
+			nvgpu_err(flcn->g, "fail to push cmd to queue %d", queue_id);
+		}
 	} else {
 		queue = queues->queue[queue_id];
 		err = nvgpu_engine_mem_queue_push(flcn, queue,
 						  cmd, cmd->hdr.size);
+		if (err != 0) {
+			nvgpu_err(flcn->g, "fail to push cmd to queue %d", queue_id);
+		}
 	}
 
 	return err;
@@ -281,14 +268,20 @@ int nvgpu_pmu_queue_pop(struct pmu_queues *queues, struct nvgpu_falcon *flcn,
 	struct nvgpu_engine_mem_queue *queue = NULL;
 	int err;
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		fb_queue = queues->fb_queue[queue_id];
 		err = nvgpu_engine_fb_queue_pop(fb_queue, data,
 				bytes_to_read, bytes_read);
+		if (err != 0) {
+			nvgpu_err(flcn->g, "fail to pop cmd to queue %d", queue_id);
+		}
 	} else {
 		queue = queues->queue[queue_id];
 		err = nvgpu_engine_mem_queue_pop(flcn, queue, data,
 				bytes_to_read, bytes_read);
+		if (err != 0) {
+			nvgpu_err(flcn->g, "fail to pop cmd to queue %d", queue_id);
+		}
 	}
 
 	return err;
@@ -300,7 +293,7 @@ bool nvgpu_pmu_queue_is_empty(struct pmu_queues *queues, u32 queue_id)
 	struct nvgpu_engine_fb_queue *fb_queue = NULL;
 	bool empty;
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		fb_queue = queues->fb_queue[queue_id];
 		empty = nvgpu_engine_fb_queue_is_empty(fb_queue);
 	} else {
@@ -313,7 +306,7 @@ bool nvgpu_pmu_queue_is_empty(struct pmu_queues *queues, u32 queue_id)
 
 bool nvgpu_pmu_fb_queue_enabled(struct pmu_queues *queues)
 {
-	return queues->queue_type == QUEUE_TYPE_FB;
+	return queues->engine_queue_type == QUEUE_TYPE_FB;
 }
 
 struct nvgpu_engine_fb_queue *nvgpu_pmu_fb_queue(struct pmu_queues *queues,
@@ -327,7 +320,7 @@ int nvgpu_pmu_queue_rewind(struct pmu_queues *queues, u32 queue_id,
 {
 	struct nvgpu_engine_mem_queue *queue = queues->queue[queue_id];
 
-	if (queues->queue_type == QUEUE_TYPE_FB) {
+	if (queues->engine_queue_type == QUEUE_TYPE_FB) {
 		return -EINVAL;
 	}
 

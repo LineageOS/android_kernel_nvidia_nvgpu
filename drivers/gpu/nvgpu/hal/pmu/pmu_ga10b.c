@@ -1,24 +1,6 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 #include <nvgpu/pmu.h>
 #include <nvgpu/falcon.h>
 #include <nvgpu/gk20a.h>
@@ -489,9 +471,14 @@ static int ga10b_pmu_handle_ecc(struct gk20a *g)
 
 void ga10b_pmu_handle_ext_irq(struct gk20a *g, u32 intr0)
 {
+	s32 err;
+
 	/* handle the ECC interrupt */
 	if ((intr0 & pwr_falcon_irqstat_ext_ecc_parity_true_f()) != 0U) {
-		ga10b_pmu_handle_ecc(g);
+		err = ga10b_pmu_handle_ecc(g);
+		if (err != 0) {
+			nvgpu_err(g, "pmu ecc error uncorrected");
+		}
 	}
 
 	/* handle the MEMERR interrupt */
@@ -515,3 +502,9 @@ void ga10b_pmu_handle_ext_irq(struct gk20a *g, u32 intr0)
 		nvgpu_err(g, "wdt error uncorrected");
 	}
 }
+
+unsigned long long ga10b_get_amap_extmem2_start(void)
+{
+	return 0x8060000000000000ull;
+}
+

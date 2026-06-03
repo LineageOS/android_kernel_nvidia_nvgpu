@@ -1,25 +1,5 @@
-/*
- * Nvgpu Channel Synchronization Abstraction
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_CHANNEL_SYNC_H
@@ -135,16 +115,28 @@ bool nvgpu_channel_sync_needs_os_fence_framework(struct gk20a *g);
 #endif /* CONFIG_NVGPU_KERNEL_MODE_SUBMIT */
 
 /**
- * @brief Get the number of supported syncpoints.
- *
- * @param g [in]		Pointer to GPU
+ * @brief Get the number of syncpoints for a given GPU.
  *
  * This function is required to initialize the supported channels
  * as there is a one to one relationship between channel and syncpoint.
  * Currently nvgpu assigns a sync-point to each allocated channel,
  * thus we can only support as many channels as there are sync-points.
+ * The steps are as follows:
+ * -# Initialize a variable to hold the device tree node.
+ * -# Initialize an array to hold the values read from the device tree.
+ * -# Attempt to find the device tree node by compatible string.
+ *    - If the node is not found, return the default number of channels.
+ * -# Read the syncpoint pool configuration from the device tree.
+ *    - If the read fails or the length of the pool is zero, return the default
+ *      number of channels.
+ * -# Since syncpoint ID 0 is invalid, adjust the length of the pool by
+ *    subtracting 1.
+ * -# Return the adjusted length of the syncpoint pool as the number of
+ *    syncpoints.
  *
- * @return Number of supported syncpoints.
+ * @param [in]  g  Pointer to the GPU structure.
+ *
+ * @return The number of syncpoints available for the GPU.
  */
 u32 nvgpu_channel_get_synpoints(struct gk20a *g);
 #endif /* NVGPU_CHANNEL_SYNC_H */

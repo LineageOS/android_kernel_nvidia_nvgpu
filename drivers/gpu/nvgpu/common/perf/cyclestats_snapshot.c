@@ -1,26 +1,5 @@
-/*
- * Cycle stats snapshots support
- *
- * Copyright (c) 2015-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bitops.h>
 #include <nvgpu/kmem.h>
@@ -56,17 +35,19 @@
 #define CSS_FIRST_PERFMON_ID	32
 /* should correlate with size of gk20a_cs_snapshot_fifo_entry::perfmon_id */
 #define CSS_MAX_PERFMON_IDS	256
+/* Cyclestate always uses the pma channel index 0. */
+#define CSS_PMA_CHANNEL_ID	0U
 
 /* reports whether the hw queue overflowed */
 bool nvgpu_css_get_overflow_status(struct gk20a *g)
 {
-	return g->ops.perf.get_membuf_overflow_status(g);
+	return g->ops.perf.get_membuf_overflow_status(g, CSS_PMA_CHANNEL_ID);
 }
 
 /* returns how many pending snapshot entries are pending */
 u32 nvgpu_css_get_pending_snapshots(struct gk20a *g)
 {
-	return g->ops.perf.get_membuf_pending_bytes(g) /
+	return g->ops.perf.get_membuf_pending_bytes(g, CSS_PMA_CHANNEL_ID) /
 			U32(sizeof(struct gk20a_cs_snapshot_fifo_entry));
 }
 
@@ -74,7 +55,7 @@ u32 nvgpu_css_get_pending_snapshots(struct gk20a *g)
 void nvgpu_css_set_handled_snapshots(struct gk20a *g, u32 done)
 {
 	if (done > 0) {
-		g->ops.perf.set_membuf_handled_bytes(g, done,
+		g->ops.perf.set_membuf_handled_bytes(g, CSS_PMA_CHANNEL_ID, done,
 			sizeof(struct gk20a_cs_snapshot_fifo_entry));
 	}
 }
@@ -103,12 +84,14 @@ static int css_gr_create_shared_data(struct gk20a *g)
 	return 0;
 }
 
-int nvgpu_css_enable_snapshot(struct nvgpu_channel *ch,
+int nvgpu_css_enable_snapshot(struct gk20a *g,
 				struct gk20a_cs_snapshot_client *cs_client)
 {
-	struct gk20a *g = ch->g;
 	struct gk20a_cs_snapshot *data = g->cs_data;
 	u32 snapshot_size = cs_client->snapshot_size;
+	struct nvgpu_mem *hwpm_inst_block;
+	u32 inst_blk_ptr;
+	u32 aperture;
 	int ret;
 
 	if (data->hw_snapshot) {
@@ -141,9 +124,18 @@ int nvgpu_css_enable_snapshot(struct nvgpu_channel *ch,
 	data->hw_get = data->hw_snapshot;
 	(void) memset(data->hw_snapshot, 0xff, snapshot_size);
 
-	g->ops.perf.membuf_reset_streaming(g);
-	g->ops.perf.init_inst_block(g, &g->mm.hwpm.inst_block);
-	g->ops.perf.enable_membuf(g, snapshot_size, data->hw_memdesc.gpu_va);
+	g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID);
+
+	hwpm_inst_block = &g->mm.hwpm.inst_block;
+	inst_blk_ptr = nvgpu_inst_block_ptr(g, hwpm_inst_block);
+	aperture = hwpm_inst_block->aperture;
+	ret = g->ops.perf.init_inst_block(g, CSS_PMA_CHANNEL_ID,
+			inst_blk_ptr, aperture, 0);
+	if (ret != 0) {
+		nvgpu_err(g, "perf init_inst_block failed. %d", ret);
+		goto failed_allocation;
+	}
+	g->ops.perf.enable_membuf(g, CSS_PMA_CHANNEL_ID, snapshot_size, data->hw_memdesc.gpu_va);
 
 	nvgpu_log_info(g, "cyclestats: buffer for hardware snapshots enabled\n");
 
@@ -167,9 +159,9 @@ void nvgpu_css_disable_snapshot(struct gk20a *g)
 		return;
 	}
 
-	g->ops.perf.membuf_reset_streaming(g);
-	g->ops.perf.disable_membuf(g);
-	g->ops.perf.deinit_inst_block(g);
+	g->ops.perf.membuf_reset_streaming(g, CSS_PMA_CHANNEL_ID);
+	g->ops.perf.disable_membuf(g, CSS_PMA_CHANNEL_ID);
+	g->ops.perf.deinit_inst_block(g, CSS_PMA_CHANNEL_ID);
 
 	nvgpu_dma_unmap_free(g->mm.pmu.vm, &data->hw_memdesc);
 	(void) memset(&data->hw_memdesc, 0, sizeof(data->hw_memdesc));
@@ -459,13 +451,12 @@ static int css_gr_create_client_data(struct gk20a *g,
 }
 
 
-int nvgpu_css_attach(struct nvgpu_channel *ch,
+int nvgpu_css_attach(struct gk20a *g,
 			u32 perfmon_count,
 			u32 *perfmon_start,
 			struct gk20a_cs_snapshot_client *cs_client)
 {
 	int ret = 0;
-	struct gk20a *g = ch->g;
 
 	/* we must have a placeholder to store pointer to client structure */
 	if (!cs_client) {
@@ -493,7 +484,7 @@ int nvgpu_css_attach(struct nvgpu_channel *ch,
 		goto failed;
 	}
 
-	ret = g->ops.css.enable_snapshot(ch, cs_client);
+	ret = g->ops.css.enable_snapshot(g, cs_client);
 	if (ret != 0) {
 		goto failed;
 	}
@@ -526,11 +517,10 @@ failed:
 	return ret;
 }
 
-int nvgpu_css_detach(struct nvgpu_channel *ch,
+int nvgpu_css_detach(struct gk20a *g,
 				struct gk20a_cs_snapshot_client *cs_client)
 {
 	int ret = 0;
-	struct gk20a *g = ch->g;
 
 	if (!cs_client) {
 		return -EINVAL;
@@ -541,7 +531,7 @@ int nvgpu_css_detach(struct nvgpu_channel *ch,
 		struct gk20a_cs_snapshot *data = g->cs_data;
 
 		if (g->ops.css.detach_snapshot) {
-			g->ops.css.detach_snapshot(ch, cs_client);
+			g->ops.css.detach_snapshot(g, cs_client);
 		}
 
 		ret = css_gr_free_client_data(g, data, cs_client);

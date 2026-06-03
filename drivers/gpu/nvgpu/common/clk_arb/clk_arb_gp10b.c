@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/clk_arb.h>
@@ -251,6 +232,9 @@ void gp10b_clk_arb_run_arbiter_cb(struct nvgpu_clk_arb *arb)
 
 	bool gpc2clk_set;
 
+	u32 alarms_notified = 0;
+	u32 current_alarm;
+
 	int status = 0;
 	unsigned long rounded_rate = 0;
 
@@ -355,7 +339,6 @@ void gp10b_clk_arb_run_arbiter_cb(struct nvgpu_clk_arb *arb)
 		nvgpu_cond_signal_interruptible(&arb->request_wq);
 		goto exit_arb;
 	}
-
 	/* the igpu set_rate accepts freq in Hz */
 	status = g->ops.clk.set_rate(g, CTRL_CLK_DOMAIN_GPCCLK, rounded_rate);
 
@@ -391,6 +374,11 @@ void gp10b_clk_arb_run_arbiter_cb(struct nvgpu_clk_arb *arb)
 	/* Unlock pstate change for PG */
 	nvgpu_mutex_release(&arb->pstate_lock);
 
+	/* VF Update complete */
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_DEVICE_EVENTS)) {
+		nvgpu_clk_arb_set_global_alarm(g, EVENT(VF_UPDATE));
+	}
+
 	nvgpu_cond_signal_interruptible(&arb->request_wq);
 
 exit_arb:
@@ -398,11 +386,15 @@ exit_arb:
 		nvgpu_err(g, "Error in arbiter update");
 	}
 
+	/* arb->alarm_mask: upper 32 bits are refcnt, lower 32 bits are the alarm bits */
+	current_alarm = (u32) (nvgpu_atomic64_read(&arb->alarm_mask) & 0x0ffffffffU);
+
 	/* notify completion for all requests */
 	nvgpu_spinlock_acquire(&arb->requests_lock);
 	nvgpu_list_for_each_entry_safe(dev, tmp, &arb->requests,
 			nvgpu_clk_dev, node) {
 		u32 tmp_poll_mask = NVGPU_POLLIN | NVGPU_POLLRDNORM;
+
 		nvgpu_atomic_set(&dev->poll_mask,
 			(int)tmp_poll_mask);
 		nvgpu_clk_arb_event_post_event(dev);
@@ -410,6 +402,20 @@ exit_arb:
 		nvgpu_ref_put(&dev->refcount, nvgpu_clk_arb_free_fd);
 	}
 	nvgpu_spinlock_release(&arb->requests_lock);
+
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_DEVICE_EVENTS)) {
+		/* notify event for all users */
+		nvgpu_spinlock_acquire(&arb->users_lock);
+		nvgpu_list_for_each_entry(dev, &arb->users, nvgpu_clk_dev, link) {
+			alarms_notified |=
+				nvgpu_clk_arb_notify(dev, arb->actual, current_alarm);
+		}
+		nvgpu_spinlock_release(&arb->users_lock);
+
+		/* clear alarms */
+		nvgpu_clk_arb_clear_global_alarm(g, alarms_notified &
+			~EVENT(ALARM_GPU_LOST));
+	}
 
 	clk_arb_dbg(g, "done");
 }

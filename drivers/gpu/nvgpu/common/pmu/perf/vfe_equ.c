@@ -1,30 +1,12 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bios.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/boardobjgrp.h>
 #include <nvgpu/boardobjgrp_e32.h>
 #include <nvgpu/boardobjgrp_e255.h>
+#include <nvgpu/boardobjgrp_e2048.h>
 #include <nvgpu/boardobjgrpmask.h>
 #include <nvgpu/pmu/boardobjgrp_classes.h>
 #include <nvgpu/string.h>
@@ -495,6 +477,42 @@ static int vfe_equ_construct_quadratic(struct gk20a *g,
 	return status;
 }
 
+static int vfe_equ_construct_quadratic_n(struct gk20a *g,
+				       struct pmu_board_obj **obj,
+				       size_t size, void *pargs)
+{
+	/* TODO : Fix needed for quadratic_n*/
+	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
+	struct vfe_equ_quadratic *pvfeequ;
+	struct vfe_equ_quadratic *ptmpequ =
+			(struct vfe_equ_quadratic *)pargs;
+	int status = 0;
+	u32 i;
+
+	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_EQU_TYPE_QUADRATIC_N) {
+		return -EINVAL;
+	}
+
+	obj_tmp->type_mask |= (u32)BIT(CTRL_PERF_VFE_EQU_TYPE_QUADRATIC_N);
+	status = vfe_equ_construct_super(g, obj, size, pargs);
+	if (status != 0) {
+		return -EINVAL;
+	}
+
+	pvfeequ = (struct vfe_equ_quadratic *)(void *)*obj;
+	pvfeequ->super.mask_depending_build =
+			vfe_equ_build_depending_mask_quad;
+
+	pvfeequ->super.super.pmudatainit =
+			vfe_equ_pmudatainit_quadratic;
+
+	for (i = 0; i < CTRL_PERF_VFE_EQU_QUADRATIC_COEFF_COUNT; i++) {
+		pvfeequ->coeffs[i] = ptmpequ->coeffs[i];
+	}
+
+	return status;
+}
+
 static int vfe_equ_pmudatainit_scalar(struct gk20a *g,
 				       struct pmu_board_obj *obj,
 				       struct nv_pmu_boardobj *pmu_obj)
@@ -576,6 +594,10 @@ static struct vfe_equ *construct_vfe_equ(struct gk20a *g, void *pargs)
 			sizeof(struct vfe_equ_scalar), pargs);
 		break;
 
+	case CTRL_PERF_VFE_EQU_TYPE_QUADRATIC_N:
+		status = vfe_equ_construct_quadratic_n(g, &obj,
+			sizeof(struct vfe_equ_quadratic_n), pargs);
+		break;
 	default:
 		status = -EINVAL;
 		break;
@@ -590,21 +612,65 @@ static struct vfe_equ *construct_vfe_equ(struct gk20a *g, void *pargs)
 	return (struct vfe_equ *)(void *)obj;
 }
 
+static int vfe_equ_quadratic_n_convert_to_internal_id(u8 vbios_quadratic_n_id,
+					struct vfe_equ_quadratic_n *vfeequ_quadratic_n)
+{
+	switch (vbios_quadratic_n_id) {
+        	case VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_3:
+			{
+				vfeequ_quadratic_n->arg_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_3_ARG_COUNT;
+				vfeequ_quadratic_n->coeff_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_3_COEFF_COUNT;
+				break;
+			}
+		case VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_6:
+			{
+				vfeequ_quadratic_n->arg_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_6_ARG_COUNT;
+				vfeequ_quadratic_n->coeff_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_6_COEFF_COUNT;
+            			break;
+        		}
+		case VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_QUADRATIC_10:
+			{
+				vfeequ_quadratic_n->arg_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_10_ARG_COUNT;
+				vfeequ_quadratic_n->coeff_count =
+						CTRL_PERF_VFE_EQU_QUADRATIC_N_10_COEFF_COUNT;
+            			break;
+        		}
+		case VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR_INVALID:
+		default:
+			{
+				return -1;
+        		}
+	}
+
+	return 0;
+}
+
 static int devinit_get_vfe_equ_table(struct gk20a *g,
 				     struct vfe_equs *pvfeequobjs)
 {
 	int status = 0;
 	u8 *vfeequs_tbl_ptr = NULL;
+	struct nvgpu_pmu *pmu = g->pmu;
+	struct nvgpu_pmu_perf *pmu_perf = pmu->perf_pmu;
 	struct vbios_vfe_3x_header_struct vfeequs_tbl_header = { 0 };
 	struct vbios_vfe_3x_equ_entry_struct equ = { 0 };
 	u8 *vfeequs_tbl_entry_ptr = NULL;
 	u8 *rd_offset_ptr = NULL;
 	u32 index = 0;
 	struct vfe_equ *pequ;
+	u8 i, param_idx;
 	u8 equ_type = 0;
+	u8 cmp_func = 0U;
+	u8 equ_id = 0;
 	u32 szfmt;
 	bool done = false;
 	u32 hdrszfmt = 0;
+	u16 equ_count = 0U;
 	union {
 		struct pmu_board_obj obj;
 		struct vfe_equ super;
@@ -612,6 +678,7 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 		struct vfe_equ_minmax minmax;
 		struct vfe_equ_quadratic quadratic;
 		struct vfe_equ_scalar scalar;
+		struct vfe_equ_quadratic_n quadratic_n;
 	} equ_data;
 
 	vfeequs_tbl_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
@@ -624,10 +691,11 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 	}
 
 	nvgpu_memcpy((u8 *)&vfeequs_tbl_header, vfeequs_tbl_ptr,
-			VBIOS_VFE_3X_HEADER_SIZE_09);
-	if (vfeequs_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_09) {
-		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_09;
-		nvgpu_memcpy((u8 *)&vfeequs_tbl_header, vfeequs_tbl_ptr, hdrszfmt);
+			VBIOS_VFE_3X_HEADER_SIZE_0E);
+	if (vfeequs_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_0E) {
+		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_0E;
+		nvgpu_memcpy((u8 *)&vfeequs_tbl_header,
+				vfeequs_tbl_ptr, hdrszfmt);
 	} else {
 		nvgpu_err(g, "Invalid VFE Table Header size\n");
 		status = -EINVAL;
@@ -635,8 +703,8 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 	}
 
 	if (vfeequs_tbl_header.vfe_equ_entry_size ==
-			VBIOS_VFE_3X_EQU_ENTRY_SIZE_18) {
-		szfmt = VBIOS_VFE_3X_EQU_ENTRY_SIZE_18;
+			VBIOS_VFE_3X_EQU_ENTRY_SIZE_19) {
+		szfmt = VBIOS_VFE_3X_EQU_ENTRY_SIZE_19;
 	} else {
 		nvgpu_err(g, "Invalid VFE EQU entry size\n");
 		status = -EINVAL;
@@ -646,10 +714,9 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 	vfeequs_tbl_entry_ptr = vfeequs_tbl_ptr + hdrszfmt +
 		(vfeequs_tbl_header.vfe_var_entry_count *
 		 vfeequs_tbl_header.vfe_var_entry_size);
-
-	for (index = 0;
-	     index < vfeequs_tbl_header.vfe_equ_entry_count;
-	     index++) {
+	equ_count = ((vfeequs_tbl_header.vfe_equ_entry_count) |
+			(vfeequs_tbl_header.vfe_equ_entry_count_hi8bytes << 8U));
+	for (index = 0; index < equ_count; index++) {
 		(void) memset(&equ, 0,
 			sizeof(struct vbios_vfe_3x_equ_entry_struct));
 
@@ -667,71 +734,71 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 
 		switch (BIOS_GET_FIELD(u32, equ.param3,
 				VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE)) {
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_UNITLESS:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_UNITLESS;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_UNITLESS:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_UNITLESS;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_FREQ_MHZ:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_FREQ_MHZ;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_FREQ_MHZ:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_FREQ_MHZ;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VOLT_UV:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VOLT_UV;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VOLT_UV:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VOLT_UV;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VF_GAIN:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VF_GAIN;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VF_GAIN:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VF_GAIN;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VOLT_DELTA_UV:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VOLT_DELTA_UV;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VOLT_DELTA_UV:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VOLT_DELTA_UV;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_WORK_TYPE:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_WORK_TYPE;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_WORK_TYPE:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_WORK_TYPE;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_UTIL_RATIO:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_UTIL_RATIO;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_UTIL_RATIO:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_UTIL_RATIO;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_WORK_FB_NORM:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_WORK_FB_NORM;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_WORK_FB_NORM:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_WORK_FB_NORM;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_POWER_MW:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_POWER_MW;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_POWER_MW:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_POWER_MW;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_PWR_OVER_UTIL_SLOPE:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_PWR_OVER_UTIL_SLOPE;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_PWR_OVER_UTIL_SLOPE:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_PWR_OVER_UTIL_SLOPE;
+				break;
 
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VIN_CODE:
-			equ_data.super.output_type =
-				(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VIN_CODE;
-			break;
-		case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_THRESHOLD:
-			equ_data.super.output_type =
-				(u8)VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_THRESHOLD;
-			break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_VIN_CODE:
+				equ_data.super.output_type =
+					(u8)CTRL_PERF_VFE_EQU_OUTPUT_TYPE_VIN_CODE;
+				break;
+			case VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_THRESHOLD:
+				equ_data.super.output_type =
+					(u8)VBIOS_VFE_3X_EQU_ENTRY_PAR3_OUTPUT_TYPE_THRESHOLD;
+				break;
 
-		default:
-			nvgpu_err(g, "unrecognized output id @vfeequ index %d",
+			default:
+				nvgpu_err(g, "unrecognized output id vfeequ index %d",
 				  index);
-			done = true;
-			break;
-		}
+				done = true;
+				break;
+			}
 		/*
 		 * Previously we were doing "goto done" from the default case of
 		 * the switch-case block above. MISRA however, gets upset about
@@ -744,71 +811,68 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 		}
 
 		switch ((u8)equ.type) {
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_DISABLED:
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_FXP:
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX_FXP:
-			continue;
-			break;
-
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC:
-			equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_QUADRATIC;
-			equ_data.quadratic.coeffs[0] = equ.param0;
-			equ_data.quadratic.coeffs[1] = equ.param1;
-			equ_data.quadratic.coeffs[2] = equ.param2;
-			break;
-
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX:
-			equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_MINMAX;
-			equ_data.minmax.b_max = BIOS_GET_FIELD(bool, equ.param0,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT) &&
-				(VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT_MAX != 0U);
-			equ_data.minmax.equ_idx0 = BIOS_GET_FIELD(u8,
-				equ.param0,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_0);
-			equ_data.minmax.equ_idx1 = BIOS_GET_FIELD(u8,
-				equ.param0,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_1);
-			break;
-
-		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_COMPARE:
-		{
-			u8 cmp_func = BIOS_GET_FIELD(u8, equ.param1,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION);
-			equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_COMPARE;
-
-			switch (cmp_func) {
-			case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_EQUAL:
-				equ_data.compare.func_id =
-					(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_EQUAL;
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_DISABLED:
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_FXP:
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX_FXP:
+				continue;
 				break;
 
-			case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_GREATER_EQ:
-				equ_data.compare.func_id =
-					(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_GREATER_EQ;
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC:
+				equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_QUADRATIC;
+				equ_data.quadratic.coeffs[0] = equ.param0;
+				equ_data.quadratic.coeffs[1] = equ.param1;
+				equ_data.quadratic.coeffs[2] = equ.param2;
 				break;
-			case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_GREATER:
-				equ_data.compare.func_id =
-					(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_GREATER;
+
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX:
+				equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_MINMAX;
+				equ_data.minmax.b_max = BIOS_GET_FIELD(bool, equ.param0,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT) &&
+					(VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_CRIT_MAX != 0U);
+				equ_data.minmax.equ_idx0 = BIOS_GET_FIELD(u8,
+					equ.param0,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_0);
+				equ_data.minmax.equ_idx1 = BIOS_GET_FIELD(u8,
+					equ.param0,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR0_MINMAX_VFE_EQU_IDX_1);
 				break;
-			default:
-				nvgpu_err(g,
-					  "invalid vfe compare index %x type %x ",
-					  index, cmp_func);
-				status = -EINVAL;
+
+			case VBIOS_VFE_3X_EQU_ENTRY_TYPE_COMPARE:
+				cmp_func = BIOS_GET_FIELD(u8, equ.param1,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION);
+				equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_COMPARE;
+
+				switch (cmp_func) {
+					case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_EQUAL:
+						equ_data.compare.func_id =
+							(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_EQUAL;
+						break;
+
+					case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_GREATER_EQ:
+						equ_data.compare.func_id =
+							(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_GREATER_EQ;
+						break;
+					case VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_FUNCTION_GREATER:
+						equ_data.compare.func_id =
+							(u8)CTRL_PERF_VFE_EQU_COMPARE_FUNCTION_GREATER;
+						break;
+					default:
+						nvgpu_err(g, "invalid vfe compare index %x type %x ",
+							index, cmp_func);
+						status = -EINVAL;
+						break;
+				}
+				if (status != 0) {
+					goto done;
+				}
+				equ_data.compare.equ_idx_true = BIOS_GET_FIELD(u8,
+					equ.param1,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_TRUE);
+				equ_data.compare.equ_idx_false = BIOS_GET_FIELD(u8,
+					equ.param1,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_FALSE);
+				equ_data.compare.criteria = equ.param0;
 				break;
-			}
-			if (status != 0) {
-				goto done;
-			}
-			equ_data.compare.equ_idx_true = BIOS_GET_FIELD(u8,
-				equ.param1,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_TRUE);
-			equ_data.compare.equ_idx_false = BIOS_GET_FIELD(u8,
-				equ.param1,
-				VBIOS_VFE_3X_EQU_ENTRY_PAR1_COMPARE_VFE_EQU_IDX_FALSE);
-			equ_data.compare.criteria = equ.param0;
-			break;
-		}
 
 		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_EQUATION_SCALAR:
 		{
@@ -819,6 +883,25 @@ static int devinit_get_vfe_equ_table(struct gk20a *g,
 			break;
 		}
 
+		case VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_N:
+		{
+			equ_type = (u8)CTRL_PERF_VFE_EQU_TYPE_QUADRATIC_N;
+			equ_id  = BIOS_GET_FIELD(u8, equ.param0,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_FLAVOR);
+			vfe_equ_quadratic_n_convert_to_internal_id(equ_id, &equ_data.quadratic_n);
+			param_idx = BIOS_GET_FIELD(u8, equ.param0,
+					VBIOS_VFE_3X_EQU_ENTRY_PAR0_QUADRATIC_N_PARAM_START_IDX);
+			for (i = 0; i < equ_data.quadratic_n.arg_count; i++) {
+				equ_data.quadratic_n.args[i] = pmu_perf->vfe_paramsobjs[param_idx];
+				param_idx++;
+			}
+			for (i = 0; i < equ_data.quadratic_n.coeff_count;
+					i++) {
+				equ_data.quadratic_n.coeffs[i] = pmu_perf->vfe_paramsobjs[param_idx];
+				param_idx++;
+			}
+			break;
+		}
 		default:
 			status = -EINVAL;
 			nvgpu_err(g, "Invalid equ[%d].type = 0x%x.",
@@ -859,7 +942,7 @@ int perf_vfe_equ_sw_setup(struct gk20a *g)
 	struct vfe_equs *pvfeequobjs;
 	struct vfe_vars *pvfevarobjs;
 
-	status = nvgpu_boardobjgrp_construct_e255(g,
+	status = nvgpu_boardobjgrp_construct_e2048(g,
 			&g->pmu->perf_pmu->vfe_equobjs.super);
 	if (status != 0) {
 		nvgpu_err(g,

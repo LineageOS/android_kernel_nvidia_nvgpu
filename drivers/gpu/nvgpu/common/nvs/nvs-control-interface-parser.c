@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 
@@ -39,7 +20,7 @@ static u32 nvs_control_atomic_read(void *const address)
 {
 	u32 value;
 
-	value = NV_READ_ONCE(*(u32 *)address);
+	value = NV_READ_ONCE((*(u32 *)address));
 	nvgpu_rmb();
 
 	return value;
@@ -55,7 +36,7 @@ static u64 nvs_control_atomic64_read(void *const address)
 {
 	u64 value;
 
-	value = NV_READ_ONCE(*(u64 *)address);
+	value = NV_READ_ONCE((*(u64 *)address));
 	nvgpu_rmb();
 
 	return value;
@@ -86,7 +67,7 @@ void nvs_control_fifo_sender_write_message(struct nvs_control_fifo_sender *const
 
 	nvgpu_wmb();
 
-	sender->put_index++;
+	sender->put_index = nvgpu_safe_add_u32(sender->put_index, 1U);
 	if (sender->put_index == sender->num_queue_entries) {
 		sender->put_index = 0;
 		sender->num_revolutions = nvgpu_wrapping_add_u32(sender->num_revolutions, 1U);
@@ -101,7 +82,7 @@ void nvs_control_fifo_sender_write_message(struct nvs_control_fifo_sender *const
 
 void nvs_control_fifo_sender_out_of_space(struct nvs_control_fifo_sender *const sender)
 {
-	sender->num_dropped_messages++;
+	sender->num_dropped_messages = nvgpu_safe_add_u64(sender->num_dropped_messages, 1ULL);
 	nvs_control_atomic64_write(&sender->control_interface->num_dropped_messages,
 		sender->num_dropped_messages);
 }
@@ -120,6 +101,8 @@ int nvs_control_fifo_sender_can_write(struct nvs_control_fifo_sender *const send
 	} else if (curr_get_index == NVS_DOMAIN_MSG_FIFO_CONTROL_GET_FLOW_CTRL_DISABLED) {
 		/* space is always available */
 		return 0;
+	} else {
+		/* do nothing */
 	}
 
 	/* bound check the put index */
@@ -142,8 +125,9 @@ int nvs_control_fifo_sender_can_write(struct nvs_control_fifo_sender *const send
 		occupied_slots = sender->num_queue_entries - curr_get_index + sender->put_index;
 	}
 
-	available_slots = sender->num_queue_entries - occupied_slots - 1U;
-	if (available_slots == 0) {
+	available_slots = nvgpu_safe_sub_u64(sender->num_queue_entries,
+					     nvgpu_safe_add_u64(occupied_slots, 1ULL));
+	if (available_slots == 0U) {
 		return -EAGAIN;
 	}
 
@@ -158,8 +142,8 @@ struct nvs_control_fifo_sender *nvs_control_fifo_sender_initialize(
 	struct nvs_control_fifo_sender *sender = NULL;
 	const u32 lower_bound_buffer_size =
 		nvgpu_safe_add_u32(nvgpu_safe_mult_u32(min_queue_size,
-			sizeof(struct nvs_domain_message)),
-			sizeof(struct nvs_domain_msg_fifo_control));
+			nvgpu_safe_cast_u64_to_u32(sizeof(struct nvs_domain_message))),
+			nvgpu_safe_cast_u64_to_u32(sizeof(struct nvs_domain_msg_fifo_control)));
 
 	if (ring_buffer == NULL) {
 		nvgpu_err(g, "ring buffer is NULL");
@@ -204,7 +188,7 @@ struct nvs_control_fifo_sender *nvs_control_fifo_sender_initialize(
 
 void nvs_control_fifo_read_message(struct nvs_control_fifo_receiver *const receiver)
 {
-	struct nvs_domain_message *const read_loc = &receiver->fifo[receiver->get_index];
+	struct nvs_domain_message *const read_loc = &receiver->fifo[receiver->nvs_get_index];
 
 	nvgpu_rmb();
 
@@ -213,19 +197,19 @@ void nvs_control_fifo_read_message(struct nvs_control_fifo_receiver *const recei
 	receiver->msg_sequence = read_loc->sequence_tag;
 	receiver->msg_timestamp_ns = read_loc->timestamp_ns;
 
-	memset((u8 *)&receiver->internal_buffer, 0, NVS_DOMAIN_MESSAGE_MAX_PAYLOAD_SIZE);
+	(void)memset((u8 *)&receiver->internal_buffer, 0, NVS_DOMAIN_MESSAGE_MAX_PAYLOAD_SIZE);
 
 	nvgpu_memcpy((u8 *)&receiver->internal_buffer,
 		(u8 *)&read_loc->payload, NVS_DOMAIN_MESSAGE_MAX_PAYLOAD_SIZE);
 
 	nvgpu_mb();
 
-	receiver->get_index++;
-	if (receiver->get_index == receiver->num_queue_entries) {
-		receiver->get_index = 0;
+	receiver->nvs_get_index = nvgpu_safe_add_u32(receiver->nvs_get_index, 1U);
+	if (receiver->nvs_get_index == receiver->num_queue_entries) {
+		receiver->nvs_get_index = 0;
 	}
 
-	nvs_control_atomic_write(&receiver->control_interface->get, receiver->get_index);
+	nvs_control_atomic_write(&receiver->control_interface->get, receiver->nvs_get_index);
 }
 
 int nvs_control_fifo_receiver_can_read(struct nvs_control_fifo_receiver *const receiver)
@@ -237,7 +221,7 @@ int nvs_control_fifo_receiver_can_read(struct nvs_control_fifo_receiver *const r
 			&receiver->control_interface->put_revolutions);
 	put = u64_lo32(curr_put_revolution);
 
-	if (put == receiver->get_index) {
+	if (put == receiver->nvs_get_index) {
 		nvs_dbg(receiver->g, "No new message");
 		return -EAGAIN;
 	}
@@ -254,8 +238,8 @@ struct nvs_control_fifo_receiver *nvs_control_fifo_receiver_initialize(
 
 	const u32 lower_bound_buffer_size =
 		nvgpu_safe_add_u32(nvgpu_safe_mult_u32(min_queue_size,
-			sizeof(struct nvs_domain_message)),
-			sizeof(struct nvs_domain_msg_fifo_control));
+			nvgpu_safe_cast_u64_to_u32(sizeof(struct nvs_domain_message))),
+			nvgpu_safe_cast_u64_to_u32(sizeof(struct nvs_domain_msg_fifo_control)));
 
 	if (fifo == NULL) {
 		nvgpu_err(g, "ring buffer is NULL");
@@ -283,15 +267,15 @@ struct nvs_control_fifo_receiver *nvs_control_fifo_receiver_initialize(
 
 	num_put_revolutions = nvs_control_atomic64_read(
 			&receiver->control_interface->put_revolutions);
-	receiver->get_index = u64_lo32(num_put_revolutions);
+	receiver->nvs_get_index = u64_lo32(num_put_revolutions);
 
-	if (receiver->get_index >= receiver->num_queue_entries) {
+	if (receiver->nvs_get_index >= receiver->num_queue_entries) {
 		nvgpu_err(g, "Get Index more than Max Queue size");
 		nvgpu_kfree(g, receiver);
 		return NULL;
 	}
 
-	nvs_control_fifo_enable_flow_control(receiver->control_interface, receiver->get_index);
+	nvs_control_fifo_enable_flow_control(receiver->control_interface, receiver->nvs_get_index);
 
 	return receiver;
 }
@@ -299,15 +283,19 @@ struct nvs_control_fifo_receiver *nvs_control_fifo_receiver_initialize(
 void nvs_control_fifo_sender_exit(struct gk20a *g,
 		struct nvs_control_fifo_sender *const sender)
 {
+	struct nvs_control_fifo_sender *sender_local
+		= (struct nvs_control_fifo_sender *)sender;
 	nvs_control_fifo_disable_flow_control(sender->control_interface);
-	nvgpu_kfree(g, sender);
+	nvgpu_kfree(g, sender_local);
 }
 
 void nvs_control_fifo_receiver_exit(struct gk20a *g,
 		struct nvs_control_fifo_receiver *const receiver)
 {
+	struct nvs_control_fifo_receiver *receiver_local
+		= (struct nvs_control_fifo_receiver *)receiver;
 	nvs_control_fifo_disable_flow_control(receiver->control_interface);
-	nvgpu_kfree(g, receiver);
+	nvgpu_kfree(g, receiver_local);
 }
 
 void nvs_control_fifo_enable_flow_control(struct nvs_domain_msg_fifo_control *control_interface,

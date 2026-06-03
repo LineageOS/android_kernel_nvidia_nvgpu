@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_LTC_H
 #define NVGPU_GOPS_LTC_H
@@ -200,12 +182,23 @@ struct gops_ltc_intr {
 
 	/** @cond DOXYGEN_SHOULD_SKIP_THIS */
 	void (*configure)(struct gk20a *g);
+	void (*configure_intr1)(struct gk20a *g);
+	void (*configure_intr2)(struct gk20a *g);
+	void (*configure_intr3)(struct gk20a *g);
+	void (*handle_intr1)(struct gk20a *g, u32 ltc, u32 slice, bool *needs_quiesce);
+	void (*handle_intr2)(struct gk20a *g, u32 ltc, u32 slice, bool *needs_quiesce);
+	void (*handle_intr3)(struct gk20a *g, u32 ltc, u32 slice, bool *needs_quiesce);
+	void (*handle_ecc_intr3)(struct gk20a *g, u32 ltc, u32 slice,
+			u32 offset, u32 ltc_intr3, bool *needs_quiesce);
+	void (*handle_xbar_intfc_ecc_intr)(struct gk20a *g, u32 ltc,
+			u32 slice, u32 ecc_status, u32 ecc_addr, bool *needs_quiesce);
 	u32 (*read_intr1)(struct gk20a *g);
 	u32 (*read_intr2)(struct gk20a *g);
 	u32 (*read_intr3)(struct gk20a *g);
 	void (*write_intr1)(struct gk20a *g, u32 reg_val);
 	void (*write_intr2)(struct gk20a *g, u32 reg_val);
 	void (*write_intr3)(struct gk20a *g, u32 reg_val);
+	void (*report_non_ecc_uncorrected_err)(struct gk20a *g);
 #ifdef CONFIG_NVGPU_NON_FUSA
 	void (*en_illegal_compstat)(struct gk20a *g, bool enable);
 	void (*handle_illegal_compstat)(struct gk20a *g, u32 ltc, u32 slice,
@@ -425,9 +418,16 @@ struct gops_ltc {
 	void (*set_default_l2_max_ways_evict_last)(struct gk20a *g,
 			struct nvgpu_gr_ctx *gr_ctx);
 #endif
+#ifdef CONFIG_NVGPU_NON_FUSA
+	u32 (*get_ltcs_ltss_tstg_cfg1_active_sets)(u32 reg_val);
+#endif
 #if defined(CONFIG_NVGPU_NON_FUSA) || defined(CONFIG_NVGPU_KERNEL_MODE_SUBMIT)
 	void (*set_enabled)(struct gk20a *g, bool enabled);
 #endif
+#ifdef CONFIG_NVGPU_MIG
+	void (*set_remote_swizzle_id)(struct gk20a *g, int gridx, u32 swizzle_id);
+#endif
+	int (*compute_lts_mask)(struct gk20a *g, u64 logical_ltc_mask, u64 *logical_lts_mask);
 	int (*ltc_lts_set_mgmt_setup)(struct gk20a *g);
 #ifdef CONFIG_NVGPU_GRAPHICS
 	void (*set_zbc_color_entry)(struct gk20a *g,
@@ -455,7 +455,7 @@ struct gops_ltc {
 	u32 (*pri_is_lts_tstg_addr)(struct gk20a *g, u32 addr);
 	int (*set_l2_sector_promotion)(struct gk20a *g, struct nvgpu_tsg *tsg,
 			u32 policy);
-	u32 (*pri_shared_addr)(struct gk20a *g, u32 addr);
+	int (*pri_shared_addr)(struct gk20a *g, u32 addr, u32 *ltc_shared_addr);
 #endif
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 

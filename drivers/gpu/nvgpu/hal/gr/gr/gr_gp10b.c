@@ -1,26 +1,5 @@
-/*
- * GP10B GPU GR
- *
- * Copyright (c) 2015-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/timers.h>
 #include <nvgpu/kmem.h>
@@ -39,6 +18,7 @@
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/gr_instances.h>
+#include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr_falcon.h>
 #include <nvgpu/gr/obj_ctx.h>
@@ -385,34 +365,20 @@ void gr_gp10b_set_gpc_tpc_mask(struct gk20a *g, u32 gpc_index)
 }
 #endif
 
-static int gr_gp10b_disable_channel_or_tsg(struct gk20a *g, struct nvgpu_channel *fault_ch)
+static int gr_gp10b_disable_tsg(struct gk20a *g, u32 tsgid)
 {
 	int ret = 0;
 	struct nvgpu_tsg *tsg;
 
-	tsg = nvgpu_tsg_from_ch(fault_ch);
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
 	if (tsg == NULL) {
-		nvgpu_err(g, "CILP: chid: %d is not bound to tsg",
-				fault_ch->chid);
+		nvgpu_err(g, "CILP: invalid tsgid: %u", tsgid);
 		return -EINVAL;
 	}
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr, " ");
 
-	ret = nvgpu_channel_disable_tsg(g, fault_ch);
-	if (ret != 0) {
-		nvgpu_err(g, "CILP: failed to disable channel/TSG!");
-		return ret;
-	}
-
-	ret = g->ops.runlist.reload(g, fault_ch->runlist, tsg->rl_domain, true, false);
-	if (ret != 0) {
-		nvgpu_err(g, "CILP: failed to restart runlist 0!");
-		return ret;
-	}
-
-	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
-			"CILP: restarted runlist");
+	nvgpu_tsg_disable(tsg);
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
 			"CILP: tsgid: 0x%x", tsg->tsgid);
@@ -424,8 +390,7 @@ static int gr_gp10b_disable_channel_or_tsg(struct gk20a *g, struct nvgpu_channel
 	return ret;
 }
 
-int gr_gp10b_set_cilp_preempt_pending(struct gk20a *g,
-			struct nvgpu_channel *fault_ch)
+int gr_gp10b_set_cilp_preempt_pending(struct gk20a *g, u32 gfid, u32 tsgid)
 {
 	int ret;
 	struct nvgpu_tsg *tsg;
@@ -434,17 +399,19 @@ int gr_gp10b_set_cilp_preempt_pending(struct gk20a *g,
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr, " ");
 
-	tsg = nvgpu_tsg_from_ch(fault_ch);
+	(void)gfid;
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
 	if (tsg == NULL) {
 		return -EINVAL;
 	}
 
 	gr_ctx = tsg->gr_ctx;
 
-	if (nvgpu_gr_ctx_get_cilp_preempt_pending(gr_ctx)) {
+	if (nvgpu_gr_get_cilp_preempt_pending(g)) {
 		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
-				"CILP is already pending for chid %d",
-				fault_ch->chid);
+				"CILP is already pending for tsgid %d",
+				tsgid);
 		return 0;
 	}
 
@@ -465,140 +432,24 @@ int gr_gp10b_set_cilp_preempt_pending(struct gk20a *g,
 				"CILP: enabled ctxsw completion interrupt");
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
-			"CILP: disabling channel %d",
-			fault_ch->chid);
+			"CILP: disabling tsg %d",
+			tsgid);
 
-	ret = gr_gp10b_disable_channel_or_tsg(g, fault_ch);
+	ret = gr_gp10b_disable_tsg(g, tsgid);
 	if (ret != 0) {
-		nvgpu_err(g, "CILP: failed to disable channel!!");
+		nvgpu_err(g, "CILP: failed to disable tsg!!");
 		return ret;
 	}
 
-	/* set cilp_preempt_pending = true and record the channel */
-	nvgpu_gr_ctx_set_cilp_preempt_pending(gr_ctx, true);
-	gr->cilp_preempt_pending_chid = fault_ch->chid;
+	/* set cilp_preempt_pending = true and record the tsg */
+	nvgpu_gr_set_cilp_preempt_pending(g, true);
+	gr->cilp_preempt_pending_tsgid = tsgid;
 
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
-	g->ops.tsg.post_event_id(tsg, NVGPU_EVENT_ID_CILP_PREEMPTION_STARTED);
+/* sr-iov gpu server uses different hal impl, use gfid 0 */
+	g->ops.tsg.post_event_id(g, 0U, tsgid, NVGPU_EVENT_ID_CILP_PREEMPTION_STARTED);
 #endif
 
-	return 0;
-}
-
-/* @brief pre-process work on the SM exceptions to determine if we clear them or not.
- *
- * On Pascal, if we are in CILP preemtion mode, preempt the channel and handle errors with special processing
- */
-int gr_gp10b_pre_process_sm_exception(struct gk20a *g,
-		u32 gpc, u32 tpc, u32 sm, u32 global_esr, u32 warp_esr,
-		bool sm_debugger_attached, struct nvgpu_channel *fault_ch,
-		bool *early_exit, bool *ignore_debugger)
-{
-#ifdef CONFIG_NVGPU_DEBUGGER
-	bool cilp_enabled = false;
-	struct nvgpu_tsg *tsg;
-
-	*early_exit = false;
-	*ignore_debugger = false;
-
-	if (fault_ch != NULL) {
-		tsg = nvgpu_tsg_from_ch(fault_ch);
-		if (tsg  == NULL) {
-			return -EINVAL;
-		}
-
-		cilp_enabled =
-			(nvgpu_gr_ctx_get_compute_preemption_mode(tsg->gr_ctx) ==
-				NVGPU_PREEMPTION_MODE_COMPUTE_CILP);
-	}
-
-	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "SM Exception received on gpc %d tpc %d = %u",
-			gpc, tpc, global_esr);
-
-	if (cilp_enabled && sm_debugger_attached) {
-		u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
-		u32 tpc_in_gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_STRIDE);
-		u32 offset = gpc_stride * gpc + tpc_in_gpc_stride * tpc;
-		u32 global_mask = 0, dbgr_control0, global_esr_copy;
-		int ret;
-
-		if ((global_esr & gr_gpc0_tpc0_sm_hww_global_esr_bpt_int_pending_f()) != 0U) {
-			gk20a_writel(g, gr_gpc0_tpc0_sm_hww_global_esr_r() + offset,
-					gr_gpc0_tpc0_sm_hww_global_esr_bpt_int_pending_f());
-		}
-
-		if ((global_esr & gr_gpc0_tpc0_sm_hww_global_esr_single_step_complete_pending_f()) != 0U) {
-			gk20a_writel(g, gr_gpc0_tpc0_sm_hww_global_esr_r() + offset,
-					gr_gpc0_tpc0_sm_hww_global_esr_single_step_complete_pending_f());
-		}
-
-		global_mask = gr_gpc0_tpc0_sm_hww_global_esr_sm_to_sm_fault_pending_f() |
-			gr_gpcs_tpcs_sm_hww_global_esr_l1_error_pending_f() |
-			gr_gpcs_tpcs_sm_hww_global_esr_multiple_warp_errors_pending_f() |
-			gr_gpcs_tpcs_sm_hww_global_esr_physical_stack_overflow_error_pending_f() |
-			gr_gpcs_tpcs_sm_hww_global_esr_timeout_error_pending_f() |
-			gr_gpcs_tpcs_sm_hww_global_esr_bpt_pause_pending_f();
-
-		if (warp_esr != 0U || (global_esr & global_mask) != 0U) {
-			*ignore_debugger = true;
-
-			nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-					"CILP: starting wait for LOCKED_DOWN on gpc %d tpc %d",
-					gpc, tpc);
-
-			if (nvgpu_dbg_gpu_broadcast_stop_trigger(fault_ch)) {
-				nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-						"CILP: Broadcasting STOP_TRIGGER from gpc %d tpc %d",
-						gpc, tpc);
-				g->ops.gr.suspend_all_sms(g, global_mask, false);
-
-				nvgpu_dbg_gpu_clear_broadcast_stop_trigger(fault_ch);
-			} else {
-				nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-						"CILP: STOP_TRIGGER from gpc %d tpc %d",
-						gpc, tpc);
-				g->ops.gr.suspend_single_sm(g, gpc, tpc, sm, global_mask, true);
-			}
-
-			/* reset the HWW errors after locking down */
-			global_esr_copy = g->ops.gr.intr.get_sm_hww_global_esr(g,
-							gpc, tpc, sm);
-			g->ops.gr.intr.clear_sm_hww(g,
-						gpc, tpc, sm, global_esr_copy);
-			nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-					"CILP: HWWs cleared for gpc %d tpc %d",
-					gpc, tpc);
-
-			nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "CILP: Setting CILP preempt pending");
-			ret = gr_gp10b_set_cilp_preempt_pending(g, fault_ch);
-			if (ret != 0) {
-				nvgpu_err(g, "CILP: error while setting CILP preempt pending!");
-				return ret;
-			}
-
-			dbgr_control0 = gk20a_readl(g, gr_gpc0_tpc0_sm_dbgr_control0_r() + offset);
-			if ((dbgr_control0 & gr_gpcs_tpcs_sm_dbgr_control0_single_step_mode_enable_f()) != 0U) {
-				nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-						"CILP: clearing SINGLE_STEP_MODE before resume for gpc %d tpc %d",
-						gpc, tpc);
-				dbgr_control0 = set_field(dbgr_control0,
-						gr_gpcs_tpcs_sm_dbgr_control0_single_step_mode_m(),
-						gr_gpcs_tpcs_sm_dbgr_control0_single_step_mode_disable_f());
-				gk20a_writel(g, gr_gpc0_tpc0_sm_dbgr_control0_r() + offset, dbgr_control0);
-			}
-
-			nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg,
-					"CILP: resume for gpc %d tpc %d",
-					gpc, tpc);
-			g->ops.gr.resume_single_sm(g, gpc, tpc, sm);
-
-			*ignore_debugger = true;
-			nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "CILP: All done on gpc %d, tpc %d", gpc, tpc);
-		}
-
-		*early_exit = true;
-	}
-#endif
 	return 0;
 }
 
@@ -643,7 +494,7 @@ bool gr_gp10b_suspend_context(struct nvgpu_channel *ch,
 
 		if (nvgpu_gr_ctx_get_compute_preemption_mode(gr_ctx) ==
 			NVGPU_PREEMPTION_MODE_COMPUTE_CILP) {
-			err = gr_gp10b_set_cilp_preempt_pending(g, ch);
+			err = g->ops.gr.set_cilp_preempt_pending(g, 0U, tsg->tsgid);
 			if (err != 0) {
 				nvgpu_err(g, "unable to set CILP preempt pending");
 			} else {
@@ -676,6 +527,9 @@ int gr_gp10b_suspend_contexts(struct gk20a *g,
 	int err = 0;
 	int local_ctx_resident_ch_fd = -1;
 	bool ctx_resident;
+	u32 gr_instance_id = 0U;
+	bool syspipe_lock_release = false;
+	u32 gr_syspipe_id = 0U;
 
 	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
 
@@ -714,7 +568,6 @@ int gr_gp10b_suspend_contexts(struct gk20a *g,
 
 	if (cilp_preempt_pending_ch != NULL) {
 		struct nvgpu_tsg *tsg;
-		struct nvgpu_gr_ctx *gr_ctx;
 		struct nvgpu_timeout timeout;
 
 		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
@@ -727,11 +580,18 @@ int gr_gp10b_suspend_contexts(struct gk20a *g,
 			goto clean_up;
 		}
 
-		gr_ctx = tsg->gr_ctx;
+		if (nvgpu_grmgr_is_multi_gr_enabled(g)) {
+			gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g,
+					dbg_s->gpu_instance_id);
+			gr_syspipe_id = nvgpu_grmgr_get_gr_syspipe_id(g,
+					gr_instance_id);
+			syspipe_lock_release = true;
+			nvgpu_grmgr_config_gr_remap_window(g, gr_syspipe_id, false);
+		}
 
 		nvgpu_timeout_init_cpu_timer(g, &timeout, nvgpu_get_poll_timeout(g));
 		do {
-			if (!nvgpu_gr_ctx_get_cilp_preempt_pending(gr_ctx)) {
+			if (!nvgpu_gr_get_cilp_preempt_pending(g)) {
 				break;
 			}
 
@@ -740,9 +600,12 @@ int gr_gp10b_suspend_contexts(struct gk20a *g,
 		} while (nvgpu_timeout_expired(&timeout) == 0);
 
 		/* If cilp is still pending at this point, timeout */
-		if (nvgpu_gr_ctx_get_cilp_preempt_pending(gr_ctx)) {
+		if (nvgpu_gr_get_cilp_preempt_pending(g)) {
 			err = -ETIMEDOUT;
 		}
+	}
+	if (nvgpu_grmgr_is_multi_gr_enabled(g) && (syspipe_lock_release)) {
+		nvgpu_grmgr_config_gr_remap_window(g, gr_syspipe_id, true);
 	}
 
 	*ctx_resident_ch_fd = local_ctx_resident_ch_fd;

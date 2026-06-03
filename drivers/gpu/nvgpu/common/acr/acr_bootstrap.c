@@ -1,26 +1,8 @@
-/*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
+#include <nvgpu/string.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/timers.h>
 #include <nvgpu/nvgpu_mem.h>
@@ -34,14 +16,108 @@
 #include <nvgpu/riscv.h>
 #include <nvgpu/io.h>
 #include <nvgpu/nvgpu_err.h>
+#include <nvgpu/gr/config.h>
+#include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/gr/gr_instances.h>
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+#include <nvgpu_next_acr.h>
+#endif
 
 #include "acr_bootstrap.h"
 #include "acr_priv.h"
 
-static void acr_report_error_to_sdl(struct gk20a *g, u32 error, u32 error_type)
+struct nvgpu_firmware *nvgpu_request_gsp_firmware(struct gk20a *g)
+{
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+
+	struct nvgpu_firmware *gsp_pwm_fw = NULL;
+
+	switch (ver) {
+#ifdef CONFIG_NVGPU_GB10B
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		gsp_pwm_fw = nvgpu_request_firmware(g,
+				GB10B_GSP_DBG_RISCV_FW,
+				g->acr->fw_load_flag);
+		break;
+#endif
+#ifdef CONFIG_NVGPU_GB20C
+	case NVGPU_GPUID_GB20C:
+		gsp_pwm_fw = nvgpu_request_firmware(g,
+				GB20C_GSP_DBG_RISCV_FW,
+				g->acr->fw_load_flag);
+		break;
+#endif
+	default:
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+		gsp_pwm_fw = nvgpu_next_request_gsp_firmware(g);
+#endif
+		break;
+	}
+
+	return gsp_pwm_fw;
+}
+
+static u32 acr_fetch_gpc_falcon_index_mask(struct gk20a *g)
+{
+	u32 gpc_falcon_idx_mask = 0U;
+
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+		gpc_falcon_idx_mask = nvgpu_grmgr_get_gr_logical_gpc_mask(g,
+				nvgpu_gr_get_cur_instance_id(g));
+	} else {
+		u32 gpc_fs_mask;
+		struct nvgpu_gr_config *gr_config = nvgpu_gr_get_config_ptr(g);
+
+		gpc_fs_mask = nvgpu_gr_config_get_gpc_mask(gr_config);
+		gpc_falcon_idx_mask =
+			nvgpu_safe_sub_u32(
+			(1U << U32(hweight32(gpc_fs_mask))), 1U);
+	}
+
+	return gpc_falcon_idx_mask;
+}
+
+int nvgpu_acr_boot_ctxsw_engine(struct gk20a *g, u32 falcon_id,
+			u32 falcon_instance)
+{
+	int err = 0;
+	u32 engine_instance = 0;
+	u32 engine_index_mask = 0;
+
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+		engine_instance = falcon_instance;
+	} else {
+		engine_instance = nvgpu_grmgr_get_gr_syspipe_id(g,
+				nvgpu_gr_get_cur_instance_id(g));
+	}
+
+	if ((falcon_id == FALCON_ID_GPCCS) || (falcon_id == FALCON_ID_GPCCS_RISCV_EB)) {
+		engine_index_mask = acr_fetch_gpc_falcon_index_mask(g);
+	}
+
+	err = nvgpu_acr_bootstrap_engine(g, falcon_id, engine_instance, engine_index_mask, 0, 0);
+	if (err != 0) {
+		nvgpu_err(g, "flcn-%d: CTXSW ucode boot failed: %d",
+				falcon_id, err);
+		err = ACR_BOOT_TIMEDOUT;
+	}
+
+	return err;
+}
+
+void nvgpu_acr_report_error_to_sdl(struct gk20a *g, u32 error, u32 error_type)
 {
 	switch (error) {
+	case ACR_ERROR_CMD_TIMEOUT:
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+				GPU_GSP_ACR_CMD_TIMEOUT_UNCORRECTED);
+		nvgpu_err(g, "ACR cmd timeout");
+		break;
+
 	case ACR_ERROR_WDT:
+	case ACR_ERROR_WATCHDOG_TIMEOUT:
 		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
 				GPU_GSP_ACR_WDT_UNCORRECTED);
 		nvgpu_err(g, "ACR GSP watchdog timeout");
@@ -62,29 +138,54 @@ static void acr_report_error_to_sdl(struct gk20a *g, u32 error, u32 error_type)
 	case ACR_ERROR_LS_SIG_VERIF_FAIL:
 		switch (error_type) {
 		case FALCON_ID_PMU_NEXT_CORE:
+		case FALCON_ID_PMU_RISCV_EB:
 			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
 					GPU_GSP_ACR_LSPMU_PKC_LSSIG_FAILURE);
 			nvgpu_err(g, "LSPMU pkc signature verification failed");
 			break;
 
 		case FALCON_ID_FECS:
+		case FALCON_ID_FECS_RISCV_EB:
 			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
 					GPU_GSP_ACR_FECS_PKC_LSSIG_FAILURE);
 			nvgpu_err(g, "FECS pkc signature verification failed");
 			break;
 
 		case FALCON_ID_GPCCS:
+		case FALCON_ID_GPCCS_RISCV_EB:
 			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
 					GPU_GSP_ACR_GPCCS_PKC_LSSIG_FAILURE);
 			nvgpu_err(g, "GPCCS pkc signature verification failed");
 			break;
+		case FALCON_ID_NVDEC_RISCV:
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+					GPU_GSP_ACR_NVDEC_PKC_LSSIG_FAILURE);
+			nvgpu_err(g, "NVDEC RISCV pkc signature verification failed");
+			break;
+		case FALCON_ID_NVJPG_RISCV_EB:
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+					GPU_GSP_ACR_NVJPG_PKC_LSSIG_FAILURE);
+			nvgpu_err(g, "NVJPG EB pkc signature verification failed");
+			break;
+		case FALCON_ID_OFA_RISCV_EB:
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+					GPU_GSP_ACR_OFA_PKC_LSSIG_FAILURE);
+			nvgpu_err(g, "OFA EB RISCV pkc signature verification failed");
+			break;
+		case FALCON_ID_NVENC_RISCV_EB:
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+					GPU_GSP_ACR_NVENC_PKC_LSSIG_FAILURE);
+			nvgpu_err(g, "NVENC EB pkc signature verification failed");
+			break;
 
 		default:
+			nvgpu_err(g, "Unknown error: %d", error_type);
 			break;
 		}
 		break;
 
 	default:
+		nvgpu_err(g, "Unknown error: %d", error);
 		break;
 	}
 }
@@ -144,7 +245,7 @@ int nvgpu_acr_wait_for_completion(struct gk20a *g, struct hs_acr *acr_desc,
 				FALCON_MAILBOX_1));
 
 		if (nvgpu_is_enabled(g, NVGPU_ACR_NEXT_CORE_ENABLED)) {
-			acr_report_error_to_sdl(g, data, error_type);
+			nvgpu_acr_report_error_to_sdl(g, data, error_type);
 		}
 
 		completion = -EAGAIN;
@@ -183,6 +284,7 @@ exit:
 	return completion;
 }
 
+#ifdef CONFIG_NVGPU_FALCON_NON_FUSA
 /*
  * Patch signatures into ucode image
  */
@@ -218,8 +320,9 @@ static void acr_ucode_patch_sig(struct gk20a *g,
 		for (j = 0U; j < sig_size; j++) {
 			p_img[nvgpu_safe_add_u32(
 				(p_patch_loc[i] / dmem_word_size), j)] =
-				p_sig[nvgpu_safe_add_u32(
-					(p_patch_ind[i] * dmem_word_size), j)];
+				p_sig[nvgpu_safe_add_u32(nvgpu_safe_mult_u32(p_patch_ind[i],
+									     dmem_word_size),
+							 j)];
 		}
 	}
 }
@@ -309,6 +412,7 @@ err_free_ucode:
 	acr_desc->acr_fw = NULL;
 	return err;
 }
+#endif
 
 static void ga10b_riscv_release_firmware(struct gk20a *g, struct nvgpu_acr *acr)
 {
@@ -390,11 +494,17 @@ int nvgpu_acr_bootstrap_hs_ucode_riscv(struct gk20a *g, struct nvgpu_acr *acr)
 	nvgpu_acr_dbg(g, "BROM stats before starting RISCV execution");
 	nvgpu_riscv_dump_brom_stats(flcn);
 
-	nvgpu_riscv_hs_ucode_load_bootstrap(flcn,
+	err = nvgpu_riscv_hs_ucode_load_bootstrap(flcn,
 					    acr->acr_asc.manifest_fw,
 					    acr->acr_asc.code_fw,
 					    acr->acr_asc.data_fw,
 					    acr_sysmem_desc_addr);
+	if (err != 0) {
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_GSP_ACR,
+					GPU_GSP_ACR_NVRISCV_BROM_FAILURE);
+		nvgpu_err(g, "ACR NVRISCV BROM FAILURE");
+		goto exit;
+	}
 
 	err = nvgpu_falcon_wait_for_nvriscv_brom_completion(flcn);
 	if (err != 0) {

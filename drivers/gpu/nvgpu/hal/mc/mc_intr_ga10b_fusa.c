@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/io.h>
@@ -182,16 +163,15 @@ static void ga10b_intr_subtree_clear_unhandled(struct gk20a *g,
 {
 	if (((u64_lo32(handled_subtree_mask)) != intr_leaf0) &&
 	    ((u64_hi32(handled_subtree_mask)) != intr_leaf1)) {
-		u64 unhandled_intr_leaf0 = intr_leaf0 &
+		u32 unhandled_intr_leaf0 = intr_leaf0 &
 			~(u64_lo32(handled_subtree_mask));
-		u64 unhandled_intr_leaf1 = intr_leaf1 &
+		u32 unhandled_intr_leaf1 = intr_leaf1 &
 			~(u64_hi32(handled_subtree_mask));
 		nvgpu_err(g, "unhandled host2soc_%d intr handled: 0x%llx"
 				"intr_leaf0 0x%08x intr_leaf1 0x%08x",
 			subtree, handled_subtree_mask, intr_leaf0, intr_leaf1);
 		ga10b_intr_subtree_clear(g, subtree,
-			hi32_lo32_to_u64((u32)unhandled_intr_leaf1,
-				(u32)unhandled_intr_leaf0));
+			hi32_lo32_to_u64(unhandled_intr_leaf1, unhandled_intr_leaf0));
 	}
 }
 
@@ -341,6 +321,8 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 	u32 vectorid, i;
 	struct nvgpu_intr_unit_info *intr_unit_info;
 	u64 tmp_subtree_mask = 0ULL;
+	bool ret_var = false;
+	bool done = false;
 
 	intr_unit_info = &g->mc.intr_unit_info[unit];
 
@@ -400,7 +382,9 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 		nvgpu_log(g, gpu_dbg_intr, "GR NONSTALL %d_subtree_mask: 0x%llx",
 			intr_unit_info->subtree, intr_unit_info->subtree_mask);
 		intr_unit_info->valid = true;
-		return true;
+		ret_var = true;
+		done = true;
+		break;
 	/* CE NONSTALL interrupts */
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
 	case NVGPU_CIC_INTR_UNIT_CE:
@@ -422,7 +406,9 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 		nvgpu_log(g, gpu_dbg_intr, "GR STALL %d_subtree_mask: 0x%llx",
 			intr_unit_info->subtree, intr_unit_info->subtree_mask);
 		intr_unit_info->valid = true;
-		return true;
+		ret_var = true;
+		done = true;
+		break;
 
 	case NVGPU_CIC_INTR_UNIT_CE_STALL:
 		vectorid = g->ops.mc.get_eng_stall_base_vector(g);
@@ -438,7 +424,9 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 		nvgpu_log(g, gpu_dbg_intr, "CE STALL %d_subtree_mask: 0x%llx",
 			intr_unit_info->subtree, intr_unit_info->subtree_mask);
 		intr_unit_info->valid = true;
-		return true;
+		ret_var = true;
+		done = true;
+		break;
 
 	case NVGPU_CIC_INTR_UNIT_RUNLIST_TREE_0:
 	case NVGPU_CIC_INTR_UNIT_RUNLIST_TREE_1:
@@ -455,11 +443,17 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 
 	default:
 		nvgpu_err(g, "non supported intr unit");
-		return false;
+		ret_var = false;
+		done = true;
+		break;
+	}
+
+	if (done == true) {
+		goto exit;
 	}
 
 	for (i = 0U; i < intr_unit_info->vectorid_size; i++) {
-		u32 tmp_subtree;
+		u32 tmp_subtree, tmp_mask;
 		vectorid = intr_unit_info->vectorid[i];
 		nvgpu_log(g, gpu_dbg_intr, "unit: %d vectorid: %d",
 				unit, vectorid);
@@ -473,11 +467,14 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 			nvgpu_err(g,
 				"unit: %d, vectorid(%d) is outside subtree(%d)",
 				unit, vectorid, intr_unit_info->subtree);
-			return false;
+			ret_var = false;
+			goto exit;
 		}
 		intr_unit_info->subtree = tmp_subtree;
 
-		tmp_subtree_mask = GPU_VECTOR_TO_LEAF_MASK(vectorid);
+		/* Assign composite expression to temp variable to fix MISRA 10.6 */
+		tmp_mask = GPU_VECTOR_TO_LEAF_MASK(vectorid);
+		tmp_subtree_mask = tmp_mask;
 		tmp_subtree_mask <<= GPU_VECTOR_TO_LEAF_SHIFT(vectorid);
 		intr_unit_info->subtree_mask |= tmp_subtree_mask;
 	}
@@ -486,7 +483,11 @@ bool ga10b_mc_intr_get_unit_info(struct gk20a *g, u32 unit)
 
 	nvgpu_log(g, gpu_dbg_intr, "%d_subtree_mask: 0x%llx",
 			intr_unit_info->subtree, intr_unit_info->subtree_mask);
-	return true;
+
+	ret_var = true;
+
+exit:
+	return ret_var;
 }
 
 static u32 ga10b_intr_map_mc_stall_unit_to_intr_unit(struct gk20a *g,
@@ -504,6 +505,8 @@ static u32 ga10b_intr_map_mc_stall_unit_to_intr_unit(struct gk20a *g,
 		intr_unit = NVGPU_CIC_INTR_UNIT_GR_STALL;
 	} else if (mc_intr_unit == NVGPU_CIC_INTR_UNIT_CE) {
 		intr_unit = NVGPU_CIC_INTR_UNIT_CE_STALL;
+	} else {
+		/* do nothing */
 	}
 	return intr_unit;
 }
@@ -755,7 +758,7 @@ static void ga10b_intr_gr_stall_interrupt_handling(struct gk20a *g,
 {
 	int err;
 	u64 engine_intr_mask;
-	u32 vectorid;
+	u32 vectorid, tmp_mask;
 	u32 gr_instance_id;
 	const struct nvgpu_device *dev;
 	struct nvgpu_intr_unit_info *intr_unit_info =
@@ -764,7 +767,9 @@ static void ga10b_intr_gr_stall_interrupt_handling(struct gk20a *g,
 	vectorid = intr_unit_info->vectorid[0];
 
 	nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_GRAPHICS) {
-		engine_intr_mask = BIT32(dev->intr_id);
+		/* Assign composite expression to temp variable to fix MISRA 10.6 */
+		tmp_mask = BIT32(dev->intr_id);
+		engine_intr_mask = tmp_mask;
 		engine_intr_mask <<= GPU_VECTOR_TO_LEAF_SHIFT(vectorid);
 
 		if ((unit_subtree_mask & engine_intr_mask) == 0ULL) {
@@ -860,9 +865,13 @@ static void ga10b_intr_isr_stall_host2soc_3(struct gk20a *g)
 #endif
 
 		for (i = 0U; i < g->fifo.num_engines; i++) {
+			u32 tmp_mask;
+
 			dev = g->fifo.active_engines[i];
 
-			engine_intr_mask = BIT32(dev->intr_id);
+			/* Assign composite expression to temp variable to fix MISRA 10.6 */
+			tmp_mask = BIT32(dev->intr_id);
+			engine_intr_mask = tmp_mask;
 			engine_intr_mask <<= GPU_VECTOR_TO_LEAF_SHIFT(vectorid);
 			if ((unit_subtree_mask & engine_intr_mask) == 0ULL) {
 				continue;
@@ -970,22 +979,22 @@ void ga10b_intr_isr_stall(struct gk20a *g)
 	 */
 
 	/* Handle interrupts for 3_subtree */
-	if (top_pending &
-		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_3_SUBTREE))) {
+	if ((top_pending &
+		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_3_SUBTREE))) != 0U) {
 
 		ga10b_intr_isr_stall_host2soc_3(g);
 	}
 
 	/* Handle interrupts for 2_subtree */
-	if (top_pending &
-		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_2_SUBTREE))) {
+	if ((top_pending &
+		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_2_SUBTREE))) != 0U) {
 
 		ga10b_intr_isr_stall_host2soc_2(g);
 	}
 
 	/* Handle interrupts for 1_subtree */
-	if (top_pending &
-		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_1_SUBTREE))) {
+	if ((top_pending &
+		BIT32(HOST2SOC_SUBTREE_TO_TOP_BIT(HOST2SOC_1_SUBTREE))) != 0U) {
 
 		ga10b_intr_isr_stall_host2soc_1(g);
 	}
@@ -1047,13 +1056,13 @@ bool ga10b_intr_is_mmu_fault_pending(struct gk20a *g)
 	return mmu_fault_pending;
 }
 
-static bool ga10b_intr_is_eng_stall_pending(struct gk20a *g, u32 engine_id)
+static u32 ga10b_intr_is_eng_stall_pending(struct gk20a *g, u32 engine_id)
 {
 	u64 eng_subtree_mask = 0ULL;
 	u64 subtree_mask = 0ULL;
 	u32 intr_leaf0, intr_leaf1;
 	u32 vectorid;
-	bool eng_stall_pending = false;
+	u32 eng_stall_pending = 0U;
 
 	vectorid = g->ops.mc.get_eng_stall_base_vector(g);
 
@@ -1066,16 +1075,16 @@ static bool ga10b_intr_is_eng_stall_pending(struct gk20a *g, u32 engine_id)
 	if (ga10b_intr_is_unit_pending(g,
 		NVGPU_CIC_INTR_UNIT_GR_STALL,
 		intr_leaf0, intr_leaf1, &subtree_mask) == true) {
-		if (subtree_mask & eng_subtree_mask) {
-			eng_stall_pending = true;
+		if ((subtree_mask & eng_subtree_mask) != 0ULL) {
+			eng_stall_pending = 1U;
 		}
 	}
 
 	if (ga10b_intr_is_unit_pending(g,
 		NVGPU_CIC_INTR_UNIT_CE_STALL,
 		intr_leaf0, intr_leaf1, &subtree_mask) == true) {
-		if (subtree_mask & eng_subtree_mask) {
-			eng_stall_pending = true;
+		if ((subtree_mask & eng_subtree_mask) != 0ULL) {
+			eng_stall_pending = 1U;
 		}
 	}
 

@@ -1,18 +1,7 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+#include <nvidia/conftest.h>
 
 #include <nvgpu/bug.h>
 #include <nvgpu/periodic_timer.h>
@@ -42,8 +31,13 @@ static enum hrtimer_restart timer_callback(struct hrtimer *os_timer)
 int nvgpu_periodic_timer_init(struct nvgpu_periodic_timer *timer,
 			void (*fn)(void *arg), void *arg)
 {
+#if defined(NV_HRTIMER_SETUP_PRESENT) /* Linux v6.13 */
+	hrtimer_setup(&timer->timer, timer_callback, CLOCK_MONOTONIC,
+		      HRTIMER_MODE_REL);
+#else
 	hrtimer_init(&timer->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	timer->timer.function = timer_callback;
+#endif
 	timer->fn = fn;
 	timer->arg = arg;
 	timer->interval = ktime_set(0, 0);

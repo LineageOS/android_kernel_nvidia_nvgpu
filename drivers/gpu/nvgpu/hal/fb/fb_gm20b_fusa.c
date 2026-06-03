@@ -1,26 +1,5 @@
-/*
- * GM20B GPC MMU
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/sizes.h>
@@ -173,6 +152,7 @@ u32 gm20b_fb_mmu_debug_rd(struct gk20a *g)
 	return gk20a_readl(g, fb_mmu_debug_rd_r());
 }
 
+#ifdef CONFIG_NVGPU_VPR
 void gm20b_fb_dump_vpr_info(struct gk20a *g)
 {
 	u32 val;
@@ -191,32 +171,6 @@ void gm20b_fb_dump_vpr_info(struct gk20a *g)
 
 	nvgpu_err(g, "VPR: %08x %08x %08x %08x",
 		addr_lo, addr_hi, cya_lo, cya_hi);
-}
-
-void gm20b_fb_dump_wpr_info(struct gk20a *g)
-{
-	u32 val;
-	u32 allow_read, allow_write;
-	u32 wpr1_addr_lo, wpr1_addr_hi;
-	u32 wpr2_addr_lo, wpr2_addr_hi;
-
-	/* print wpr info */
-	val = gk20a_readl(g, fb_mmu_wpr_info_r());
-	val &= ~0xfU;
-	val |= (fb_mmu_wpr_info_index_allow_read_v());
-	gk20a_writel(g, fb_mmu_wpr_info_r(), val);
-
-	allow_read = gk20a_readl(g, fb_mmu_wpr_info_r());
-	allow_write = gk20a_readl(g, fb_mmu_wpr_info_r());
-	wpr1_addr_lo = gk20a_readl(g, fb_mmu_wpr_info_r());
-	wpr1_addr_hi = gk20a_readl(g, fb_mmu_wpr_info_r());
-	wpr2_addr_lo = gk20a_readl(g, fb_mmu_wpr_info_r());
-	wpr2_addr_hi = gk20a_readl(g, fb_mmu_wpr_info_r());
-
-	nvgpu_err(g, "WPR: %08x %08x %08x %08x %08x %08x",
-		allow_read, allow_write,
-		wpr1_addr_lo, wpr1_addr_hi,
-		wpr2_addr_lo, wpr2_addr_hi);
 }
 
 static int gm20b_fb_vpr_info_fetch_wait(struct gk20a *g,
@@ -258,6 +212,33 @@ int gm20b_fb_vpr_info_fetch(struct gk20a *g)
 	}
 	return err;
 }
+#endif
+
+void gm20b_fb_dump_wpr_info(struct gk20a *g)
+{
+	u32 val;
+	u32 allow_read, allow_write;
+	u32 wpr1_addr_lo, wpr1_addr_hi;
+	u32 wpr2_addr_lo, wpr2_addr_hi;
+
+	/* print wpr info */
+	val = gk20a_readl(g, fb_mmu_wpr_info_r());
+	val &= ~0xfU;
+	val |= (fb_mmu_wpr_info_index_allow_read_v());
+	gk20a_writel(g, fb_mmu_wpr_info_r(), val);
+
+	allow_read = gk20a_readl(g, fb_mmu_wpr_info_r());
+	allow_write = gk20a_readl(g, fb_mmu_wpr_info_r());
+	wpr1_addr_lo = gk20a_readl(g, fb_mmu_wpr_info_r());
+	wpr1_addr_hi = gk20a_readl(g, fb_mmu_wpr_info_r());
+	wpr2_addr_lo = gk20a_readl(g, fb_mmu_wpr_info_r());
+	wpr2_addr_hi = gk20a_readl(g, fb_mmu_wpr_info_r());
+
+	nvgpu_err(g, "WPR: %08x %08x %08x %08x %08x %08x",
+		allow_read, allow_write,
+		wpr1_addr_lo, wpr1_addr_hi,
+		wpr2_addr_lo, wpr2_addr_hi);
+}
 
 void gm20b_fb_read_wpr_info(struct gk20a *g, u64 *wpr_base, u64 *wpr_size)
 {
@@ -290,6 +271,7 @@ void gm20b_fb_read_wpr_info(struct gk20a *g, u64 *wpr_base, u64 *wpr_size)
 }
 
 #ifdef CONFIG_NVGPU_COMPRESSION
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 bool gm20b_fb_set_use_full_comp_tag_line(struct gk20a *g)
 {
 	/* set large page size in fb */
@@ -312,6 +294,7 @@ unsigned int gm20b_fb_compressible_page_size(struct gk20a *g)
 	(void)g;
 	return (unsigned int)SZ_64K;
 }
+#endif
 
 u64 gm20b_fb_compression_align_mask(struct gk20a *g)
 {

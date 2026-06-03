@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -66,6 +53,8 @@ void nvgpu_big_free(struct gk20a *g, void *p)
 		nvgpu_vfree(g, p);
 	else
 		nvgpu_kfree(g, p);
+
+	p = NULL;
 }
 
 void *nvgpu_kmalloc_impl(struct gk20a *g, size_t size, void *ip)
@@ -154,6 +143,7 @@ void nvgpu_kfree_impl(struct gk20a *g, void *addr)
 #else
 	kfree(addr);
 #endif
+	addr = NULL;
 }
 
 void nvgpu_vfree_impl(struct gk20a *g, void *addr)
@@ -164,6 +154,7 @@ void nvgpu_vfree_impl(struct gk20a *g, void *addr)
 #else
 	vfree(addr);
 #endif
+	addr = NULL;
 }
 
 #ifdef CONFIG_NVGPU_TRACK_MEM_USAGE
@@ -280,6 +271,7 @@ static int __nvgpu_save_kmem_alloc(struct nvgpu_mem_alloc_tracker *tracker,
 	if (ret) {
 		WARN(1, "Duplicate alloc??? 0x%llx\n", addr);
 		kfree(alloc);
+		alloc = NULL;
 		nvgpu_unlock_tracker(tracker);
 		return ret;
 	}
@@ -421,6 +413,7 @@ void __nvgpu_track_vfree(struct gk20a *g, void *addr)
 	__nvgpu_free_kmem_alloc(g->vmallocs, (u64)(uintptr_t)addr);
 
 	vfree(addr);
+	addr = NULL;
 }
 
 void __nvgpu_track_kfree(struct gk20a *g, void *addr)
@@ -431,6 +424,7 @@ void __nvgpu_track_kfree(struct gk20a *g, void *addr)
 	__nvgpu_free_kmem_alloc(g->kmallocs, (u64)(uintptr_t)addr);
 
 	kfree(addr);
+	addr = NULL;
 }
 
 static int __do_check_for_outstanding_allocs(
@@ -491,6 +485,7 @@ static void do_nvgpu_kmem_cleanup(struct nvgpu_mem_alloc_tracker *tracker,
 
 		nvgpu_rbtree_unlink(node, &tracker->allocs);
 		kfree(alloc);
+		alloc = NULL;
 
 		nvgpu_rbtree_enum_start(0, &node, tracker->allocs);
 	}
@@ -594,10 +589,14 @@ int nvgpu_kmem_init(struct gk20a *g)
 	return 0;
 
 fail:
-	if (g->vmallocs)
+	if (g->vmallocs) {
 		kfree(g->vmallocs);
-	if (g->kmallocs)
+		g->vmallocs = NULL;
+	}
+	if (g->kmallocs) {
 		kfree(g->kmallocs);
+		g->kmallocs = NULL;
+	}
 	return err;
 }
 
@@ -624,12 +623,13 @@ struct nvgpu_kmem_cache *nvgpu_kmem_cache_create(struct gk20a *g, size_t size)
 	cache->g = g;
 
 	(void) snprintf(cache->name, sizeof(cache->name),
-		 "nvgpu-cache-0x%p-%d-%d", g, (int)size,
+		 "nvgpu-cache-%d-%d", (int)size,
 		 atomic_inc_return(&kmem_cache_id));
 	cache->cache = kmem_cache_create(cache->name,
 					 size, size, 0, NULL);
 	if (!cache->cache) {
 		nvgpu_kfree(g, cache);
+		cache = NULL;
 		return NULL;
 	}
 
@@ -642,6 +642,7 @@ void nvgpu_kmem_cache_destroy(struct nvgpu_kmem_cache *cache)
 
 	kmem_cache_destroy(cache->cache);
 	nvgpu_kfree(g, cache);
+	cache = NULL;
 }
 
 void *nvgpu_kmem_cache_alloc(struct nvgpu_kmem_cache *cache)

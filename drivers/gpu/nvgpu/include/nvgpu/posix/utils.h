@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_POSIX_UTILS_H
@@ -26,6 +8,386 @@
 #include <stdlib.h>
 
 #include <nvgpu/static_analysis.h>
+
+/**
+ *
+ * @page posix posix
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| posix unit provides a set of core functionalities in an OS
+ * agnostic way through a set of defined APIs. The APIs internally utilize the
+ * standard library calls to provide the core functionalities. Most of the
+ * features provided are implemented with the POSIX standard and rest of them are
+ * internal implementation without any dependency on standard libraries.
+ *
+ * Following is the broad classification of the functionalities provided by the
+ * posix unit,
+ *
+ * - Atomic: Provides APIs for fine-grained atomic operations allowing lock less
+ *   concurrent programming. GCC built-ins and standard atomic headers are used for
+ *   providing the atomic operations API.
+ * - Bitops: Provides APIs for bitmap operations. GCC built-ins functions and
+ *   standard headers are used for providing most of the bitmap operations, there
+ *   are additional functionalities which are provided as internal implementation.
+ *   Bug: Provides handler APIs for bug and warnings.
+ * - Circ_Buf: Provides circular buffer handler APIs.
+ * - Cond: Provides a mechanism for threads to synchronize. Cond implementation
+ *    provides the APIs for using condition variables to synchronize between
+ *    threads. Pthread condition variables are used internally to provide the
+ *    functionality.
+ * - File_Ops: Provides the APIs for file operations.
+ * - Kmem: Provides the implementation of dynamic memory allocation and free. Uses
+ *   the standard library dynamic allocation APIs internally to provide the
+ *   functionality.
+ * - Lock: Provides the APIs for various synchronization mechanisms like mutex,
+ *   spinlock and raw spinlock. Although the APIs are provided for different
+ *   synchronization mechanisms, the internal implementation of all of them are
+ *   based on mutex. Pthread mutex is used to provide the functionality.
+ * - Log2: Provides APIs for integer log to the base 2 operations.
+ * - OS_Sched: Provides APIs to fetch the current process/thread details.
+ * - Queue: Provides APIs to create and use message queues.
+ * - RWSem: Read-write locks provide concurrent reads and exclusive writes to a
+ *   shared resource. RWSem implementation provides APIs for using the read-write
+ *   lock mechanism. Pthread read-write lock implementation is used internally to
+ *   provide the desired functionality.
+ *
+ * Data Structures
+ * ===============
+ *
+ * Atomic
+ * ------
+ *   + struct  nvgpu_posix_atomic
+ *   + struct  nvgpu_posix_atomic64
+ *
+ * Bitops
+ * ------
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Bug
+ * ---
+ *   + struct  nvgpu_bug_cb
+ *
+ * Circ_Buf
+ * --------
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Cond
+ * ----
+ *   + struct  nvgpu_cond
+ *
+ * File_Ops
+ * --------
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Kmem
+ * ----
+ *   + struct  nvgpu_kmem_cache
+ *
+ * Lock
+ * ----
+ *   + struct  nvgpu_mutex
+ *   + struct  nvgpu_spinlock
+ *   + struct  nvgpu_raw_spinlock
+ *
+ * Log2
+ * ----
+ *
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * OS_Sched
+ * --------
+ *
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Queue
+ * -----
+ *
+ *   + struct  nvgpu_queue
+ *
+ * RWSem
+ * -----
+ *
+ *   + struct  nvgpu_rwsem
+ *
+ * Size
+ * ----
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Threads
+ * -------
+ *
+ *   + struct  nvgpu_thread
+ *   + struct  nvgpu_posix_thread_data
+ *
+ * Timers
+ * ------
+ *
+ *   + struct  nvgpu_timeout
+ *
+ * Types
+ * -----
+ *
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * Utils
+ * -----
+ *
+ * N/A
+ * This component does not expose any data structures.
+ *
+ * External APIs
+ * -------------
+ * posix::Atomic
+ * -------------
+ *   + nvgpu_atomic_set()
+ *   + nvgpu_atomic_read()
+ *   + nvgpu_atomic_inc()
+ *   + nvgpu_atomic_inc_return()
+ *   + nvgpu_atomic_dec()
+ *   + nvgpu_atomic_dec_return()
+ *   + nvgpu_atomic_cmpxchg()
+ *   + nvgpu_atomic_xchg()
+ *   + nvgpu_atomic_inc_and_test()
+ *   + nvgpu_atomic_dec_and_test()
+ *   + nvgpu_atomic_sub_and_test()
+ *   + nvgpu_atomic_add()
+ *   + nvgpu_atomic_sub()
+ *   + nvgpu_atomic_sub_return()
+ *   + nvgpu_atomic_add_return()
+ *   + nvgpu_atomic_add_unless()
+ *   + nvgpu_atomic64_set()
+ *   + nvgpu_atomic64_read()
+ *   + nvgpu_atomic64_inc()
+ *   + nvgpu_atomic64_inc_return()
+ *   + nvgpu_atomic64_dec()
+ *   + nvgpu_atomic64_dec_return()
+ *   + nvgpu_atomic64_cmpxchg()
+ *   + nvgpu_atomic64_xchg()
+ *   + nvgpu_atomic64_inc_and_test()
+ *   + nvgpu_atomic64_dec_and_test()
+ *   + nvgpu_atomic64_sub_and_test()
+ *   + nvgpu_atomic64_add()
+ *   + nvgpu_atomic64_sub()
+ *   + nvgpu_atomic64_sub_return()
+ *   + nvgpu_atomic64_add_return()
+ *   + nvgpu_atomic64_add_unless()
+ *   +  #nvgpu_atomic_init_impl
+ *   +  #nvgpu_atomic64_init_impl
+ *
+ * posix::Bitops
+ * -------------
+ *   + nvgpu_posix_ffs()
+ *   + nvgpu_posix_fls()
+ *   + find_first_bit()
+ *   + find_next_bit()
+ *   + find_first_zero_bit()
+ *   + nvgpu_test_bit()
+ *   + nvgpu_test_and_set_bit()
+ *   + nvgpu_test_and_clear_bit()
+ *   + nvgpu_set_bit()
+ *   + nvgpu_clear_bit()
+ *   + nvgpu_bitmap_set()
+ *   + nvgpu_bitmap_clear()
+ *   + bitmap_find_next_zero_area()
+ *   +  #BITS_PER_BYTE
+ *   +  #BITS_PER_LONG
+ *   +  #BITS_TO_LONGS
+ *   +  #BIT
+ *   +  #GENMASK
+ *   +  #DECLARE_BITMAP
+ *   +  #for_each_set_bit
+ *   +  #nvgpu_ffs
+ *   +  #nvgpu_fls
+ *   +  #ffz
+ *
+ * posix::Bug
+ * ----------
+ *   +  #BUG
+ *   +  #BUG_ON
+ *   +  #WARN
+ *   +  #WARN_ON
+ *   +  #WARN_ONCE
+ *   + dump_stack()
+ *   + nvgpu_posix_bug()
+ *   + nvgpu_posix_warn()
+ *   + nvgpu_bug_register_cb()
+ *   + nvgpu_bug_unregister_cb()
+ *
+ * posix::Circ_Buf
+ * ---------------
+ *   +  #CIRC_CNT
+ *   +  #CIRC_SPACE
+ *
+ * posix::Cond
+ * -----------
+ *   + nvgpu_cond_init()
+ *   + nvgpu_cond_signal()
+ *   + nvgpu_cond_signal_interruptible()
+ *   + nvgpu_cond_broadcast()
+ *   + nvgpu_cond_broadcast_interruptible()
+ *   + nvgpu_cond_destroy()
+ *   + nvgpu_cond_timedwait()
+ *   + nvgpu_cond_signal_locked()
+ *   + nvgpu_cond_broadcast_locked()
+ *   + nvgpu_cond_lock()
+ *   + nvgpu_cond_unlock()
+ *   +  #NVGPU_COND_WAIT_LOCKED
+ *   +  #NVGPU_COND_WAIT
+ *   +  #NVGPU_COND_WAIT_INTERRUPTIBLE
+ *   +  #NVGPU_COND_WAIT_TIMEOUT_LOCKED
+ *
+ * posix::File_Ops
+ * ---------------
+ *   + nvgpu_fstat()
+ *   + nvgpu_fread()
+ *   + nvgpu_close()
+ *
+ * posix::Kmem
+ * -----------
+ *   + nvgpu_kmem_cache_create()
+ *   + nvgpu_kmem_cache_destroy()
+ *   + nvgpu_kmem_cache_alloc()
+ *   + nvgpu_kmem_cache_free()
+ *   + nvgpu_big_alloc_impl()
+ *   + nvgpu_big_free()
+ *   + nvgpu_kmalloc_impl()
+ *   + nvgpu_kzalloc_impl()
+ *   + nvgpu_kcalloc_impl()
+ *   + nvgpu_vmalloc_impl()
+ *   + nvgpu_vzalloc_impl()
+ *   + nvgpu_kfree_impl()
+ *   + nvgpu_vfree_impl()
+ *
+ * posix::Lock
+ * -----------
+ *   + nvgpu_mutex_init()
+ *   + nvgpu_mutex_acquire()
+ *   + nvgpu_mutex_release()
+ *   + nvgpu_mutex_tryacquire()
+ *   + nvgpu_mutex_destroy()
+ *   + nvgpu_spinlock_init()
+ *   + nvgpu_spinlock_acquire()
+ *   + nvgpu_spinlock_release()
+ *   + nvgpu_raw_spinlock_init()
+ *   + nvgpu_raw_spinlock_acquire()
+ *   + nvgpu_raw_spinlock_release()
+ *   + nvgpu_posix_lock_acquire()
+ *   + nvgpu_posix_lock_try_acquire()
+ *   + nvgpu_posix_lock_release()
+ *
+ * posix::Log2
+ * -----------
+ *   +  #ilog2
+ *   +  #roundup_pow_of_two
+ *   +  #rounddown_pow_of_two
+ *   +  #is_power_of_2
+ *
+ * posix::OS_Sched
+ * ---------------
+ *   + nvgpu_current_pid()
+ *   + nvgpu_current_tid()
+ *   + nvgpu_print_current_impl()
+ *
+ * posix::Queue
+ * ------------
+ *   + nvgpu_queue_unused()
+ *   + nvgpu_queue_available()
+ *   + nvgpu_queue_alloc()
+ *   + nvgpu_queue_free()
+ *   + nvgpu_queue_in_locked()
+ *   + nvgpu_queue_out_locked()
+ *
+ * posix::RWSem
+ * ------------
+ *   + nvgpu_rwsem_init()
+ *   + nvgpu_rwsem_up_read()
+ *   + nvgpu_rwsem_down_read()
+ *   + nvgpu_rwsem_up_write()
+ *   + nvgpu_rwsem_down_write()
+ *
+ * posix::Size
+ * -----------
+ * N/A
+ * This component does not expose any public APIs. Size component consists only
+ * of macros defined for various sizes.
+ *
+ * posix::Threads
+ * --------------
+ *   + nvgpu_thread_create()
+ *   + nvgpu_thread_stop()
+ *   + nvgpu_thread_stop_graceful()
+ *   + nvgpu_thread_should_stop()
+ *   + nvgpu_thread_is_running()
+ *   + nvgpu_thread_join()
+ *   + nvgpu_thread_create_priority()
+ *   +  #nvgpu_thread_cleanup_push
+ *   +  #nvgpu_thread_cleanup_pop
+ *
+ * posix::Timers
+ * -------------
+ *   + nvgpu_timeout_init()
+ *   + nvgpu_timeout_peek_expired()
+ *   + nvgpu_msleep()
+ *   + nvgpu_usleep_range()
+ *   + nvgpu_udelay()
+ *   + nvgpu_current_time_ms()
+ *   + nvgpu_current_time_ns()
+ *   + nvgpu_current_time_us()
+ *   + nvgpu_timeout_expired_msg_impl
+ *
+ * posix::Types
+ * ------------
+ * N/A
+ * This component does not expose any public APIs. Types component consists only
+ * of aliases for standard data types.
+ *
+ * posix::Utils
+ * ------------
+ *   +  #min_t
+ *   +  #min
+ *   +  #max
+ *   +  #min3
+ *   +  #ARRAY_SIZE
+ *   +  #DIV_ROUND_UP_U64
+ *   +  #DIV_ROUND_UP
+ *   +  #DIV_ROUND_UP_ULL
+ *   +  #do_div
+ *   +  #div64_u64
+ *   +  #round_mask
+ *   +  #round_up
+ *   +  #round_down
+ *   +  #IS_UNSIGNED_TYPE
+ *   +  #IS_UNSIGNED_LONG_TYPE
+ *   +  #IS_SIGNED_LONG_TYPE
+ *   +  #ALIGN_MASK
+ *   +  #ALIGN
+ *   +  #PAGE_ALIGN
+ *   +  #HZ_TO_KHZ
+ *   +  #HZ_TO_MHZ
+ *   +  #HZ_TO_MHZ_ULL
+ *   +  #KHZ_TO_HZ
+ *   +  #MHZ_TO_KHZ
+ *   +  #KHZ_TO_MHZ
+ *   +  #MHZ_TO_HZ_ULL
+ *   +  #hweight32
+ *   +  #hweight_long
+ *   +  #WRITE_ONCE
+ *   +  #container_of
+ *   + be32_to_cpu()
+ *   + nvgpu_posix_hweight8()
+ *   + nvgpu_posix_hweight16()
+ *   + nvgpu_posix_hweight32()
+ *   + nvgpu_posix_hweight64()
+ */
 
 /**
  * @brief Minimum of two values using the specified type.

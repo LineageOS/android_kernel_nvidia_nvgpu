@@ -1,24 +1,7 @@
-/*
-* Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
-*
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
 
 #ifndef NVGPU_BOARDOBJGRP_CLASSES_H
 #define NVGPU_BOARDOBJGRP_CLASSES_H
@@ -44,8 +27,20 @@
 			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x05U)
 #define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_FREQ_DOMAIN		\
 			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x07U)
-#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__LAST			\
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_ENUM			\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x09U)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_VF_REL			\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x0AU)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_PROP_REGIME		\
 			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x0BU)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_PROP_TOP	\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x0CU)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_PROP_TOP_REL	\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x0DU)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID_CLK_VF_TUPLE	\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x10U)
+#define NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__LAST			\
+			(NV_PMU_CLK_BOARDOBJGRP_CLASS_ID__FIRST + 0x10U)
 
 /* Volt unit */
 #define NV_PMU_VOLT_BOARDOBJGRP_CLASS_ID__FIRST			\

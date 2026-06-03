@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -30,6 +11,7 @@
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/string.h>
 #endif
+#include <nvgpu/grmgr.h>
 
 #include <nvgpu/gr/global_ctx.h>
 #include <nvgpu/power_features/pg.h>
@@ -169,7 +151,8 @@ static bool nvgpu_gr_global_ctx_buffer_sizes_are_valid(struct gk20a *g,
 		return false;
 	}
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		if ((desc[NVGPU_GR_GLOBAL_CTX_CIRCULAR].size == 0U) ||
 			(desc[NVGPU_GR_GLOBAL_CTX_PAGEPOOL].size == 0U) ||
 			(desc[NVGPU_GR_GLOBAL_CTX_ATTRIBUTE].size == 0U)) {
@@ -198,7 +181,8 @@ static int nvgpu_gr_global_ctx_buffer_vpr_alloc(struct gk20a *g,
 	 * Allocate BUNDLE_CB, PAGEPOOL, ATTRIBUTE_CB and RTV_CB
 	 * if 2D/3D/I2M classes(graphics) are supported.
 	 */
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if ((g->numa_node_id == 1) || (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!(nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		nvgpu_log(g, gpu_dbg_gr | gpu_dbg_mig,
 			"2D class is not supported "
 				"skip BUNDLE_CB, PAGEPOOL, ATTRIBUTE_CB "
@@ -238,7 +222,8 @@ static int nvgpu_gr_global_ctx_buffer_sys_alloc(struct gk20a *g,
 	 * Allocate BUNDLE_CB, PAGEPOOL, ATTRIBUTE_CB and RTV_CB
 	 * if 2D/3D/I2M classes(graphics) are supported.
 	 */
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		err = nvgpu_gr_global_ctx_buffer_alloc_sys(g, desc,
 			NVGPU_GR_GLOBAL_CTX_CIRCULAR);
 		if (err != 0) {
@@ -260,6 +245,9 @@ static int nvgpu_gr_global_ctx_buffer_sys_alloc(struct gk20a *g,
 
 	err = nvgpu_gr_global_ctx_buffer_alloc_sys(g, desc,
 		NVGPU_GR_GLOBAL_CTX_PRIV_ACCESS_MAP);
+	if (err != 0) {
+		goto fail;
+	}
 
 fail:
 	return err;
@@ -290,7 +278,8 @@ int nvgpu_gr_global_ctx_buffer_alloc(struct gk20a *g,
 #endif
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		if (desc[NVGPU_GR_GLOBAL_CTX_RTV_CIRCULAR_BUFFER].size != 0U) {
 			err = nvgpu_gr_global_ctx_buffer_alloc_sys(g, desc,
 				NVGPU_GR_GLOBAL_CTX_RTV_CIRCULAR_BUFFER);

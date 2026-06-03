@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
@@ -36,7 +17,7 @@
 
 static const char mmufault_invalid_str[] = "invalid";
 
-static const char *const ga10b_fault_type_descs[] = {
+static const char *const ga10b_fault_type_descs[0x10U] = {
 	[0x00U] = "invalid pde",
 	[0x01U] = "invalid pde size",
 	[0x02U] = "invalid pte",
@@ -60,7 +41,7 @@ static const char *const ga10b_fault_client_type_descs[] = {
 	"hub",
 };
 
-static const char *const ga10b_hub_client_descs[] = {
+static const char *const ga10b_hub_client_descs[0x79U] = {
 	[0x00U] = "vip",
 	[0x01U] = "ce0",
 	[0x02U] = "ce1",
@@ -173,7 +154,7 @@ static const char *const ga10b_hub_client_descs[] = {
 	[0x78U] = "nvjpg7",
 };
 
-static const char *const ga10b_gpc_client_descs[] = {
+static const char *const ga10b_gpc_client_descs[0x74U] = {
 	[0x00U] = "t1_0",
 	[0x01U] = "t1_1",
 	[0x02U] = "t1_2",
@@ -280,16 +261,16 @@ void ga10b_mm_mmu_fault_parse_mmu_fault_info(struct mmu_fault_info *mmufault)
 	}
 
 	if (mmufault->fault_type >= ARRAY_SIZE(ga10b_fault_type_descs)) {
-		nvgpu_do_assert();
 		mmufault->fault_type_desc = mmufault_invalid_str;
+		nvgpu_do_assert();
 	} else {
 		mmufault->fault_type_desc =
 			 ga10b_fault_type_descs[mmufault->fault_type];
 	}
 
 	if (mmufault->client_type >= ARRAY_SIZE(ga10b_fault_client_type_descs)) {
-		nvgpu_do_assert();
 		mmufault->client_type_desc = mmufault_invalid_str;
+		nvgpu_do_assert();
 	} else {
 		mmufault->client_type_desc =
 			 ga10b_fault_client_type_descs[mmufault->client_type];

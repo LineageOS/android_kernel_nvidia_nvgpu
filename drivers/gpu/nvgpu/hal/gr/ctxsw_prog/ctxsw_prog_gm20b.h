@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_CTXSW_PROG_GM20B_H
@@ -34,6 +16,7 @@ void gm20b_ctxsw_prog_set_patch_count(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem, u32 count);
 void gm20b_ctxsw_prog_set_patch_addr(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem, u64 addr);
+u32 gm20b_ctxsw_prog_get_main_image_ctx_id(struct gk20a *g, struct nvgpu_mem *ctx_mem);
 #if defined(CONFIG_NVGPU_SET_FALCON_ACCESS_MAP)
 void gm20b_ctxsw_prog_set_config_mode_priv_access_map(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem, bool allow_all);
@@ -48,7 +31,7 @@ void gm20b_ctxsw_prog_disable_verif_features(struct gk20a *g,
 void gm20b_ctxsw_prog_set_compute_preemption_mode_cta(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem);
 #endif
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 void gm20b_ctxsw_prog_set_zcull_ptr(struct gk20a *g, struct nvgpu_mem *ctx_mem,
 	u64 addr);
 void gm20b_ctxsw_prog_set_zcull(struct gk20a *g, struct nvgpu_mem *ctx_mem,
@@ -56,7 +39,7 @@ void gm20b_ctxsw_prog_set_zcull(struct gk20a *g, struct nvgpu_mem *ctx_mem,
 void gm20b_ctxsw_prog_set_zcull_mode_no_ctxsw(struct gk20a *g,
 	struct nvgpu_mem *ctx_mem);
 bool gm20b_ctxsw_prog_is_zcull_mode_separate_buffer(u32 mode);
-#endif /* CONFIG_NVGPU_GRAPHICS */
+#endif
 #ifdef CONFIG_NVGPU_DEBUGGER
 
 #define  NV_XBAR_MXBAR_PRI_GPC_GNIC_STRIDE 0x20U
@@ -65,7 +48,6 @@ u32 gm20b_ctxsw_prog_hw_get_gpccs_header_size(void);
 u32 gm20b_ctxsw_prog_hw_get_extended_buffer_segments_size_in_bytes(void);
 u32 gm20b_ctxsw_prog_hw_extended_marker_size_in_bytes(void);
 u32 gm20b_ctxsw_prog_hw_get_perf_counter_control_register_stride(void);
-u32 gm20b_ctxsw_prog_get_main_image_ctx_id(struct gk20a *g, struct nvgpu_mem *ctx_mem);
 void gm20b_ctxsw_prog_set_pm_ptr(struct gk20a *g, struct nvgpu_mem *ctx_mem,
 	u64 addr);
 void gm20b_ctxsw_prog_set_pm_mode(struct gk20a *g,

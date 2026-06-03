@@ -1,28 +1,10 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/cond.h>
 #include <nvgpu/periodic_timer.h>
 
+#ifdef CONFIG_NVGPU_FECS_TRACE
 static void timer_callback(union sigval arg)
 {
 	struct nvgpu_periodic_timer *timer = arg.sival_ptr;
@@ -68,11 +50,14 @@ int nvgpu_periodic_timer_start(struct nvgpu_periodic_timer *timer,
 				u64 interval_ns)
 {
 	struct itimerspec *ts = &timer->ts;
+	u64 interval;
 	int err;
 
 	memset(ts, 0, sizeof(*ts));
-	ts->it_value.tv_sec = (time_t)(interval_ns / S2NS);
-	ts->it_value.tv_nsec = (long)(interval_ns % S2NS);
+	interval = interval_ns / S2NS;
+	ts->it_value.tv_sec = (time_t)interval;
+	interval = interval_ns % S2NS;
+	ts->it_value.tv_nsec = (long)interval;
 
 	timer->enabled = true;
 	err = timer_settime(timer->timerid, 0, ts, NULL);
@@ -131,3 +116,4 @@ int nvgpu_periodic_timer_destroy(struct nvgpu_periodic_timer *timer)
 	}
 	return err;
 }
+#endif

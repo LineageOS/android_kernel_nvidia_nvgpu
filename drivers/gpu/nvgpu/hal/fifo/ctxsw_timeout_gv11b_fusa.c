@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -178,7 +159,6 @@ bool gv11b_fifo_handle_ctxsw_timeout(struct gk20a *g)
 	u32 i;
 	u32 timeout_val, ctxsw_timeout_engines;
 	u32 info_status;
-	struct nvgpu_tsg *tsg = NULL;
 
 	/* get ctxsw timedout engines */
 	ctxsw_timeout_engines = nvgpu_readl(g, fifo_intr_ctxsw_timeout_r());
@@ -210,13 +190,9 @@ bool gv11b_fifo_handle_ctxsw_timeout(struct gk20a *g)
 #endif
 			tsgid = gv11b_fifo_ctxsw_timeout_info(g, dev->engine_id,
 						&info_status);
-			tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
-			if (tsg == NULL) {
-				continue;
-			}
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-			recover = g->ops.tsg.check_ctxsw_timeout(tsg,
+			recover = g->ops.tsg.check_ctxsw_timeout(g, tsgid,
 					&debug_dump, &ms);
 			if (recover) {
 				const char *info_status_str = "invalid";
@@ -233,7 +209,7 @@ bool gv11b_fifo_handle_ctxsw_timeout(struct gk20a *g)
 					  info_status_str, ms);
 
 				nvgpu_rc_ctxsw_timeout(g, BIT32(dev->engine_id),
-					tsg, debug_dump);
+					0U, tsgid, debug_dump);
 				continue;
 			}
 #endif

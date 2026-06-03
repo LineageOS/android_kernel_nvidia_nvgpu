@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_STATIC_ANALYSIS_H
@@ -53,6 +35,107 @@ static inline s64 nvgpu_safe_cast_u64_to_s64(u64 ul_a);
  *
  * @param ui_a [in]	Addend value for adding.
  * @param ui_b [in]	Addend value for adding.
+ * @param result [out]  Pointer to output value.
+ *
+ * Adds the two u32 (unsigned 32 bit) values unless the result will overflow a
+ * u32. Overflow will happen if the difference between UNIT_MAX (the max number
+ * representable with 32 bits) and one addend is less than the other addend.
+ * Return false in such a case else return true with sum.
+ *
+ * @return true If no overflow or false if overflow. .
+ */
+static inline bool nvgpu_safe_add_u32_return(u32 ui_a, u32 ui_b, u32 *result)
+{
+	if ((UINT_MAX - ui_a) < ui_b) {
+		return false;
+	} else {
+		*result = ui_a + ui_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Add two u64 values and check for overflow.
+ *
+ * @param ui_a [in]	Addend value for adding.
+ * @param ui_b [in]	Addend value for adding.
+ * @param result [out]  Pointer to output value.
+ *
+ * Adds the two u64 (unsigned 64 bit) values unless the result will overflow a
+ * u64. Overflow will happen if the difference between ULONG_MAX (the max number
+ * representable with 64 bits) and one addend is less than the other addend.
+ * Return false in such a case else return true with sum.
+ *
+ * @return true If no overflow or false if overflow. .
+ */
+static inline bool nvgpu_safe_add_u64_return(u64 ul_a, u64 ul_b, u64 *result)
+{
+	if ((ULONG_MAX - ul_a) < ul_b) {
+		return false;
+	} else {
+		*result = ul_a + ul_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Multiply two u32 values and check for overflow.
+ *
+ * @param ui_a [in]	Value of multiplicand.
+ * @param ui_b [in]	Value of multiplier.
+ * @param result [out]  Pointer to output value.
+ *
+ * Multiplies \a ui_a and \a ui_b unless the result will overflow a u32. If the
+ * result would overflow, then return false. To determine whether the multiplication
+ * will cause an overflow, following steps are performed.
+ * - If \a ui_a or \a ui_b is 0 return 0 as multiplication result.
+ * - Else if \a ui_a is greater than UINT_MAX division by \a ui_b,
+ *   multiplication will overflow so will return false.
+ * - Else return true with storing result of multiplication.
+ *
+ * @return true If no overflow or false if overflow. .
+ */
+static inline bool nvgpu_safe_mult_u32_return(u32 ui_a, u32 ui_b, u32 *result)
+{
+	if ((ui_a == 0U) || (ui_b == 0U)) {
+		*result = 0U;
+		return true;
+	} else if (ui_a > (UINT_MAX / ui_b)) {
+		return false;
+	} else {
+		*result = ui_a * ui_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Subtract two u32 values and check for underflow.
+ *
+ * @param ui_a [in]	Value of minuend.
+ * @param ui_b [in]	Value of subtrahend.
+ * @param result [out]  Pointer to output value.
+ *
+ * Subtracts \a ui_b from \a ui_a unless the result will underflow a u32
+ * (unsigned 32 bit). If \a ui_a is less than \a ui_b then result would
+ * underflow and return false.
+ *
+ * @return true If no overflow or false if overflow. .
+ */
+static inline bool nvgpu_safe_sub_u32_return(u32 ui_a, u32 ui_b, u32 *result)
+{
+	if (ui_a < ui_b) {
+		return false;
+	} else {
+		*result = ui_a - ui_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Add two u32 values and check for overflow.
+ *
+ * @param ui_a [in]	Addend value for adding.
+ * @param ui_b [in]	Addend value for adding.
  *
  * Adds the two u32 (unsigned 32 bit) values unless the result will overflow a
  * u32. Overflow will happen if the difference between UNIT_MAX (the max number
@@ -63,11 +146,13 @@ static inline s64 nvgpu_safe_cast_u64_to_s64(u64 ul_a);
  */
 static inline u32 nvgpu_safe_add_u32(u32 ui_a, u32 ui_b)
 {
-	if ((UINT_MAX - ui_a) < ui_b) {
+	u32 result = 0U;
+
+	if (nvgpu_safe_add_u32_return(ui_a, ui_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ui_a + ui_b;
+		return result;
 	}
 }
 
@@ -93,7 +178,7 @@ static inline s32 nvgpu_safe_add_s32(s32 si_a, s32 si_b)
 	if (((si_b > 0) && (si_a > (INT_MAX - si_b))) ||
 		((si_b < 0) && (si_a < (INT_MIN - si_b)))) {
 		BUG();
-		return 0U;
+		return 0;
 	} else {
 		return si_a + si_b;
 	}
@@ -114,11 +199,13 @@ static inline s32 nvgpu_safe_add_s32(s32 si_a, s32 si_b)
  */
 static inline u64 nvgpu_safe_add_u64(u64 ul_a, u64 ul_b)
 {
-	if ((ULONG_MAX - ul_a) < ul_b) {
+	u64 result = 0UL;
+
+	if (nvgpu_safe_add_u64_return(ul_a, ul_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ul_a + ul_b;
+		return result;
 	}
 }
 
@@ -152,8 +239,13 @@ static inline s64 nvgpu_safe_add_s64(s64 sl_a, s64 sl_b)
 
 #define NVGPU_SAFE_ADD_UNSIGNED(a, b)				\
 ({								\
+	typeof(a) max;						\
 	typeof(a) _a = (a), _b = (typeof(a))(b), rt = 0U;	\
-	typeof(_a) max = (typeof(_a))(-1LL);			\
+	max = __builtin_choose_expr(				\
+			IS_UNSIGNED_LONG_TYPE(a),		\
+			ULONG_MAX,				\
+			UINT_MAX);				\
+								\
 								\
 	if ((max - _a) < _b) {					\
 		BUG();						\
@@ -269,11 +361,13 @@ static inline u8 nvgpu_safe_sub_u8(u8 uc_a, u8 uc_b)
  */
 static inline u32 nvgpu_safe_sub_u32(u32 ui_a, u32 ui_b)
 {
-	if (ui_a < ui_b) {
+	u32 result = 0U;
+
+	if (nvgpu_safe_sub_u32_return(ui_a, ui_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ui_a - ui_b;
+		return result;
 	}
 }
 
@@ -306,24 +400,69 @@ static inline s32 nvgpu_safe_sub_s32(s32 si_a, s32 si_b)
 }
 
 /**
- * @brief Subtract two u64 values and check for underflow.
+ * @brief Subtracts two unsigned 64-bit integers and checks for underflow.
  *
- * @param ul_a [in]	Value of minuend.
- * @param ul_b [in]	Value of subtrahend.
+ * @param ul_a   [in]	The minuend in the subtraction.
+ * @param ul_b   [in]	The subtrahend in the subtraction.
+ * @param result [out]	The result of the subtraction if no underflow occurs.
  *
- * Subtracts \a ul_b from \a ul_a unless the result will underflow a u64
- * (unsigned 64 bit). If \a ul_a is less than \a ul_b then result would
- * underflow so call #BUG().
+ * This function subtracts the second unsigned 64-bit integer from the first and
+ * checks if the subtraction results in an underflow. If no underflow occurs, the
+ * result is stored in the output parameter and the function returns true. If an
+ * underflow occurs, the function returns false and the output parameter is not
+ * modified.
  *
- * @return If no overflow, difference of the two integers (\a ul_a - \a ul_b).
+ * The steps performed by the function are as follows:
+ * -# Check if the subtraction would result in an underflow by comparing the first
+ *    parameter with the second.
+ * -# If the first parameter is less than the second, return false indicating
+ *    an underflow.
+ * -# Otherwise, subtract the second parameter from the first and store the result
+ *    in the output parameter.
+ * -# Return true indicating successful subtraction without underflow.
+ *
+ * @return True if the subtraction did not underflow, otherwise false.
+ */
+static inline bool nvgpu_safe_sub_u64_return(u64 ul_a, u64 ul_b, u64 *result)
+{
+	if (ul_a < ul_b) {
+		return false;
+	} else {
+		*result = ul_a - ul_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Subtracts two unsigned 64-bit integers with underflow protection.
+ *
+ * @param ul_a [in]	The minuend in the subtraction.
+ * @param ul_b [in]	The subtrahend in the subtraction.
+ *
+ * This function attempts to subtract the second unsigned 64-bit integer from the
+ * first with a check for underflow. If an underflow occurs, the function triggers
+ * a bug report and returns zero. If no underflow occurs, it returns the result of
+ * the subtraction.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize a result variable to zero.
+ * -# Call 'nvgpu_safe_sub_u64_return()' to attempt the subtraction and check for
+ *    underflow.
+ * -# If 'nvgpu_safe_sub_u64_return()' returns false, indicating an underflow,
+ *    trigger a bug report using 'BUG()' and return zero.
+ * -# If no underflow occurs, return the result of the subtraction.
+ *
+ * @return The result of the subtraction if no underflow occurs, otherwise zero.
  */
 static inline u64 nvgpu_safe_sub_u64(u64 ul_a, u64 ul_b)
 {
-	if (ul_a < ul_b) {
+	u64 result = 0U;
+
+	if (nvgpu_safe_sub_u64_return(ul_a, ul_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ul_a - ul_b;
+		return result;
 	}
 }
 
@@ -383,42 +522,139 @@ static inline s64 nvgpu_safe_sub_s64(s64 si_a, s64 si_b)
  */
 static inline u32 nvgpu_safe_mult_u32(u32 ui_a, u32 ui_b)
 {
-	if ((ui_a == 0U) || (ui_b == 0U)) {
-		return 0U;
-	} else if (ui_a > (UINT_MAX / ui_b)) {
+	u32 result = 0U;
+
+	if (nvgpu_safe_mult_u32_return(ui_a, ui_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ui_a * ui_b;
+		return result;
 	}
 }
 
 /**
- * @brief Multiply two u64 values and check for overflow.
+ * @brief Multiplies two unsigned 64-bit integers safely.
  *
- * @param ul_a [in]	Value of multiplicand.
- * @param ul_b [in]	Value of multiplier.
+ * @param ul_a   [in]	First multiplicand. Range: [0, ULONG_MAX]
+ * @param ul_b   [in]	Second multiplicand. Range: [0, ULONG_MAX]
+ * @param result [out]	Pointer to store the result of the multiplication.
  *
- * Multiplies \a ul_a and \a ul_b unless the result will overflow a u32. If the
- * result would overflow, call #BUG(). To determine whether the multiplication
- * will cause an overflow, following steps are performed.
- * - If \a ul_a or \a ul_b is 0 return 0 as multiplication result.
- * - Else if \a ul_a is greater than ULONG_MAX division by \a ul_b,
- *   multiplication will overflow so call #BUG().
- * - Else return result of multiplication.
+ * This function multiplies two unsigned 64-bit integers and checks for overflow.
+ * If the multiplication can be performed without overflow, the result is stored
+ * in the provided output parameter and the function returns true. If an overflow
+ * would occur, the function returns false and the output parameter is not modified.
  *
- * @return If no overflow, product of the two integers (\a ul_a * \a ul_b).
+ * The steps performed by the function are as follows:
+ * -# Check if either of the multiplicands is zero. If so, set the result to zero
+ *    and return true, indicating successful multiplication without overflow.
+ * -# Check if the first multiplicand is greater than the maximum unsigned 64-bit
+ *    integer divided by the second multiplicand. If so, return false, indicating
+ *    that an overflow would occur.
+ * -# If neither of the above conditions are met, multiply the two multiplicands,
+ *    store the result in the output parameter, and return true, indicating
+ *    successful multiplication without overflow.
+ *
+ * @return true if the multiplication was successful without overflow.
+ * @return false if the multiplication would result in an overflow.
+ */
+static inline bool nvgpu_safe_mult_u64_return(u64 ul_a, u64 ul_b, u64 *result)
+{
+	if ((ul_a == 0UL) || (ul_b == 0UL)) {
+		*result = 0U;
+		return true;
+	} else if (ul_a > (ULONG_MAX / ul_b)) {
+		return false;
+	} else {
+		*result = ul_a * ul_b;
+		return true;
+	}
+}
+
+/**
+ * @brief Multiplies two unsigned 64-bit integers with overflow handling.
+ *
+ * @param ul_a [in]	First multiplicand. Range: [0, ULONG_MAX]
+ * @param ul_b [in]	Second multiplicand. Range: [0, ULONG_MAX]
+ *
+ * This function multiplies two unsigned 64-bit integers using a safe multiplication
+ * function that checks for overflow. If an overflow occurs, the function triggers
+ * a bug report and returns zero. Otherwise, it returns the multiplication result.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize a result variable to zero.
+ * -# Call 'nvgpu_safe_mult_u64_return()' to attempt the multiplication. If this
+ *    function returns false, indicating an overflow, trigger a bug report using
+ *    'BUG()' and return zero.
+ * -# If the multiplication was successful without overflow, return the result.
+ *
+ * @return The result of the multiplication if successful, or zero if an overflow occurs.
  */
 static inline u64 nvgpu_safe_mult_u64(u64 ul_a, u64 ul_b)
 {
-	if ((ul_a == 0UL) || (ul_b == 0UL)) {
-		return 0UL;
-	} else if (ul_a > (ULONG_MAX / ul_b)) {
+	u64 result = 0U;
+
+	if (nvgpu_safe_mult_u64_return(ul_a, ul_b, &result) == false) {
 		BUG();
 		return 0U;
 	} else {
-		return ul_a * ul_b;
+		return result;
 	}
+}
+
+/**
+ * @brief Multiply two s32 values and check for overflow/underflow.
+ *
+ * @param sl_a [in]	Value of multiplicand.
+ * @param sl_b [in]	Value of multiplier.
+ *
+ * Multiplies \a sl_a and \a sl_b unless the result will overflow or underflow a
+ * s32. If the result would overflow or underflow, call #BUG(). To determine
+ * whether the multiplication will cause an overflow/underflow, following steps
+ * are performed.
+ * - If \a sl_a and \a sl_b are greater than 0 and INT_MAX division by \a sl_b
+ *   is less than \a sl_a, multiplication will overflow so call #BUG().
+ * - If \a sl_a is greater than 0, \a sl_b is less than or equal to 0 and
+ *   INT_MIN division by \a sl_a is greater than \a sl_b, multiplication will
+ *   underflow so call #BUG().
+ * - If \a sl_b is greater than 0, \a sl_a is less than or equal to 0 and
+ *   INT_MIN division by \a sl_b is greater than \a sl_a, multiplication will
+ *   underflow so call #BUG().
+ * - If \a sl_a is less than 0, \a sl_b is less than or equal to 0 and INT_MAX
+ *   division by \a sl_a is greater than \a sl_b, multiplication will overflow
+ *   so call #BUG().
+ *
+ * @return If no overflow/underflow, product of the two integers (\a sl_a *
+ * \a sl_b).
+ */
+static inline s32 nvgpu_safe_mult_s32(s32 sl_a, s32 sl_b)
+{
+	if (sl_a > 0) {
+		if (sl_b > 0) {
+			if (sl_a > (INT_MAX / sl_b)) {
+				BUG();
+				return 0;
+			}
+		} else {
+			if (sl_b < (INT_MIN / sl_a)) {
+				BUG();
+				return 0;
+			}
+		}
+	} else {
+		if (sl_b > 0) {
+			if (sl_a < (INT_MIN / sl_b)) {
+				BUG();
+				return 0;
+			}
+		} else {
+			if ((sl_a != 0) && (sl_b < (INT_MAX / sl_a))) {
+				BUG();
+				return 0;
+			}
+		}
+	}
+
+	return sl_a * sl_b;
 }
 
 /**
@@ -489,7 +725,7 @@ static inline s64 nvgpu_safe_mult_s64(s64 sl_a, s64 sl_b)
  */
 static inline u16 nvgpu_safe_cast_u64_to_u16(u64 ul_a)
 {
-	if (ul_a > USHRT_MAX) {
+	if (ul_a > (u64)USHRT_MAX) {
 		BUG();
 		return 0U;
 	} else {
@@ -663,7 +899,7 @@ static inline u64 nvgpu_safe_cast_s32_to_u64(s32 si_a)
  */
 static inline u16 nvgpu_safe_cast_u32_to_u16(u32 ui_a)
 {
-	if (ui_a > USHRT_MAX) {
+	if (ui_a > (u32)USHRT_MAX) {
 		BUG();
 		return 0U;
 	} else {
@@ -834,11 +1070,14 @@ static inline s32 nvgpu_safe_cast_s64_to_s32(s64 sl_a)
  *
  * @return s32 representation of the precision in bits of the value passed in.
  */
+
+NVGPU_COV_WHITELIST_BLOCK_BEGIN(deviate, 1, NVGPU_MISRA(Rule, 1_4), "TID-1591")
 #define NVGPU_PRECISION(v) _Generic(v, \
 		unsigned int : __builtin_popcount, \
 		unsigned long : __builtin_popcountl, \
 		unsigned long long : __builtin_popcountll, \
 		default : __builtin_popcount)(v)
+NVGPU_COV_WHITELIST_BLOCK_END(NVGPU_MISRA(Rule, 1_4))
 
 /**
  * @brief Safety checks before executing driver.

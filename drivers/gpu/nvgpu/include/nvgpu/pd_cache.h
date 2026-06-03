@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PD_CACHE_H
@@ -108,8 +90,8 @@ int  nvgpu_pd_alloc(struct vm_gk20a *vm, struct nvgpu_gmmu_pd *pd, u32 bytes);
  *
  * Free the Page Directory DMA memory:
  * Free the DMA memory allocated using nvgpu_pd_alloc by
- *  calling #nvgpu_pd_cache_free_direct().
- * Call #nvgpu_pd_cache_free() if the pd is cached.
+ *  calling nvgpu_pd_cache_free_direct().
+ * Call nvgpu_pd_cache_free() if the pd is cached.
  *
  * @return	None
  */
@@ -141,6 +123,47 @@ int  nvgpu_pd_cache_init(struct gk20a *g);
  * @retval	NULL in case of failure.
  */
 struct nvgpu_mem **nvgpu_pd_cache_get_nvgpu_mems(struct gk20a *g, uint32_t *no_of_mems);
+
+#ifdef CONFIG_NVGPU_CHECKER_FAULT_INJECTION
+
+/**
+ * For injecting fault in level0 pde.
+ */
+#define NVGPU_PTE_INJECT_LEVEL0_FAULT			1
+/**
+ * For injecting fault in level 1-4 pde/pte.
+ */
+#define NVGPU_PTE_INJECT_LEVEL1_4_FAULT			2
+/**
+ * For injecting fault in cbc line number.
+ */
+#define NVGPU_PTE_INJECT_CBC_FAULT			3
+/**
+ * For injecting fault in compressed/uncompressed kind.
+ */
+#define NVGPU_PTE_INJECT_KIND_FAULT			4
+/**
+ * For injecting fault in ro/rw mapping type.
+ */
+#define NVGPU_PTE_INJECT_RO_RW_FAULT			5
+/**
+ * For injecting fault in mapping's cacheability.
+ */
+#define NVGPU_PTE_INJECT_CACHE_FAULT			6
+/**
+ * For injecting fault in mapping's aperture type.
+ */
+#define NVGPU_PTE_INJECT_APERTURE_FAULT			7
+
+/**
+ * @brief Injects fault in page table entries.
+ *
+ * @param g [in]	   The GPU.
+ * @param fault_type [in]  One of the NVGPU_PTE_INJECT_* fault_types.
+ *
+ */
+void nvgpu_pd_cache_inject_fault(struct gk20a *g, u32 fault_type);
+#endif
 
 /**
  * @brief Free the pd_cache tracking stuff allocated by nvgpu_pd_cache_init().
@@ -214,10 +237,9 @@ u64  nvgpu_pd_gpu_addr(struct gk20a *g, struct nvgpu_gmmu_pd *pd);
  * @param g	[in]	The GPU.
  * @param pd	[in]	Pointer to GMMU page directory structure.
  *
- * - Set NVGPU_DMA_PHYSICALLY_ADDRESSED if \a bytes is more than
- *   NVGPU_CPU_PAGE_SIZE.
- * - Call #nvgpu_dma_alloc_flags() to allocate dmaable memory for
- *   pd.
+ * - Take pd_cache mutex lock.
+ * - Call nvgpu_pd_cache_alloc_direct_locked() to allocate dmaable memory for pd.
+ * - Unlock pd_cache mutex.
  *
  * @return	Zero For succcess.
  * @retval	-ENOMEM For any allocation failure.

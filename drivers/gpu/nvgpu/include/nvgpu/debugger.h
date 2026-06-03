@@ -1,26 +1,7 @@
-/*
- * Tegra GK20A GPU Debugger Driver
- *
- * Copyright (c) 2013-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_DEBUGGER_H
 #define NVGPU_DEBUGGER_H
 
@@ -66,8 +47,6 @@ struct dbg_session_gk20a {
 	/* event support */
 	struct dbg_gpu_session_events dbg_events;
 
-	bool broadcast_stop_trigger;
-
 	struct nvgpu_mutex ioctl_lock;
 
 	/*
@@ -79,6 +58,13 @@ struct dbg_session_gk20a {
 
 	/** GPU instance Id */
 	u32 gpu_instance_id;
+
+	/*
+	 * Issue suspend_contexts() once, do nothing if it is already
+	 * suspended. Issue resume_contexts() once, do nothing if it
+	 * is already resumed.
+	 */
+	bool all_ctx_suspended;
 };
 
 struct dbg_session_data {
@@ -110,16 +96,17 @@ dbg_session_channel_data_from_ch_entry(struct nvgpu_list_node *node)
 };
 
 /* used by the interrupt handler to post events */
-void nvgpu_dbg_gpu_post_events(struct nvgpu_channel *ch);
-
-bool nvgpu_dbg_gpu_broadcast_stop_trigger(struct nvgpu_channel *ch);
-void nvgpu_dbg_gpu_clear_broadcast_stop_trigger(struct nvgpu_channel *ch);
+void nvgpu_dbg_gpu_post_events(struct gk20a *g, u32 gfid, u32 tsgid);
 
 int nvgpu_dbg_set_powergate(struct dbg_session_gk20a *dbg_s, bool disable_powergate);
 
 void nvgpu_dbg_session_post_event(struct dbg_session_gk20a *dbg_s);
 u32 nvgpu_set_powergate_locked(struct dbg_session_gk20a *dbg_s,
 				bool mode);
+
+int nvgpu_dbg_gpu_set_sm_dbgr_ctrl_single_step_mode(
+		struct dbg_session_gk20a *dbg_s, u32 sm_id, bool enable);
+
 
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_DEBUGGER_H */

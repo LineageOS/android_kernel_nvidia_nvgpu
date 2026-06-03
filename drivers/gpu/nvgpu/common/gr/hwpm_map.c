@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/netlist.h>
@@ -29,14 +10,12 @@
 #include <nvgpu/fbp.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/hwpm_map.h>
+#include <nvgpu/gr/gr_instances.h>
 
 /* needed for pri_is_ppc_addr_shared */
 #include "hal/gr/gr/gr_pri_gk20a.h"
 
 #define NV_PCFG_BASE		0x00088000U
-#define NV_PERF_PMM_FBP_ROUTER_STRIDE 0x0200U
-#define NV_PERF_PMMGPCROUTER_STRIDE	0x0200U
-#define NV_XBAR_MXBAR_PRI_GPC_GNIC_STRIDE	0x0020U
 
 /* Dummy address for ctxsw'ed pri reg checksum. */
 #define CTXSW_PRI_CHECKSUM_DUMMY_REG  0x00ffffffU
@@ -194,7 +173,7 @@ static int add_ctxsw_buffer_map_entries(struct ctxsw_buf_offset_map_entry *map,
 /* Helper function to add register entries to the register map for all
  * subunits
  */
-static int add_ctxsw_buffer_map_entries_subunits(
+int add_ctxsw_buffer_map_entries_subunits(
 				struct ctxsw_buf_offset_map_entry *map,
 				struct netlist_aiv_list *regs,
 				u32 *count, u32 *offset,
@@ -287,20 +266,20 @@ static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
 		}
 
 		base = (g->ops.gr.ctxsw_prog.hw_get_pm_gpc_gnic_stride(g)) * gpc_num;
-		if (add_ctxsw_buffer_map_entries(map,
+		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_pm_ucgpc_entries_to_map(g, map,
 				nvgpu_netlist_get_pm_ucgpc_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U)) != 0) {
+				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
 			return -EINVAL;
 		}
 
 		base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
-		if (add_ctxsw_buffer_map_entries(map,
+		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
 				nvgpu_netlist_get_perf_gpc_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U)) != 0) {
+				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
 			return -EINVAL;
 		}
 
-		base = (NV_PERF_PMMGPCROUTER_STRIDE * gpc_num);
+		base = (g->ops.perf.get_pmmgpcrouter_per_chiplet_offset() * gpc_num);
 		if (add_ctxsw_buffer_map_entries(map,
 				nvgpu_netlist_get_gpc_router_ctxsw_regs(g),
 				count, offset, max_cnt, base, ~U32(0U)) != 0) {
@@ -323,9 +302,9 @@ static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
 		*offset = NVGPU_ALIGN(*offset, 256U);
 
 		base = (g->ops.perf.get_pmmgpc_per_chiplet_offset() * gpc_num);
-		if (add_ctxsw_buffer_map_entries(map,
+		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_gpc_perf_entries_to_map(g, map,
 				nvgpu_netlist_get_perf_gpc_control_ctxsw_regs(g),
-				count, offset, max_cnt, base, ~U32(0U)) != 0) {
+				count, offset, max_cnt, base, ~U32(0U), gpc_num) != 0) {
 			return -EINVAL;
 		}
 
@@ -365,6 +344,16 @@ static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
  *|                                  LTC0 LTSn  |
  *|                                  LTC1 LTSn  |
  *|                                  LTCn LTSn  |
+ *|    LIST_compressed_pm_lrcc_ctx_regs         | (pm_lrcc from blackwell onwards)
+ *|                                  LTC0 LTS0  |
+ *|                                  LTC1 LTS0  |Space allocated: numRegs * n words (for n LTC units)
+ *|                                  LTCn LTS0  |
+ *|                                  LTC0 LTS1  |
+ *|                                  LTC1 LTS1  |
+ *|                                  LTCn LTS1  |
+ *|                                  LTC0 LTSn  |
+ *|                                  LTC1 LTSn  |
+ *|                                  LTCn LTSn  |
  *|        PADDING for 256 byte alignment       |
  *|=============================================|<----256 byte aligned on Maxwell and later
  *| LIST_compressed_nv_perf_fbp_control_ctx_regs|Space allocated: numRegs words + padding
@@ -391,7 +380,7 @@ static int add_ctxsw_buffer_map_entries_gpcs(struct gk20a *g,
  *|=============================================|<----256 byte aligned on Maxwell and later
  */
 
-static int nvgpu_gr_hwpm_map_create(struct gk20a *g,
+int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 	struct nvgpu_gr_hwpm_map *hwpm_map, struct nvgpu_gr_config *config)
 {
 	u32 hwpm_ctxsw_buffer_size = hwpm_map->pm_ctxsw_image_size;
@@ -402,7 +391,8 @@ static int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 	u32 offset = 0;
 	int ret;
 	u32 active_fbpa_mask;
-	u32 num_fbps = nvgpu_fbp_get_num_fbps(g->fbp);
+	u32 current_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
+	u32 num_fbps = nvgpu_grmgr_get_gr_num_fbps(g, current_gr_instance_id);
 	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
 	u32 num_fbpas = nvgpu_get_litter_value(g, GPU_LIT_NUM_FBPAS);
 	u32 fbpa_stride = nvgpu_get_litter_value(g, GPU_LIT_FBPA_STRIDE);
@@ -494,7 +484,7 @@ static int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 	if (add_ctxsw_buffer_map_entries_subunits(map,
 			nvgpu_netlist_get_fbp_router_ctxsw_regs(g),
 			&count, &offset, hwpm_ctxsw_reg_count_max, 0,
-			num_fbps, ~U32(0U), NV_PERF_PMM_FBP_ROUTER_STRIDE,
+			num_fbps, ~U32(0U), g->ops.perf.get_pmmfbprouter_per_chiplet_offset(),
 			~U32(0U)) != 0) {
 		goto cleanup;
 	}
@@ -529,6 +519,15 @@ static int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 		goto cleanup;
 	}
 
+	if (g->ops.gr.hwpm_map.add_ctxsw_buffer_lrcc_entries_to_map != NULL) {
+		if (g->ops.gr.hwpm_map.add_ctxsw_buffer_lrcc_entries_to_map(g,
+				map, nvgpu_netlist_get_pm_lrcc_ctxsw_regs(g),
+				&count, &offset,
+				hwpm_ctxsw_reg_count_max, num_ltc) != 0) {
+			goto cleanup;
+		}
+	}
+
 	offset = NVGPU_ALIGN(offset, 256U);
 
 	/* Add entries from _LIST_nv_perf_fbp_control_ctx_regs */
@@ -550,7 +549,8 @@ static int nvgpu_gr_hwpm_map_create(struct gk20a *g,
 	}
 
 	if (offset > hwpm_ctxsw_buffer_size) {
-		nvgpu_err(g, "offset > buffer size");
+		nvgpu_err(g, "offset(%u) > buffer size(%u)", offset,
+				hwpm_ctxsw_buffer_size);
 		goto cleanup;
 	}
 

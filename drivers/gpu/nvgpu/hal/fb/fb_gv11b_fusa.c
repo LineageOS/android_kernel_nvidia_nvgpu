@@ -1,26 +1,5 @@
-/*
- * GV11B FB
- *
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
@@ -136,7 +115,7 @@ void gv11b_fb_cbc_configure(struct gk20a *g, struct nvgpu_cbc *cbc)
 					&cbc->compbit_store.mem);
 	}
 	/* must be aligned to 64 KB */
-	compbit_store_iova = round_up(compbit_store_iova, (u64)SZ_64K);
+	compbit_store_iova = NVGPU_ALIGN(compbit_store_iova, (u64)SZ_64K);
 
 	compbit_base_post_divide64 = compbit_store_iova >>
 			fb_mmu_cbc_base_address_alignment_shift_v();
@@ -149,12 +128,12 @@ void gv11b_fb_cbc_configure(struct gk20a *g, struct nvgpu_cbc *cbc)
 		fb_mmu_cbc_base_address_alignment_shift_v();
 
 	if (compbit_base_post_multiply64 < compbit_store_iova) {
-		compbit_base_post_divide++;
+		compbit_base_post_divide = nvgpu_safe_add_u32(compbit_base_post_divide, 1U);
 	}
 
 	if (g->ops.cbc.fix_config != NULL) {
 		compbit_base_post_divide =
-			g->ops.cbc.fix_config(g, (int)compbit_base_post_divide);
+			g->ops.cbc.fix_config(g, compbit_base_post_divide);
 	}
 
 	nvgpu_writel(g, fb_mmu_cbc_base_r(),

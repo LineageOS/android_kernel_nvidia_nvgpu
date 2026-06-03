@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/gk20a.h>
@@ -29,6 +10,7 @@
 
 #include <nvgpu/hw/ga10b/hw_top_ga10b.h>
 
+#ifdef CONFIG_NVGPU_NON_FUSA
 u32 ga10b_get_num_engine_type_entries(struct gk20a *g, u32 engine_type)
 {
 	(void)g;
@@ -38,6 +20,7 @@ u32 ga10b_get_num_engine_type_entries(struct gk20a *g, u32 engine_type)
 	 */
 	return 0U;
 }
+#endif
 
 static struct nvgpu_device *ga10b_top_parse_device(struct gk20a *g,
 						   u32 *rows, u32 num_rows)
@@ -121,6 +104,11 @@ static u32 ga10b_top_table_size(struct gk20a *g)
 	return top_device_info_cfg_num_rows_v(cfg);
 }
 
+u32 ga10b_get_expected_chip_info_cfg_version(void)
+{
+	return top_device_info_cfg_version_init_v();
+}
+
 /*
  * On Ampere there are 3 rows per device. Although the HW does leave open the
  * option for adding rows in the future, for now, let's just hard code to row
@@ -131,15 +119,19 @@ struct nvgpu_device *ga10b_top_parse_next_dev(struct gk20a *g, u32 *token)
 	/*
 	 * FIXME: HW define for this exists.
 	 */
-	#define MAX_ROWS 3
+	#define MAX_ROWS 3U
 
 	u32 j, cfg;
+	u32 expected_cfg_version;
+	u32 hw_cfg_version;
 	u32 rows[MAX_ROWS] = { 0 };
 
+	expected_cfg_version = g->ops.top.get_expected_chip_info_cfg_version();
+
 	cfg = nvgpu_readl(g, top_device_info_cfg_r());
-	if (top_device_info_cfg_version_v(cfg) !=
-			top_device_info_cfg_version_init_v()) {
-		nvgpu_err(g, "device info cfg mismatch");
+	hw_cfg_version = top_device_info_cfg_version_v(cfg);
+	if (hw_cfg_version != expected_cfg_version) {
+		nvgpu_err(g, "device info cfg mismatch. Expected %u, got %u", expected_cfg_version, hw_cfg_version);
 		return NULL;
 	}
 

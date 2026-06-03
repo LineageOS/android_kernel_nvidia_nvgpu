@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_VM_AREA_H
@@ -117,8 +99,8 @@ nvgpu_vm_area_from_vm_area_list(struct nvgpu_list_node *node)
  * @param addr [in/out]	Start address of the range.
  * @param flags [in]	Flags used for allocation.
  *			Flags are
- *			 NVGPU_VM_AREA_ALLOC_FIXED_OFFSET,
- *			 NVGPU_VM_AREA_ALLOC_SPARSE
+ *			#NVGPU_VM_AREA_ALLOC_FIXED_OFFSET,
+ *			#NVGPU_VM_AREA_ALLOC_SPARSE
  *
  * - Check the input flags.
  * - Find the page size index for the given @page_size.
@@ -127,7 +109,7 @@ nvgpu_vm_area_from_vm_area_list(struct nvgpu_list_node *node)
  *   to allocate vm area.
  * - Fill the details in allocated vm_area.
  * - Add the vm_area to the list of vm areas in virtual memory context.
- * - If NVGPU_VM_AREA_ALLOC_SPARSE is set, unmap the allocated vm_area
+ * - If #NVGPU_VM_AREA_ALLOC_SPARSE is set, unmap the allocated vm_area
  *   from the GPU.
  *
  * @return		Zero, for successful allocation.

@@ -1,44 +1,31 @@
-/*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_NVDEC_H
 #define NVGPU_GOPS_NVDEC_H
 
 struct nvgpu_multimedia_ctx;
+struct nvgpu_firmware;
 
 struct gops_nvdec {
 
 	/**
 	 * @brief Base address of NVDEC apperture.
 	 *
+	 * @param inst_id [in]		NVDEC engine's instance id
+	 *
 	 * This function gets the base address of NVDEC aperture.
 	 */
-	u32 (*base_addr)(void);
+	u32 (*base_addr)(u32 inst_id);
 
 	/**
 	 * @brief falcon2 base address of NVDEC aperture.
 	 *
+	 * @param inst_id [in]		NVDEC engine's instance id
+	 *
 	 * This function gets the falcon2 base address of NVDEC aperture.
 	 */
-	u32 (*falcon2_base_addr)(void);
+	u32 (*falcon2_base_addr)(u32 inst_id);
 
 	/**
 	 * @brief Initialize NVDEC support.
@@ -60,80 +47,93 @@ struct gops_nvdec {
 	int (*deinit)(struct gk20a *g);
 
 	/**
-	 * @brief Reset NVDEC engine.
+	 * @brief Reset and boot NVDEC engine.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param dev [in]		NVDEC engine's device struct.
 	 *
 	 * This function resets the NVDEC HW unit and loads the firmware again.
 	 */
-	int (*reset)(struct gk20a *g);
+	int (*reset_and_boot)(struct gk20a *g, const struct nvgpu_device *dev);
 
 	/**
 	 * Load and bootstrap ucode on NVDEC falcon.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 *
 	 * This function takes care of loading the firmware. It kick-starts
 	 * the core and polls for the successful initialization.
 	 */
-	int (*bootstrap)(struct gk20a *g);
+	int (*bootstrap)(struct gk20a *g, u32 inst_id);
 
 	/**
 	 * @brief Set-up boot configuration registers.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 *
 	 * This function programs the configuration registers needed before boot.
 	 */
-	void (*setup_boot_config)(struct gk20a *g);
+	void (*setup_boot_config)(struct gk20a *g, u32 inst_id);
 
 	/**
 	 * @brief Halt the engine.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 *
 	 * This function halts the engine.
 	 */
-	void (*halt_engine)(struct gk20a *g);
+	void (*halt_engine)(struct gk20a *g, u32 inst_id);
 
 	/**
-	 * @brief Configure interrupt registers.
+	 * @brief Reset the engine.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
-	 * @param flcn [in]		Pointer to falcon struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 *
-	 * This function programs the interrupt configuration registers.
+	 * This function resets the engine.
 	 */
-	void (*set_irq_regs)(struct gk20a *g, struct nvgpu_falcon *flcn);
+	int (*reset_eng)(struct gk20a *g, u32 inst_id);
+
+	/**
+	 * @brief Sets stall and non-stall intr ctrl vectors for NVDEC.
+	 *
+	 * @param g [in]                Pointer to GPU driver struct.
+	 * @param inst_id [in]          NVDEC engine's instance id
+	 * @param enable [in]           Parameter to enable/disable interrupt.
+	 * @param intr_ctrl [in]        Stall interrupt
+	 * @param intr_notify_ctrl [in] Non Stall interrupt
+	 *
+	 * This function gets the interrupt ctrl message for NVDEC as requested.
+	 */
+	void (*get_intr_ctrl_msg)(struct gk20a *g, u32 inst_id, bool enable,
+			u32 *intr_ctrl, u32 *intr_notify_ctrl);
 
 	/**
 	 * @brief Enable interrupts for NVDEC.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 * @param enable [in]		Parameter to enable/disable interrupt.
 	 *
 	 * This function enables/disables the interrupts for NVDEC as requested.
 	 */
-	void (*enable_irq)(struct gk20a *g, bool enable);
-
-	/**
-	 * @brief Enable interfaces (method or ctx switch) for NVDEC.
-	 *
-	 * @param g [in]		Pointer to GPU driver struct.
-	 *
-	 * This function enables method and/or ctx switch interfaces for NVDEC.
-	 */
-	void (*interface_enable)(struct gk20a *g);
+	void (*enable_irq)(struct gk20a *g, u32 inst_id, bool enable);
 
 	/**
 	 * @brief Interrupt handler for NVDEC interrupts.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
 	 *
 	 * This function handles the interrupts from NVDEC and takes the necessary
 	 * actions.
 	 */
-	void (*nvdec_isr)(struct gk20a *g);
+	void (*nvdec_isr)(struct gk20a *g, u32 inst_id);
+
+	bool (*nvdec_is_swgen0_set)(struct gk20a *g, u32 inst_id);
 
 	/**
 	 * @brief Allocate and setup engine context for GPU channel.
@@ -163,6 +163,38 @@ struct gops_nvdec {
 	 */
 	void (*multimedia_free_ctx)(struct gk20a *g,
 			    struct nvgpu_multimedia_ctx *eng_ctx);
+
+	/**
+	 * @brief Dump nvdec status and debug registers.
+	 *
+	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param inst_id [in]		NVDEC engine's instance id
+	 * @param dbg_ctx [in]		Debug context info
+	 *
+	 * This function prints the contents of debug and status registers
+	 * to help in debug process.
+	 */
+	void (*dump_engine_status)(struct gk20a *g, u32 inst_id,
+			    struct nvgpu_debug_context *dbg_ctx);
+
+	/**
+	 * @brief Get NVDEC firmware.
+	 *
+	 * @param g [in]		Pointer to GPU driver struct.
+	 * @param desc_fw [out]	Pointer to descriptor firmware that contains
+	 *                      firmware metadata.
+	 * @param image_fw [out]	Pointer to image firmware that contains the
+	 *                      actual firmware binary.
+	 * @param pkc_sig [out]	Pointer to PKC signature used for firmware
+	 *                      authentication. For LSB v3, this contains the
+	 *                      LSB header.
+	 *
+	 * This function gets the appropriate firmware names based on debug/production
+	 * mode and LSB version, then loads the firmware files into memory.
+	 */
+	void (*get_nvdec_fw)(struct gk20a *g, struct nvgpu_firmware **desc_fw,
+			struct nvgpu_firmware **image_fw,
+			struct nvgpu_firmware **pkc_sig);
 };
 
 #endif /* NVGPU_GOPS_NVDEC_H */

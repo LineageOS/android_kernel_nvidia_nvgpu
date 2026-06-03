@@ -1,30 +1,14 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/firmware.h>
 #include <nvgpu/gk20a.h>
+#include <nvgpu/string.h>
 #include <nvgpu/acr.h>
+#include <nvgpu/falcon.h>
+#include <nvgpu/gsp.h>
 
 #include "acr_priv.h"
 #ifdef CONFIG_NVGPU_ACR_LEGACY
@@ -38,10 +22,117 @@
 #include "acr_sw_ga100.h"
 #endif
 
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+#include "acr_sw_gb10b.h"
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#include "acr_sw_gb20c.h"
+#endif
+
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_acr.h>
 #endif
 
+bool nvgpu_acr_is_lsb_v3_supported(struct gk20a *g)
+{
+	return g->acr->is_acr_lsb_v3_enabled;
+}
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+static int nvgpu_acr_wait_for_init(struct gk20a *g, signed int timeoutms)
+{
+	u32 intr_stat = 0;
+
+	nvgpu_acr_dbg(g, " ");
+
+	do {
+		if (nvgpu_gsp_is_ready(g)) {
+			break;
+		}
+
+		if (!g->ops.falcon.is_priv_lockdown(&g->gsp_flcn)) {
+			if (g->ops.gsp.gsp_is_interrupted(g, &intr_stat)) {
+				g->ops.gsp.gsp_isr(g);
+			}
+		}
+
+		if (timeoutms <= 0) {
+			nvgpu_err(g, "gsp wait for init timedout");
+			return -1;
+		}
+
+		nvgpu_msleep(10);
+		timeoutms -= 10;
+	} while (true);
+
+	return 0;
+}
+
+int nvgpu_next_acr_wait_for_completion(struct gk20a *g,
+				struct hs_acr *acr_desc, u32 timeout)
+{
+	u32 flcn_id;
+	int completion = 0;
+	u64 acr_sysmem_desc_addr = 0LL;
+	u32 wpr_address_lo, wpr_address_hi = 0;
+
+	nvgpu_acr_dbg(g, " ");
+
+	flcn_id = nvgpu_falcon_get_id(acr_desc->acr_flcn);
+
+	acr_sysmem_desc_addr = nvgpu_mem_get_addr(g,
+				&g->acr->acr_asc.acr_falcon2_sysmem_desc);
+	wpr_address_lo = u64_lo32(acr_sysmem_desc_addr);
+	wpr_address_hi = u64_hi32(acr_sysmem_desc_addr);
+
+	completion = nvgpu_acr_wait_for_init(g, timeout);
+	if (completion != 0) {
+		nvgpu_err(g, "flcn-%d: HS ucode boot timed out, limit: %d ms",
+				flcn_id, timeout);
+		completion = ACR_BOOT_TIMEDOUT;
+		goto exit;
+	}
+
+	completion = nvgpu_acr_lock_wpr(g, wpr_address_lo, wpr_address_hi);
+	if (completion != 0) {
+		nvgpu_err(g, "flcn-%d: HS ucode boot init failed: %d",
+				flcn_id, completion);
+		goto exit;
+	}
+
+	g->acr->is_cold_boot_done = true;
+
+	/*
+	 * TODO: Add acr_engine_bus_err_status
+	 * currently disabled as it gives false errors as
+	 * PMU is not in a good state
+	 */
+
+exit:
+	return completion;
+}
+#endif
+
+/* TODO: Redundant, if no ACR specific suspend functionality */
+void nvgpu_acr_suspend(struct gk20a *g)
+{
+	if (g->acr == NULL) {
+		nvgpu_err(g, "ACR GSP not initialized");
+		return;
+	}
+}
+
+void nvgpu_acr_deinit(struct gk20a *g)
+{
+	g->is_acr_ipc_supported = false;
+	if (g->acr != NULL) {
+		nvgpu_kfree(g, g->acr);
+		g->acr = NULL;
+	}
+}
+
+#if defined(CONFIG_NVGPU_LS_PMU)
 /* ACR public API's */
 bool nvgpu_acr_is_lsf_lazy_bootstrap(struct gk20a *g, struct nvgpu_acr *acr,
 	u32 falcon_id)
@@ -58,6 +149,7 @@ bool nvgpu_acr_is_lsf_lazy_bootstrap(struct gk20a *g, struct nvgpu_acr *acr,
 		return false;
 	}
 }
+#endif
 
 #ifdef CONFIG_NVGPU_DGPU
 int nvgpu_acr_alloc_blob_prerequisite(struct gk20a *g, struct nvgpu_acr *acr,
@@ -131,7 +223,7 @@ int nvgpu_acr_init(struct gk20a *g)
 	g->acr = (struct nvgpu_acr *)nvgpu_kzalloc(g, sizeof(struct nvgpu_acr));
 	if (g->acr == NULL) {
 		err = -ENOMEM;
-		goto done;
+		goto deinit;
 	}
 
 	/*
@@ -158,9 +250,11 @@ int nvgpu_acr_init(struct gk20a *g)
 		nvgpu_gp10b_acr_sw_init(g, g->acr);
 		break;
 #endif
+#if defined(CONFIG_NVGPU_NON_FUSA)
 	case NVGPU_GPUID_GV11B:
 		nvgpu_gv11b_acr_sw_init(g, g->acr);
 		break;
+#endif
 	case NVGPU_GPUID_GA10B:
 		g->acr->is_lsf_encrypt_support = true;
 		nvgpu_ga10b_acr_sw_init(g, g->acr);
@@ -175,6 +269,29 @@ int nvgpu_acr_init(struct gk20a *g)
 		break;
 #endif /* CONFIG_NVGPU_NON_FUSA */
 #endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		/*
+		 * Firmware is stored in soc specific path for T264
+		 * Hence NVGPU_REQUEST_FIRMWARE_NO_WARN is used instead
+		 * of NVGPU_REQUEST_FIRMWARE_NO_SOC
+		 */
+		g->acr->fw_load_flag = NVGPU_REQUEST_FIRMWARE_NO_WARN;
+		nvgpu_gb10b_acr_sw_init(g, g->acr);
+		break;
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+		/*
+		 * Firmware is stored in soc specific path for T256
+		 * Hence NVGPU_REQUEST_FIRMWARE_NO_WARN is used instead
+		 * of NVGPU_REQUEST_FIRMWARE_NO_SOC
+		 */
+		g->acr->fw_load_flag = NVGPU_REQUEST_FIRMWARE_NO_WARN;
+		nvgpu_gb20c_acr_sw_init(g, g->acr);
+		break;
+#endif
 	default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 		if (nvgpu_next_acr_init(g))
@@ -186,7 +303,14 @@ int nvgpu_acr_init(struct gk20a *g)
 		}
 		break;
 	}
-
-done:
 	return err;
+
+deinit:
+	nvgpu_acr_deinit(g);
+	return err;
+}
+
+int nvgpu_acr_process_message(struct gk20a *g)
+{
+	return nvgpu_gsp_process_message(g);
 }

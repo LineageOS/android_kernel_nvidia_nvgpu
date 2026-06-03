@@ -1,26 +1,8 @@
-/*
- * general clock structures & definitions
- *
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
+// general clock structures & definitions
 
 #ifndef NVGPU_PMU_CLK_H
 #define NVGPU_PMU_CLK_H
@@ -72,6 +54,10 @@
 
 #define CTRL_CLK_CLK_DOMAIN_CLIENT_MAX_DOMAINS	16
 
+/*!
+ * Enumeration of Clock Domains, shared across NVGPU and PMU.
+ */
+typedef u32 NV_PMU_CLK_CLKWHICH;
 /*
  *  Try to get gpc2clk, mclk, sys2clk, xbar2clk work for Pascal
  *
@@ -83,6 +69,7 @@
  *  xbar2clk is 19 in Pascal and 14 in Volta
  *    Changing for Pascal would break pwrclk of Volta
  */
+#define CLKWHICH_DEFAULT			0
 #define CLKWHICH_GPCCLK				1U
 #define CLKWHICH_XBARCLK			2U
 #define CLKWHICH_SYSCLK				3U
@@ -96,12 +83,35 @@
 #define CLKWHICH_HUB2CLK			16U
 #define CLKWHICH_GPC2CLK			17U
 #define CLKWHICH_PWRCLK				19U
+#define CLKWHICH_UPROCCLK			CLKWHICH_PWRCLK
 #define CLKWHICH_NVDCLK				20U
 #define CLKWHICH_PCIEGENCLK			26U
 
+typedef u32 NV2080_CTRL_CLK_PUBLIC_DOMAIN;
+
+/*!
+ * Enumeration of public clock domains. Of type
+ *  NV2080_CTRL_CLK_PUBLIC_DOMAIN.
+ */
+#define NV2080_CTRL_CLK_PUBLIC_DOMAIN_GRAPHICS  (0x00000001U)
+#define NV2080_CTRL_CLK_PUBLIC_DOMAIN_PROCESSOR (0x00000002U)
+#define NV2080_CTRL_CLK_PUBLIC_DOMAIN_MEMORY    (0x00000004U)
+#define NV2080_CTRL_CLK_PUBLIC_DOMAIN_VIDEO     (0x00000008U)
+
+//
+// Special value, not to be used in NV2080_CTRL_CMD_CLK_GET_PUBLIC_DOMAINS,
+// NV2080_CTRL_CMD_CLK_GET_PUBLIC_DOMAIN_INFO, NV2080_CTRL_CMD_CLK_GET_PUBLIC_DOMAIN_INFO_V2
+//
+#define NV2080_CTRL_CLK_PUBLIC_DOMAIN_INVALID   (0xFFFFFFFFU)
+
+/*!
+ * CLK_DOMAIN CPMU_CLOCK_ID Type Definition
+ */
+typedef u8 NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID;
+#define NV2080_CTRL_CLK_CLK_DOMAIN_CPMU_CLOCK_ID_INVALID 0x0ffU
 
 /*
- * Mask of all GPC VIN IDs supported by RM
+ * Mask of all GPC VIN IDs supported by NVGPU
  */
 #define CTRL_CLK_LUT_NUM_ENTRIES_MAX		128U
 #define CTRL_CLK_LUT_NUM_ENTRIES_GV10x		128U
@@ -151,6 +161,7 @@ int clk_get_fll_clks_per_clk_domain(struct gk20a *g,
 int nvgpu_pmu_clk_domain_freq_to_volt(struct gk20a *g, u8 clkdomain_idx,
 	u32 *pclkmhz, u32 *pvoltuv, u8 railidx);
 int nvgpu_pmu_clk_domain_get_from_index(struct gk20a *g, u32 *domain, u32 index);
+s32 nvgpu_pmu_clk_domain_get_index_by_domain(struct gk20a *g, u32 domain, u32 *idx);
 int nvgpu_pmu_clk_pmu_setup(struct gk20a *g);
 int nvgpu_pmu_clk_sw_setup(struct gk20a *g);
 int nvgpu_pmu_clk_init(struct gk20a *g);

@@ -1,28 +1,11 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
 #include <nvgpu/bug.h>
+#include <nvgpu/gr/gr.h>
+#include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/gr/zbc.h>
 #include <nvgpu/string.h>
 #include <nvgpu/power_features/pg.h>
@@ -45,6 +28,7 @@ static void nvgpu_gr_zbc_update_stencil_reg(struct gk20a *g,
 	g->ops.gr.zbc.add_stencil(g, stencil_val, index);
 }
 
+#ifdef CONFIG_NVGPU_ZBC_USER
 static int nvgpu_gr_zbc_add_stencil(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			struct nvgpu_gr_zbc_entry *stencil_val)
 {
@@ -62,7 +46,10 @@ static int nvgpu_gr_zbc_add_stencil(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		if ((s_tbl->ref_cnt != 0U) &&
 		    (s_tbl->stencil == stencil_val->stencil) &&
 		    (s_tbl->format == stencil_val->format)) {
-			s_tbl->ref_cnt = nvgpu_safe_add_u32(s_tbl->ref_cnt, 1U);
+			if (s_tbl->ref_cnt == U32_MAX) {
+				return entry_added;
+			}
+			s_tbl->ref_cnt = s_tbl->ref_cnt + 1U;
 			entry_exist = true;
 			entry_added = ZBC_ENTRY_UPDATED;
 			break;
@@ -72,17 +59,19 @@ static int nvgpu_gr_zbc_add_stencil(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	if (!entry_exist &&
 		(zbc->max_used_stencil_index < zbc->max_stencil_index)) {
 
+		s_tbl = &zbc->zbc_s_tbl[zbc->max_used_stencil_index + 1U];
+		if (s_tbl->ref_cnt != 0U) {
+			return entry_added;
+		}
+
 		/* Increment used index and add new entry at that index */
 		zbc->max_used_stencil_index =
-			nvgpu_safe_add_u32(zbc->max_used_stencil_index, 1U);
-
-		s_tbl = &zbc->zbc_s_tbl[zbc->max_used_stencil_index];
-		WARN_ON(s_tbl->ref_cnt != 0U);
+			zbc->max_used_stencil_index + 1U;
 
 		/* update sw copy */
 		s_tbl->stencil = stencil_val->stencil;
 		s_tbl->format = stencil_val->format;
-		s_tbl->ref_cnt = nvgpu_safe_add_u32(s_tbl->ref_cnt, 1U);
+		s_tbl->ref_cnt = 1U;
 
 		nvgpu_gr_zbc_update_stencil_reg(g, stencil_val,
 			zbc->max_used_stencil_index);
@@ -91,6 +80,7 @@ static int nvgpu_gr_zbc_add_stencil(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	}
 	return entry_added;
 }
+#endif
 
 static void nvgpu_gr_zbc_update_depth_reg(struct gk20a *g,
 			struct nvgpu_gr_zbc_entry *depth_val, u32 index)
@@ -102,6 +92,7 @@ static void nvgpu_gr_zbc_update_depth_reg(struct gk20a *g,
 	g->ops.gr.zbc.add_depth(g, depth_val, index);
 }
 
+#ifdef CONFIG_NVGPU_ZBC_USER
 static int nvgpu_gr_zbc_add_depth(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			struct nvgpu_gr_zbc_entry *depth_val)
 {
@@ -118,7 +109,10 @@ static int nvgpu_gr_zbc_add_depth(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		if ((d_tbl->ref_cnt != 0U) &&
 		    (d_tbl->depth == depth_val->depth) &&
 		    (d_tbl->format == depth_val->format)) {
-			d_tbl->ref_cnt = nvgpu_safe_add_u32(d_tbl->ref_cnt, 1U);
+			if (d_tbl->ref_cnt == U32_MAX) {
+				return entry_added;
+			}
+			d_tbl->ref_cnt = d_tbl->ref_cnt + 1U;
 			entry_exist = true;
 			entry_added = ZBC_ENTRY_UPDATED;
 			break;
@@ -128,17 +122,19 @@ static int nvgpu_gr_zbc_add_depth(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	if (!entry_exist &&
 		(zbc->max_used_depth_index < zbc->max_depth_index)) {
 
+		d_tbl = &zbc->zbc_dep_tbl[zbc->max_used_depth_index + 1U];
+		if (d_tbl->ref_cnt != 0U) {
+			return entry_added;
+		}
+
 		/* Increment used index and add new entry at that index */
 		zbc->max_used_depth_index =
-			nvgpu_safe_add_u32(zbc->max_used_depth_index, 1U);
-
-		d_tbl = &zbc->zbc_dep_tbl[zbc->max_used_depth_index];
-		WARN_ON(d_tbl->ref_cnt != 0U);
+			zbc->max_used_depth_index + 1U;
 
 		/* update sw copy */
 		d_tbl->depth = depth_val->depth;
 		d_tbl->format = depth_val->format;
-		d_tbl->ref_cnt = nvgpu_safe_add_u32(d_tbl->ref_cnt, 1U);
+		d_tbl->ref_cnt = 1U;
 
 		nvgpu_gr_zbc_update_depth_reg(g, depth_val,
 			zbc->max_used_depth_index);
@@ -148,6 +144,7 @@ static int nvgpu_gr_zbc_add_depth(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 
 	return entry_added;
 }
+#endif
 
 static void nvgpu_gr_zbc_update_color_reg(struct gk20a *g,
 			struct nvgpu_gr_zbc_entry *color_val, u32 index)
@@ -159,6 +156,7 @@ static void nvgpu_gr_zbc_update_color_reg(struct gk20a *g,
 	g->ops.gr.zbc.add_color(g, color_val, index);
 }
 
+#ifdef CONFIG_NVGPU_ZBC_USER
 static int nvgpu_gr_zbc_add_color(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			struct nvgpu_gr_zbc_entry *color_val)
 {
@@ -173,15 +171,14 @@ static int nvgpu_gr_zbc_add_color(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		c_tbl = &zbc->zbc_col_tbl[i];
 
 		if ((c_tbl->ref_cnt != 0U) &&
-			(c_tbl->format == color_val->format) &&
-			(nvgpu_memcmp((u8 *)c_tbl->color_ds,
-				(u8 *)color_val->color_ds,
-				sizeof(color_val->color_ds)) == 0) &&
 			(nvgpu_memcmp((u8 *)c_tbl->color_l2,
 				(u8 *)color_val->color_l2,
 				sizeof(color_val->color_l2)) == 0)) {
 
-			c_tbl->ref_cnt = nvgpu_safe_add_u32(c_tbl->ref_cnt, 1U);
+			if (c_tbl->ref_cnt == U32_MAX) {
+				return entry_added;
+			}
+			c_tbl->ref_cnt = c_tbl->ref_cnt + 1U;
 			entry_exist = true;
 			entry_added = ZBC_ENTRY_UPDATED;
 			break;
@@ -192,12 +189,14 @@ static int nvgpu_gr_zbc_add_color(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	if (!entry_exist &&
 		(zbc->max_used_color_index < zbc->max_color_index)) {
 
+		c_tbl = &zbc->zbc_col_tbl[zbc->max_used_color_index + 1U];
+		if (c_tbl->ref_cnt != 0U) {
+			return entry_added;
+		}
+
 		/* Increment used index and add new entry at that index */
 		zbc->max_used_color_index =
-			nvgpu_safe_add_u32(zbc->max_used_color_index, 1U);
-
-		c_tbl = &zbc->zbc_col_tbl[zbc->max_used_color_index];
-		WARN_ON(c_tbl->ref_cnt != 0U);
+			zbc->max_used_color_index + 1U;
 
 		/* update local copy */
 		for (i = 0; i < NVGPU_GR_ZBC_COLOR_VALUE_SIZE; i++) {
@@ -205,7 +204,7 @@ static int nvgpu_gr_zbc_add_color(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			c_tbl->color_ds[i] = color_val->color_ds[i];
 		}
 		c_tbl->format = color_val->format;
-		c_tbl->ref_cnt = nvgpu_safe_add_u32(c_tbl->ref_cnt, 1U);
+		c_tbl->ref_cnt = 1U;
 
 		nvgpu_gr_zbc_update_color_reg(g, color_val,
 			zbc->max_used_color_index);
@@ -219,11 +218,13 @@ static int nvgpu_gr_zbc_add_color(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 static int nvgpu_gr_zbc_add(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			    struct nvgpu_gr_zbc_entry *zbc_val)
 {
-	int added = false;
+	int added = 0;
+	u32 cur_instance_id = 0U;
 #if defined(CONFIG_NVGPU_LS_PMU) && defined(CONFIG_NVGPU_POWER_PG)
 	u32 entries;
 #endif
 
+	cur_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	/* no endian swap ? */
 	nvgpu_mutex_acquire(&zbc->zbc_lock);
 	nvgpu_speculation_barrier();
@@ -235,20 +236,20 @@ static int nvgpu_gr_zbc_add(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		added = nvgpu_gr_zbc_add_depth(g, zbc, zbc_val);
 		break;
 	case NVGPU_GR_ZBC_TYPE_STENCIL:
-		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL)) {
+		if (nvgpu_is_gr_class_enabled(g,
+				NVGPU_SUPPORT_ZBC_STENCIL, cur_instance_id)) {
 			added =  nvgpu_gr_zbc_add_stencil(g, zbc, zbc_val);
 		} else {
 			nvgpu_err(g,
 			"invalid zbc table type %d", zbc_val->type);
 			added = -EINVAL;
-			goto err_mutex;
 		}
 		break;
 	default:
 		nvgpu_err(g,
 			"invalid zbc table type %d", zbc_val->type);
 		added = -EINVAL;
-		goto err_mutex;
+		break;
 	}
 
 #if defined(CONFIG_NVGPU_LS_PMU) && defined(CONFIG_NVGPU_POWER_PG)
@@ -265,7 +266,6 @@ static int nvgpu_gr_zbc_add(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	}
 #endif
 
-err_mutex:
 	nvgpu_mutex_release(&zbc->zbc_lock);
 	if (added < 0) {
 		return added;
@@ -289,20 +289,28 @@ int nvgpu_gr_zbc_query_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 {
 	u32 index = query_params->index_size;
 	u32 i;
+	u32 cur_instance_id = 0U;
+	int error = 0;
 
+	cur_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	nvgpu_speculation_barrier();
 	switch (query_params->type) {
 	case NVGPU_GR_ZBC_TYPE_INVALID:
 		nvgpu_log(g, gpu_dbg_zbc, "Query zbc size");
-		query_params->index_size = nvgpu_safe_add_u32(
-			nvgpu_safe_sub_u32(zbc->max_color_index,
-				zbc->min_color_index), 1U);
+		if ((zbc->max_color_index == U32_MAX) || (zbc->max_color_index < zbc->min_color_index)) {
+			nvgpu_err(g, "zbc color max/min index wrong max=%u min=%u",
+				zbc->max_color_index, zbc->min_color_index);
+			error = -EINVAL;
+			break;
+		}
+		query_params->index_size = zbc->max_color_index - zbc->min_color_index + 1U;
 		break;
 	case NVGPU_GR_ZBC_TYPE_COLOR:
 		if ((index < zbc->min_color_index) ||
 				(index > zbc->max_color_index)) {
 			nvgpu_err(g, "invalid zbc color table index %u", index);
-			return -EINVAL;
+			error = -EINVAL;
+			break;
 		}
 		nvgpu_log(g, gpu_dbg_zbc, "Query zbc color at index %u", index);
 
@@ -321,7 +329,8 @@ int nvgpu_gr_zbc_query_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		if ((index < zbc->min_depth_index) ||
 				(index > zbc->max_depth_index)) {
 			nvgpu_err(g, "invalid zbc depth table index %u", index);
-			return -EINVAL;
+			error = -EINVAL;
+			break;
 		}
 		nvgpu_log(g, gpu_dbg_zbc, "Query zbc depth at index %u", index);
 
@@ -331,13 +340,15 @@ int nvgpu_gr_zbc_query_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		query_params->ref_cnt = zbc->zbc_dep_tbl[index].ref_cnt;
 		break;
 	case NVGPU_GR_ZBC_TYPE_STENCIL:
-		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL)) {
+		if (nvgpu_is_gr_class_enabled(g,
+					NVGPU_SUPPORT_ZBC_STENCIL, cur_instance_id)) {
 			if ((index < zbc->min_stencil_index) ||
 					(index > zbc->max_stencil_index)) {
 				nvgpu_err(g,
 					"invalid zbc stencil table index %u",
 					index);
-				return -EINVAL;
+				error = -EINVAL;
+				break;
 			}
 			nvgpu_log(g, gpu_dbg_zbc,
 				"Query zbc stencil at index %u", index);
@@ -348,16 +359,18 @@ int nvgpu_gr_zbc_query_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 			query_params->ref_cnt = zbc->zbc_s_tbl[index].ref_cnt;
 		} else {
 			nvgpu_err(g, "invalid zbc table type");
-			return -EINVAL;
+			error = -EINVAL;
 		}
 		break;
 	default:
 		nvgpu_err(g, "invalid zbc table type");
-		return -EINVAL;
+		error = -EINVAL;
+		break;
 	}
 
-	return 0;
+	return error;
 }
+#endif
 
 /*
  * Update zbc table registers as per sw copy of zbc tables
@@ -365,7 +378,9 @@ int nvgpu_gr_zbc_query_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 void nvgpu_gr_zbc_load_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc)
 {
 	unsigned int i;
+	u32 cur_instance_id = 0U;
 
+	cur_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	for (i = zbc->min_color_index; i <= zbc->max_used_color_index; i++) {
 		struct zbc_color_table *c_tbl = &zbc->zbc_col_tbl[i];
 		struct nvgpu_gr_zbc_entry zbc_val;
@@ -391,7 +406,8 @@ void nvgpu_gr_zbc_load_table(struct gk20a *g, struct nvgpu_gr_zbc *zbc)
 		nvgpu_gr_zbc_update_depth_reg(g, &zbc_val, i);
 	}
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL)) {
+	if (nvgpu_is_gr_class_enabled(g,
+				NVGPU_SUPPORT_ZBC_STENCIL, cur_instance_id)) {
 		for (i = zbc->min_stencil_index;
 			i <= zbc->max_used_stencil_index; i++) {
 			struct zbc_stencil_table *s_tbl = &zbc->zbc_s_tbl[i];
@@ -525,6 +541,7 @@ void nvgpu_gr_zbc_deinit(struct gk20a *g, struct nvgpu_gr_zbc *zbc)
 	nvgpu_kfree(g, zbc);
 }
 
+#ifdef CONFIG_NVGPU_ZBC_USER
 struct nvgpu_gr_zbc_entry *nvgpu_gr_zbc_entry_alloc(struct gk20a *g)
 {
 	return nvgpu_kzalloc(g, sizeof(struct nvgpu_gr_zbc_entry));
@@ -534,44 +551,22 @@ void nvgpu_gr_zbc_entry_free(struct gk20a *g, struct nvgpu_gr_zbc_entry *entry)
 	nvgpu_kfree(g, entry);
 }
 
-u32 nvgpu_gr_zbc_get_entry_color_ds(struct nvgpu_gr_zbc_entry *entry,
-		int idx)
-{
-	return entry->color_ds[idx];
-}
-
 void nvgpu_gr_zbc_set_entry_color_ds(struct nvgpu_gr_zbc_entry *entry,
-		int idx, u32 ds)
+		u32 idx, u32 ds)
 {
 	entry->color_ds[idx] = ds;
 }
 
-u32 nvgpu_gr_zbc_get_entry_color_l2(struct nvgpu_gr_zbc_entry *entry,
-		int idx)
-{
-	return entry->color_l2[idx];
-}
-
 void nvgpu_gr_zbc_set_entry_color_l2(struct nvgpu_gr_zbc_entry *entry,
-		int idx, u32 l2)
+		u32 idx, u32 l2)
 {
 	entry->color_l2[idx] = l2;
-}
-
-u32 nvgpu_gr_zbc_get_entry_depth(struct nvgpu_gr_zbc_entry *entry)
-{
-	return entry->depth;
 }
 
 void nvgpu_gr_zbc_set_entry_depth(struct nvgpu_gr_zbc_entry *entry,
 		u32 depth)
 {
 	entry->depth = depth;
-}
-
-u32 nvgpu_gr_zbc_get_entry_stencil(struct nvgpu_gr_zbc_entry *entry)
-{
-	return entry->stencil;
 }
 
 void nvgpu_gr_zbc_set_entry_stencil(struct nvgpu_gr_zbc_entry *entry,
@@ -591,13 +586,36 @@ void nvgpu_gr_zbc_set_entry_type(struct nvgpu_gr_zbc_entry *entry,
 	entry->type = type;
 }
 
-u32 nvgpu_gr_zbc_get_entry_format(struct nvgpu_gr_zbc_entry *entry)
-{
-	return entry->format;
-}
-
 void nvgpu_gr_zbc_set_entry_format(struct nvgpu_gr_zbc_entry *entry,
 		u32 format)
 {
 	entry->format = format;
+}
+
+u32 nvgpu_gr_zbc_get_entry_color_ds(struct nvgpu_gr_zbc_entry *entry,
+		u32 idx)
+{
+	return entry->color_ds[idx];
+}
+#endif
+
+u32 nvgpu_gr_zbc_get_entry_stencil(struct nvgpu_gr_zbc_entry *entry)
+{
+	return entry->stencil;
+}
+
+u32 nvgpu_gr_zbc_get_entry_depth(struct nvgpu_gr_zbc_entry *entry)
+{
+	return entry->depth;
+}
+
+u32 nvgpu_gr_zbc_get_entry_color_l2(struct nvgpu_gr_zbc_entry *entry,
+		u32 idx)
+{
+	return entry->color_l2[idx];
+}
+
+u32 nvgpu_gr_zbc_get_entry_format(struct nvgpu_gr_zbc_entry *entry)
+{
+	return entry->format;
 }

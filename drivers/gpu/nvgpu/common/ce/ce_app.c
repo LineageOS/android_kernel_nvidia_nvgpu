@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/gk20a.h>
@@ -34,37 +15,19 @@
 
 #include "common/ce/ce_priv.h"
 
-static inline u32 nvgpu_ce_get_valid_launch_flags(struct gk20a *g,
-		u32 launch_flags)
-{
-#ifdef CONFIG_NVGPU_DGPU
-	/*
-	 * there is no local memory available,
-	 * don't allow local memory related CE flags
-	 */
-	if (g->mm.vidmem.size == 0ULL) {
-		launch_flags &= ~(NVGPU_CE_SRC_LOCATION_LOCAL_FB |
-			NVGPU_CE_DST_LOCATION_LOCAL_FB);
-	}
-#endif
-	return launch_flags;
-}
 
 int nvgpu_ce_execute_ops(struct gk20a *g,
 		u32 ce_ctx_id,
-		u64 src_paddr,
 		u64 dst_paddr,
 		u64 size,
 		u32 payload,
-		u32 launch_flags,
-		u32 request_operation,
-		u32 submit_flags,
 		struct nvgpu_fence_type **fence_out)
 {
 	int ret = -EPERM;
 	struct nvgpu_ce_app *ce_app = g->ce_app;
 	struct nvgpu_ce_gpu_ctx *ce_ctx, *ce_ctx_save;
 	bool found = false;
+	u32 submit_flags = 0;
 	u32 *cmd_buf_cpu_va;
 	u64 cmd_buf_gpu_va = 0UL;
 	u32 method_size;
@@ -84,16 +47,6 @@ int nvgpu_ce_execute_ops(struct gk20a *g,
 		goto end;
 	}
 
-	if (request_operation != NVGPU_CE_PHYS_MODE_TRANSFER &&
-	    request_operation != NVGPU_CE_MEMSET) {
-		ret = -EINVAL;
-		goto end;
-	}
-
-	if (src_paddr > NVGPU_CE_MAX_ADDRESS) {
-		ret = -EINVAL;
-		goto end;
-	}
 
 	if (dst_paddr > NVGPU_CE_MAX_ADDRESS) {
 		ret = -EINVAL;
@@ -150,13 +103,10 @@ int nvgpu_ce_execute_ops(struct gk20a *g,
 			(u64)(cmd_buf_read_offset * sizeof(u32)));
 
 	dma_copy_class = g->ops.get_litter_value(g, GPU_LIT_DMA_COPY_CLASS);
-	method_size = nvgpu_ce_prepare_submit(src_paddr,
-			dst_paddr,
+	method_size = nvgpu_ce_prepare_submit(dst_paddr,
 			size,
 			&cmd_buf_cpu_va[cmd_buf_read_offset],
 			payload,
-			nvgpu_ce_get_valid_launch_flags(g, launch_flags),
-			request_operation,
 			dma_copy_class);
 	nvgpu_assert(method_size <= NVGPU_CE_MAX_COMMAND_BUFF_BYTES_PER_SUBMIT);
 
@@ -250,145 +200,80 @@ static void nvgpu_ce_delete_gpu_context_locked(struct nvgpu_ce_gpu_ctx *ce_ctx)
 }
 
 static u32 nvgpu_prepare_ce_op(u32 *cmd_buf_cpu_va,
-		u64 src_paddr, u64 dst_paddr,
-		u32 width, u32 height, u32 payload,
-		bool mode_transfer, u32 launch_flags)
+		u64 dst_paddr, u32 size, u32 payload,
+		bool last_payload)
 {
-	u32 launch = 0U;
 	u32 methodSize = 0U;
+	u32 launch = 0;
 
-	if (mode_transfer) {
-		/* setup the source */
-		cmd_buf_cpu_va[methodSize++] = 0x20028100;
-		cmd_buf_cpu_va[methodSize++] = (u64_hi32(src_paddr) &
-			NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK);
-		cmd_buf_cpu_va[methodSize++] = (u64_lo32(src_paddr) &
-			NVGPU_CE_LOWER_ADDRESS_OFFSET_MASK);
 
-		cmd_buf_cpu_va[methodSize++] = 0x20018098;
-		if ((launch_flags &
-		     NVGPU_CE_SRC_LOCATION_LOCAL_FB) != 0U) {
-			cmd_buf_cpu_va[methodSize++] = 0x00000000;
-		} else if ((launch_flags &
-		     NVGPU_CE_SRC_LOCATION_NONCOHERENT_SYSMEM) != 0U) {
-			cmd_buf_cpu_va[methodSize++] = 0x00000002;
-		} else {
-			cmd_buf_cpu_va[methodSize++] = 0x00000001;
-		}
+	/* Set the 8-long value (A, B) used for clearing the memory. */
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC8B5_SET_REMAP_CONST_A, 1);
+	cmd_buf_cpu_va[methodSize++] = payload;
 
-		launch |= 0x00001000U;
-	} else { /* memset */
-		/* Remap from component A on 1 byte wide pixels */
-		cmd_buf_cpu_va[methodSize++] = 0x200181c2;
-		cmd_buf_cpu_va[methodSize++] = 0x00000004;
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC8B5_SET_REMAP_CONST_B, 1);
+	cmd_buf_cpu_va[methodSize++] = payload;
 
-		cmd_buf_cpu_va[methodSize++] = 0x200181c0;
-		cmd_buf_cpu_va[methodSize++] = payload;
 
-		launch |= 0x00000400U;
-	}
-
-	/* setup the destination/output */
-	cmd_buf_cpu_va[methodSize++] = 0x20068102;
+	/* Set the destination address */
+	cmd_buf_cpu_va[methodSize++] =  NV_PUSH_INC_METHOD(NVC8B5_OFFSET_OUT_UPPER, 2);
 	cmd_buf_cpu_va[methodSize++] = (u64_hi32(dst_paddr) &
-		NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK);
+					NVGPU_CE_UPPER_ADDRESS_OFFSET_MASK);
 	cmd_buf_cpu_va[methodSize++] = (u64_lo32(dst_paddr) &
-		NVGPU_CE_LOWER_ADDRESS_OFFSET_MASK);
-	/* Pitch in/out */
-	cmd_buf_cpu_va[methodSize++] = width;
-	cmd_buf_cpu_va[methodSize++] = width;
-	/* width and line count */
-	cmd_buf_cpu_va[methodSize++] = width;
-	cmd_buf_cpu_va[methodSize++] = height;
+					NVGPU_CE_LOWER_ADDRESS_OFFSET_MASK);
+	/* Set length */
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC8B5_LINE_LENGTH_IN, 1);
+	cmd_buf_cpu_va[methodSize++] = size;
 
-	cmd_buf_cpu_va[methodSize++] = 0x20018099;
-	if ((launch_flags & NVGPU_CE_DST_LOCATION_LOCAL_FB) != 0U) {
-		cmd_buf_cpu_va[methodSize++] = 0x00000000;
-	} else if ((launch_flags &
-		   NVGPU_CE_DST_LOCATION_NONCOHERENT_SYSMEM) != 0U) {
-		cmd_buf_cpu_va[methodSize++] = 0x00000002;
-	} else {
-		cmd_buf_cpu_va[methodSize++] = 0x00000001;
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC8B5_SET_DST_PHYS_MODE, 1);
+	cmd_buf_cpu_va[methodSize++] = NVC8B5_SET_DST_PHYS_MODE_TARGET_NONCOHERENT_SYSMEM;
+
+	if (last_payload) {
+		launch |= NVC8B5_LAUNCH_DMA_FLUSH_ENABLE_TRUE;
 	}
 
-	launch |= 0x00002005U;
+	launch |= NVC8B5_LAUNCH_DMA_DATA_TRANSFER_TYPE_PIPELINED |
+		NVC8B5_LAUNCH_DMA_SRC_MEMORY_LAYOUT_PITCH |
+		NVC8B5_LAUNCH_DMA_DST_MEMORY_LAYOUT_PITCH |
+		NVC8B5_LAUNCH_DMA_SRC_TYPE_PHYSICAL |
+		NVC8B5_LAUNCH_DMA_DST_TYPE_PHYSICAL |
+		NVC8B5_LAUNCH_DMA_MEMORY_SCRUB_ENABLE_TRUE |
+		NVC8B5_LAUNCH_DMA_DISABLE_PLC_TRUE;
 
-	if ((launch_flags &
-	     NVGPU_CE_SRC_MEMORY_LAYOUT_BLOCKLINEAR) != 0U) {
-		launch |= 0x00000000U;
-	} else {
-		launch |= 0x00000080U;
-	}
-
-	if ((launch_flags &
-	     NVGPU_CE_DST_MEMORY_LAYOUT_BLOCKLINEAR) != 0U) {
-		launch |= 0x00000000U;
-	} else {
-		launch |= 0x00000100U;
-	}
-
-	cmd_buf_cpu_va[methodSize++] = 0x200180c0;
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC8B5_LAUNCH_DMA, 1);
 	cmd_buf_cpu_va[methodSize++] = launch;
 
 	return methodSize;
 }
 
-u32 nvgpu_ce_prepare_submit(u64 src_paddr,
-		u64 dst_paddr,
+u32 nvgpu_ce_prepare_submit(u64 dst_paddr,
 		u64 size,
 		u32 *cmd_buf_cpu_va,
 		u32 payload,
-		u32 launch_flags,
-		u32 request_operation,
 		u32 dma_copy_class)
 {
+	bool perform_flush_on_last_scrub_op;
+	u64 remaining_size = size;
+	u64 dst = dst_paddr;
 	u32 methodSize = 0;
-	u64 low, hi;
-	bool mode_transfer = (request_operation == NVGPU_CE_PHYS_MODE_TRANSFER);
-
+	u32 chunk_size;
 	/* set the channel object */
-	cmd_buf_cpu_va[methodSize++] = 0x20018000;
+	cmd_buf_cpu_va[methodSize++] = NV_PUSH_INC_METHOD(NVC86F_SET_OBJECT, 1);
 	cmd_buf_cpu_va[methodSize++] = dma_copy_class;
 
-	/*
-	 * The CE can work with 2D rectangles of at most 0xffffffff or 4G-1
-	 * pixels per line. Exactly 2G is a more round number, so we'll use
-	 * that as the base unit to clear large amounts of memory. If the
-	 * requested size is not a multiple of 2G, we'll do one clear first to
-	 * deal with the low bits, followed by another in units of 2G.
-	 *
-	 * We'll use 1 bytes per pixel to do byte aligned sets/copies. The
-	 * maximum number of lines is also 4G-1, so (4G-1) * 2 GB is enough for
-	 * whole vidmem.
-	 */
+	while (remaining_size > 0ULL) {
+		if (remaining_size < NVGPU_CE_MAX_COPY_SIZE) {
+			chunk_size = nvgpu_safe_cast_u64_to_u32(remaining_size);
+		} else {
+			chunk_size = NVGPU_CE_MAX_COPY_SIZE;
+		}
 
-	/* Lower 2GB */
-	low = size & 0x7fffffffULL;
-	/* Over 2GB */
-	hi  = size >> 31U;
-
-	/*
-	 * Unable to fit this in one submit, but no device should have this
-	 * much memory anyway.
-	 */
-	if (hi > 0xffffffffULL) {
-		/* zero size means error */
-		return 0;
-	}
-
-	if (low != 0U) {
-		/* do the low bytes in one long line */
+		perform_flush_on_last_scrub_op = (remaining_size == chunk_size);
 		methodSize += nvgpu_prepare_ce_op(&cmd_buf_cpu_va[methodSize],
-				src_paddr, dst_paddr,
-				nvgpu_safe_cast_u64_to_u32(low), 1,
-				payload, mode_transfer, launch_flags);
-	}
-	if (hi != 0U) {
-		/* do the high bytes in many 2G lines */
-		methodSize += nvgpu_prepare_ce_op(&cmd_buf_cpu_va[methodSize],
-				src_paddr + low, dst_paddr + low,
-				0x80000000ULL, nvgpu_safe_cast_u64_to_u32(hi),
-				payload, mode_transfer, launch_flags);
+				dst, chunk_size,
+				payload, perform_flush_on_last_scrub_op);
+		dst = nvgpu_safe_add_u64(dst, chunk_size);
+		remaining_size -= chunk_size;
 	}
 
 	return methodSize;
@@ -506,7 +391,7 @@ u32 nvgpu_ce_app_create_context(struct gk20a *g,
 	ce_ctx->vm = g->mm.ce.vm;
 
 	/* allocate a tsg if needed */
-	ce_ctx->tsg = nvgpu_tsg_open(g, nvgpu_current_pid(g));
+	ce_ctx->tsg = nvgpu_tsg_open(g, nvgpu_current_pid(g), 0U);
 	if (ce_ctx->tsg == NULL) {
 		nvgpu_err(g, "ce: gk20a tsg not available");
 		goto end;

@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 /*
  * GK20A Graphics channel
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <nvgpu/trace.h>
@@ -21,6 +10,12 @@
 #include <linux/anon_inodes.h>
 #include <linux/dma-buf.h>
 #include <linux/poll.h>
+#if defined(CONFIG_TEGRA_GK20A_NVHOST_HOST1X) && defined(__KERNEL__)
+#include <linux/host1x-next.h>
+#else
+#define HOST1X_GLOBAL_TO_LOCAL_SYNCPOINT(id)	(id)
+#define HOST1X_LOCAL_TO_GLOBAL_SYNCPOINT(id, node_id)	(id)
+#endif
 #include <uapi/linux/nvgpu.h>
 
 #include <nvgpu/semaphore.h>
@@ -65,6 +60,7 @@
 #define CSS_MIN_CLIENT_SNAPSHOT_SIZE				\
 		(sizeof(struct gk20a_cs_snapshot_fifo) +	\
 		sizeof(struct gk20a_cs_snapshot_fifo_entry) * 256)
+
 
 #ifdef CONFIG_NVGPU_TRACE
 static const char *gr_gk20a_graphics_preempt_mode_name(u32 graphics_preempt_mode)
@@ -249,7 +245,7 @@ int gk20a_attach_cycle_stats_snapshot(struct nvgpu_channel *ch,
 
 	ch->cs_client = client;
 
-	ret = nvgpu_css_attach(ch,
+	ret = nvgpu_css_attach(g,
 				perfmon_id_count,
 				perfmon_id_start,
 				ch->cs_client);
@@ -282,7 +278,7 @@ int gk20a_channel_free_cycle_stats_snapshot(struct nvgpu_channel *ch)
 				struct gk20a_cs_snapshot_client_linux,
 				cs_client);
 
-	ret = nvgpu_css_detach(ch, ch->cs_client);
+	ret = nvgpu_css_detach(ch->g, ch->cs_client);
 
 	if (client_linux->dma_handler) {
 		if (ch->cs_client->snapshot) {
@@ -617,9 +613,6 @@ static u32 nvgpu_setup_bind_user_flags_to_common_flags(u32 user_flags)
 {
 	u32 flags = 0;
 
-	if (user_flags & NVGPU_CHANNEL_SETUP_BIND_FLAGS_VPR_ENABLED)
-		flags |= NVGPU_SETUP_BIND_FLAGS_SUPPORT_VPR;
-
 	if (user_flags & NVGPU_CHANNEL_SETUP_BIND_FLAGS_DETERMINISTIC)
 		flags |= NVGPU_SETUP_BIND_FLAGS_SUPPORT_DETERMINISTIC;
 
@@ -631,6 +624,19 @@ static u32 nvgpu_setup_bind_user_flags_to_common_flags(u32 user_flags)
 
 	if (user_flags & NVGPU_CHANNEL_SETUP_BIND_FLAGS_USERMODE_GPU_MAP_RESOURCES_SUPPORT)
 		flags |= NVGPU_SETUP_BIND_FLAGS_USERMODE_GPU_MAP_RESOURCES_SUPPORT;
+
+	return flags;
+}
+
+static u32 nvgpu_alloc_gpfifo_user_flags_to_common_flags(u32 user_flags)
+{
+	u32 flags = 0;
+
+	if (user_flags & NVGPU_ALLOC_GPFIFO_EX_FLAGS_DETERMINISTIC)
+		flags |= NVGPU_SETUP_BIND_FLAGS_SUPPORT_DETERMINISTIC;
+
+	if (user_flags & NVGPU_ALLOC_GPFIFO_EX_FLAGS_REPLAYABLE_FAULTS_ENABLE)
+		flags |= NVGPU_SETUP_BIND_FLAGS_REPLAYABLE_FAULTS_ENABLE;
 
 	return flags;
 }
@@ -662,7 +668,7 @@ static void nvgpu_get_gpfifo_ex_args(
 	setup_bind_args->num_gpfifo_entries = alloc_gpfifo_ex_args->num_entries;
 	setup_bind_args->num_inflight_jobs =
 		alloc_gpfifo_ex_args->num_inflight_jobs;
-	setup_bind_args->flags = nvgpu_setup_bind_user_flags_to_common_flags(
+	setup_bind_args->flags = nvgpu_alloc_gpfifo_user_flags_to_common_flags(
 			alloc_gpfifo_ex_args->flags);
 }
 
@@ -854,6 +860,14 @@ static int gk20a_channel_zcull_bind(struct nvgpu_channel *ch,
 
 	nvgpu_log_fn(g, " ");
 
+	if ((args->mode != NVGPU_ZCULL_MODE_GLOBAL) &&
+	    (args->mode != NVGPU_ZCULL_MODE_NO_CTXSW) &&
+	    (args->mode != NVGPU_ZCULL_MODE_SEPARATE_BUFFER) &&
+	    (args->mode != NVGPU_ZCULL_MODE_PART_OF_REGULAR_BUF)) {
+		nvgpu_err(g, "Invalid mode for zcull bind");
+		return -EINVAL;
+	}
+
 	return g->ops.gr.setup.bind_ctxsw_zcull(g, ch,
 				args->gpu_va, args->mode);
 }
@@ -938,7 +952,8 @@ static int gk20a_ioctl_channel_submit_gpfifo(
 			else
 				args->fence.id = fd;
 		} else {
-			args->fence.id = fence_out.syncpt_id;
+			args->fence.id = HOST1X_LOCAL_TO_GLOBAL_SYNCPOINT(fence_out.syncpt_id,
+					g->numa_node_id);
 			args->fence.value = fence_out.syncpt_value;
 		}
 		nvgpu_user_fence_release(&fence_out);
@@ -968,7 +983,7 @@ u32 nvgpu_get_common_runlist_level(u32 level)
 		pr_err("%s: incorrect runlist level\n", __func__);
 	}
 
-	return level;
+	return NVGPU_FIFO_RUNLIST_INTERLEAVE_LEVEL_INVALID;
 }
 
 static u32 nvgpu_obj_ctx_user_flags_to_common_flags(u32 user_flags)
@@ -980,6 +995,11 @@ static u32 nvgpu_obj_ctx_user_flags_to_common_flags(u32 user_flags)
 
 	if (user_flags & NVGPU_ALLOC_OBJ_FLAGS_CILP)
 		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP;
+
+#ifdef CONFIG_NVGPU_VPR
+	if (user_flags & NVGPU_ALLOC_OBJ_FLAGS_VPR_ENABLED)
+		flags |= NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR;
+#endif
 
 	return flags;
 }
@@ -1067,15 +1087,26 @@ u32 nvgpu_get_ioctl_compute_preempt_mode(u32 compute_preempt_mode)
  */
 static u32 nvgpu_get_common_graphics_preempt_mode(u32 graphics_preempt_mode)
 {
+	u32 mode;
+
 	nvgpu_speculation_barrier();
+
 	switch (graphics_preempt_mode) {
 	case NVGPU_GRAPHICS_PREEMPTION_MODE_WFI:
-		return NVGPU_PREEMPTION_MODE_GRAPHICS_WFI;
+		mode = NVGPU_PREEMPTION_MODE_GRAPHICS_WFI;
+		break;
 	case NVGPU_GRAPHICS_PREEMPTION_MODE_GFXP:
-		return NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
+		mode = NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP;
+		break;
+	case 0U:
+		mode = NVGPU_PREEMPTION_MODE_NONE;
+		break;
+	default:
+		mode = NVGPU_PREEMPTION_MODE_INVALID;
+		break;
 	}
 
-	return graphics_preempt_mode;
+	return mode;
 }
 
 /*
@@ -1084,17 +1115,29 @@ static u32 nvgpu_get_common_graphics_preempt_mode(u32 graphics_preempt_mode)
  */
 static u32 nvgpu_get_common_compute_preempt_mode(u32 compute_preempt_mode)
 {
+	u32 mode;
+
 	nvgpu_speculation_barrier();
+
 	switch (compute_preempt_mode) {
 	case NVGPU_COMPUTE_PREEMPTION_MODE_WFI:
-		return NVGPU_PREEMPTION_MODE_COMPUTE_WFI;
+		mode = NVGPU_PREEMPTION_MODE_COMPUTE_WFI;
+		break;
 	case NVGPU_COMPUTE_PREEMPTION_MODE_CTA:
-		return NVGPU_PREEMPTION_MODE_COMPUTE_CTA;
+		mode = NVGPU_PREEMPTION_MODE_COMPUTE_CTA;
+		break;
 	case NVGPU_COMPUTE_PREEMPTION_MODE_CILP:
-		return NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
+		mode = NVGPU_PREEMPTION_MODE_COMPUTE_CILP;
+		break;
+	case 0U:
+		mode = NVGPU_PREEMPTION_MODE_NONE;
+		break;
+	default:
+		mode = NVGPU_PREEMPTION_MODE_INVALID;
+		break;
 	}
 
-	return compute_preempt_mode;
+	return mode;
 }
 
 static int nvgpu_ioctl_channel_set_preemption_mode(struct nvgpu_channel *ch,
@@ -1167,6 +1210,8 @@ static int nvgpu_ioctl_channel_get_user_syncpoint(struct nvgpu_channel *ch,
 		return err;
 	}
 
+	args->syncpoint_id = HOST1X_LOCAL_TO_GLOBAL_SYNCPOINT(args->syncpoint_id,
+				g->numa_node_id);
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_SYNCPOINT_ADDRESS)) {
 		args->gpu_va =
 			nvgpu_channel_user_syncpt_get_address(ch->user_sync);
@@ -1186,7 +1231,7 @@ long gk20a_channel_ioctl(struct file *filp,
 	struct channel_priv *priv = filp->private_data;
 	struct nvgpu_channel *ch = priv->c;
 	struct device *dev = dev_from_gk20a(ch->g);
-	u8 buf[NVGPU_IOCTL_CHANNEL_MAX_ARG_SIZE] = {0};
+	u8 *buf = NULL;
 	int err = 0;
 	struct gk20a *g = ch->g;
 	u32 gpu_instance_id, gr_instance_id;
@@ -1199,15 +1244,24 @@ long gk20a_channel_ioctl(struct file *filp,
 		(_IOC_SIZE(cmd) > NVGPU_IOCTL_CHANNEL_MAX_ARG_SIZE))
 		return -EINVAL;
 
+	buf = nvgpu_kzalloc(g, NVGPU_IOCTL_CHANNEL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	/* take a ref or return timeout if channel refs can't be taken */
 	ch = nvgpu_channel_get(ch);
-	if (!ch)
-		return -ETIMEDOUT;
+	if (!ch) {
+		err = -ETIMEDOUT;
+		goto exit;
+	}
 
 	gpu_instance_id = nvgpu_get_gpu_instance_id_from_cdev(g, priv->cdev);
 	nvgpu_assert(gpu_instance_id < g->mig.num_gpu_instances);
@@ -1263,7 +1317,14 @@ long gk20a_channel_ioctl(struct file *filp,
 		if (nvgpu_engine_is_multimedia_runlist_id(g, ch->runlist->id)) {
 			if (ch->g->ops.nvenc.multimedia_alloc_ctx != NULL) {
 				err = ch->g->ops.nvenc.multimedia_alloc_ctx(ch, args->class_num, 0);
+			} else if (ch->g->ops.ofa.multimedia_alloc_ctx != NULL) {
+				err = ch->g->ops.ofa.multimedia_alloc_ctx(ch, args->class_num, 0);
+			} else if (ch->g->ops.nvdec.multimedia_alloc_ctx != NULL) {
+				err = ch->g->ops.nvdec.multimedia_alloc_ctx(ch, args->class_num, 0);
+			} else if (ch->g->ops.nvjpg.multimedia_alloc_ctx != NULL) {
+				err = ch->g->ops.nvjpg.multimedia_alloc_ctx(ch, args->class_num, 0);
 			} else {
+				nvgpu_err(g, "multimedia_alloc_ctx not set");
 				err = -EINVAL;
 			}
 		} else {
@@ -1280,6 +1341,14 @@ long gk20a_channel_ioctl(struct file *filp,
 			(struct nvgpu_channel_setup_bind_args *)buf;
 		struct nvgpu_setup_bind_args setup_bind_args;
 
+#ifdef CONFIG_NVGPU_VPR
+		if ((channel_setup_bind_args->flags & NVGPU_CHANNEL_SETUP_BIND_FLAGS_VPR_ENABLED)
+				!= 0U) {
+			err = -EINVAL;
+			nvgpu_err(ch->g, "NVGPU_CHANNEL_SETUP_BIND_FLAGS_VPR_ENABLED deprecated");
+			break;
+		}
+#endif
 		nvgpu_get_setup_bind_args(channel_setup_bind_args,
 				&setup_bind_args);
 
@@ -1337,6 +1406,7 @@ long gk20a_channel_ioctl(struct file *filp,
 			setup_bind_args.userd_gpu_va;
 		channel_setup_bind_args->usermode_mmio_gpu_va =
 			setup_bind_args.usermode_mmio_gpu_va;
+		channel_setup_bind_args->hw_channel_id = ch->chid;
 		gk20a_idle(ch->g);
 		break;
 	}
@@ -1346,6 +1416,14 @@ long gk20a_channel_ioctl(struct file *filp,
 			(struct nvgpu_alloc_gpfifo_ex_args *)buf;
 		struct nvgpu_setup_bind_args setup_bind_args;
 
+#ifdef CONFIG_NVGPU_VPR
+		if ((alloc_gpfifo_ex_args->flags & NVGPU_ALLOC_GPFIFO_EX_FLAGS_VPR_ENABLED)
+				!= 0U) {
+			err = -EINVAL;
+			nvgpu_err(ch->g, "NVGPU_ALLOC_GPFIFO_EX_FLAGS_VPR_ENABLED is deprecated");
+			break;
+		}
+#endif
 		nvgpu_get_gpfifo_ex_args(alloc_gpfifo_ex_args, &setup_bind_args);
 
 		err = gk20a_busy(ch->g);
@@ -1395,6 +1473,7 @@ long gk20a_channel_ioctl(struct file *filp,
 		}
 
 		err = nvgpu_channel_setup_bind(ch, &setup_bind_args);
+		alloc_gpfifo_ex_args->hw_channel_id = ch->chid;
 		gk20a_idle(ch->g);
 		break;
 	}
@@ -1424,6 +1503,10 @@ long gk20a_channel_ioctl(struct file *filp,
 		break;
 #ifdef CONFIG_NVGPU_GRAPHICS
 	case NVGPU_IOCTL_CHANNEL_ZCULL_BIND:
+		if (!nvgpu_is_gr_class_enabled(g, NVGPU_SUPPORT_3D, gr_instance_id)) {
+			err = -EOPNOTSUPP;
+			break;
+		}
 		err = gk20a_busy(ch->g);
 		if (err) {
 			dev_err(dev,
@@ -1624,13 +1707,18 @@ long gk20a_channel_ioctl(struct file *filp,
 		break;
 	}
 
-	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
-		err = copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd));
+	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ)) {
+		if (copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+		}
+	}
 
 	nvgpu_mutex_release(&ch->ioctl_lock);
 
 	nvgpu_channel_put(ch);
 
+exit:
+	nvgpu_kfree(g, buf);
 	nvgpu_log_fn(g, "end");
 
 	return err;

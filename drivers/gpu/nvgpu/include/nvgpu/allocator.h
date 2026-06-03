@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ALLOCATOR_H
@@ -78,11 +60,14 @@ struct nvgpu_allocator_ops {
 	 * @param[in] allocator		Pointer to nvgpu allocator.
 	 * @param[in] len		Size of allocation.
 	 * @param[in] page_size		Page size of resource
+	 * @param[in] align_required    Whether the alloc request needs
+	 *                              aligned GPUVA allocations or not.
+	 * @param[in] align_size        GPUVA size to be aligned with.
 	 *
 	 * @return Address of allocation in case of success, 0 otherwise.
 	 */
 	u64  (*alloc_pte)(struct nvgpu_allocator *allocator, u64 len,
-			  u32 page_size);
+			  u32 page_size, bool align_required, u64 align_size);
 	/**
 	 * @brief Interface to free given address allocation.
 	 *
@@ -595,7 +580,8 @@ u64  nvgpu_alloc(struct nvgpu_allocator *a, u64 len);
  * 		- input parameters are not valid.
  * 		- There is no free space available in the allocator.
  */
-u64  nvgpu_alloc_pte(struct nvgpu_allocator *a, u64 len, u32 page_size);
+u64  nvgpu_alloc_pte(struct nvgpu_allocator *a, u64 len, u32 page_size,
+		bool align_required, u64 align_size);
 
 /**
  * @brief Interface to free allocated resources.
@@ -803,18 +789,36 @@ static inline void nvgpu_fini_alloc_debug(struct nvgpu_allocator *a)
 #endif /* CONFIG_DEBUG_FS */
 
 /**
- * @brief Initialize nvgpu allocator.
+ * @brief Initialize a generic nvgpu allocator.
  *
- * @param[in] a		Pointer to nvgpu allocator.
- * @param[in] g		Pointer to GPU structure.
- * @param[in] name	Name of allocator.
- * @param[in] priv	Pointer to private data.
- * @param[in] dbg	Debug flag.
- * @param[in] ops	Pointer to allocator operations.
+ * This function sets up the common parts of an nvgpu allocator. It checks
+ * the provided operations to ensure they are valid and initializes the
+ * internal mutex. It also sets up the allocator with the provided GPU
+ * pointer, name, private data, and debug flag.
  *
- * @return	0 in case of success, < 0 in case of failure.
- * @retval	-EINVAL For any of the inputs is NULL.
+ * The steps performed by the function are as follows:
+ * -# Check if the provided operations pointer is NULL. If it is, return an
+ *    error indicating invalid arguments.
+ * -# Check if the mandatory operations 'alloc()', 'free_alloc()', and 'fini()'
+ *    are provided. If any of these are NULL, return an error indicating
+ *    invalid arguments.
+ * -# Initialize the allocator's mutex using 'nvgpu_mutex_init()'.
+ * -# Assign the GPU structure pointer to the allocator.
+ * -# Assign the operations structure to the allocator.
+ * -# Assign the private data pointer to the allocator.
+ * -# Assign the debug flag to the allocator.
+ * -# Copy the provided name into the allocator's name field, ensuring it is
+ *    null-terminated.
  *
+ * @param [in] a        The allocator structure to initialize.
+ * @param [in] g        The GPU structure associated with the allocator.
+ * @param [in] name     The name to assign to the allocator.
+ * @param [in] priv     Private data to associate with the allocator.
+ * @param [in] dbg      Debug flag to enable or disable debug messages.
+ * @param [in] ops      The set of operations that define allocator behavior.
+ *
+ * @return 0 upon success.
+ * @return -EINVAL if any input parameters are invalid.
  */
 int  nvgpu_alloc_common_init(struct nvgpu_allocator *a, struct gk20a *g,
 			     const char *name, void *priv, bool dbg,

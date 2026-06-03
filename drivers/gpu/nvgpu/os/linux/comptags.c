@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-buf.h>
 
@@ -57,8 +44,23 @@ int gk20a_alloc_comptags(struct gk20a *g, struct nvgpu_os_buffer *buf,
 	 * used.
 	 */
 	if (g->cbc_use_raw_mode) {
-		nvgpu_err(g, "comptags should not be allocated in raw mode\n");
-		return -EINVAL;
+		priv = gk20a_dma_buf_get_drvdata(buf->dmabuf, buf->dev);
+		if (priv == NULL) {
+			nvgpu_err(g, "priv data null");
+			return -EINVAL;
+		}
+
+		if (priv->registered
+				&& !priv->mutable_metadata && !priv->comptags.enabled) {
+			nvgpu_err(g, "Metadata is not mutable and comtpags cannot be allocated anew.");
+			return -EINVAL;
+		}
+		priv->comptags.allocated = true;
+		priv->comptags.enabled = true;
+		priv->comptags.needs_clear = false;
+		priv->comptags.lines = 0;
+		priv->comptags.offset = 0;
+		return 0;
 	}
 
 	ctag_granularity = g->ops.fb.compression_page_size(g);
@@ -125,6 +127,9 @@ void gk20a_alloc_or_get_comptags(struct gk20a *g,
 	if (!priv->registered || priv->mutable_metadata) {
 		if (!priv->comptags.allocated) {
 			gk20a_alloc_comptags(g, buf, allocator);
+		} else {
+			/* If already allocated, enable the comptags */
+			priv->comptags.enabled = true;
 		}
 	}
 

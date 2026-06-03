@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_VOLT_H
@@ -26,22 +8,46 @@
 #include <nvgpu/boardobjgrp_e32.h>
 #include <common/pmu/boardobj/ucode_boardobj_inf.h>
 
-#define CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES	0x04U
+#define CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES	0x06U
+#define CTRL_VOLT_PWM_ACCUMULATOR_TYPE_COUNT 	0x1
 
 
 #define CTRL_VOLT_VOLT_RAIL_MAX_RAILS	\
 	CTRL_BOARDOBJGRP_E32_MAX_OBJECTS
 
-#define CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES	0x04U
 #define CTRL_VOLT_VOLT_DEV_VID_VSEL_MAX_ENTRIES	0x8U
 #define CTRL_VOLT_DOMAIN_INVALID				0x00U
 #define CLK_PROG_VFE_ENTRY_SRAM					0x01U
 #define NV_PMU_VOLT_VALUE_0V_IN_UV				0U
 
-/*
+/*!
+ * Enumeration of VOLT RAIL types.
+ */
+#define VBIOS_VOLT_TABLE_3X_HAL_VOLT_RAIL_TYPE_LOGICAL		0x0U
+#define VBIOS_VOLT_TABLE_3X_HAL_VOLT_RAIL_TYPE_PHYSICAL 	0x1U
+#define VBIOS_VOLT_TABLE_3X_HAL_VOLT_RAIL_TYPE_INVALID		0x1FU
+
+/*!
+ * Macros for Voltage Rail Types.
+ */
+#define CTRL_VOLT_RAIL_TYPE_BASE				0x00U
+#define CTRL_VOLT_RAIL_TYPE_MODEL_10				0x01U
+#define CTRL_VOLT_RAIL_TYPE_1X					0x02U
+#define CTRL_VOLT_RAIL_TYPE_2X					0x03U
+#define CTRL_VOLT_RAIL_TYPE_2X_LOGICAL				0x04U
+#define CTRL_VOLT_RAIL_TYPE_2X_PHYSICAL 			0x05U
+#define CTRL_VOLT_RAIL_TYPE_3X					0x06U
+// Insert new types here and increment _MAX
+#define CTRL_VOLT_RAIL_TYPE_MAX 				0x06U
+#define CTRL_VOLT_RAIL_TYPE_INVALID				0xFFU
+
+/*!
  * Macros for Voltage Domain HAL.
  */
-#define CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL 0x00U
+#define CTRL_VOLT_DOMAIN_HAL_INVALID				0xFFU
+#define CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL			0x00U
+#define CTRL_VOLT_DOMAIN_HAL_GP10X_SPLIT_RAIL			0x01U
+#define CTRL_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL			0x02U
 
 /*!
  * Special value corresponding to an invalid Voltage Rail Index.
@@ -64,7 +70,9 @@
 enum nv_pmu_pmgr_pwm_source {
 	NV_PMU_PMGR_PWM_SOURCE_INVALID = 0,
 	NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_0 = 4,
-	NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_0 = 13U,
+	NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_1 = 5,
+	NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_0 = 0x12U, // Updated this as per RM, is it ok?
+	NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_1 = 0x13U,
 };
 
 /*!
@@ -86,6 +94,11 @@ enum nv_pmu_pmgr_pwm_source {
 #define CTRL_VOLT_DOMAIN_INVALID	0x00U
 #define CTRL_VOLT_DOMAIN_LOGIC		0x01U
 #define CTRL_VOLT_DOMAIN_SRAM		0x02U
+#define CTRL_VOLT_DOMAIN_MSVDD		0x03U
+//#define CTRL_VOLT_DOMAIN_LOGIC0 	0x04U
+//#define CTRL_VOLT_DOMAIN_LOGIC1 	0x05U
+//#define CTRL_VOLT_DOMAIN_MSVDD0 	0x06U
+//#define CTRL_VOLT_DOMAIN_MSVDD1 	0x07U
 
 /*!
  * Macros for Volt Policy types.
@@ -97,6 +110,7 @@ enum nv_pmu_pmgr_pwm_source {
 #define CTRL_VOLT_POLICY_TYPE_SR_MULTI_STEP		0x02U
 #define CTRL_VOLT_POLICY_TYPE_SR_SINGLE_STEP		0x03U
 #define CTRL_VOLT_POLICY_TYPE_SINGLE_RAIL_MULTI_STEP	0x04U
+#define CTRL_VOLT_POLICY_TYPE_MULTI_RAIL		0x05U
 #define CTRL_VOLT_POLICY_TYPE_SPLIT_RAIL		0xFEU
 #define CTRL_VOLT_POLICY_TYPE_UNKNOWN			0xFFU
 
@@ -115,7 +129,10 @@ struct voltage_rail_metadata {
 	u32 ext_rel_delta_uv[CTRL_VOLT_RAIL_VOLT_DELTA_MAX_ENTRIES];
 	u8 logic_rail_idx;
 	u8 sram_rail_idx;
+	u8 version;
 	struct boardobjgrp_e32 volt_rails;
+	struct boardobjgrpmask_e32 volt_rails_physical_rail_mask;
+	struct boardobjgrpmask_e32 volt_rails_logical_rail_mask;
 };
 
 struct voltage_device_metadata {

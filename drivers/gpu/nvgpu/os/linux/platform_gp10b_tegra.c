@@ -1,17 +1,5 @@
-/*
- * GP10B Tegra Platform Interface
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/string.h>
 #include <linux/clk.h>
@@ -21,9 +9,6 @@
 #include <linux/reset.h>
 #include <linux/iommu.h>
 #include <linux/pm_runtime.h>
-#ifdef CONFIG_TEGRA_BWMGR
-#include <linux/platform/tegra/emc_bwmgr.h>
-#endif
 #include <linux/hashtable.h>
 
 #include <uapi/linux/nvgpu.h>
@@ -149,23 +134,7 @@ int gp10b_tegra_get_clocks(struct device *dev)
 
 void gp10b_tegra_scale_init(struct device *dev)
 {
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-	struct tegra_bwmgr_client *bwmgr_handle;
-
-	if (!profile)
-		return;
-
-	if ((struct tegra_bwmgr_client *)profile->private_data)
-		return;
-
-	bwmgr_handle = tegra_bwmgr_register(TEGRA_BWMGR_CLIENT_GPU);
-	if (!bwmgr_handle)
-		return;
-
-	profile->private_data = (void *)bwmgr_handle;
-#endif
+	return;
 }
 
 void gp10b_tegra_clks_control(struct device *dev, bool enable)
@@ -232,41 +201,14 @@ void gp10b_tegra_prescale(struct device *dev)
 
 	nvgpu_log_fn(g, " ");
 
-	nvgpu_pmu_load_norm(g, &avg);
+	nvgpu_pmu_load_read(g, &avg, NVGPU_PMU_PERFMON_CLASS_GR);
 
 	nvgpu_log_fn(g, "done");
 }
 
-void gp10b_tegra_postscale(struct device *pdev,
-					unsigned long freq)
+void gp10b_tegra_postscale(struct device *pdev, unsigned long freq)
 {
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(pdev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-	struct gk20a *g = get_gk20a(pdev);
-	unsigned long emc_rate;
-
-	nvgpu_log_fn(g, " ");
-	if (profile && profile->private_data &&
-			!platform->is_railgated(pdev)) {
-		unsigned long emc_scale;
-
-		if (freq <= gp10b_freq_table[0])
-			emc_scale = 0;
-		else
-			emc_scale = g->emc3d_ratio;
-
-		emc_rate = (freq * EMC_BW_RATIO * emc_scale) / 1000;
-
-		if (emc_rate > tegra_bwmgr_get_max_emc_rate())
-			emc_rate = tegra_bwmgr_get_max_emc_rate();
-
-		tegra_bwmgr_set_emc(
-			(struct tegra_bwmgr_client *)profile->private_data,
-			emc_rate, TEGRA_BWMGR_SET_EMC_FLOOR);
-	}
-	nvgpu_log_fn(g, "done");
-#endif
+	return;
 }
 
 long gp10b_round_clk_rate(struct device *dev, unsigned long rate)

@@ -1,29 +1,11 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/gr/gr_falcon.h>
 #include <nvgpu/io.h>
 #include <nvgpu/debug.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/power_features/pg.h>
 #include <nvgpu/soc.h>
 #include <nvgpu/static_analysis.h>
@@ -55,6 +37,7 @@
 #define NVGPU_FECS_UCODE_IMAGE	"fecs.bin"
 #define NVGPU_GPCCS_UCODE_IMAGE	"gpccs.bin"
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_falcon_get_fw_name(struct gk20a *g, const char **ucode_name, u32 falcon_id)
 {
 	nvgpu_log_fn(g, " ");
@@ -63,6 +46,8 @@ void gm20b_gr_falcon_get_fw_name(struct gk20a *g, const char **ucode_name, u32 f
 		*ucode_name = NVGPU_FECS_UCODE_IMAGE;
 	} else if (falcon_id == FALCON_ID_GPCCS) {
 		*ucode_name = NVGPU_GPCCS_UCODE_IMAGE;
+	} else {
+		/* do nothing */
 	}
 }
 
@@ -73,6 +58,7 @@ void gm20b_gr_falcon_fecs_ctxsw_clear_mailbox(struct gk20a *g,
 	nvgpu_writel(g, gr_fecs_ctxsw_mailbox_clear_r(reg_index),
 			gr_fecs_ctxsw_mailbox_clear_value_f(clear_val));
 }
+#endif
 
 u32 gm20b_gr_falcon_get_gpccs_start_reg_offset(void)
 {
@@ -109,6 +95,7 @@ void gm20b_gr_falcon_start_fecs(struct gk20a *g)
 			gr_fecs_cpuctl_startcpu_f(1U));
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static void gm20b_gr_falcon_wait_for_fecs_arb_idle(struct gk20a *g)
 {
 	u32 retries = FECS_ARB_CMD_TIMEOUT_MAX_US /
@@ -198,6 +185,7 @@ void gm20b_gr_falcon_bind_instblk(struct gk20a *g,
 	gm20b_gr_falcon_wait_for_fecs_arb_idle(g);
 
 }
+#endif
 
 int gm20b_gr_falcon_wait_mem_scrubbing(struct gk20a *g)
 {
@@ -485,6 +473,8 @@ int gm20b_gr_falcon_wait_ctxsw_ready(struct gk20a *g)
 {
 	int ret;
 	uint32_t wdt_val = CTXSW_WDT_DEFAULT_VALUE;
+	bool is_securegpccs_enabled = nvgpu_is_enabled(g, NVGPU_SEC_SECUREGPCCS);
+
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	unsigned long sysclk_freq_mhz = 0UL;
 #endif
@@ -501,7 +491,7 @@ int gm20b_gr_falcon_wait_ctxsw_ready(struct gk20a *g)
 	}
 
 	if (nvgpu_is_enabled(g, NVGPU_GR_USE_DMA_FOR_FW_BOOTSTRAP) ||
-		nvgpu_is_enabled(g, NVGPU_SEC_SECUREGPCCS)) {
+		is_securegpccs_enabled) {
 		nvgpu_writel(g, gr_fecs_current_ctx_r(),
 			gr_fecs_current_ctx_valid_false_f());
 	}
@@ -536,13 +526,14 @@ int gm20b_gr_falcon_wait_ctxsw_ready(struct gk20a *g)
 	return 0;
 }
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 int gm20b_gr_falcon_get_zcull_image_size(struct gk20a *g,
 		struct nvgpu_gr_falcon_query_sizes *sizes)
 {
 	int ret = 0;
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		ret = g->ops.gr.falcon.ctrl_ctxsw(g,
 			NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_ZCULL_IMAGE_SIZE,
 			0, &sizes->zcull_image_size);
@@ -576,26 +567,33 @@ int gm20b_gr_falcon_init_ctx_state(struct gk20a *g,
 
 	nvgpu_log(g, gpu_dbg_gr, "Golden image size = %u", sizes->golden_image_size);
 
+
 #if defined(CONFIG_NVGPU_DEBUGGER) || \
 defined(CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING)
-	ret = g->ops.gr.falcon.ctrl_ctxsw(g,
-		NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_PM_IMAGE_SIZE,
+	if (g->support_gpu_tools) {
+		ret = g->ops.gr.falcon.ctrl_ctxsw(g,
+			NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_PM_IMAGE_SIZE,
 #ifndef CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING
-		0, &sizes->pm_ctxsw_image_size);
+			0, &sizes->pm_ctxsw_image_size);
 #else
-		0, NULL);
+			0, NULL);
 #endif
-	if (ret != 0) {
-		nvgpu_err(g,
-			   "query pm ctx image size failed");
+		if (ret != 0) {
+			nvgpu_err(g,
+				   "query pm ctx image size failed");
 #ifndef CONFIG_NVGPU_CTXSW_FW_ERROR_CODE_TESTING
-		return ret;
+			return ret;
 #endif
+		}
+		nvgpu_log(g, gpu_dbg_gr, "PM CTXSW image size = %u", sizes->pm_ctxsw_image_size);
+	} else {
+		sizes->pm_ctxsw_image_size = 0x0U;
+		ret = 0;
 	}
 
-	nvgpu_log(g, gpu_dbg_gr, "PM CTXSW image size = %u", sizes->pm_ctxsw_image_size);
+
 #endif
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	if (g->ops.gr.falcon.get_zcull_image_size != NULL) {
 		ret = g->ops.gr.falcon.get_zcull_image_size(g, sizes);
 	}
@@ -618,6 +616,7 @@ u32 gm20b_gr_falcon_gpccs_base_addr(void)
 	return gr_gpcs_gpccs_irqsset_r();
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static void gm20b_gr_falcon_fecs_dump_stats(struct gk20a *g)
 {
 	unsigned int i;
@@ -658,6 +657,7 @@ void gm20b_gr_falcon_dump_stats(struct gk20a *g)
 	gm20b_gr_falcon_fecs_dump_stats(g);
 	gm20b_gr_falcon_gpccs_dump_stats(g);
 }
+#endif
 
 u32 gm20b_gr_falcon_get_fecs_ctx_state_store_major_rev_id(struct gk20a *g)
 {
@@ -687,11 +687,9 @@ int gm20b_gr_falcon_submit_fecs_method_op(struct gk20a *g,
 	bool sleepduringwait =
 			(flags & NVGPU_GR_FALCON_SUBMIT_METHOD_F_SLEEP) != 0U;
 
-#ifndef CONFIG_NVGPU_HAL_NON_FUSA
 	if (g->ops.gr.falcon.set_null_fecs_method_data != NULL) {
 		g->ops.gr.falcon.set_null_fecs_method_data(g, &op, fecs_method);
 	}
-#endif
 
 	if ((flags & NVGPU_GR_FALCON_SUBMIT_METHOD_F_LOCKED) == 0U) {
 		nvgpu_mutex_acquire(&gr_falcon->fecs_mutex);
@@ -702,7 +700,9 @@ int gm20b_gr_falcon_submit_fecs_method_op(struct gk20a *g,
 			     op.mailbox.data);
 	}
 
+#ifndef __NVGPU_UNIT_TEST__
 	g->ops.gr.falcon.fecs_ctxsw_clear_mailbox(g, 0U, op.mailbox.clr);
+#endif
 
 	nvgpu_writel(g, gr_fecs_method_data_r(), op.method.data);
 	nvgpu_writel(g, gr_fecs_method_push_r(),
@@ -786,7 +786,7 @@ int gm20b_gr_falcon_ctrl_ctxsw(struct gk20a *g, u32 fecs_method,
 			gr_fecs_method_push_adr_discover_image_size_v();
 		op.mailbox.ret = ret_val;
 		break;
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	case NVGPU_GR_FALCON_METHOD_CTXSW_DISCOVER_ZCULL_IMAGE_SIZE:
 		op.method.addr =
 			gr_fecs_method_push_adr_discover_zcull_image_size_v();
@@ -976,7 +976,8 @@ u32 gm20b_gr_falcon_fecs_host_intr_status(struct gk20a *g,
 	}
 
 	if (gr_fecs_intr != host_int_status) {
-		nvgpu_err(g, "un-supported fecs_host_int_status. "
+		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr,
+			"unhandled fecs_host_int_status. "
 			"fecs_host_int_status: 0x%x "
 			"handled host_int_status: 0x%x",
 			gr_fecs_intr, host_int_status);
@@ -1138,6 +1139,7 @@ void gm20b_gr_falcon_load_ctxsw_ucode_boot(struct gk20a *g, u32 reg_offset,
 #endif
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+#ifdef CONFIG_NVGPU_CILP
 /* Sideband mailbox writes are done a bit differently */
 int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 		struct nvgpu_fecs_method_op op)
@@ -1167,4 +1169,5 @@ int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 
 	return ret;
 }
+#endif
 #endif

@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2020-2024, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/fs.h>
 #include <linux/file.h>
@@ -206,10 +193,19 @@ int nvgpu_prof_fops_release(struct inode *inode, struct file *filp)
 	struct nvgpu_profiler_object_priv *prof_priv = filp->private_data;
 	struct nvgpu_profiler_object *prof = prof_priv->prof;
 	struct gk20a *g = prof_priv->g;
+	int err;
 
 	nvgpu_log(g, gpu_dbg_prof,
 		"Request to close profiler session with scope %u and profiler handle %u",
 		prof->scope, prof->prof_handle);
+
+	if (prof->bound) {
+		err = nvgpu_profiler_unbind_pm_resources(prof);
+		if (err != 0) {
+			nvgpu_err(g, "Profiler handle %u failed to unbind, err %d",
+				 prof->prof_handle, err);
+		}
+	}
 
 	nvgpu_prof_free_pma_stream_priv_data(prof_priv);
 
@@ -276,7 +272,11 @@ static int nvgpu_prof_ioctl_get_pm_resource_type(u32 resource,
 		*pm_resource = NVGPU_PROFILER_PM_RESOURCE_TYPE_PC_SAMPLER;
 		return 0;
 	case NVGPU_PROFILER_PM_RESOURCE_ARG_HES_CWD:
-		return -EINVAL;
+		*pm_resource = NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES;
+		return 0;
+	case NVGPU_PROFILER_PM_RESOURCE_ARG_CCU_PROF:
+		*pm_resource = NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF;
+		return 0;
 	default:
 		break;
 	}
@@ -302,6 +302,20 @@ static int nvgpu_prof_ioctl_reserve_pm_resource(struct nvgpu_profiler_object *pr
 	if (err) {
 		nvgpu_err(prof->g, "invalid resource %u", args->resource);
 		return err;
+	}
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES) {
+		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_CWD_HES)) {
+			nvgpu_err(g, "HES CWD binding not supported");
+			return -EINVAL;
+		}
+	}
+
+	if (pm_resource == NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF) {
+		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_CCU_PROF)) {
+			nvgpu_err(g, "CCU profiler is not supported");
+			return -EINVAL;
+		}
 	}
 
 	flag_ctxsw = ((args->flags & NVGPU_PROFILER_RESERVE_PM_RESOURCE_ARG_FLAG_CTXSW) != 0);
@@ -347,7 +361,9 @@ static int nvgpu_prof_ioctl_reserve_pm_resource(struct nvgpu_profiler_object *pr
 		return -EINVAL;
 	}
 
-	err = nvgpu_profiler_pm_resource_reserve(prof, pm_resource);
+
+	nvgpu_assert(pm_resource != NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM);
+	err = nvgpu_profiler_pm_resource_reserve(prof, pm_resource, NULL);
 	if (err) {
 		return err;
 	}
@@ -367,7 +383,8 @@ static int nvgpu_prof_ioctl_release_pm_resource(struct nvgpu_profiler_object *pr
 		return err;
 	}
 
-	err = nvgpu_profiler_pm_resource_release(prof, pm_resource);
+	nvgpu_assert(pm_resource != NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM);
+	err = nvgpu_profiler_pm_resource_release(prof, pm_resource, 0);
 	if (err) {
 		return err;
 	}
@@ -382,11 +399,12 @@ static int nvgpu_prof_ioctl_alloc_pma_stream(struct nvgpu_profiler_object_priv *
 {
 	struct nvgpu_profiler_object *prof = priv->prof;
 	struct gk20a *g = prof->g;
-	struct mm_gk20a *mm = &g->mm;
 	u64 pma_bytes_available_buffer_offset;
 	u64 pma_buffer_offset;
 	struct dma_buf *pma_dmabuf;
 	struct dma_buf *pma_bytes_available_dmabuf;
+	u32 perfbuf_channel_idx;
+	struct perfbuf *perfbuf;
 	void *cpuva;
 	u32 pma_buffer_size;
 	int err;
@@ -394,20 +412,31 @@ static int nvgpu_prof_ioctl_alloc_pma_stream(struct nvgpu_profiler_object_priv *
 	nvgpu_log(g, gpu_dbg_prof, "Request to setup PMA stream for handle %u",
 		prof->prof_handle);
 
+	if (prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		nvgpu_err(g, "PMA stream %u is already allocated.", prof->pma_channel_id);
+		return -EINVAL;
+	}
+
 	if (prof->pma_buffer_va != 0U) {
 		nvgpu_err(g, "PMA stream already initialized");
 		return -EINVAL;
 	}
 
-	err = nvgpu_profiler_alloc_pma_stream(prof);
+	err = nvgpu_profiler_alloc_pma_stream(prof, &prof->pma_channel_id);
 	if (err != 0) {
 		nvgpu_err(g, "failed to init PMA stream");
 		return err;
 	}
 
-	pma_bytes_available_buffer_offset = mm->perfbuf.pma_bytes_available_buffer_gpu_va;
+	args->pma_channel_id = prof->pma_channel_id;
 
-	err = nvgpu_vm_map_buffer(mm->perfbuf.vm,
+	perfbuf = nvgpu_perfbuf_get_perfbuf(g, prof->pma_channel_id,
+						&perfbuf_channel_idx);
+
+	pma_bytes_available_buffer_offset =
+		perfbuf->pma_bytes_available_buffer_gpu_va[perfbuf_channel_idx];
+
+	err = nvgpu_vm_map_buffer(perfbuf->vm,
 			args->pma_bytes_available_buffer_fd,
 			&pma_bytes_available_buffer_offset,
 			NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET, SZ_4K, 0, 0,
@@ -438,8 +467,8 @@ static int nvgpu_prof_ioctl_alloc_pma_stream(struct nvgpu_profiler_object_priv *
 		goto err_dma_buf_put_pma;
 	}
 
-	pma_buffer_offset = mm->perfbuf.pma_buffer_gpu_va;
-	err = nvgpu_vm_map_buffer(mm->perfbuf.vm, args->pma_buffer_fd,
+	pma_buffer_offset = perfbuf->pma_buffer_gpu_va[perfbuf_channel_idx];
+	err = nvgpu_vm_map_buffer(perfbuf->vm, args->pma_buffer_fd,
 			&pma_buffer_offset,
 			NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET, SZ_4K, 0, 0,
 			args->pma_buffer_offset,
@@ -474,7 +503,6 @@ static int nvgpu_prof_ioctl_alloc_pma_stream(struct nvgpu_profiler_object_priv *
 		prof->pma_bytes_available_buffer_va);
 
 	args->pma_buffer_va = pma_buffer_offset;
-	args->pma_channel_id = 0u;
 
 	/* Decrement pma_dmabuf ref count as we already mapped it. */
 	dma_buf_put(pma_dmabuf);
@@ -484,15 +512,16 @@ static int nvgpu_prof_ioctl_alloc_pma_stream(struct nvgpu_profiler_object_priv *
 err_dma_buf_put_pma_bytes_available:
 	dma_buf_put(pma_bytes_available_dmabuf);
 err_unmap_pma:
-	nvgpu_vm_unmap(mm->perfbuf.vm, args->pma_buffer_offset, NULL);
+	nvgpu_vm_unmap(perfbuf->vm, args->pma_buffer_offset, NULL);
 err_dma_buf_put_pma:
 	dma_buf_put(pma_dmabuf);
 err_unmap_bytes_available:
-	nvgpu_vm_unmap(mm->perfbuf.vm, pma_bytes_available_buffer_offset, NULL);
+	nvgpu_vm_unmap(perfbuf->vm, pma_bytes_available_buffer_offset, NULL);
 err_put_vm:
-	nvgpu_perfbuf_deinit_vm(g);
+	nvgpu_perfbuf_deinit_vm(g, prof->pma_channel_id);
 	nvgpu_profiler_pm_resource_release(prof,
-			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM);
+			NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM,
+			prof->pma_channel_id);
 	return err;
 }
 
@@ -500,16 +529,18 @@ static void nvgpu_prof_free_pma_stream_priv_data(struct nvgpu_profiler_object_pr
 {
 	struct nvgpu_profiler_object *prof = priv->prof;
 	struct gk20a *g = prof->g;
-	struct mm_gk20a *mm = &g->mm;
+	struct perfbuf *perfbuf;
 
 	if (priv->pma_bytes_available_buffer_dmabuf == NULL) {
 		return;
 	}
 
-	nvgpu_vm_unmap(mm->perfbuf.vm, prof->pma_bytes_available_buffer_va, NULL);
+	perfbuf = nvgpu_perfbuf_get_perfbuf(g, prof->pma_channel_id, NULL);
+
+	nvgpu_vm_unmap(perfbuf->vm, prof->pma_bytes_available_buffer_va, NULL);
 	prof->pma_bytes_available_buffer_va = 0U;
 
-	nvgpu_vm_unmap(mm->perfbuf.vm, prof->pma_buffer_va, NULL);
+	nvgpu_vm_unmap(perfbuf->vm, prof->pma_buffer_va, NULL);
 	prof->pma_buffer_va = 0U;
 	prof->pma_buffer_size = 0U;
 
@@ -527,8 +558,9 @@ static int nvgpu_prof_ioctl_free_pma_stream(struct nvgpu_profiler_object_priv *p
 	struct gk20a *g = prof->g;
 	int err;
 
-	nvgpu_log(g, gpu_dbg_prof, "Request to free PMA stream for handle %u",
-		prof->prof_handle);
+	nvgpu_log(g, gpu_dbg_prof,
+		"Request to free PMA stream %u for handle %u",
+		prof->pma_channel_id, prof->prof_handle);
 
 	if (prof->pma_buffer_va == 0U) {
 		nvgpu_err(g, "PMA stream not initialized");
@@ -548,10 +580,11 @@ static int nvgpu_prof_ioctl_free_pma_stream(struct nvgpu_profiler_object_priv *p
 	}
 
 	nvgpu_prof_free_pma_stream_priv_data(priv);
-	nvgpu_profiler_free_pma_stream(prof);
+	nvgpu_profiler_free_pma_stream(prof, prof->pma_channel_id);
 
-	nvgpu_log(g, gpu_dbg_prof, "Request to free PMA stream for handle %u completed",
-		prof->prof_handle);
+	nvgpu_log(g, gpu_dbg_prof,
+		"Request to free PMA stream %u for handle %u completed",
+		prof->pma_channel_id, prof->prof_handle);
 
 	return 0;
 }
@@ -746,13 +779,19 @@ static int nvgpu_prof_ioctl_pma_stream_update_get_put(struct nvgpu_profiler_obje
 		return -EINVAL;
 	}
 
+	if (args->pma_channel_id != prof->pma_channel_id) {
+		nvgpu_err(g, "PMA channel id %u passed is not same as reserved %u",
+				args->pma_channel_id, prof->pma_channel_id);
+		return -EINVAL;
+	}
+
 	err = gk20a_busy(g);
 	if (err != 0) {
 		nvgpu_err(g, "failed to poweron");
 		return -EINVAL;
 	}
 
-	err = nvgpu_perfbuf_update_get_put(prof->g, args->bytes_consumed,
+	err = nvgpu_perfbuf_update_get_put(prof->g, prof->pma_channel_id, args->bytes_consumed,
 			update_bytes_available ? &args->bytes_available : NULL,
 			prof->pma_bytes_available_buffer_cpuva, wait,
 			update_put_ptr ? &args->put_ptr : NULL,
@@ -867,13 +906,494 @@ fail:
 }
 #endif
 
+static int nvgpu_prof_ioctl_get_pma_stream_pools_info(struct nvgpu_profiler_object *prof,
+			struct nvgpu_profiler_channel_get_pools_info_args *buf)
+{
+	struct nvgpu_profiler_channel_pool_info *pool_infos;
+	struct nvgpu_pma_stream_hs_credits *hs_credits;
+	struct gk20a *g = prof->g;
+	u32 num_chiplet_type = 0;
+	int err, i = 0;
+
+	nvgpu_log(g, gpu_dbg_prof,
+		"Get pma stream hs credit pools info: handle %u, num_pool_entries: %u",
+		prof->prof_handle, buf->num_pool_entries);
+
+	if (!nvgpu_profiler_hs_credit_allocation_supported(g)) {
+		nvgpu_log(g, gpu_dbg_prof, "hs credit allocation is not supported");
+		return -EINVAL;
+	}
+
+	if (!prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		nvgpu_err(g, "PMA stream resource not reserved");
+		return -EINVAL;
+	}
+
+	if (!prof->bound) {
+		nvgpu_err(g, "PM resources are not bound to the profiler");
+		return -EINVAL;
+	}
+
+	err = gk20a_busy(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to poweron");
+		return -EINVAL;
+	}
+
+	hs_credits = &g->hs_credits[prof->pma_channel_id];
+	if (!hs_credits->initialized) {
+		nvgpu_err(g, "Credit pool is not initialized");
+		err = -EINVAL;
+		goto out_idle;
+	}
+
+	if (hs_credits->gpc_credit_pool != NULL && hs_credits->gpc_credit_pool_sz != 0) {
+		num_chiplet_type++;
+	}
+
+	if (hs_credits->fbp_credit_pool != NULL && hs_credits->fbp_credit_pool_sz != 0) {
+		num_chiplet_type++;
+	}
+
+	if (hs_credits->sys_max_credits != 0) {
+		num_chiplet_type++;
+	}
+
+	if (buf->num_pool_entries == 0) {
+		buf->num_pool_entries = num_chiplet_type;
+		err = 0;
+		goto out_idle;
+	}
+
+	pool_infos = nvgpu_kzalloc(g, num_chiplet_type * sizeof(*pool_infos));
+	if (pool_infos == NULL) {
+		err = -ENOMEM;
+		goto out_idle;
+	}
+
+	if (hs_credits->gpc_credit_pool != NULL && hs_credits->gpc_credit_pool_sz != 0) {
+		pool_infos[i].chiplet_type = NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC;
+		pool_infos[i].num_chiplets = hs_credits->gpc_credit_pool_sz;
+		pool_infos[i].total_num_credits =
+			nvgpu_safe_cast_u32_to_u16(hs_credits->gpc_pool_max_total_credits);
+		pool_infos[i].pool_index = nvgpu_safe_cast_u32_to_u8(prof->pma_channel_id);
+	}
+
+	i++;
+
+	if (hs_credits->fbp_credit_pool != NULL && hs_credits->fbp_credit_pool_sz != 0) {
+		pool_infos[i].chiplet_type = NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP;
+		pool_infos[i].num_chiplets = hs_credits->fbp_credit_pool_sz;
+		pool_infos[i].total_num_credits =
+			nvgpu_safe_cast_u32_to_u16(hs_credits->fbp_pool_max_total_credits);
+		pool_infos[i].pool_index = nvgpu_safe_cast_u32_to_u8(prof->pma_channel_id);
+	}
+
+	i++;
+
+	if (hs_credits->sys_max_credits != 0) {
+		pool_infos[i].chiplet_type = NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS;
+		pool_infos[i].num_chiplets = 1U;
+		pool_infos[i].total_num_credits =
+			nvgpu_safe_cast_u32_to_u16(hs_credits->sys_max_credits);
+		pool_infos[i].pool_index = nvgpu_safe_cast_u32_to_u8(prof->pma_channel_id);
+	}
+
+	if (copy_to_user((void __user *)(uintptr_t)buf->nvgpu_profiler_channel_pool_info_addr,
+			pool_infos, sizeof(*pool_infos) * buf->num_pool_entries)) {
+		nvgpu_kfree(g, pool_infos);
+		err = -EFAULT;
+		goto out_idle;
+	}
+
+	nvgpu_kfree(g, pool_infos);
+	nvgpu_log(g, gpu_dbg_prof,
+		"Get pma stream hs credit pools info passed. handle: %u", prof->prof_handle);
+
+out_idle:
+	gk20a_idle(g);
+	return err;
+}
+
+static int nvgpu_prof_ioctl_get_pma_stream_hs_credit(struct nvgpu_profiler_object *prof,
+			struct nvgpu_profiler_channel_get_hs_credit_args *buf)
+{
+	struct nvgpu_profiler_channel_get_credit_buf *get_credit_buf;
+	struct nvgpu_pma_stream_hs_credits *hs_credits;
+	struct gk20a *g = prof->g;
+	int i, err;
+
+	nvgpu_log(g, gpu_dbg_prof, "Get pma stream hs credits for handle:%u",
+								prof->prof_handle);
+
+	if (!nvgpu_profiler_hs_credit_allocation_supported(g)) {
+		nvgpu_log(g, gpu_dbg_prof, "hs credit allocation is not supported");
+		return -EINVAL;
+	}
+
+	if (!prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		nvgpu_err(g, "PMA stream resource not reserved");
+		return -EINVAL;
+	}
+
+	if (buf->pma_channel_id != prof->pma_channel_id) {
+		nvgpu_err(g, "PMA channel id %u passed is not same as reserved %u",
+				buf->pma_channel_id, prof->pma_channel_id);
+		return -EINVAL;
+	}
+
+	if (!prof->bound) {
+		nvgpu_err(g, "PM resources are not bound to the profiler");
+		return -EINVAL;
+	}
+
+	err = gk20a_busy(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to poweron");
+		return -EINVAL;
+	}
+
+	hs_credits = &g->hs_credits[prof->pma_channel_id];
+	get_credit_buf = nvgpu_kzalloc(g, buf->credit_buf_count * sizeof(*get_credit_buf));
+	if (get_credit_buf == NULL) {
+		nvgpu_err(g, "get_credit_buf alloc failed");
+		err = -ENOMEM;
+		goto out_idle;
+	}
+
+	if (copy_from_user(get_credit_buf, (void __user *)(uintptr_t)buf->get_credit_buf_addr,
+				buf->credit_buf_count * sizeof(*get_credit_buf))) {
+		nvgpu_err(g, "copy_from_user failed");
+		err = -EFAULT;
+		goto out_free_get_credit_buf;
+	}
+
+	for (i = 0; i < buf->credit_buf_count; i++) {
+		get_credit_buf[i].get_credit_response = NVGPU_PROFILER_CHANNEL_GET_CREDIT_SUCCESS;
+
+		switch (get_credit_buf[i].chiplet_type) {
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC:
+			if (hs_credits->gpc_credit_pool_sz == 0) {
+				get_credit_buf[i].get_credit_response =
+					NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CREDITS;
+				nvgpu_err(g, "No GPC chiplet bound to the channel");
+			} else if (get_credit_buf[i].chiplet_index >=
+							hs_credits->gpc_credit_pool_sz) {
+				get_credit_buf[i].get_credit_response =
+					NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid GPC chiplet index %u >= %u",
+						get_credit_buf[i].chiplet_index,
+						hs_credits->gpc_credit_pool_sz);
+			} else {
+				get_credit_buf[i].num_credits =
+					hs_credits->gpc_credit_pool[get_credit_buf[i].chiplet_index];
+			}
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP:
+			if (hs_credits->fbp_credit_pool_sz == 0) {
+				get_credit_buf[i].get_credit_response =
+					NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CREDITS;
+				nvgpu_err(g, "No FBP chiplet bound to the channel");
+			} else if (get_credit_buf[i].chiplet_index >=
+								hs_credits->fbp_credit_pool_sz) {
+				get_credit_buf[i].get_credit_response =
+					NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid FBP chiplet index %u >= %u",
+						get_credit_buf[i].chiplet_index,
+						hs_credits->fbp_credit_pool_sz);
+			} else {
+				get_credit_buf[i].num_credits =
+					hs_credits->fbp_credit_pool[get_credit_buf[i].chiplet_index];
+			}
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS:
+			if (get_credit_buf[i].chiplet_index != 0) {
+				get_credit_buf[i].get_credit_response =
+					NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid SYS chiplet index %u >= 1",
+							get_credit_buf[i].chiplet_index);
+			} else {
+				get_credit_buf[i].num_credits = hs_credits->sys_credit_pool;
+			}
+			break;
+		default:
+			get_credit_buf[i].get_credit_response =
+				NVGPU_PROFILER_CHANNEL_GET_CREDIT_INVALID_CHIPLET_TYPE;
+			nvgpu_err(g, "invalid chiplet type, %u",
+						get_credit_buf[i].chiplet_type);
+		}
+	}
+
+
+	if (copy_to_user((void __user *)(uintptr_t)buf->get_credit_buf_addr, get_credit_buf,
+			buf->credit_buf_count * sizeof(*get_credit_buf))) {
+		nvgpu_err(g, "copy_to_user failed");
+		err = -EFAULT;
+		goto out_free_get_credit_buf;
+	}
+
+out_free_get_credit_buf:
+	nvgpu_kfree(g, get_credit_buf);
+out_idle:
+	gk20a_idle(g);
+
+	return err;
+}
+
+static int nvgpu_prof_ioctl_set_pma_stream_hs_credit(struct nvgpu_profiler_object *prof,
+			struct nvgpu_profiler_channel_set_hs_credit_args *buf)
+{
+	struct nvgpu_profiler_channel_set_credit_buf *set_credit_buf;
+	struct nvgpu_pma_stream_hs_credits *hs_credits, *tmp_hs_credits;
+	struct gk20a *g = prof->g;
+	u32 gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
+	u32 total_credits;
+	bool gpc_credits_limit_violation = false;
+	bool fbp_credits_limit_violation = false;
+	int i, err;
+
+	nvgpu_log(g, gpu_dbg_prof, "Set pma stream hs credit handle:%u", prof->prof_handle);
+
+	if (!nvgpu_profiler_hs_credit_allocation_supported(g)) {
+		nvgpu_log(g, gpu_dbg_prof, "hs credit allocation is not supported");
+		return -EINVAL;
+	}
+
+	if (!prof->reserved[NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM]) {
+		nvgpu_err(g, "PMA stream resource not reserved");
+		return -EINVAL;
+	}
+
+	if (buf->pma_channel_id != prof->pma_channel_id) {
+		nvgpu_err(g, "PMA channel id %u passed is not same as reserved %u",
+				buf->pma_channel_id, prof->pma_channel_id);
+		return -EINVAL;
+	}
+
+	if (!prof->bound) {
+		nvgpu_err(g, "PM resources are not bound to the profiler");
+		return -EINVAL;
+	}
+
+	err = gk20a_busy(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to poweron");
+		return -EINVAL;
+	}
+
+	hs_credits = &g->hs_credits[prof->pma_channel_id];
+	tmp_hs_credits = nvgpu_kzalloc(g, sizeof(*tmp_hs_credits));
+	if (tmp_hs_credits == NULL) {
+		nvgpu_err(g, "tmp_hs_credits alloc failed");
+		err = -ENOMEM;
+		goto out_idle;
+	}
+
+	if (hs_credits->gpc_credit_pool_sz != 0) {
+		tmp_hs_credits->gpc_credit_pool =
+				nvgpu_kzalloc(g, sizeof(u32) * hs_credits->gpc_credit_pool_sz);
+		if (tmp_hs_credits->gpc_credit_pool == NULL) {
+			nvgpu_err(g, "tmp_hs_credits->gpc_credit_pool alloc failed");
+			err = -ENOMEM;
+			goto gpc_credit_pool_alloc_failed;
+		}
+
+		memcpy(tmp_hs_credits->gpc_credit_pool, hs_credits->gpc_credit_pool,
+						sizeof(u32) * hs_credits->gpc_credit_pool_sz);
+	}
+	if (hs_credits->fbp_credit_pool_sz != 0) {
+		tmp_hs_credits->fbp_credit_pool =
+				nvgpu_kzalloc(g, sizeof(u32) * hs_credits->fbp_credit_pool_sz);
+		if (tmp_hs_credits->fbp_credit_pool == NULL) {
+			nvgpu_err(g, "tmp_hs_credits->fbp_credit_pool alloc failed");
+			err = -ENOMEM;
+			goto fbp_credit_pool_alloc_failed;
+		}
+		memcpy(tmp_hs_credits->fbp_credit_pool, hs_credits->fbp_credit_pool,
+						sizeof(u32) * hs_credits->fbp_credit_pool_sz);
+	}
+
+	tmp_hs_credits->sys_credit_pool = hs_credits->sys_credit_pool;
+
+	set_credit_buf = nvgpu_kzalloc(g, sizeof(*set_credit_buf) * buf->credit_buf_count);
+	if (set_credit_buf == NULL) {
+		nvgpu_err(g, "set_credit_buf alloc failed");
+		err = -ENOMEM;
+		goto set_credit_buf_alloc_failed;
+	}
+	if (copy_from_user(set_credit_buf, (void __user *)(uintptr_t)buf->set_credit_buf_addr,
+				sizeof(*set_credit_buf) * buf->credit_buf_count)) {
+		nvgpu_err(g, "copy from user failed");
+		err = -ENOMEM;
+		goto copy_from_user_failed;
+	}
+
+	for (i = 0; i < buf->credit_buf_count; i++) {
+		set_credit_buf[i].set_credit_response = NVGPU_PROFILER_CHANNEL_SET_CREDIT_SUCCESS;
+
+		switch (set_credit_buf[i].chiplet_type) {
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC:
+			if (set_credit_buf[i].chiplet_index >= hs_credits->gpc_credit_pool_sz) {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid GPC chiplet index %u >= %u",
+						set_credit_buf[i].chiplet_index,
+						hs_credits->gpc_credit_pool_sz);
+				err = -EINVAL;
+			} else {
+				tmp_hs_credits->gpc_credit_pool[set_credit_buf[i].chiplet_index] =
+							set_credit_buf[i].num_credits;
+			}
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP:
+			if (set_credit_buf[i].chiplet_index >= hs_credits->fbp_credit_pool_sz) {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid FBP chiplet index %u >= %u",
+						set_credit_buf[i].chiplet_index,
+						hs_credits->fbp_credit_pool_sz);
+				err = -EINVAL;
+			} else {
+				tmp_hs_credits->fbp_credit_pool[set_credit_buf[i].chiplet_index] =
+							set_credit_buf[i].num_credits;
+			}
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS:
+			if (set_credit_buf[i].chiplet_index != 0) {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CHIPLET_INDEX;
+				nvgpu_err(g, "Invalid SYS chiplet index %u >= 1",
+						set_credit_buf[i].chiplet_index);
+				err = -EINVAL;
+			} else if (set_credit_buf[i].num_credits <= hs_credits->sys_max_credits) {
+				tmp_hs_credits->sys_credit_pool = set_credit_buf[i].num_credits;
+			} else {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CREDITS;
+				nvgpu_err(g, "Invalid SYS chiplet's num_credits %u > %u",
+					set_credit_buf[i].num_credits, hs_credits->sys_max_credits);
+				err = -EINVAL;
+			}
+			break;
+
+		default:
+			set_credit_buf[i].set_credit_response =
+				NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CHIPLET_TYPE;
+			nvgpu_err(g, "invalid chiplet type, %u", set_credit_buf[i].chiplet_type);
+			err = -EINVAL;
+		}
+	}
+
+	total_credits = 0U;
+	for (i = 0U; i < hs_credits->gpc_credit_pool_sz; i++) {
+		total_credits = nvgpu_safe_add_u32(total_credits,
+						  tmp_hs_credits->gpc_credit_pool[i]);
+	}
+	if (total_credits > hs_credits->gpc_pool_max_total_credits) {
+		nvgpu_err(g, "gpc total credits (%u) exceeds max credits (%u) allocated",
+			total_credits, hs_credits->gpc_pool_max_total_credits);
+		err = -EINVAL;
+		gpc_credits_limit_violation = true;
+	}
+
+	total_credits = 0U;
+	for (i = 0U; i < hs_credits->fbp_credit_pool_sz; i++) {
+		total_credits = nvgpu_safe_add_u32(total_credits,
+						  tmp_hs_credits->fbp_credit_pool[i]);
+	}
+	if (total_credits > hs_credits->fbp_pool_max_total_credits) {
+		nvgpu_err(g, "fbp total credits (%u) exceeds max credits (%u) allocated",
+			total_credits, hs_credits->fbp_pool_max_total_credits);
+		err = -EINVAL;
+		fbp_credits_limit_violation = true;
+	}
+
+	for (i = 0U; i < buf->credit_buf_count; i++) {
+		if (set_credit_buf[i].set_credit_response !=
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_SUCCESS) {
+			continue;
+		}
+
+		switch (set_credit_buf[i].chiplet_type) {
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC:
+			if (gpc_credits_limit_violation) {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CREDITS;
+				break;
+			}
+			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_GPC,
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+			hs_credits->gpc_credit_pool[set_credit_buf[i].chiplet_index] =
+								set_credit_buf[i].num_credits;
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP:
+			if (fbp_credits_limit_violation) {
+				set_credit_buf[i].set_credit_response =
+					NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CREDITS;
+				break;
+			}
+			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_FBP,
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+			hs_credits->fbp_credit_pool[set_credit_buf[i].chiplet_index] =
+								set_credit_buf[i].num_credits;
+			break;
+
+		case NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS:
+			if (set_credit_buf[i].set_credit_response !=
+						NVGPU_PROFILER_CHANNEL_SET_CREDIT_SUCCESS) {
+				break;
+			}
+
+			g->ops.profiler.set_hs_credit_per_chiplet(g, gr_instance_id,
+				hs_credits->pma_channel_id, NVGPU_PROFILER_CHANNEL_CHIPLET_TYPE_SYS,
+				set_credit_buf[i].chiplet_index, set_credit_buf[i].num_credits);
+			hs_credits->sys_credit_pool = set_credit_buf[i].num_credits;
+			break;
+		default:
+			set_credit_buf[i].set_credit_response =
+				NVGPU_PROFILER_CHANNEL_SET_CREDIT_INVALID_CHIPLET_TYPE;
+			nvgpu_err(g, "invalid chiplet type, %u", set_credit_buf[i].chiplet_type);
+			err = -EINVAL;
+		}
+	}
+
+	if (copy_to_user((void __user *)(uintptr_t)buf->set_credit_buf_addr, set_credit_buf,
+						buf->credit_buf_count * sizeof(*set_credit_buf))) {
+		nvgpu_err(g, "copy to user failed");
+		err = -EFAULT;
+		goto copy_from_user_failed;
+	}
+
+	err = 0;
+
+copy_from_user_failed:
+	nvgpu_kfree(g, set_credit_buf);
+set_credit_buf_alloc_failed:
+	nvgpu_kfree(g, tmp_hs_credits->fbp_credit_pool);
+fbp_credit_pool_alloc_failed:
+	nvgpu_kfree(g, tmp_hs_credits->gpc_credit_pool);
+gpc_credit_pool_alloc_failed:
+	nvgpu_kfree(g, tmp_hs_credits);
+out_idle:
+	gk20a_idle(g);
+
+	return err;
+}
+
 long nvgpu_prof_fops_ioctl(struct file *filp, unsigned int cmd,
 		unsigned long arg)
 {
 	struct nvgpu_profiler_object_priv *prof_priv = filp->private_data;
 	struct nvgpu_profiler_object *prof = prof_priv->prof;
 	struct gk20a *g = prof_priv->g;
-	u8 __maybe_unused buf[NVGPU_PROFILER_IOCTL_MAX_ARG_SIZE];
+	u8 __maybe_unused *buf;
 	int err = 0;
 	u32 gr_instance_id =
 		nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
@@ -892,10 +1412,15 @@ long nvgpu_prof_fops_ioctl(struct file *filp, unsigned int cmd,
 		return -EINVAL;
 	}
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_PROFILER_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
 		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
-			return -EFAULT;
+			err = -EFAULT;
+			goto exit;
 		}
 	}
 
@@ -989,6 +1514,21 @@ long nvgpu_prof_fops_ioctl(struct file *filp, unsigned int cmd,
 		}
 		break;
 #endif
+	case NVGPU_PROFILER_IOCTL_GET_PMA_STREAM_POOLS_INFO:
+		err = nvgpu_prof_ioctl_get_pma_stream_pools_info(prof,
+			(struct nvgpu_profiler_channel_get_pools_info_args *)buf);
+		break;
+
+	case NVGPU_PROFILER_IOCTL_GET_PMA_STREAM_HS_CREDIT:
+		err = nvgpu_prof_ioctl_get_pma_stream_hs_credit(prof,
+			(struct nvgpu_profiler_channel_get_hs_credit_args *)buf);
+		break;
+
+	case NVGPU_PROFILER_IOCTL_SET_PMA_STREAM_HS_CREDIT:
+		err = nvgpu_prof_ioctl_set_pma_stream_hs_credit(prof,
+			(struct nvgpu_profiler_channel_set_hs_credit_args *)buf);
+		break;
+
 
 	default:
 		nvgpu_err(g, "unrecognized profiler ioctl cmd: 0x%x", cmd);
@@ -1004,6 +1544,9 @@ long nvgpu_prof_fops_ioctl(struct file *filp, unsigned int cmd,
 
 	nvgpu_log(g, gpu_dbg_prof, "Profiler handle %u IOCTL err =  %d",
 		prof->prof_handle, err);
+
+exit:
+	nvgpu_kfree(g, buf);
 
 	return err;
 }

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_HWPM_MAP_H
@@ -30,6 +12,8 @@
 struct gk20a;
 struct ctxsw_buf_offset_map_entry;
 struct nvgpu_gr_config;
+struct nvgpu_gr_hwpm_map;
+struct netlist_aiv_list;
 
 struct ctxsw_buf_offset_map_entry {
 	u32 addr;	/* Register address */
@@ -52,9 +36,16 @@ void nvgpu_gr_hwpm_map_deinit(struct gk20a *g,
 
 u32 nvgpu_gr_hwpm_map_get_size(struct nvgpu_gr_hwpm_map *hwpm_map);
 
+int nvgpu_gr_hwpm_map_create(struct gk20a *g,
+	struct nvgpu_gr_hwpm_map *hwpm_map, struct nvgpu_gr_config *config);
 int nvgpu_gr_hwmp_map_find_priv_offset(struct gk20a *g,
 	struct nvgpu_gr_hwpm_map *hwpm_map,
 	u32 addr, u32 *priv_offset, struct nvgpu_gr_config *config);
+int add_ctxsw_buffer_map_entries_subunits(struct ctxsw_buf_offset_map_entry *map,
+				struct netlist_aiv_list *regs,
+				u32 *count, u32 *offset,
+				u32 max_cnt, u32 base, u32 num_units,
+				u32 active_unit_mask, u32 stride, u32 mask);
 
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GR_HWPM_MAP_H */

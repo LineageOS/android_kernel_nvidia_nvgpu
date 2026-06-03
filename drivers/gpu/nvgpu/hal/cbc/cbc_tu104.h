@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef CBC_TU104_H
@@ -31,7 +13,24 @@ enum nvgpu_cbc_op;
 struct gk20a;
 struct nvgpu_cbc;
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 int tu104_cbc_alloc_comptags(struct gk20a *g, struct nvgpu_cbc *cbc);
+#endif
+/**
+ * @brief This function is used to for different compbit cache operations.
+ *
+ * Get the cache operation from #op.
+ * Configure the required register with required values #min and
+ *  #max and perform the cache operation.
+ *
+ * @param g    [in]    Pointer to the gk20a structure.
+ * @param op   [in]    Cache operation in #nvgpu_cbc_op structure.
+ * @param min  [in]    Min value where the cache operation starts.
+ * @param max  [in]    Max value where the cache operation ends.
+ *
+ * @return 0 for success, < 0 for failures.
+ */
+
 int tu104_cbc_ctrl(struct gk20a *g, enum nvgpu_cbc_op op,
 		       u32 min, u32 max);
 

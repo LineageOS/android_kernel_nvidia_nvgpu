@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_LTC_H
@@ -26,7 +8,42 @@
 /**
  * @file
  *
- * common.ltc unit interface
+ * ltc unit interface
+ * @page ltc ltc
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| ltc unit provides a set of interfaces for initializing
+ * and using GPU Level Two Cache (LTC), ECC error counters allocation and
+ * deallocation.
+ * Once ltc unit is successfully initialized, it can facilitate functions
+ * to enable and disable L2 cache and queries related to ltc characteristics like
+ * enumerated ltc count, slices per ltc and cache-line size.
+ *
+ * Data Structures
+ * ===============
+ *
+ * The data structure exposed to users of the ltc unit is:
+ *  + struct nvgpu_ltc
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_ltc_get_ltc_count()
+ *   + nvgpu_ltc_get_slices_per_ltc()
+ *   + nvgpu_ltc_get_cacheline_size()
+ *   + nvgpu_ltc_ecc_free()
+ *   + nvgpu_ecc_counter_init_per_lts()
+ *
+ *   + gops_ltc.determine_L2_size_bytes
+ *   + gops_ltc.ecc_init
+ *   + gops_ltc.flush
+ *   + gops_ltc.init_ltc_support
+ *   + gops_ltc_intr.isr
+ *   + gops_ltc.ltc_remove_support
  */
 #include <nvgpu/types.h>
 #include <nvgpu/lock.h>
@@ -128,8 +145,6 @@ u32 nvgpu_ltc_get_cacheline_size(struct gk20a *g);
  */
 void nvgpu_ltc_ecc_free(struct gk20a *g);
 
-/** @cond DOXYGEN_SHOULD_SKIP_THIS */
-
 /**
  * @brief Initialize #nvgpu_ltc structure.
  *
@@ -142,8 +157,11 @@ void nvgpu_ltc_ecc_free(struct gk20a *g);
  *
  * @return 0 in case of success, < 0 in case of failure.
  * @retval -ENOMEM if memory allocation for #nvgpu_ltc fails.
+ *
+ * @see gops_ltc.init_ltc_support() for details.
  */
 int nvgpu_init_ltc_support(struct gk20a *g);
+
 /**
  * @brief Remove support for LTC.
  *
@@ -151,6 +169,8 @@ int nvgpu_init_ltc_support(struct gk20a *g);
  *
  * This function will free memory allocated for #nvgpu_ltc structure.
  * LTC unit data will be no longer accessible by s/w.
+ *
+ * @see gops_ltc.ltc_remove_support() for details.
  */
 void nvgpu_ltc_remove_support(struct gk20a *g);
 
@@ -179,8 +199,6 @@ int nvgpu_ecc_counter_init_per_lts(struct gk20a *g,
  */
 #define NVGPU_ECC_COUNTER_INIT_PER_LTS(stat) \
 	nvgpu_ecc_counter_init_per_lts(g, &g->ecc.ltc.stat, #stat)
-
-/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 
 #if defined(CONFIG_NVGPU_NON_FUSA) || defined(CONFIG_NVGPU_KERNEL_MODE_SUBMIT)
 /**

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/allocator.h>
 #include <nvgpu/kmem.h>
@@ -66,6 +47,40 @@ static void balloc_do_free_fixed(struct nvgpu_buddy_allocator *a,
  *      easily PDE aligned so this hasn't been a problem.
  */
 
+/**
+ * @brief Maps a page size to a corresponding PTE (Page Table Entry) size.
+ *
+ * This function checks the page size against known sizes and returns a
+ * corresponding PTE size code. It first checks if the allocator is for GVA
+ * space and then ensures that the page size is valid within that context,
+ * returning the appropriate PTE size code or an invalid code if the page size
+ * does not match expected values.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the allocator is not for GVA space by performing a bitwise AND
+ *    operation between the allocator's flags and #GPU_ALLOC_GVA_SPACE and
+ *    comparing the result to zero. If the allocator is not for GVA space,
+ *    return a PTE size that can be used for any page size.
+ * -# If the allocator is for GVA space, compare the given page size with the
+ *    big page size of the VM. If they match, return the big PTE size.
+ * -# If the given page size is the standard small page size (#SZ_4K), return
+ *    the small PTE size.
+ * -# If the given page size is set to a value that indicates any page size is
+ *    acceptable (#BALLOC_PTE_SIZE_ANY), return the small PTE size, as only two
+ *    types of PTE sizes are allowed when GVA space is enabled.
+ * -# If none of the above conditions are met, return an invalid PTE size to
+ *    indicate that the given page size does not correspond to a valid PTE size.
+ *
+ * @param [in] a           The buddy allocator structure containing allocator
+ *                         flags and a pointer to the associated VM.
+ * @param [in] page_size   The page size for which the PTE size is to be determined.
+ *
+ * @return The corresponding PTE size code, which can be any of the following:
+ *         #BALLOC_PTE_SIZE_ANY for any page size when not in GVA space,
+ *         #BALLOC_PTE_SIZE_BIG for a big page size,
+ *         #BALLOC_PTE_SIZE_SMALL for a small page size, or
+ *         #BALLOC_PTE_SIZE_INVALID if the page size is not recognized.
+ */
 static u32 nvgpu_balloc_page_size_to_pte_size(struct nvgpu_buddy_allocator *a,
 					      u32 page_size)
 {
@@ -76,12 +91,14 @@ static u32 nvgpu_balloc_page_size_to_pte_size(struct nvgpu_buddy_allocator *a,
 	/*
 	 * Make sure the page size is actually valid!
 	 */
-	if (page_size == a->vm->big_page_size) {
+	if (page_size == a->vm->huge_page_size) {
+		return BALLOC_PTE_SIZE_HUGE;
+	} else if (page_size == a->vm->big_page_size) {
 		return BALLOC_PTE_SIZE_BIG;
 	} else if (page_size == SZ_4K) {
 		return BALLOC_PTE_SIZE_SMALL;
 	} else if (page_size == BALLOC_PTE_SIZE_ANY) {
-		/* With gva_space enabled, only 2 types of PTE sizes allowed */
+		/* With gva_space enabled, only 3 types of PTE sizes allowed */
 		return BALLOC_PTE_SIZE_SMALL;
 	} else {
 		return BALLOC_PTE_SIZE_INVALID;
@@ -93,6 +110,30 @@ static u32 nvgpu_balloc_page_size_to_pte_size(struct nvgpu_buddy_allocator *a,
  *
  * Hueristic: Just guessing that the best max order is the largest single
  * block that will fit in the address space.
+ */
+
+/**
+ * @brief Computes the maximum order for a buddy allocator.
+ *
+ * This function calculates the maximum order of allocation that can be
+ * managed by the buddy allocator based on the number of blocks it manages.
+ * It ensures that the maximum order does not exceed the predefined limit.
+ * If the current maximum order is unset or greater than the true maximum,
+ * it is updated to the true maximum order.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the true maximum order by finding the base-2 logarithm of the
+ *    number of blocks managed by the allocator using nvgpu_ilog2().
+ * -# Check if the true maximum order exceeds the predefined maximum order limit
+ *    #GPU_BALLOC_MAX_ORDER. If it does, output a debug message and assert.
+ * -# If the allocator's maximum order is unset (zero) or greater than the true
+ *    maximum order, update the allocator's maximum order to the true maximum
+ *    order.
+ *
+ * @param [in] a  The buddy allocator structure containing the number of blocks
+ *                it manages and the current maximum order.
+ *
+ * @return None.
  */
 static void balloc_compute_max_order(struct nvgpu_buddy_allocator *a)
 {
@@ -112,6 +153,38 @@ static void balloc_compute_max_order(struct nvgpu_buddy_allocator *a)
 /*
  * Since we can only allocate in chucks of a->blk_size we need to trim off
  * any excess data that is not aligned to a->blk_size.
+ */
+
+/**
+ * @brief Aligns the start and end addresses of the buddy allocator.
+ *
+ * This function aligns the start and end addresses of the buddy allocator to
+ * the block size boundaries and calculates the number of blocks that can be
+ * managed by the allocator. It ensures that the block size is non-zero and
+ * that the number of blocks is non-zero after alignment, otherwise it returns
+ * an error.
+ *
+ * The steps performed by the function are as follows:
+ * -# Align the base address of the allocator to the block size boundary and
+ *    store it as the start address.
+ * -# Use WARN_ON() to check if the start address does not match the base
+ *    address, which may indicate a potential issue.
+ * -# Assert that the block size is greater than zero using nvgpu_assert().
+ * -# Calculate the end address by adding the length to the base address,
+ *    then aligning it down to the block size boundary.
+ * -# Calculate the count of blocks by subtracting the start address from the
+ *    end address.
+ * -# Right shift the count by the block shift value to get the number of
+ *    blocks and store it in the allocator structure.
+ * -# If the number of blocks is zero, set the error code to -EINVAL and go to
+ *    the fail label.
+ * -# At the fail label, return the error code.
+ *
+ * @param [in] a  The buddy allocator structure containing the base address,
+ *                length, block size, and block shift value.
+ *
+ * @return 0 if alignment is successful, -EINVAL if the block size or number of
+ *         blocks is zero after alignment.
  */
 static int balloc_allocator_align(struct nvgpu_buddy_allocator *a)
 {
@@ -137,6 +210,39 @@ fail:
 /*
  * Pass NULL for parent if you want a top level buddy.
  */
+
+/**
+ * @brief Creates and initializes a new buddy block structure.
+ *
+ * Allocates memory for a new buddy block from the buddy allocator's cache and
+ * initializes it. The new buddy block's parent, start, order, and end fields
+ * are set according to the provided arguments. The end field is calculated
+ * by shifting 1 left by the order number of times, multiplying by the block
+ * size, and then adding the start address. The PTE size is set to a default
+ * value indicating that any PTE size is acceptable.
+ *
+ * The steps performed by the function are as follows:
+ * -# Allocate memory for a new buddy block from the buddy allocator's cache
+ *    using nvgpu_kmem_cache_alloc(). If the allocation fails, return NULL.
+ * -# Initialize the allocated buddy block to zero using memset().
+ * -# Set the parent of the new buddy block to the provided parent parameter.
+ * -# Set the start address of the new buddy block to the provided start parameter.
+ * -# Set the order of the new buddy block to the provided order parameter.
+ * -# Calculate the end address of the new buddy block by shifting 1 left by
+ *    the order number of times, multiplying by the allocator's block size,
+ *    and adding the start address using nvgpu_safe_mult_u64() and
+ *    nvgpu_safe_add_u64().
+ * -# Set the PTE size of the new buddy block to #BALLOC_PTE_SIZE_ANY.
+ * -# Return a pointer to the newly created buddy block.
+ *
+ * @param [in] a       The buddy allocator from which to allocate the new buddy.
+ * @param [in] parent  The parent buddy block of the new buddy block.
+ * @param [in] start   The start address for the new buddy block.
+ * @param [in] order   The order of the new buddy block.
+ *
+ * @return A pointer to the newly allocated and initialized buddy block, or
+ *         NULL if the memory allocation fails.
+ */
 static struct nvgpu_buddy *balloc_new_buddy(struct nvgpu_buddy_allocator *a,
 					    struct nvgpu_buddy *parent,
 					    u64 start, u64 order)
@@ -160,6 +266,34 @@ static struct nvgpu_buddy *balloc_new_buddy(struct nvgpu_buddy_allocator *a,
 	return new_buddy;
 }
 
+/**
+ * @brief Adds a buddy block to a list within the buddy allocator.
+ *
+ * This function adds a buddy block to a specified list in the buddy allocator.
+ * It first checks if the buddy block is already in a list and asserts if so.
+ * Depending on whether the allocator is for GVA space and the PTE size of the
+ * buddy block, it adds the buddy block to either the head or tail of the list.
+ * It then marks the buddy block as being in a list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the buddy block is already in a list using buddy_is_in_list() (See
+ *    #nvgpu_buddy_allocator_flag_ops). If it is, output a debug message and assert using
+ *    nvgpu_do_assert().
+ * -# If the allocator is for GVA space and the buddy block's PTE size is big,
+ *    add the buddy block to the tail of the list using nvgpu_list_add_tail().
+ *    This is done to optimize the search for available blocks.
+ * -# If the allocator is not for GVA space or the buddy block's PTE size is
+ *    not big, add the buddy block to the head of the list using
+ *    nvgpu_list_add().
+ * -# Mark the buddy block as being in a list using buddy_set_in_list() (See
+ *    #nvgpu_buddy_allocator_flag_ops).
+ *
+ * @param [in] a     The buddy allocator to which the buddy block belongs.
+ * @param [in] b     The buddy block to be added to the list.
+ * @param [in] list  The list to which the buddy block will be added.
+ *
+ * @return None.
+ */
 static void balloc_buddy_list_do_add(struct nvgpu_buddy_allocator *a,
 				     struct nvgpu_buddy *b,
 				     struct nvgpu_list_node *list)
@@ -186,6 +320,27 @@ static void balloc_buddy_list_do_add(struct nvgpu_buddy_allocator *a,
 	buddy_set_in_list(b);
 }
 
+/**
+ * @brief Removes a buddy block from a list within the buddy allocator.
+ *
+ * This function removes a buddy block from whichever list it is currently in
+ * within the buddy allocator. It first checks if the buddy block is actually
+ * in a list and asserts if not. It then removes the buddy block from the list
+ * and marks it as not being in a list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the buddy block is already in a list using buddy_is_in_list() (See
+ *    #nvgpu_buddy_allocator_flag_ops). If it is, output a debug message and assert using
+ *    nvgpu_do_assert().
+ * -# Remove the buddy block from the list using nvgpu_list_del().
+ * -# Clear the in-list flag for the buddy block using buddy_clr_in_list() (See
+ *    #nvgpu_buddy_allocator_flag_ops).
+ *
+ * @param [in] a  The buddy allocator from which the buddy block is being removed.
+ * @param [in] b  The buddy block to be removed from the list.
+ *
+ * @return None.
+ */
 static void balloc_buddy_list_do_rem(struct nvgpu_buddy_allocator *a,
 				     struct nvgpu_buddy *b)
 {
@@ -204,6 +359,26 @@ static void balloc_buddy_list_do_rem(struct nvgpu_buddy_allocator *a,
  * Add a buddy to one of the buddy lists and deal with the necessary
  * book keeping. Adds the buddy to the list specified by the buddy's order.
  */
+
+/**
+ * @brief Adds a buddy block to the appropriate order list in the allocator.
+ *
+ * This function adds a buddy block to the list corresponding to its order in
+ * the buddy allocator. It also increments the length of the list for that
+ * particular order to keep track of the number of blocks in the list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call balloc_buddy_list_do_add() to add the buddy block to the list
+ *    corresponding to its order. The list is retrieved using balloc_get_order_list().
+ * -# Increment the length of the buddy list for the given order by one to
+ *    maintain an accurate count of the blocks in the list. This is done using
+ *    nvgpu_safe_add_u64().
+ *
+ * @param [in] a  The buddy allocator to which the buddy block is being added.
+ * @param [in] b  The buddy block to be added to the allocator's list.
+ *
+ * @return None.
+ */
 static void balloc_blist_add(struct nvgpu_buddy_allocator *a,
 			     struct nvgpu_buddy *b)
 {
@@ -212,6 +387,26 @@ static void balloc_blist_add(struct nvgpu_buddy_allocator *a,
 		nvgpu_safe_add_u64(a->buddy_list_len[b->order], 1ULL);
 }
 
+/**
+ * @brief Removes a buddy block from the appropriate order list in the allocator.
+ *
+ * This function removes a buddy block from the list corresponding to its order
+ * in the buddy allocator. It also decrements the length of the list for that
+ * particular order to keep track of the number of blocks in the list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call balloc_buddy_list_do_rem() to remove the buddy block from the list
+ *    it is currently in.
+ * -# Assert that the length of the buddy list for the given order is greater
+ *    than zero using nvgpu_assert().
+ * -# Decrement the length of the buddy list for the given order by one to
+ *    maintain an accurate count of the blocks in the list.
+ *
+ * @param [in] a  The buddy allocator from which the buddy block is being removed.
+ * @param [in] b  The buddy block to be removed from the allocator's list.
+ *
+ * @return None.
+ */
 static void balloc_blist_rem(struct nvgpu_buddy_allocator *a,
 			     struct nvgpu_buddy *b)
 {
@@ -220,6 +415,27 @@ static void balloc_blist_rem(struct nvgpu_buddy_allocator *a,
 	a->buddy_list_len[b->order]--;
 }
 
+/**
+ * @brief Calculates the order of a given length within the buddy allocator.
+ *
+ * This function computes the order of a block of memory of a specified length
+ * in terms of the allocator's block size. The order is the power of two that
+ * represents the number of minimum-sized blocks needed to satisfy the length.
+ *
+ * The steps performed by the function are as follows:
+ * -# If the length is zero, return an order of zero as no blocks are needed.
+ * -# Decrement the length by one to handle the case where the length is an
+ *    exact power of two.
+ * -# Right shift the length by the block shift value of the allocator to get
+ *    the number of minimum-sized blocks needed.
+ * -# Call nvgpu_fls() to find the position of the first (most-significant) bit
+ *    set in the length, which gives the order.
+ *
+ * @param [in] a     The buddy allocator structure containing the block shift value.
+ * @param [in] len   The length of memory for which to calculate the order.
+ *
+ * @return The order of the given length within the buddy allocator.
+ */
 static u64 balloc_get_order(struct nvgpu_buddy_allocator *a, u64 len)
 {
 	if (len == 0U) {
@@ -232,6 +448,33 @@ static u64 balloc_get_order(struct nvgpu_buddy_allocator *a, u64 len)
 	return nvgpu_fls(len);
 }
 
+/**
+ * @brief Determines the maximum order that can fit within a given range.
+ *
+ * This function calculates the largest order of blocks that can fit within the
+ * specified start and end addresses in the buddy allocator. It ensures that the
+ * calculated order does not exceed the allocator's maximum order.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the size by subtracting the start address from the end address
+ *    and then right shifting by the block shift value of the allocator using
+ *    nvgpu_safe_sub_u64().
+ * -# If the size is greater than zero, calculate
+ *    the logarithm base 2 of the size using nvgpu_ilog2() to find the order,
+ *    and then return the minimum of that order and the allocator's maximum
+ *    order using min_t().
+ * -# If the size is zero or less, return the predefined maximum order for the
+ *    GPU buddy allocator #GPU_BALLOC_MAX_ORDER.
+ *
+ * @param [in] a      The buddy allocator structure containing the block shift
+ *                    value and the maximum order.
+ * @param [in] start  The start address of the range.
+ * @param [in] end    The end address of the range.
+ *
+ * @return The maximum order that can fit within the given range without
+ *         exceeding the allocator's maximum order, or the predefined maximum
+ *         order if the size is zero or less.
+ */
 static u64 balloc_max_order_in(struct nvgpu_buddy_allocator *a,
 				 u64 start, u64 end)
 {
@@ -246,6 +489,38 @@ static u64 balloc_max_order_in(struct nvgpu_buddy_allocator *a,
 
 /*
  * Initialize the buddy lists.
+ */
+
+/**
+ * @brief Initializes the order lists for the buddy allocator.
+ *
+ * This function sets up the linked lists for each order within the buddy
+ * allocator. It initializes the lists, then creates and adds buddies to the
+ * lists based on the maximum order that can fit between the start and end
+ * addresses of the allocator. If buddy allocation fails, it cleans up any
+ * allocated buddies.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize all order lists within the allocator using nvgpu_init_list_node().
+ * -# Loop from the start address to the end address of the allocator:
+ *    -# Calculate the maximum order that can fit in the current range using
+ *       balloc_max_order_in().
+ *    -# Allocate a new buddy with the calculated order using balloc_new_buddy().
+ *       If allocation fails, go to cleanup.
+ *    -# Add the new buddy to the appropriate order list using balloc_blist_add().
+ *    -# Increment the start address by the length corresponding to the order
+ *       using nvgpu_safe_add_u64() and balloc_order_to_len().
+ * -# If all buddies are added successfully, return 0.
+ * -# In the cleanup section, loop through all order lists:
+ *    -# If the list is not empty, remove the first buddy from the list using
+ *       balloc_blist_rem().
+ *    -# Free the removed buddy using nvgpu_kmem_cache_free().
+ * -# If cleanup is needed, return -ENOMEM to indicate memory allocation failure.
+ *
+ * @param [in] a  The buddy allocator structure containing the start and end
+ *                addresses, and the buddy cache for allocating new buddies.
+ *
+ * @return 0 on success, -ENOMEM on memory allocation failure.
  */
 static int balloc_init_lists(struct nvgpu_buddy_allocator *a)
 {
@@ -296,6 +571,37 @@ cleanup:
  * Free up all pending allocations.
  * Free any memory allocated a allocator init time.
  * Destroy the lock and bzero the allocator completely.
+ */
+
+/**
+ * @brief Destroys the buddy allocator and frees all associated memory.
+ *
+ * This function cleans up all the allocations and internal structures of the
+ * buddy allocator. It frees fixed allocations, coalesces and frees buddy blocks,
+ * and finally destroys the buddy cache and the allocator itself.
+ *
+ * The steps performed by the function are as follows:
+ * -# Lock the allocator to prevent concurrent access using alloc_lock().
+ * -# Finalize the allocator's debug information using nvgpu_fini_alloc_debug().
+ * -# Free all fixed allocations by iterating through the fixed_allocs RB tree
+ *    and unlinking and freeing each node using nvgpu_rbtree_unlink() and
+ *    balloc_do_free_fixed().
+ * -# Free all outstanding buddy allocations by iterating through the
+ *    alloced_buddies RB tree, freeing each buddy using balloc_free_buddy(),
+ *    adding them back to the free list using balloc_blist_add(), and then
+ *    attempting to coalesce buddies using balloc_coalesce().
+ * -# Clean up all unallocated buddies by iterating through each order list and
+ *    freeing each buddy using balloc_blist_rem() and nvgpu_kmem_cache_free().
+ * -# Check for any inconsistencies in the allocator's tracking counters and
+ *    assert if any are found using BUG_ON() and nvgpu_do_assert().
+ * -# Destroy the buddy cache using nvgpu_kmem_cache_destroy().
+ * -# Free the allocator structure itself using nvgpu_kfree().
+ * -# Unlock the allocator using alloc_unlock().
+ *
+ * @param [in] na  The generic allocator structure which contains the buddy
+ *                 allocator to be destroyed.
+ *
+ * @return None.
  */
 static void nvgpu_buddy_allocator_destroy(struct nvgpu_allocator *na)
 {
@@ -382,6 +688,39 @@ static void nvgpu_buddy_allocator_destroy(struct nvgpu_allocator *na)
  *
  * @a must be locked.
  */
+
+/**
+ * @brief Coalesces buddy blocks into larger blocks if possible.
+ *
+ * This function attempts to merge a buddy block with its buddy to form a larger
+ * block. It continues to coalesce up the buddy hierarchy as long as the blocks
+ * are not allocated or split. If coalescing is possible, it updates the parent
+ * block and the allocator's tracking of split blocks.
+ *
+ * The steps performed by the function are as follows:
+ * -# Loop while the current buddy block is neither allocated nor split:
+ *    -# If the buddy block has no buddy, return as no coalescing is possible.
+ *    -# If the buddy block's buddy is either allocated or split, return as
+ *       coalescing is not possible.
+ *    -# Retrieve the parent of the current buddy block.
+ *    -# Remove the current buddy block and its buddy from their respective
+ *       order lists using balloc_blist_rem().
+ *    -# Clear the split flag on the parent buddy block using buddy_clr_split() (See
+ *       #nvgpu_buddy_allocator_flag_ops).
+ *    -# Assert that the split count for the parent's order is greater than zero
+ *       using nvgpu_assert().
+ *    -# Decrement the split count for the parent's order.
+ *    -# Add the parent buddy block to the appropriate order list using
+ *       balloc_blist_add().
+ *    -# Free the memory of the current buddy block and its buddy using
+ *       nvgpu_kmem_cache_free().
+ *    -# Update the current buddy block to the parent for the next iteration.
+ *
+ * @param [in] a  The buddy allocator from which the buddy block is being coalesced.
+ * @param [in] b  The buddy block to coalesce.
+ *
+ * @return None.
+ */
 static void balloc_coalesce(struct nvgpu_buddy_allocator *a,
 			    struct nvgpu_buddy *b)
 {
@@ -421,6 +760,50 @@ static void balloc_coalesce(struct nvgpu_buddy_allocator *a,
  * Split a buddy into two new buddies who are 1/2 the size of the parent buddy.
  *
  * @a must be locked.
+ */
+
+/**
+ * @brief Splits a buddy block into two smaller buddy blocks.
+ *
+ * This function divides a buddy block into two smaller blocks of the next lower
+ * order. It updates the parent block to indicate it has been split and assigns
+ * PTE sizes to the new buddies if necessary, based on whether the allocator is
+ * managing a GVA space and the size of the buddies relative to the PDE block size.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assert that the order of the buddy block to be split is greater than zero.
+ * -# Allocate a new buddy block for the left half of the split using
+ *    balloc_new_buddy(). If the allocation fails, return -ENOMEM.
+ * -# Calculate the halfway point between the start and end of the buddy block
+ *    to be split using nvgpu_safe_sub_u64() and division.
+ * -# Calculate the start address for the new right buddy block using
+ *    nvgpu_safe_add_u64() and the calculated halfway point.
+ * -# Allocate a new buddy block for the right half of the split using
+ *    balloc_new_buddy(). If the allocation fails, free the previously allocated
+ *    left buddy block using nvgpu_kmem_cache_free() and return -ENOMEM.
+ * -# Set the split flag on the parent buddy block using buddy_set_split() (See
+ *    #nvgpu_buddy_allocator_flag_ops).
+ * -# Increment the split count for the parent's order in the allocator's list
+ *    of split buddies using nvgpu_safe_add_u64().
+ * -# Set the left and right pointers of the parent buddy block to the newly
+ *    created left and right buddy blocks, respectively.
+ * -# Set the buddy pointers of the left and right buddy blocks to each other.
+ * -# Set the parent pointers of the left and right buddy blocks to the original
+ *    parent buddy block.
+ * -# If the allocator is for GVA space and the order of the new buddy blocks is
+ *    less than the PDE block order, assign the passed PTE size to both new
+ *    buddy blocks.
+ * -# Remove the original buddy block from its current list using
+ *    balloc_blist_rem().
+ * -# Add the new left and right buddy blocks to the appropriate lists using
+ *    balloc_blist_add().
+ * -# Return 0 to indicate success.
+ *
+ * @param [in] a         The buddy allocator from which the buddy block is being split.
+ * @param [in] b         The buddy block to be split.
+ * @param [in] pte_size  The PTE size to assign to the new buddy blocks if necessary.
+ *
+ * @return 0 on success, -ENOMEM on memory allocation failure.
  */
 static int balloc_split_buddy(struct nvgpu_buddy_allocator *a,
 			      struct nvgpu_buddy *b, u32 pte_size)
@@ -488,6 +871,22 @@ static int balloc_split_buddy(struct nvgpu_buddy_allocator *a,
  *
  * @a must be locked.
  */
+
+/**
+ * @brief Insert a buddy into the allocated buddies red-black tree and update allocation stats.
+ *
+ * The function 'balloc_alloc_buddy' is responsible for inserting a given buddy into the
+ * allocated buddies red-black tree of the buddy allocator. It also sets the allocated flag
+ * for the buddy and updates the count of allocated buddies for the corresponding order.
+ * The steps performed by the function are as follows:
+ * -# Set the start and end keys of the buddy's allocated entry with the buddy's start and end addresses.
+ * -# Insert the buddy's allocated entry into the allocated buddies red-black tree using nvgpu_rbtree_insert().
+ * -# Set the buddy's status to allocated using buddy_set_alloced() (See #nvgpu_buddy_allocator_flag_ops).
+ * -# Increment the count of allocated buddies for the buddy's order in the buddy allocator's list of allocated buddies.
+ *
+ * @param [in]  a  Pointer to the buddy allocator structure.
+ * @param [in]  b  Pointer to the buddy to be allocated.
+ */
 static void balloc_alloc_buddy(struct nvgpu_buddy_allocator *a,
 			       struct nvgpu_buddy *b)
 {
@@ -506,6 +905,30 @@ static void balloc_alloc_buddy(struct nvgpu_buddy_allocator *a,
  * deallocated buddy for further processing.
  *
  * @a must be locked.
+ */
+
+/**
+ * @brief Free a buddy based on the provided address and update the allocator's statistics.
+ *
+ * The function 'balloc_free_buddy' searches for a buddy in the allocated buddies red-black tree
+ * using the provided address. If found, it removes the buddy from the tree, clears its allocated
+ * status, and decrements the count of allocated buddies for the corresponding order. The buddy
+ * is then returned for further processing.
+ * The steps performed by the function are as follows:
+ * -# Search for a node in the allocated buddies red-black tree that matches the provided address using nvgpu_rbtree_search().
+ * -# If no matching node is found, return NULL indicating the buddy to free does not exist.
+ * -# Retrieve the buddy from the found node using nvgpu_buddy_from_rbtree_node().
+ * -# Unlink the node from the allocated buddies red-black tree using nvgpu_rbtree_unlink().
+ * -# Clear the allocated status of the buddy using buddy_clr_alloced() (See
+ *    #nvgpu_buddy_allocator_flag_ops).
+ * -# Assert that the count of allocated buddies for the buddy's order is greater than zero.
+ * -# Decrement the count of allocated buddies for the buddy's order.
+ * -# Return the pointer to the buddy that was freed.
+ *
+ * @param [in]  a    Pointer to the buddy allocator structure.
+ * @param [in]  addr Address of the buddy to be freed.
+ *
+ * @return Pointer to the freed buddy, or NULL if the buddy was not found.
  */
 static struct nvgpu_buddy *balloc_free_buddy(struct nvgpu_buddy_allocator *a,
 					     u64 addr)
@@ -530,6 +953,32 @@ static struct nvgpu_buddy *balloc_free_buddy(struct nvgpu_buddy_allocator *a,
 
 /*
  * Find a suitable buddy for the given order and PTE type (big or little).
+ */
+
+/**
+ * @brief Find a buddy of a given order and PTE size in the buddy allocator.
+ *
+ * The function 'balloc_find_buddy' searches for a buddy of a specified order and PTE size
+ * within the buddy allocator. If the allocator is managing a GVA space and a big PTE size
+ * is requested, it returns the last buddy in the list. Otherwise, it returns the first buddy.
+ * If the PTE size does not match the requested size and is not set to ANY, the function
+ * returns NULL.
+ * The steps performed by the function are as follows:
+ * -# Check if the requested order is greater than the maximum order supported by the allocator
+ *    or if the list of buddies for the requested order is empty. If either is true, return NULL.
+ * -# If the allocator is managing a GVA space and a big PTE size is requested, retrieve the
+ *    last buddy in the list for the requested order using nvgpu_list_last_entry().
+ * -# Otherwise, retrieve the first buddy in the list for the requested order using
+ *    nvgpu_list_first_entry().
+ * -# If the requested PTE size is not ANY and does not match the PTE size of the found buddy,
+ *    and the buddy's PTE size is not ANY, return NULL.
+ * -# Return the pointer to the found buddy.
+ *
+ * @param [in]  a        Pointer to the buddy allocator structure.
+ * @param [in]  order    The order of the buddy to find.
+ * @param [in]  pte_size The PTE size of the buddy to find.
+ *
+ * @return Pointer to the found buddy, or NULL if no matching buddy is found.
  */
 static struct nvgpu_buddy *balloc_find_buddy(struct nvgpu_buddy_allocator *a,
 					     u64 order, u32 pte_size)
@@ -567,6 +1016,37 @@ static struct nvgpu_buddy *balloc_find_buddy(struct nvgpu_buddy_allocator *a,
  * buddy exists in a PDE who's PTE size is reasonable
  *
  * @a must be locked.
+ */
+
+/**
+ * @brief Allocate a block of memory of a given order and PTE size from the buddy allocator.
+ *
+ * The function 'balloc_do_alloc' attempts to allocate a block of memory by finding a suitable
+ * buddy and potentially splitting it until a buddy of the desired order is obtained. It then
+ * removes the buddy from the free list and marks it as allocated. If no suitable buddy is found
+ * or if splitting fails, it returns 0 to indicate out of memory.
+ * The steps performed by the function are as follows:
+ * -# Initialize a loop to search for a buddy starting from the requested order up to the maximum
+ *    order supported by the allocator.
+ * -# Within the loop, call balloc_find_buddy() to find a suitable buddy of the current split order.
+ * -# If a buddy is found, break out of the loop.
+ * -# If no buddy is found after searching all orders, return 0 to indicate out of memory.
+ * -# If the found buddy is of a higher order than requested, enter a loop to split the buddy down
+ *    to the requested order.
+ * -# Within the loop, call balloc_split_buddy() to split the buddy. If splitting fails, call
+ *    balloc_coalesce() to merge the buddy back and return 0 to indicate out of memory.
+ * -# After splitting, update the pointer to the buddy to its left child, which is the result of
+ *    the split operation.
+ * -# Once a buddy of the requested order is obtained, remove it from the free list using
+ *    balloc_blist_rem().
+ * -# Mark the buddy as allocated using balloc_alloc_buddy().
+ * -# Return the start address of the allocated buddy.
+ *
+ * @param [in]  a        Pointer to the buddy allocator structure.
+ * @param [in]  order    The order of the block to allocate.
+ * @param [in]  pte_size The PTE size for the allocation.
+ *
+ * @return The start address of the allocated block, or 0 if out of memory.
  */
 static u64 balloc_do_alloc(struct nvgpu_buddy_allocator *a,
 			   u64 order, u32 pte_size)
@@ -607,6 +1087,29 @@ static u64 balloc_do_alloc(struct nvgpu_buddy_allocator *a,
  * TODO: Right now this uses the unoptimal approach of going through all
  * outstanding allocations and checking their base/ends. This could be better.
  */
+
+/**
+ * @brief Check if a given range of addresses is free in the buddy allocator.
+ *
+ * The function 'balloc_is_range_free' iterates through the allocated buddies red-black tree
+ * to determine if the specified range of addresses is free (i.e., not overlapping with any
+ * currently allocated buddies). It returns true if the range is free, otherwise false.
+ * The steps performed by the function are as follows:
+ * -# Start enumerating the allocated buddies red-black tree from the beginning using nvgpu_rbtree_enum_start().
+ * -# If no allocated buddies are found (the tree is empty), return true as the entire range is free.
+ * -# Retrieve the buddy from the current node of the tree using nvgpu_buddy_from_rbtree_node().
+ * -# Enter a loop to check each buddy in the tree against the specified range.
+ * -# If the current buddy's start or end address falls within the specified range, return false as the range is not free.
+ * -# Move to the next buddy in the tree using nvgpu_rbtree_enum_next().
+ * -# If there are no more buddies in the tree, break out of the loop.
+ * -# If the loop completes without finding any overlapping buddies, return true indicating the range is free.
+ *
+ * @param [in]  a    Pointer to the buddy allocator structure.
+ * @param [in]  base The start address of the range to check.
+ * @param [in]  end  The end address of the range to check.
+ *
+ * @return True if the range is free, False if the range is not free.
+ */
 static bool balloc_is_range_free(struct nvgpu_buddy_allocator *a,
 				u64 base, u64 end)
 {
@@ -636,6 +1139,21 @@ static bool balloc_is_range_free(struct nvgpu_buddy_allocator *a,
 	return true;
 }
 
+/**
+ * @brief Insert a fixed allocation into the fixed allocations red-black tree.
+ *
+ * The function balloc_alloc_fixed() is responsible for inserting a fixed allocation
+ * into the fixed allocations red-black tree of the buddy allocator. It sets the start
+ * and end keys of the fixed allocation's entry and then inserts it into the tree.
+ * The steps performed by the function are as follows:
+ * -# Set the start and end keys of the fixed allocation's entry with the fixed allocation's
+ *    start and end addresses.
+ * -# Insert the fixed allocation's entry into the fixed allocations red-black tree using
+ *    nvgpu_rbtree_insert().
+ *
+ * @param [in]  a  Pointer to the buddy allocator structure.
+ * @param [in]  f  Pointer to the fixed allocation to be inserted.
+ */
 static void balloc_alloc_fixed(struct nvgpu_buddy_allocator *a,
 			       struct nvgpu_fixed_alloc *f)
 {
@@ -650,6 +1168,27 @@ static void balloc_alloc_fixed(struct nvgpu_buddy_allocator *a,
  * deallocated buddy for further processing.
  *
  * @a must be locked.
+ */
+
+/**
+ * @brief Remove a fixed allocation from the fixed allocations red-black tree.
+ *
+ * The function 'balloc_free_fixed' searches for a fixed allocation in the fixed
+ * allocations red-black tree using the provided address. If found, it removes the
+ * allocation from the tree and returns it. If not found, it returns NULL.
+ * The steps performed by the function are as follows:
+ * -# Search for a node in the fixed allocations red-black tree that matches the provided
+ *    address using nvgpu_rbtree_search().
+ * -# If no matching node is found, return NULL indicating the fixed allocation to free
+ *    does not exist.
+ * -# Retrieve the fixed allocation from the found node using nvgpu_fixed_alloc_from_rbtree_node().
+ * -# Unlink the node from the fixed allocations red-black tree using nvgpu_rbtree_unlink().
+ * -# Return the pointer to the fixed allocation that was removed.
+ *
+ * @param [in]  a    Pointer to the buddy allocator structure.
+ * @param [in]  addr Address of the fixed allocation to be freed.
+ *
+ * @return Pointer to the freed fixed allocation, or NULL if the allocation was not found.
  */
 static struct nvgpu_fixed_alloc *balloc_free_fixed(
 	struct nvgpu_buddy_allocator *a, u64 addr)
@@ -673,6 +1212,31 @@ static struct nvgpu_fixed_alloc *balloc_free_fixed(
  * Find the parent range - doesn't necessarily need the parent to actually exist
  * as a buddy. Finding an existing parent comes later...
  */
+
+/**
+ * @brief Calculate the base address and order of the parent buddy.
+ *
+ * The function 'balloc_get_parent_range' computes the base address and order of the parent
+ * buddy for a given buddy specified by its base address and order. It applies a mask to the
+ * shifted base address to align it to the parent buddy's boundaries and increments the order
+ * to represent the parent buddy's order.
+ * The steps performed by the function are as follows:
+ * -# Shift the base address of the buddy left by the block size shift amount using balloc_base_shift().
+ * -# Assert that the order of the buddy is less than 63.
+ * -# Increment the order to represent the parent buddy's order.
+ * -# Calculate the base mask for the parent buddy by inverting the bits after subtracting 1 from
+ *    the block size shifted left by the incremented order using nvgpu_safe_sub_u64().
+ * -# Apply the base mask to the shifted base address to align it to the parent buddy's boundaries.
+ * -# Unshift the masked base address to get the actual base address of the parent buddy using
+ *    balloc_base_unshift().
+ * -# Store the calculated base address and order of the parent buddy in the provided pointers.
+ *
+ * @param [in]  a       Pointer to the buddy allocator structure.
+ * @param [in]  base    The base address of the current buddy.
+ * @param [in]  order   The order of the current buddy.
+ * @param [out] pbase   Pointer to store the calculated base address of the parent buddy.
+ * @param [out] porder  Pointer to store the calculated order of the parent buddy.
+ */
 static void balloc_get_parent_range(struct nvgpu_buddy_allocator *a,
 				    u64 base, u64 order,
 				    u64 *pbase, u64 *porder)
@@ -690,6 +1254,31 @@ static void balloc_get_parent_range(struct nvgpu_buddy_allocator *a,
 	*porder = order;
 }
 
+/**
+ * @brief Obtain the target buddy that matches the specified base address and order.
+ *
+ * The function 'balloc_get_target_buddy' iteratively splits a given buddy until it matches
+ * the specified base address and order. If the buddy cannot be split as required, the function
+ * coalesces the buddy and returns NULL.
+ * The steps performed by the function are as follows:
+ * -# Enter a loop to split the given buddy until it matches the specified base address and order.
+ * -# Within the loop, call balloc_split_buddy() to split the buddy. If splitting fails, output
+ *    a debug message using alloc_dbg(), coalesce the buddy back to its original state using
+ *    balloc_coalesce(), and return NULL.
+ * -# Determine which child of the current buddy contains the target base address. If the target
+ *    base address is less than the start address of the right child, update the current buddy to
+ *    the left child. Otherwise, update it to the right child.
+ * -# Continue the loop until the current buddy matches the specified base address and order.
+ * -# Return the pointer to the target buddy that matches the specified criteria.
+ *
+ * @param [in]  a        Pointer to the buddy allocator structure.
+ * @param [in]  bud      Pointer to the initial buddy to start splitting from.
+ * @param [in]  base     The base address of the target buddy.
+ * @param [in]  order    The order of the target buddy.
+ * @param [in]  pte_size The PTE size for the allocation, used during splitting.
+ *
+ * @return Pointer to the target buddy, or NULL if the buddy cannot be split as required.
+ */
 static struct nvgpu_buddy *balloc_get_target_buddy(
 				struct nvgpu_buddy_allocator *a,
 				struct nvgpu_buddy *bud,
@@ -718,6 +1307,37 @@ static struct nvgpu_buddy *balloc_get_target_buddy(
 /*
  * Makes a buddy at the passed address. This will make all parent buddies
  * necessary for this buddy to exist as well.
+ */
+
+/**
+ * @brief Create a fixed buddy in the buddy allocator for a given base address and order.
+ *
+ * The function 'balloc_make_fixed_buddy' searches for a buddy that encompasses the given base
+ * address and order. If necessary, it traverses up the buddy hierarchy to find the encompassing
+ * buddy and then splits buddies down to create the fixed buddy of the desired order and base address.
+ * The steps performed by the function are as follows:
+ * -# Initialize a loop to search for the real buddy that the fixed buddy exists in, starting from
+ *    the given order and base address.
+ * -# Retrieve the list of buddies for the current order using balloc_get_order_list().
+ * -# Iterate over each buddy in the list to find one that matches the current base address.
+ * -# If a matching buddy is found and its order is less than or equal to the PDE block order, check
+ *    if the PTE size matches. If there is a mismatch, output a debug message using alloc_dbg() and
+ *    return NULL.
+ * -# If a matching buddy is found, break out of the loop.
+ * -# If no matching buddy is found, calculate the parent range using balloc_get_parent_range() and
+ *    update the current base address and order.
+ * -# If the current order exceeds the maximum order of the allocator, output a debug message using
+ *    alloc_dbg() and return NULL.
+ * -# Once the encompassing buddy is found, call balloc_get_target_buddy() to get the target buddy
+ *    at the specified base address and order.
+ * -# Return the pointer to the target buddy.
+ *
+ * @param [in]  a        Pointer to the buddy allocator structure.
+ * @param [in]  base     The base address of the fixed buddy to create.
+ * @param [in]  order    The order of the fixed buddy to create.
+ * @param [in]  pte_size The PTE size for the fixed buddy.
+ *
+ * @return Pointer to the created fixed buddy, or NULL if it cannot be created.
  */
 static struct nvgpu_buddy *balloc_make_fixed_buddy(
 	struct nvgpu_buddy_allocator *a, u64 base, u64 order, u32 pte_size)
@@ -781,6 +1401,40 @@ static struct nvgpu_buddy *balloc_make_fixed_buddy(
 	return bud;
 }
 
+/**
+ * @brief Allocate a fixed range of memory with a specific PTE size in the buddy allocator.
+ *
+ * The function 'balloc_do_alloc_fixed' allocates a fixed range of memory by creating a list
+ * of buddies that satisfy the allocation request. It ensures the PTE size is valid, calculates
+ * the alignment order, and then iteratively creates and allocates buddies to cover the entire
+ * range. If any part of the allocation fails, it cleans up by freeing any allocated buddies.
+ * The steps performed by the function are as follows:
+ * -# Check for an invalid PTE size and trigger a bug if encountered using BUG_ON().
+ * -# Shift the base address left by the block size shift amount using balloc_base_shift().
+ * -# Calculate the alignment order based on the shifted base and length of the allocation.
+ * -# If the alignment order is greater than the maximum order supported by the allocator,
+ *    output a debug message using alloc_dbg() and return 0.
+ * -# Initialize a loop to generate a list of buddies that satisfy the allocation.
+ * -# Within the loop, calculate the length of the current order and the remaining length of the allocation.
+ * -# Create the fixed buddy for the current base and order using balloc_make_fixed_buddy().
+ * -# If buddy creation fails, output a debug message using alloc_dbg() and go to the error cleanup.
+ * -# Remove the buddy from the free list using balloc_blist_rem().
+ * -# Mark the buddy as allocated using balloc_alloc_buddy().
+ * -# Add the buddy to the fixed allocation's list of buddies using balloc_buddy_list_do_add().
+ * -# Update the incremented base and alignment order for the next iteration.
+ * -# If the remaining length is less than the length of the current order, adjust the alignment order.
+ * -# Return the base address of the allocated range if successful.
+ * -# In the error cleanup, free any allocated buddies and attempt to defragment the allocation.
+ *    Return 0 to indicate failure.
+ *
+ * @param [in]  a        Pointer to the buddy allocator structure.
+ * @param [in]  falloc   Pointer to the fixed allocation structure.
+ * @param [in]  base     The base address of the range to allocate.
+ * @param [in]  len      The length of the range to allocate.
+ * @param [in]  pte_size The PTE size for the allocation.
+ *
+ * @return The base address of the allocated range, or 0 if the allocation fails.
+ */
 static u64 balloc_do_alloc_fixed(struct nvgpu_buddy_allocator *a,
 				 struct nvgpu_fixed_alloc *falloc,
 				 u64 base, u64 len, u32 pte_size)
@@ -875,6 +1529,28 @@ err_and_cleanup:
 	return 0;
 }
 
+/**
+ * @brief Free a fixed allocation and attempt to defragment the allocator.
+ *
+ * The function 'balloc_do_free_fixed' iterates over the list of buddies in a fixed allocation,
+ * freeing each one and attempting to coalesce them back into larger free blocks. It updates the
+ * allocator's statistics for the number of bytes freed and finally frees the memory used by the
+ * fixed allocation structure.
+ * The steps performed by the function are as follows:
+ * -# Enter a loop that continues as long as the list of buddies in the fixed allocation is not empty.
+ * -# Retrieve the first buddy in the fixed allocation's list of buddies using nvgpu_list_first_entry().
+ * -# Remove the buddy from the fixed allocation's list of buddies using balloc_buddy_list_do_rem().
+ * -# Free the buddy using balloc_free_buddy() and ignore the return value.
+ * -# Add the buddy back to the allocator's list of free buddies using balloc_blist_add().
+ * -# Update the allocator's bytes_freed statistic by adding the length of the buddy's order using
+ *    balloc_order_to_len().
+ * -# Attempt to defragment the allocator by coalescing the buddy back into larger blocks using
+ *    balloc_coalesce().
+ * -# After the loop, free the memory used by the fixed allocation structure using nvgpu_kfree().
+ *
+ * @param [in]  a       Pointer to the buddy allocator structure.
+ * @param [in]  falloc  Pointer to the fixed allocation to be freed.
+ */
 static void balloc_do_free_fixed(struct nvgpu_buddy_allocator *a,
 				 struct nvgpu_fixed_alloc *falloc)
 {
@@ -911,16 +1587,66 @@ static void balloc_do_free_fixed(struct nvgpu_buddy_allocator *a,
  * Free the remaining buddy to the respective list.
  * Release the alloc_lock.
  */
+
+/**
+ * @brief Allocate a page table entry (PTE) of a specified size from the buddy allocator.
+ *
+ * The function 'nvgpu_buddy_balloc_pte' allocates memory for a PTE with the given length and
+ * page size. It calculates the order of the allocation, converts the page size to a PTE size,
+ * and then attempts to allocate the memory. If successful, it updates the allocator's statistics.
+ * The steps performed by the function are as follows:
+ * -# Check if the requested length is zero and output a debug message using alloc_dbg() if it is,
+ *    then return 0.
+ * -# Acquire the allocator lock using alloc_lock().
+ * -# Calculate the order of the allocation based on the length using balloc_get_order().
+ * -# If the calculated order is greater than the maximum order supported by the allocator, release
+ *    the lock using alloc_unlock(), output a debug message using alloc_dbg(), and return 0.
+ * -# Convert the page size to a PTE size using nvgpu_balloc_page_size_to_pte_size().
+ * -# If the PTE size is invalid, release the lock using alloc_unlock() and return 0.
+ * -# Attempt to allocate memory of the calculated order and PTE size using balloc_do_alloc().
+ * -# If the allocation is successful, update the allocator's statistics for allocated bytes and
+ *    output a debug message using alloc_dbg().
+ * -# If the allocation fails, output a debug message using alloc_dbg().
+ * -# Release the allocator lock using alloc_unlock().
+ * -# Return the address of the allocated memory, or 0 if the allocation failed.
+ *
+ * @param [in]  na         Pointer to the generic allocator structure.
+ * @param [in]  len        The length of the PTE to allocate.
+ * @param [in]  page_size  The page size for the PTE allocation.
+ *
+ * @return The address of the allocated PTE, or 0 if the allocation fails.
+ */
 static u64 nvgpu_buddy_balloc_pte(struct nvgpu_allocator *na, u64 len,
-				  u32 page_size)
+				  u32 page_size, bool align_required, u64 align_size)
 {
 	u64 order, addr;
 	u32 pte_size;
 	struct nvgpu_buddy_allocator *a = buddy_allocator(na);
+	u64 temp;
 
 	if (len == 0ULL) {
 		alloc_dbg(balloc_owner(a), "Alloc fail");
 		return 0;
+	}
+
+	/**
+	 * The alignment requirement can be satisfied by having
+	 * the length be up-aligned to the VA alignment because
+	 * the buddy allocator guarantees that the allocation base
+	 * address is always aligned at least to the length size.
+	 */
+	if (align_required) {
+		if (align_size == 0ULL) {
+			alloc_dbg(balloc_owner(a), "Alloc fail: Invalid align size");
+			return 0;
+		}
+
+		if (!nvgpu_safe_add_u64_return(len, align_size - 1UL, &temp)) {
+			alloc_dbg(balloc_owner(a), "Alloc fail: Overflow");
+			return 0;
+		}
+
+		len = NVGPU_ALIGN(len, align_size);
 	}
 
 	alloc_lock(na);
@@ -947,6 +1673,7 @@ static u64 nvgpu_buddy_balloc_pte(struct nvgpu_allocator *na, u64 len,
 		alloc_dbg(balloc_owner(a),
 			"Alloc 0x%-10llx %3lld:0x%-10llx pte_size=%s",
 			addr, order, len,
+			(pte_size == BALLOC_PTE_SIZE_HUGE) ? "huge" :
 			(pte_size == BALLOC_PTE_SIZE_BIG) ? "big" :
 			(pte_size == BALLOC_PTE_SIZE_SMALL) ? "small" :
 			"NA/any");
@@ -960,9 +1687,25 @@ static u64 nvgpu_buddy_balloc_pte(struct nvgpu_allocator *na, u64 len,
 	return addr;
 }
 
+/**
+ * @brief Allocate memory from the buddy allocator without specifying a PTE size.
+ *
+ * The function 'nvgpu_buddy_balloc' is a wrapper that calls 'nvgpu_buddy_balloc_pte' with
+ * a PTE size of 'BALLOC_PTE_SIZE_ANY', indicating that any PTE size can be used for the allocation.
+ * The steps performed by the function are as follows:
+ * -# Call nvgpu_buddy_balloc_pte() to allocate memory with the specified length and a PTE size
+ *    of 'BALLOC_PTE_SIZE_ANY'.
+ * -# Return the address of the allocated memory as provided by nvgpu_buddy_balloc_pte().
+ *
+ * @param [in]  na   Pointer to the generic allocator structure.
+ * @param [in]  len  The length of the memory to allocate.
+ *
+ * @return The address of the allocated memory, or 0 if the allocation fails.
+ */
 static u64 nvgpu_buddy_balloc(struct nvgpu_allocator *na, u64 len)
 {
-	return nvgpu_buddy_balloc_pte(na, len, BALLOC_PTE_SIZE_ANY);
+	return nvgpu_buddy_balloc_pte(na, len, BALLOC_PTE_SIZE_ANY,
+			false, len);
 }
 
 /*
@@ -975,6 +1718,46 @@ static u64 nvgpu_buddy_balloc(struct nvgpu_allocator *na, u64 len)
  * Call balloc_make_fixed_buddy() to generate the list of buddies.
  * Make the book keeping of allocated objects to the respective lists.
  * Release the alloc_lock.
+ */
+
+/**
+ * @brief Allocate a fixed range of memory with a specific page size in the buddy allocator.
+ *
+ * The function 'nvgpu_balloc_fixed_buddy_locked' allocates a fixed range of memory with the
+ * given base address, length, and page size. It ensures the base is aligned, the range is free,
+ * and the page size is valid before proceeding with the allocation. If any checks fail or the
+ * allocation is unsuccessful, it returns 0.
+ * The steps performed by the function are as follows:
+ * -# Assert that the block size of the allocator is greater than zero.
+ * -# Check if the base address is aligned to an order 0 block size. If not, go to fail.
+ * -# Check if the length is zero or if the base address is less than the start of the allocator.
+ *    If either is true, go to fail.
+ * -# Check if the end of the allocator is less than the sum of the base address and length.
+ *    If true, go to fail.
+ * -# Convert the page size to a PTE size using nvgpu_balloc_page_size_to_pte_size().
+ * -# If the PTE size is invalid, go to fail.
+ * -# Allocate memory for the fixed allocation structure using nvgpu_kmalloc().
+ * -# If the allocation for the fixed allocation structure fails, go to fail.
+ * -# Initialize the list of buddies in the fixed allocation and set its start and end addresses.
+ * -# Check if the range is free using balloc_is_range_free(). If not, output a debug message
+ *    using alloc_dbg() and go to fail.
+ * -# Attempt to allocate the fixed range using balloc_do_alloc_fixed(). If the allocation fails,
+ *    output a debug message using alloc_dbg() and go to fail.
+ * -# Insert the fixed allocation into the fixed allocations tree using balloc_alloc_fixed().
+ * -# Iterate over each buddy in the fixed allocation's list of buddies to calculate the real
+ *    bytes allocated.
+ * -# Update the allocator's statistics for allocated bytes.
+ * -# Output a debug message using alloc_dbg() indicating the fixed allocation was successful.
+ * -# Return the base address of the allocated range.
+ * -# If any checks fail or the allocation is unsuccessful, free the fixed allocation structure
+ *    using nvgpu_kfree() and return 0.
+ *
+ * @param [in]  na         Pointer to the generic allocator structure.
+ * @param [in]  base       The base address of the range to allocate.
+ * @param [in]  len        The length of the range to allocate.
+ * @param [in]  page_size  The page size for the allocation.
+ *
+ * @return The base address of the allocated range, or 0 if the allocation fails.
  */
 static u64 nvgpu_balloc_fixed_buddy_locked(struct nvgpu_allocator *na,
 					   u64 base, u64 len, u32 page_size)
@@ -1061,6 +1844,29 @@ fail:
  *
  * Please do not use this function unless _absolutely_ necessary.
  */
+
+/**
+ * @brief Allocate a fixed range of memory with a specific page size in the buddy allocator.
+ *
+ * The function 'nvgpu_balloc_fixed_buddy' is a wrapper that locks the allocator, calls
+ * 'nvgpu_balloc_fixed_buddy_locked' to perform the actual allocation, and then unlocks the
+ * allocator. It updates the allocator's 'alloc_made' flag if the allocation is successful.
+ * The steps performed by the function are as follows:
+ * -# Acquire the allocator lock using alloc_lock().
+ * -# Call nvgpu_balloc_fixed_buddy_locked() to attempt the fixed allocation with the specified
+ *    base address, length, and page size.
+ * -# If the allocation is successful (non-zero address returned), set the allocator's 'alloc_made'
+ *    flag to true.
+ * -# Release the allocator lock using alloc_unlock().
+ * -# Return the address of the allocated memory, or 0 if the allocation failed.
+ *
+ * @param [in]  na         Pointer to the generic allocator structure.
+ * @param [in]  base       The base address of the range to allocate.
+ * @param [in]  len        The length of the range to allocate.
+ * @param [in]  page_size  The page size for the allocation.
+ *
+ * @return The base address of the allocated range, or 0 if the allocation fails.
+ */
 static u64 nvgpu_balloc_fixed_buddy(struct nvgpu_allocator *na,
 				    u64 base, u64 len, u32 page_size)
 {
@@ -1081,6 +1887,31 @@ static u64 nvgpu_balloc_fixed_buddy(struct nvgpu_allocator *na,
 
 /*
  * @a must be locked.
+ */
+
+/**
+ * @brief Free a previously allocated block of memory in the buddy allocator.
+ *
+ * The function 'nvgpu_buddy_bfree_locked' frees a block of memory identified by its address.
+ * It first checks if the address corresponds to a fixed allocation and frees it accordingly.
+ * If not, it treats the address as a regular buddy allocation. It updates the allocator's
+ * statistics and attempts to defragment the allocator by coalescing buddies.
+ * The steps performed by the function are as follows:
+ * -# Retrieve the buddy allocator structure from the generic allocator using buddy_allocator().
+ * -# Attempt to free a fixed allocation using balloc_free_fixed(). If successful, proceed to
+ *    free the fixed allocation using balloc_do_free_fixed() and go to 'done'.
+ * -# If the address is not a fixed allocation, attempt to free a regular buddy using
+ *    balloc_free_buddy(). If no buddy is found, go to 'done'.
+ * -# Add the freed buddy back to the allocator's list of free buddies using balloc_blist_add().
+ * -# Update the allocator's bytes_freed statistic by adding the length of the freed buddy's order
+ *    using balloc_order_to_len().
+ * -# Attempt to defragment the allocator by coalescing the buddy back into larger blocks using
+ *    balloc_coalesce().
+ * -# Output a debug message using alloc_dbg() indicating the address has been freed.
+ * -# Label 'done' marks the end of the function's execution path.
+ *
+ * @param [in]  na   Pointer to the generic allocator structure.
+ * @param [in]  addr The address of the memory block to free.
  */
 static void nvgpu_buddy_bfree_locked(struct nvgpu_allocator *na, u64 addr)
 {
@@ -1118,6 +1949,22 @@ done:
 
 /*
  * Free the passed allocation.
+ */
+
+/**
+ * @brief Free a previously allocated block of memory in the buddy allocator.
+ *
+ * The function 'nvgpu_buddy_bfree' is a wrapper that locks the allocator, calls
+ * 'nvgpu_buddy_bfree_locked' to perform the actual free operation, and then unlocks the
+ * allocator. It checks if the address is non-zero before attempting to free the memory.
+ * The steps performed by the function are as follows:
+ * -# Check if the address is zero. If it is, return immediately as there is nothing to free.
+ * -# Acquire the allocator lock using alloc_lock().
+ * -# Call nvgpu_buddy_bfree_locked() to free the memory block at the specified address.
+ * -# Release the allocator lock using alloc_unlock().
+ *
+ * @param [in]  na   Pointer to the generic allocator structure.
+ * @param [in]  addr The address of the memory block to free.
  */
 static void nvgpu_buddy_bfree(struct nvgpu_allocator *na, u64 addr)
 {
@@ -1231,6 +2078,22 @@ static void nvgpu_buddy_release_co(struct nvgpu_allocator *na,
 	alloc_unlock(na);
 }
 
+/**
+ * @brief Retrieve the length of the memory managed by the buddy allocator.
+ *
+ * This function returns the total size of the memory region that the buddy
+ * allocator is managing. It retrieves the length from the buddy allocator's
+ * internal structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Convert the generic allocator pointer to a buddy allocator specific
+ *    pointer using the buddy_allocator() function.
+ * -# Return the length field from the buddy allocator's internal structure.
+ *
+ * @param [in] a  The generic pointer to the allocator structure.
+ *
+ * @return The length of the memory region managed by the buddy allocator.
+ */
 static u64 nvgpu_buddy_alloc_length(struct nvgpu_allocator *a)
 {
 	struct nvgpu_buddy_allocator *ba = buddy_allocator(a);
@@ -1238,6 +2101,22 @@ static u64 nvgpu_buddy_alloc_length(struct nvgpu_allocator *a)
 	return ba->length;
 }
 
+/**
+ * @brief Retrieves the base address of the memory managed by the buddy allocator.
+ *
+ * This function returns the starting address of the memory range managed by the
+ * buddy allocator associated with the given allocator context.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the buddy allocator context from the generic allocator context
+ *    using the buddy_allocator() function.
+ * -# Return the 'start' field from the buddy allocator context, which represents
+ *    the base address of the managed memory.
+ *
+ * @param [in] a  The generic allocator context.
+ *
+ * @return The base address of the memory range managed by the buddy allocator.
+ */
 static u64 nvgpu_buddy_alloc_base(struct nvgpu_allocator *a)
 {
 	struct nvgpu_buddy_allocator *ba = buddy_allocator(a);
@@ -1245,6 +2124,28 @@ static u64 nvgpu_buddy_alloc_base(struct nvgpu_allocator *a)
 	return ba->start;
 }
 
+/**
+ * @brief Checks if the buddy allocator is initialized.
+ *
+ * This function determines whether the buddy allocator associated with the given
+ * allocator context has been initialized. It ensures any memory operations
+ * performed before the check are completed before accessing the 'initialized'
+ * status.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the buddy allocator context from the generic allocator context
+ *    using the buddy_allocator() function.
+ * -# Store the 'initialized' field from the buddy allocator context, which
+ *    indicates whether the allocator has been initialized.
+ * -# Call nvgpu_smp_rmb() to ensure that all memory operations that precede the
+ *    read memory barrier in program order are globally visible before the
+ *    'initialized' status is read.
+ * -# Return the stored 'initialized' status.
+ *
+ * @param [in] a  The generic allocator context.
+ *
+ * @return True if the buddy allocator is initialized, false otherwise.
+ */
 static bool nvgpu_buddy_alloc_inited(struct nvgpu_allocator *a)
 {
 	struct nvgpu_buddy_allocator *ba = buddy_allocator(a);
@@ -1254,6 +2155,22 @@ static bool nvgpu_buddy_alloc_inited(struct nvgpu_allocator *a)
 	return inited;
 }
 
+/**
+ * @brief Retrieves the end address of the memory managed by the buddy allocator.
+ *
+ * This function returns the ending address of the memory range managed by the
+ * buddy allocator associated with the given allocator context.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the buddy allocator context from the generic allocator context
+ *    using the buddy_allocator() function.
+ * -# Return the 'end' field from the buddy allocator context, which represents
+ *    the end address of the managed memory.
+ *
+ * @param [in] a  The generic allocator context.
+ *
+ * @return The end address of the memory range managed by the buddy allocator.
+ */
 static u64 nvgpu_buddy_alloc_end(struct nvgpu_allocator *a)
 {
 	struct nvgpu_buddy_allocator *ba = buddy_allocator(a);
@@ -1265,6 +2182,31 @@ static u64 nvgpu_buddy_alloc_end(struct nvgpu_allocator *a)
  * - Check the availability of space between start and end of
  *   the allocator.
  * - Release the allocator lock.
+ */
+
+/**
+ * @brief Calculates the available space in the buddy allocator.
+ *
+ * This function computes the amount of free space available in the buddy allocator
+ * by subtracting the allocated bytes from the total size of the managed memory
+ * range. It ensures thread safety by locking the allocator during the calculation.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the buddy allocator context from the generic allocator context
+ *    using the buddy_allocator() function.
+ * -# Lock the allocator to prevent concurrent access using alloc_lock().
+ * -# Calculate the total size of the managed memory range by subtracting the
+ *    'start' address from the 'end' address using nvgpu_safe_sub_u64().
+ * -# Calculate the total allocated bytes by subtracting the 'bytes_freed' from
+ *    the 'bytes_alloced_real' using nvgpu_safe_sub_u64().
+ * -# Subtract the total allocated bytes from the total size of the managed memory
+ *    range to get the available space using nvgpu_safe_sub_u64().
+ * -# Unlock the allocator to allow access by other threads using alloc_unlock().
+ * -# Return the calculated available space.
+ *
+ * @param [in] a  The generic allocator context.
+ *
+ * @return The amount of free space available in the buddy allocator.
  */
 static u64 nvgpu_buddy_alloc_space(struct nvgpu_allocator *a)
 {
@@ -1385,6 +2327,35 @@ static const struct nvgpu_allocator_ops buddy_ops = {
 #endif
 };
 
+/**
+ * @brief Validates the input arguments for buddy allocator initialization.
+ *
+ * This function checks the input arguments for initializing a buddy allocator
+ * to ensure they meet the necessary conditions such as non-zero sizes, power of
+ * two block sizes, and valid maximum order. It also checks for the presence of
+ * a valid VM context when managing a GVA space.
+ *
+ * The steps performed by the function are as follows:
+ * -# Determine if the allocator is for GVA space by checking the 'flags' for
+ *    #GPU_ALLOC_GVA_SPACE.
+ * -# Check if 'blk_size' is zero, which is invalid, and return -EINVAL if true.
+ * -# Check if 'blk_size' is a power of two by performing a bitwise AND between
+ *    'blk_size' and 'blk_size' minus one and checking if the result is zero.
+ *    Return -EINVAL if 'blk_size' is not a power of two.
+ * -# Check if 'max_order' exceeds the maximum allowed order defined by
+ *    #GPU_BALLOC_MAX_ORDER and return -EINVAL if true.
+ * -# Check if 'size' is zero, which is invalid, and return -EINVAL if true.
+ * -# If managing a GVA space, check if 'vm' is NULL and return -EINVAL if true.
+ * -# Return 0 to indicate the input arguments are valid.
+ *
+ * @param [in] vm        The VM context, required if managing GVA space.
+ * @param [in] size      The size of the memory to manage.
+ * @param [in] blk_size  The size of the blocks managed by the allocator.
+ * @param [in] max_order The maximum order of blocks managed by the allocator.
+ * @param [in] flags     Flags indicating the allocator's properties.
+ *
+ * @return 0 if the arguments are valid, -EINVAL if any argument is invalid.
+ */
 static int nvgpu_buddy_check_argument_limits(struct vm_gk20a *vm, u64 size,
 				u64 blk_size, u64 max_order, u64 flags)
 {
@@ -1417,6 +2388,44 @@ static int nvgpu_buddy_check_argument_limits(struct vm_gk20a *vm, u64 size,
 	return 0;
 }
 
+/**
+ * @brief Sets the attributes for a buddy allocator.
+ *
+ * This function initializes the buddy allocator with the provided attributes such
+ * as base address, size, block size, and maximum order. It also aligns the base
+ * and size if required for GVA spaces with big pages enabled.
+ *
+ * The steps performed by the function are as follows:
+ * -# Determine if the allocator is for GVA space by checking the 'flags' for
+ *    #GPU_ALLOC_GVA_SPACE.
+ * -# Set the base address of the buddy allocator.
+ * -# Set the total length of memory to manage in the buddy allocator.
+ * -# Set the block size for the buddy allocator.
+ * -# Calculate the block shift value by subtracting one from the result of
+ *    nvgpu_ffs() called with 'blk_size'.
+ * -# Set the owner of the buddy allocator to the provided generic allocator.
+ * -# If the base address is zero, adjust the base to be the size of one block
+ *    and reduce the length accordingly to allow for error reporting with an
+ *    address of zero.
+ * -# Set the VM context for the buddy allocator.
+ * -# If managing a GVA space, calculate the PDE coverage size, block order for
+ *    PTEs, and ensure that the base and size are aligned to PDE boundaries if
+ *    big pages are enabled. Return -EINVAL if alignment is not correct.
+ * -# Set the flags for the buddy allocator.
+ * -# Set the maximum order for the buddy allocator.
+ * -# Return 0 to indicate successful setting of attributes.
+ *
+ * @param [in] a         The buddy allocator context.
+ * @param [in] na        The generic allocator context.
+ * @param [in] vm        The VM context, required if managing GVA space.
+ * @param [in] base      The base address for the buddy allocator.
+ * @param [in] size      The size of the memory to manage.
+ * @param [in] blk_size  The size of the blocks managed by the allocator.
+ * @param [in] max_order The maximum order of blocks managed by the allocator.
+ * @param [in] flags     Flags indicating the allocator's properties.
+ *
+ * @return 0 if the attributes are set successfully, -EINVAL if any attribute is invalid.
+ */
 static int nvgpu_buddy_set_attributes(struct nvgpu_buddy_allocator *a,
 				struct nvgpu_allocator *na, struct vm_gk20a *vm,
 				u64 base, u64 size, u64 blk_size, u64 max_order,

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_VGPU_H
@@ -91,6 +73,8 @@ int vgpu_gr_set_preemption_mode(struct nvgpu_channel *ch,
 int vgpu_gr_isr(struct gk20a *g, struct tegra_vgpu_gr_intr_info *info);
 void vgpu_gr_handle_sm_esr_event(struct gk20a *g,
 			struct tegra_vgpu_sm_esr_info *info);
+u32 vgpu_gr_config_get_gpc_rop_mask(struct gk20a *g,
+	struct nvgpu_gr_config *config, u32 gpc_index);
 int vgpu_init_gr_support(struct gk20a *g);
 u32 vgpu_gr_get_max_gpc_count(struct gk20a *g);
 u32 vgpu_gr_get_gpc_count(struct gk20a *g);
@@ -98,7 +82,7 @@ u32 vgpu_gr_get_gpc_mask(struct gk20a *g);
 #ifdef CONFIG_NVGPU_DEBUGGER
 u64 vgpu_gr_gk20a_tpc_enabled_exceptions(struct gk20a *g);
 int vgpu_gr_set_mmu_debug_mode(struct gk20a *g,
-		struct nvgpu_channel *ch, bool enable);
+		struct nvgpu_channel *ch, bool enable, bool enable_gcc);
 #endif
 
 #endif /* NVGPU_GR_VGPU_H */

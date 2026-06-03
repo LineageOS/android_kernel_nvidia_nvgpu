@@ -1,30 +1,12 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/soc.h>
 #include <nvgpu/io.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/netlist.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/ctx_mappings.h>
 
@@ -33,6 +15,7 @@
 
 #include <nvgpu/hw/tu104/hw_gr_tu104.h>
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 u32 tu104_gr_init_get_bundle_cb_default_size(struct gk20a *g)
 {
 	(void)g;
@@ -62,12 +45,14 @@ u32 tu104_gr_init_get_alpha_cb_default_size(struct gk20a *g)
 	(void)g;
 	return gr_gpc0_ppc0_cbm_alpha_cb_size_v_default_v();
 }
+#endif
 
 static bool tu104_gr_init_is_allowed_sw_bundle64(struct gk20a *g,
 		u32 bundle_addr, u32 bundle_hi_value,
 		u32 bundle_lo_value, int *context)
 {
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			(nvgpu_grmgr_is_cur_instance_support_gfx(g))) {
 		nvgpu_log(g, gpu_dbg_mig,
 			"Allowed bundle64 addr[%x] hi_value[%x] lo_value[%x] ",
 			bundle_addr, bundle_hi_value, bundle_lo_value);
@@ -80,7 +65,7 @@ static bool tu104_gr_init_is_allowed_sw_bundle64(struct gk20a *g,
 	if (gr_pipe_bundle_address_value_v(bundle_addr) ==
 			GR_PIPE_MODE_BUNDLE) {
 		*context = ((bundle_hi_value == 0U) &&
-			(bundle_lo_value == GR_PIPE_MODE_MAJOR_COMPUTE));
+			(bundle_lo_value == GR_PIPE_MODE_MAJOR_COMPUTE)) ? 1 : 0;
 		nvgpu_log(g, gpu_dbg_mig, "(MIG) Bundle64 start "
 			"addr[%x] hi_value[%x] lo_value[%x] "
 				"is_compute_start[%d] ",

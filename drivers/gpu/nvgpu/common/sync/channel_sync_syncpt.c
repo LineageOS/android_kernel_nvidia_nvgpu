@@ -1,29 +1,14 @@
-/*
- * GK20A Channel Synchronization Abstraction
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if !defined(CONFIG_NVGPU_SYNCFD_NONE) && !defined(CONFIG_TEGRA_GK20A_NVHOST_HOST1X)
 #include <uapi/linux/nvhost_ioctl.h>
+#endif
+
+#if defined(CONFIG_TEGRA_GK20A_NVHOST_HOST1X) && defined(__KERNEL__)
+#include <linux/host1x-next.h>
+#else
+#define HOST1X_GLOBAL_TO_LOCAL_SYNCPOINT(id)    (id)
 #endif
 
 #include <nvgpu/kmem.h>
@@ -46,11 +31,20 @@
 
 #include "channel_sync_priv.h"
 
+/*
+ * This is derived from HOST1X GLOBAL to LOCAL/LOCAL to GLOBAL
+ * sync point coversion macros.
+ */
+#define NVGPU_DIE_NUM_FROM_GLOBAL_SYNCPOINT(global_syncpoint_id) \
+		((global_syncpoint_id & 0xFF000000U) >> 24U)
+
 struct nvgpu_channel_sync_syncpt {
 	struct nvgpu_channel_sync base;
 	struct nvgpu_channel *c;
 	struct nvgpu_nvhost_dev *nvhost;
+	/* local syncpt id if two numa nodes are presemt. */
 	u32 id;
+	int numa_node_id;
 	struct nvgpu_mem syncpt_buf;
 	u32 max_thresh;
 };
@@ -67,9 +61,9 @@ static void channel_sync_syncpt_gen_wait_cmd(struct nvgpu_channel *c,
 	u32 id, u32 thresh, struct priv_cmd_entry *wait_cmd)
 {
 	nvgpu_log(c->g, gpu_dbg_info, "sp->id %d gpu va %llx",
-			id, c->vm->syncpt_ro_map_gpu_va);
-	c->g->ops.sync.syncpt.add_wait_cmd(c->g, wait_cmd, id, thresh,
-			c->vm->syncpt_ro_map_gpu_va);
+			id, c->vm->syncpt_ro_map_gpu_va[NVGPU_DIE_NUM_FROM_GLOBAL_SYNCPOINT(id)]);
+	c->g->ops.sync.syncpt.add_wait_cmd(c->g, wait_cmd, HOST1X_GLOBAL_TO_LOCAL_SYNCPOINT(id), thresh,
+			c->vm->syncpt_ro_map_gpu_va[NVGPU_DIE_NUM_FROM_GLOBAL_SYNCPOINT(id)]);
 }
 
 static int channel_sync_syncpt_wait_raw(struct nvgpu_channel_sync_syncpt *s,
@@ -124,11 +118,13 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 
 	err = nvgpu_os_fence_fdget(&os_fence, c, fd);
 	if (err != 0) {
+		nvgpu_err(c->g, "failed to get os fence from fd");
 		return -EINVAL;
 	}
 
 	err = nvgpu_os_fence_get_syncpts(&os_fence_syncpt, &os_fence);
 	if (err != 0) {
+		nvgpu_err(c->g, "failed to get syncpts from os fence");
 		goto cleanup;
 	}
 
@@ -139,7 +135,14 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 	}
 
 	if ((max_wait_cmds != 0U) && (num_fences > max_wait_cmds)) {
+		nvgpu_err(c->g, "num_fences %d > max_wait_cmds %d",
+			  num_fences, max_wait_cmds);
 		err = -EINVAL;
+		goto cleanup;
+	}
+
+	/* To handle the signaled fence */
+	if (num_fences == 1 && nvgpu_os_fence_is_signaled(&os_fence_syncpt)) {
 		goto cleanup;
 	}
 
@@ -152,8 +155,15 @@ static int channel_sync_syncpt_wait_fd(struct nvgpu_channel_sync *s, int fd,
 
 	iter_data.wait_cmd = *wait_cmd;
 
-	nvgpu_os_fence_syncpt_foreach_pt(&os_fence_syncpt,
+	err = nvgpu_os_fence_syncpt_foreach_pt(&os_fence_syncpt,
 			gen_wait_cmd_iter, &iter_data);
+	if (err != 0) {
+		if (err != -EAGAIN) {
+			nvgpu_err(c->g, "failed to generate wait cmds %d", err);
+		}
+		nvgpu_priv_cmdbuf_rollback(c->priv_cmd_q, *wait_cmd);
+		*wait_cmd = NULL;
+	}
 
 cleanup:
 	os_fence.ops->drop_ref(&os_fence);
@@ -187,6 +197,39 @@ static void channel_sync_syncpt_update(void *priv, int nr_completed)
 	nvgpu_channel_put(ch);
 }
 
+#ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
+static void nvgpu_emu_syncpt_add_incr_cmd(struct gk20a *g,
+		struct priv_cmd_entry *cmd,
+		u64 gpu_va, bool wfi, u32 fence_tgt_val)
+{
+
+	u32 data[] = {
+		/* sema_addr_lo */
+		0x20010017,
+		nvgpu_safe_cast_u64_to_u32(gpu_va & 0xffffffffU),
+
+		/* sema_addr_hi */
+		0x20010018,
+		nvgpu_safe_cast_u64_to_u32((gpu_va >> 32U) & 0xffU),
+
+		/* payload_lo */
+		0x20010019,
+		fence_tgt_val,
+
+		/* payload_hi : ignored */
+		0x2001001a,
+		0,
+
+		/* sema_execute : release | wfi | 32bit */
+		0x2001001b,
+		(0x1U | ((u32)(wfi ? 0x1U : 0x0U) << 20U)),
+	};
+
+	nvgpu_priv_cmdbuf_append(g, cmd, data, ARRAY_SIZE(data));
+}
+
+#endif
+
 static int channel_sync_syncpt_incr_common(struct nvgpu_channel_sync *s,
 				       bool wfi_cmd,
 				       struct priv_cmd_entry **incr_cmd,
@@ -210,11 +253,16 @@ static int channel_sync_syncpt_incr_common(struct nvgpu_channel_sync *s,
 
 	nvgpu_log(g, gpu_dbg_info, "sp->id %d gpu va %llx",
 				sp->id, sp->syncpt_buf.gpu_va);
-	g->ops.sync.syncpt.add_incr_cmd(g, *incr_cmd,
-			sp->id, sp->syncpt_buf.gpu_va, wfi_cmd);
 
 	thresh = nvgpu_wrapping_add_u32(sp->max_thresh,
 			g->ops.sync.syncpt.get_incr_per_release());
+	if (g->is_host1x_emu) {
+		nvgpu_emu_syncpt_add_incr_cmd(g, *incr_cmd,
+			sp->syncpt_buf.gpu_va, wfi_cmd, thresh);
+	} else {
+		g->ops.sync.syncpt.add_incr_cmd(g, *incr_cmd,
+			sp->id, sp->syncpt_buf.gpu_va, wfi_cmd);
+	}
 
 	if (need_sync_fence) {
 		err = nvgpu_os_fence_syncpt_create(&os_fence, c, sp->nvhost,
@@ -380,6 +428,7 @@ nvgpu_channel_sync_syncpt_create(struct nvgpu_channel *c)
 
 	sp->id = nvgpu_nvhost_get_syncpt_client_managed(sp->nvhost,
 					syncpt_name);
+	sp->numa_node_id = c->g->numa_node_id;
 
 	/**
 	 * This is a fix to handle invalid value of a syncpt.

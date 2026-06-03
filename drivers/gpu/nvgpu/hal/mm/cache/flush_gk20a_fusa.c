@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/mm.h>
@@ -65,27 +46,33 @@ int gk20a_mm_fb_flush(struct gk20a *g)
 	trace_gk20a_mm_fb_flush(g->name);
 #endif
 
-	nvgpu_writel(g, flush_fb_flush_r(),
-		flush_fb_flush_pending_busy_f());
+	if (g->ops.mm.cache.token_based_fb_flush != NULL) {
+		g->ops.mm.cache.token_based_fb_flush(g, &timeout);
+	} else {
+		nvgpu_writel(g, flush_fb_flush_r(),
+			flush_fb_flush_pending_busy_f());
 
-	do {
-		data = nvgpu_readl(g, flush_fb_flush_r());
+		do {
+			data = nvgpu_readl(g, flush_fb_flush_r());
 
-		if ((flush_fb_flush_outstanding_v(data) ==
-				flush_fb_flush_outstanding_true_v()) ||
-			(flush_fb_flush_pending_v(data) ==
-				flush_fb_flush_pending_busy_v())) {
-				nvgpu_log(g, gpu_dbg_mm, "fb_flush 0x%x", data);
-				nvgpu_udelay(5);
-		} else {
-			break;
-		}
-	} while (nvgpu_timeout_expired(&timeout) == 0);
+			if ((flush_fb_flush_outstanding_v(data) ==
+					flush_fb_flush_outstanding_true_v()) ||
+				(flush_fb_flush_pending_v(data) ==
+					flush_fb_flush_pending_busy_v())) {
+					nvgpu_log(g, gpu_dbg_mm, "fb_flush 0x%x", data);
+					nvgpu_udelay(5);
+			} else {
+				break;
+			}
+		} while (nvgpu_timeout_expired(&timeout) == 0);
+	}
 
 	if (nvgpu_timeout_peek_expired(&timeout)) {
+#ifdef CONFIG_NVGPU_VPR
 		if (g->ops.fb.dump_vpr_info != NULL) {
 			g->ops.fb.dump_vpr_info(g);
 		}
+#endif
 		if (g->ops.fb.dump_wpr_info != NULL) {
 			g->ops.fb.dump_wpr_info(g);
 		}
@@ -190,32 +177,40 @@ int gk20a_mm_l2_flush(struct gk20a *g, bool invalidate)
 
 	/* Flush all dirty lines from the L2 to DRAM. Lines are left in the L2
 	   as clean, so subsequent reads might hit in the L2. */
-	nvgpu_writel(g, flush_l2_flush_dirty_r(),
-		flush_l2_flush_dirty_pending_busy_f());
+	if (g->ops.mm.cache.token_based_l2_flush != NULL) {
+		err = g->ops.mm.cache.token_based_l2_flush(g, &timeout);
+	} else {
+		nvgpu_writel(g, flush_l2_flush_dirty_r(),
+			flush_l2_flush_dirty_pending_busy_f());
 
-	do {
-		data = nvgpu_readl(g, flush_l2_flush_dirty_r());
+		do {
+			data = nvgpu_readl(g, flush_l2_flush_dirty_r());
 
-		if ((flush_l2_flush_dirty_outstanding_v(data) ==
-				flush_l2_flush_dirty_outstanding_true_v()) ||
-			(flush_l2_flush_dirty_pending_v(data) ==
-				flush_l2_flush_dirty_pending_busy_v())) {
-				nvgpu_log(g, gpu_dbg_mm, "l2_flush_dirty 0x%x",
-					data);
-				nvgpu_udelay(5);
-		} else {
-			err = 0;
-			break;
-		}
-	} while (nvgpu_timeout_expired_msg(&timeout,
-				"l2_flush_dirty too many retries") == 0);
+			if ((flush_l2_flush_dirty_outstanding_v(data) ==
+					flush_l2_flush_dirty_outstanding_true_v()) ||
+				(flush_l2_flush_dirty_pending_v(data) ==
+					flush_l2_flush_dirty_pending_busy_v())) {
+					nvgpu_log(g, gpu_dbg_mm, "l2_flush_dirty 0x%x",
+						data);
+					nvgpu_udelay(5);
+			} else {
+				err = 0;
+				break;
+			}
+		} while (nvgpu_timeout_expired_msg(&timeout,
+					"l2_flush_dirty too many retries") == 0);
+	}
 
 #ifdef CONFIG_NVGPU_TRACE
 	trace_gk20a_mm_l2_flush_done(g->name);
 #endif
 
 	if (invalidate) {
-		gk20a_mm_l2_invalidate_locked(g);
+		if (g->ops.mm.cache.token_based_l2_invalidate_locked != NULL) {
+			g->ops.mm.cache.token_based_l2_invalidate_locked(g);
+		} else {
+			gk20a_mm_l2_invalidate_locked(g);
+		}
 	}
 
 	nvgpu_mutex_release(&mm->l2_op_lock);
@@ -248,23 +243,27 @@ void gk20a_mm_cbc_clean(struct gk20a *g)
 	nvgpu_mutex_acquire(&mm->l2_op_lock);
 
 	/* Flush all dirty lines from the CBC to L2 */
-	nvgpu_writel(g, flush_l2_clean_comptags_r(),
-		flush_l2_clean_comptags_pending_busy_f());
+	if (g->ops.mm.cache.token_based_cbc_clean != NULL) {
+		g->ops.mm.cache.token_based_cbc_clean(g, &timeout);
+	} else {
+		nvgpu_writel(g, flush_l2_clean_comptags_r(),
+				flush_l2_clean_comptags_pending_busy_f());
 
-	do {
-		data = nvgpu_readl(g, flush_l2_clean_comptags_r());
+		do {
+			data = nvgpu_readl(g, flush_l2_clean_comptags_r());
 
-		if (flush_l2_clean_comptags_outstanding_v(data) ==
-				flush_l2_clean_comptags_outstanding_true_v() ||
-				flush_l2_clean_comptags_pending_v(data) ==
-				flush_l2_clean_comptags_pending_busy_v()) {
-			nvgpu_log_info(g, "l2_clean_comptags 0x%x", data);
-			nvgpu_udelay(5);
-		} else {
-			break;
-		}
-	} while (nvgpu_timeout_expired_msg(&timeout,
-			"l2_clean_comptags too many retries") == 0);
+			if (flush_l2_clean_comptags_outstanding_v(data) ==
+					flush_l2_clean_comptags_outstanding_true_v() ||
+					flush_l2_clean_comptags_pending_v(data) ==
+					flush_l2_clean_comptags_pending_busy_v()) {
+				nvgpu_log_info(g, "l2_clean_comptags 0x%x", data);
+				nvgpu_udelay(5);
+			} else {
+				break;
+			}
+		} while (nvgpu_timeout_expired_msg(&timeout,
+					"l2_clean_comptags too many retries") == 0);
+	}
 
 	nvgpu_mutex_release(&mm->l2_op_lock);
 

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/cic_mon.h>
 #include <nvgpu/cic_rm.h>
@@ -33,10 +14,14 @@ void nvgpu_cic_mon_intr_mask(struct gk20a *g)
 {
 	unsigned long flags = 0;
 
-	if (g->ops.mc.intr_mask != NULL) {
-		nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
-		g->ops.mc.intr_mask(g);
-		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_intr_mask_all(g);
+	} else {
+		if (g->ops.mc.intr_mask != NULL) {
+			nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
+			g->ops.mc.intr_mask(g);
+			nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+		}
 	}
 }
 
@@ -60,41 +45,59 @@ void nvgpu_cic_mon_intr_nonstall_unit_config(struct gk20a *g, u32 unit, bool ena
 }
 #endif
 
-void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g)
+#ifndef CONFIG_NVGPU_MON_PRESENT
+void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g, u64 intr_mask)
 {
 	unsigned long flags = 0;
 
-	nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
-	g->ops.mc.intr_stall_pause(g);
-	nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_intr_stall_pause(g, intr_mask);
+	} else {
+		nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
+		g->ops.mc.intr_stall_pause(g);
+		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	}
 }
 
-void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g)
+void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g, u64 intr_mask)
 {
 	unsigned long flags = 0;
 
-	nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
-	g->ops.mc.intr_stall_resume(g);
-	nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_intr_stall_resume(g, intr_mask);
+	} else {
+		nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
+		g->ops.mc.intr_stall_resume(g);
+		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	}
 }
+#endif
 
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
 void nvgpu_cic_mon_intr_nonstall_pause(struct gk20a *g)
 {
 	unsigned long flags = 0;
 
-	nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
-	g->ops.mc.intr_nonstall_pause(g);
-	nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_intr_nonstall_pause(g);
+	} else {
+		nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
+		g->ops.mc.intr_nonstall_pause(g);
+		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	}
 }
 
 void nvgpu_cic_mon_intr_nonstall_resume(struct gk20a *g)
 {
 	unsigned long flags = 0;
 
-	nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
-	g->ops.mc.intr_nonstall_resume(g);
-	nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_intr_nonstall_resume(g);
+	} else {
+		nvgpu_spinlock_irqsave(&g->mc.intr_lock, flags);
+		g->ops.mc.intr_nonstall_resume(g);
+		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
+	}
 }
 
 static void nvgpu_cic_mon_intr_nonstall_work(struct gk20a *g, u32 work_ops)
@@ -112,16 +115,20 @@ static void nvgpu_cic_mon_intr_nonstall_work(struct gk20a *g, u32 work_ops)
 	}
 }
 
-u32 nvgpu_cic_mon_intr_nonstall_isr(struct gk20a *g)
+static u32 nvgpu_cic_mon_intr_nonstall_isr_with_mask(struct gk20a *g, u64 intr_mask)
 {
-	u32 non_stall_intr_val = 0U;
+	u64 non_stall_intr_val = 0U;
 
 	if (nvgpu_is_powered_off(g)) {
 		return NVGPU_CIC_INTR_UNMASK;
 	}
 
 	/* not from gpu when sharing irq with others */
-	non_stall_intr_val = g->ops.mc.intr_nonstall(g);
+	if (nvgpu_gin_is_present(g)) {
+		non_stall_intr_val = nvgpu_gin_nonstall_isr(g, intr_mask);
+	} else {
+		non_stall_intr_val = (u64)g->ops.mc.intr_nonstall(g);
+	}
 	if (non_stall_intr_val == 0U) {
 		return NVGPU_CIC_INTR_NONE;
 	}
@@ -136,11 +143,26 @@ u32 nvgpu_cic_mon_intr_nonstall_isr(struct gk20a *g)
 	return NVGPU_CIC_INTR_HANDLE;
 }
 
-void nvgpu_cic_mon_intr_nonstall_handle(struct gk20a *g)
+u32 nvgpu_cic_mon_intr_nonstall_isr(struct gk20a *g)
+{
+	u64 intr_mask = 0UL;
+
+	if (nvgpu_gin_is_present(g)) {
+		intr_mask = g->gin.config->nonstall_intr_top_mask;
+	}
+
+	return nvgpu_cic_mon_intr_nonstall_isr_with_mask(g, intr_mask);
+}
+
+static void nvgpu_cic_mon_intr_nonstall_handle_with_mask(struct gk20a *g, u64 intr_mask)
 {
 	u32 nonstall_ops = 0;
 
-	nonstall_ops = g->ops.mc.isr_nonstall(g);
+	if (nvgpu_gin_is_present(g)) {
+		nonstall_ops = nvgpu_gin_nonstall_isr_thread(g, intr_mask);
+	} else {
+		nonstall_ops = g->ops.mc.isr_nonstall(g);
+	}
 	if (nonstall_ops != 0U) {
 		nvgpu_cic_mon_intr_nonstall_work(g, nonstall_ops);
 	}
@@ -152,6 +174,17 @@ void nvgpu_cic_mon_intr_nonstall_handle(struct gk20a *g)
 
 	(void)nvgpu_cic_rm_broadcast_last_irq_nonstall(g);
 }
+
+void nvgpu_cic_mon_intr_nonstall_handle(struct gk20a *g)
+{
+	u64 intr_mask = 0UL;
+
+	if (nvgpu_gin_is_present(g)) {
+		intr_mask = g->gin.config->nonstall_intr_top_mask;
+	}
+
+	nvgpu_cic_mon_intr_nonstall_handle_with_mask(g, intr_mask);
+}
 #endif
 #ifdef CONFIG_NVGPU_MON_PRESENT
 int nvgpu_cic_mon_handle_fatal_intr(struct gk20a *g)
@@ -160,15 +193,25 @@ int nvgpu_cic_mon_handle_fatal_intr(struct gk20a *g)
 		nvgpu_err(g, "GPU is already powered off");
 		return -ENODEV;
 	}
-	g->ops.mc.isr_stall(g);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_stall_isr_thread(g, g->gin.config->stall_intr_top_mask);
+	} else {
+		g->ops.mc.isr_stall(g);
+	}
 
-	return 0U;
+	return 0;
 }
 #endif
 
-u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
+static u32 nvgpu_cic_mon_intr_stall_isr_with_mask(struct gk20a *g, u64 intr_mask)
 {
-	u32 mc_intr_0 = 0U;
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	(void)g;
+	(void)(intr_mask);
+	return NVGPU_CIC_INTR_HANDLE;
+#else
+	u64 intr_status = 0U;
+	bool handled = false;
 
 	nvgpu_trace_intr_stall_start(g);
 
@@ -177,12 +220,16 @@ u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
 	}
 
 	/* not from gpu when sharing irq with others */
-	mc_intr_0 = g->ops.mc.intr_stall(g);
-	if (mc_intr_0 == 0U) {
+	if (nvgpu_gin_is_present(g)) {
+		intr_status = nvgpu_gin_stall_isr(g, intr_mask);
+	} else {
+		intr_status = (u64)g->ops.mc.intr_stall(g);
+	}
+	if (intr_status == 0U) {
 		return NVGPU_CIC_INTR_NONE;
 	}
 
-	nvgpu_cic_mon_intr_stall_pause(g);
+	nvgpu_cic_mon_intr_stall_pause(g, intr_status);
 
 	if (g->sw_quiesce_pending) {
 		return NVGPU_CIC_INTR_QUIESCE_PENDING;
@@ -190,25 +237,137 @@ u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
 
 	nvgpu_cic_rm_set_irq_stall(g, 1);
 
+	if (nvgpu_gin_is_present(g)) {
+		handled = nvgpu_gin_handle_gr_illegal_method(g, intr_status);
+
+		handled = handled || nvgpu_gin_handle_nvdec_swgen0(g, intr_status);
+
+		if (handled) {
+			nvgpu_cic_rm_set_irq_stall(g, 0);
+			nvgpu_cic_mon_intr_stall_resume(g, intr_status);
+
+			(void)nvgpu_cic_rm_broadcast_last_irq_stall(g);
+
+			return NVGPU_CIC_INTR_NONE;
+		}
+	}
+
 	nvgpu_trace_intr_stall_done(g);
 
 	return NVGPU_CIC_INTR_HANDLE;
+#endif
 }
 
-void nvgpu_cic_mon_intr_stall_handle(struct gk20a *g)
+u32 nvgpu_cic_mon_intr_stall_isr(struct gk20a *g)
 {
-	nvgpu_mutex_acquire(&g->mc.intr_thread_mutex);
-	g->ops.mc.isr_stall(g);
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	(void)g;
+	return NVGPU_CIC_INTR_HANDLE;
+#else
+	u64 intr_mask = 0UL;
+
+	if (nvgpu_gin_is_present(g)) {
+		intr_mask = g->gin.config->stall_intr_top_mask;
+	}
+
+	return nvgpu_cic_mon_intr_stall_isr_with_mask(g, intr_mask);
+#endif
+}
+
+static void nvgpu_cic_mon_intr_stall_handle_with_mask(struct gk20a *g, u64 intr_mask)
+{
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	(void)g;
+	(void)(intr_mask);
+#else
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_mutex_acquire(&g->gin.intr_thread_mutex);
+		nvgpu_gin_stall_isr_thread(g, intr_mask);
+	} else {
+		nvgpu_mutex_acquire(&g->mc.intr_thread_mutex);
+		g->ops.mc.isr_stall(g);
+	}
 
 	/* sync handled irq counter before re-enabling interrupts */
 	nvgpu_cic_rm_set_irq_stall(g, 0);
 
-	nvgpu_cic_mon_intr_stall_resume(g);
-	nvgpu_mutex_release(&g->mc.intr_thread_mutex);
+	nvgpu_cic_mon_intr_stall_resume(g, intr_mask);
+
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_mutex_release(&g->gin.intr_thread_mutex);
+	} else {
+		nvgpu_mutex_release(&g->mc.intr_thread_mutex);
+	}
 
 	(void)nvgpu_cic_rm_broadcast_last_irq_stall(g);
+#endif
 }
 
+void nvgpu_cic_mon_intr_stall_handle(struct gk20a *g)
+{
+#ifdef CONFIG_NVGPU_MON_PRESENT
+	(void)g;
+#else
+	u64 intr_mask = 0UL;
+
+	if (nvgpu_gin_is_present(g)) {
+		intr_mask = g->gin.config->stall_intr_top_mask;
+	}
+
+	nvgpu_cic_mon_intr_stall_handle_with_mask(g, intr_mask);
+#endif
+}
+
+u32 nvgpu_cic_mon_intr_msi_isr(struct gk20a *g, u32 id)
+{
+	u64 intr_mask = 0UL;
+	u32 ret = NVGPU_CIC_INTR_NONE;
+
+	nvgpu_assert(id < 64U);
+	intr_mask = BIT64(id);
+
+	if (!nvgpu_gin_is_present(g)) {
+		nvgpu_err(g, "MSI/MSI-X interrupts not supported without GIN");
+		return NVGPU_CIC_INTR_NONE;
+	}
+
+	if (nvgpu_gin_msi_is_stall(g, id)) {
+		ret = nvgpu_cic_mon_intr_stall_isr_with_mask(g, intr_mask);
+	}
+#if defined(CONFIG_NVGPU_NONSTALL_INTR)
+	else {
+		nvgpu_assert(nvgpu_gin_msi_is_nonstall(g, id));
+		ret = nvgpu_cic_mon_intr_nonstall_isr_with_mask(g, intr_mask);
+	}
+#endif
+
+	return ret;
+}
+
+void nvgpu_cic_mon_intr_msi_handle(struct gk20a *g, u32 id)
+{
+	u64 intr_mask = 0UL;
+
+	nvgpu_assert(id < 64U);
+	intr_mask = BIT64(id);
+
+	if (!nvgpu_gin_is_present(g)) {
+		nvgpu_err(g, "MSI/MSI-X interrupts not supported without GIN");
+		return;
+	}
+
+	if (nvgpu_gin_msi_is_stall(g, id)) {
+		nvgpu_cic_mon_intr_stall_handle_with_mask(g, intr_mask);
+	}
+#if defined(CONFIG_NVGPU_NONSTALL_INTR)
+	else {
+		nvgpu_assert(nvgpu_gin_msi_is_nonstall(g, id));
+		nvgpu_cic_mon_intr_nonstall_handle_with_mask(g, intr_mask);
+	}
+#endif
+}
+
+#ifdef CONFIG_NVGPU_NON_FUSA
 void nvgpu_cic_mon_intr_enable(struct gk20a *g)
 {
 	unsigned long flags = 0;
@@ -219,6 +378,7 @@ void nvgpu_cic_mon_intr_enable(struct gk20a *g)
 		nvgpu_spinunlock_irqrestore(&g->mc.intr_lock, flags);
 	}
 }
+#endif
 
 void nvgpu_cic_mon_intr_unit_vectorid_init(struct gk20a *g, u32 unit, u32 *vectorid,
 		u32 num_entries)

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/power_features/cg.h>
@@ -34,7 +15,9 @@ int nvgpu_cg_pg_disable(struct gk20a *g)
 	g->ops.gr.init.wait_initialized(g);
 
 #ifdef CONFIG_NVGPU_POWER_PG
-	/* disable elpg before clock gating */
+	/* Disable elpg before clock gating.
+	 * Disable aelpg also, if applicable.
+	 */
 	err = nvgpu_pg_elpg_disable(g);
 	if (err != 0) {
 		nvgpu_err(g, "failed to set disable elpg");
@@ -44,7 +27,8 @@ int nvgpu_cg_pg_disable(struct gk20a *g)
 
 	nvgpu_cg_blcg_mode_disable(g);
 
-	nvgpu_cg_elcg_disable(g);
+	/* Disables elcg and nvdclk_flcg */
+	nvgpu_cg_elcg_set_elcg_enabled(g, false);
 
 	return err;
 }
@@ -57,7 +41,7 @@ int nvgpu_cg_pg_enable(struct gk20a *g)
 
 	g->ops.gr.init.wait_initialized(g);
 
-	nvgpu_cg_elcg_enable(g);
+	nvgpu_cg_elcg_set_elcg_enabled(g, true);
 
 	nvgpu_cg_blcg_mode_enable(g);
 

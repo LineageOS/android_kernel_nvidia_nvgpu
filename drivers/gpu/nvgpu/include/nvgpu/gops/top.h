@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_TOP_H
 #define NVGPU_GOPS_TOP_H
@@ -28,8 +10,48 @@
  * @file
  *
  * TOP unit HAL interface
+ * @page top top
  *
+ * Overview
+ * ========
+ *
+ * The top unit contains top-level configuration information (like maximum
+ * supported GPCs) and any extra registers or features (like device_info table)
+ * that do not fit into another block's feature set.
+ * The APIs exposed by top unit are used by qnx.devctl unit to help nvrm_gpu
+ * know about configuration of various h/w units on GPU device. The APIs are also
+ * used by other units like common.fifo to query their configuration details.
+ *
+ * The APIs exposed by top:
+ * - Provide top-level configuration information by reading the device_info table
+ *   registers. The device_info table is an array of registers which contains
+ *   engine specific data for engines like CE, graphics, nvdec, ioctrl etc. These
+ *   registers contain data like intr_enum, reset_enum, pri_base and so on. The
+ *   top unit includes a HAL to parse this table and get data for a
+ *   particular engine.
+ * - Help read floorsweeping registers which provide number of FBPs, TPCs per GPCs
+ *   etc. on a GPU chip.
+ *
+ * Data Structures
+ * ===============
+ * The top unit exposes following list of supported engine types and a
+ * structure to store all engine specific data from device_info table.
+ * TODO: Fill this section
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + gops_top.get_max_fbps_count
+ *   + gops_top.get_max_gpc_count
+ *   + gops_top.get_max_ltc_per_fbp
+ *   + gops_top.get_max_lts_per_ltc
+ *   + gops_top.get_max_tpc_per_gpc_count
+ *   + gops_top.get_num_lce
+ *   + gops_top.get_num_ltcs
  */
+
 struct gk20a;
 struct nvgpu_device;
 
@@ -64,6 +86,18 @@ struct gops_top {
 	 * parsed or an error occured.
 	 */
 	struct nvgpu_device *(*parse_next_device)(struct gk20a *g, u32 *token);
+
+	/**
+	 * @brief Obtains the expected device table configuration version.
+	 *
+	 * The device table configuration version is a value sourced from the
+	 * hardware manuals. This value is intended to be used for defensive
+	 * programming when checking reading the version from a hardware
+	 * register.
+	 *
+	 * @return The expected device table configuration version.
+	 */
+	u32 (*get_expected_chip_info_cfg_version)(void);
 
 	/**
 	 * @brief Gets maximum number of GPCs in a GPU as programmed in HW

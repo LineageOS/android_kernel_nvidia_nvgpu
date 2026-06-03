@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bios.h>
 #include <nvgpu/gk20a.h>
@@ -168,7 +149,7 @@ static struct voltage_rail *volt_construct_volt_rail(struct gk20a *g, void *parg
 	return (struct voltage_rail *)(void *)obj;
 }
 
-static int volt_get_volt_rail_table(struct gk20a *g,
+static int volt_get_volt_rail_table_1x(struct gk20a *g,
 		struct voltage_rail_metadata *pvolt_rail_metadata)
 {
 	int status = 0;
@@ -195,6 +176,7 @@ static int volt_get_volt_rail_table(struct gk20a *g,
 	nvgpu_memcpy((u8 *)&header, volt_rail_table_ptr,
 			sizeof(struct vbios_voltage_rail_table_1x_header));
 
+	pvolt_rail_metadata->version = header.version;
 	pvolt_rail_metadata->volt_domain_hal = (u8)header.volt_domain_hal;
 
 	for (i = 0; i < header.num_table_entries; i++) {
@@ -278,6 +260,21 @@ done:
 	return status;
 }
 
+static int volt_get_volt_rail_table(struct gk20a *g,
+		struct voltage_rail_metadata *pvolt_rail_metadata)
+{
+	/*
+	 * Can't use volt_rail_metadata.version here because it's not set yet.
+	 * So, use version 3x for gb20c and gb20f and use version 1 for all other chips
+	 */
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+	if (ver == NVGPU_GPUID_GB20C || ver == NVGPU_GPUID_GB20C_NEXT) {
+		return volt_get_volt_rail_table_3x(g, pvolt_rail_metadata);
+	} else {
+		return volt_get_volt_rail_table_1x(g, pvolt_rail_metadata);
+	}
+}
+
 static int volt_rail_devgrp_pmudata_instget(struct gk20a *g,
 	struct nv_pmu_boardobjgrp *pmuboardobjgrp, struct nv_pmu_boardobj
 	**pmu_obj, u8 idx)
@@ -320,7 +317,7 @@ static int volt_rail_devgrp_pmustatus_instget(struct gk20a *g,
 	return 0;
 }
 
-static int volt_rail_obj_update(struct gk20a *g,
+static int volt_rail_obj_update_1x(struct gk20a *g,
 		struct pmu_board_obj *obj,
 		struct nv_pmu_boardobj *pmu_obj)
 {
@@ -344,6 +341,20 @@ static int volt_rail_obj_update(struct gk20a *g,
 	volt_rail_obj->current_volt_uv = pstatus->curr_volt_defaultu_v;
 
 	return 0;
+}
+
+static int volt_rail_obj_update(struct gk20a *g,
+		struct pmu_board_obj *obj,
+		struct nv_pmu_boardobj *pmu_obj)
+{
+	if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
+		return volt_rail_obj_update_1x(g, obj, pmu_obj);
+	} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
+		return volt_rail_obj_update_3x(g, obj, pmu_obj);
+	} else {
+		nvgpu_err(g, "Unsupported volt rail version");
+		return -EINVAL;
+	}
 }
 
 static int volt_rail_boardobj_grp_get_status(struct gk20a *g)
@@ -390,6 +401,7 @@ int volt_rail_sw_setup(struct gk20a *g)
 	int status = 0;
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct voltage_rail *pvolt_rail;
+	struct voltage_rail_3x *pvolt_rail_3x;
 	u8 i;
 
 	nvgpu_log_info(g, " ");
@@ -405,9 +417,6 @@ int volt_rail_sw_setup(struct gk20a *g)
 
 	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
 
-	pboardobjgrp->pmudatainstget  = volt_rail_devgrp_pmudata_instget;
-	pboardobjgrp->pmustatusinstget  = volt_rail_devgrp_pmustatus_instget;
-
 	g->pmu->volt->volt_metadata->volt_rail_metadata.pct_delta =
 			NV_PMU_VOLT_VALUE_0V_IN_UV;
 
@@ -421,36 +430,80 @@ int volt_rail_sw_setup(struct gk20a *g)
 	/* Populate data for the VOLT_RAIL PMU interface */
 	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, VOLT, VOLT_RAIL);
 
-	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
-			volt, VOLT, volt_rail, VOLT_RAIL);
-	if (status != 0) {
-		nvgpu_err(g,
-			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
-			status);
-		goto done;
-	}
-
-	status = BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g,
-		&g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super,
-			volt, VOLT, volt_rail, VOLT_RAIL);
-	if (status != 0) {
-		nvgpu_err(g,
-			"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
-			status);
-		goto done;
-	}
-
 	/* update calibration to fuse */
-	BOARDOBJGRP_FOR_EACH(&(g->pmu->volt->volt_metadata->volt_rail_metadata.
-			       volt_rails.super),
-			     struct voltage_rail *, pvolt_rail, i) {
-		status = volt_rail_state_init(g, pvolt_rail);
+	if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
+		pboardobjgrp->pmudatainstget = volt_rail_devgrp_pmudata_instget;
+		pboardobjgrp->pmustatusinstget = volt_rail_devgrp_pmustatus_instget;
+
+		status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
+				volt, VOLT, volt_rail, VOLT_RAIL);
 		if (status != 0) {
 			nvgpu_err(g,
-				"Failure while executing RAIL's state init railIdx = %d",
-				i);
+				"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
+				status);
 			goto done;
 		}
+
+		status = BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g,
+			&g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super,
+				volt, VOLT, volt_rail, VOLT_RAIL);
+		if (status != 0) {
+			nvgpu_err(g,
+				"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
+				status);
+			goto done;
+		}
+
+		BOARDOBJGRP_FOR_EACH(&(g->pmu->volt->volt_metadata->volt_rail_metadata.
+				       volt_rails.super),
+				     struct voltage_rail *, pvolt_rail, i) {
+			status = volt_rail_state_init(g, pvolt_rail);
+			if (status != 0) {
+				nvgpu_err(g,
+					"Failure while executing RAIL's state init railIdx = %d",
+					i);
+				goto done;
+			}
+		}
+	} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
+		pboardobjgrp->pmudatainstget = volt_rail_devgrp_pmudata_instget_3x;
+		pboardobjgrp->pmustatusinstget = volt_rail_devgrp_pmustatus_instget;
+		pboardobjgrp->pmuhdrdatainit = volt_rail_devgrp_pmu_hdr_data_init_3x;
+
+		status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,
+				volt, VOLT, volt_rail_3x, VOLT_RAIL);
+		if (status != 0) {
+			nvgpu_err(g,
+				"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
+				status);
+			goto done;
+		}
+
+		status = BOARDOBJGRP_PMU_CMD_GRP_GET_STATUS_CONSTRUCT(g,
+			&g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super,
+				volt, VOLT, volt_rail_3x, VOLT_RAIL);
+		if (status != 0) {
+			nvgpu_err(g,
+				"error constructing PMU_BOARDOBJ_CMD_GRP_SET interface - 0x%x",
+				status);
+			goto done;
+		}
+
+		BOARDOBJGRP_FOR_EACH(&(g->pmu->volt->volt_metadata->volt_rail_metadata.
+				       volt_rails.super),
+				     struct voltage_rail_3x *, pvolt_rail_3x, i) {
+			status = volt_rail_state_init_3x(g, pvolt_rail_3x);
+			if (status != 0) {
+				nvgpu_err(g,
+					"Failure while executing RAIL's state init railIdx = %d",
+					i);
+				goto done;
+			}
+		}
+	} else {
+		nvgpu_err(g, "Unsupported volt rail version");
+		status = -EINVAL;
+		goto done;
 	}
 
 done:
@@ -480,17 +533,43 @@ int volt_rail_pmu_setup(struct gk20a *g)
 u8 volt_rail_vbios_volt_domain_convert_to_internal(struct gk20a *g,
 	u8 vbios_volt_domain)
 {
-	(void)vbios_volt_domain;
-	if (g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal ==
-			CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL) {
-		return CTRL_VOLT_DOMAIN_LOGIC;
-	} else {
-		nvgpu_err(g, "Unsupported volt domain hal");
-		return CTRL_VOLT_DOMAIN_INVALID;
+	switch (g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal) {
+	case CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL:
+		switch (vbios_volt_domain) {
+		case 0:
+			return CTRL_VOLT_DOMAIN_LOGIC;
+		default:
+			break;
+		}
+		break;
+	case CTRL_VOLT_DOMAIN_HAL_GP10X_SPLIT_RAIL:
+		switch (vbios_volt_domain) {
+		case 0:
+			return CTRL_VOLT_DOMAIN_LOGIC;
+		case 1:
+			return CTRL_VOLT_DOMAIN_SRAM;
+		default:
+			break;
+		}
+		break;
+	case CTRL_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL:
+		switch (vbios_volt_domain) {
+		case 0:
+			return CTRL_VOLT_DOMAIN_LOGIC;
+		case 1:
+			return CTRL_VOLT_DOMAIN_MSVDD;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
 	}
+
+	return CTRL_VOLT_DOMAIN_INVALID;
 }
 
-int volt_rail_volt_dev_register(struct gk20a *g, struct voltage_rail
+static int volt_rail_volt_dev_register_1x(struct gk20a *g, struct voltage_rail
 	*pvolt_rail, u8 volt_dev_idx, u8 operation_type)
 {
 	int status = 0;
@@ -527,6 +606,27 @@ int volt_rail_volt_dev_register(struct gk20a *g, struct voltage_rail
 			volt_dev_idx);
 
 exit:
+	return status;
+}
+
+int volt_rail_volt_dev_register(struct gk20a *g, void *pvolt_rail,
+	u8 volt_dev_idx, u8 operation_type)
+{
+	int status = 0;
+	u8 version = g->pmu->volt->volt_metadata->volt_rail_metadata.version;
+
+	if (version == CTRL_VOLT_RAIL_VERSION_10) {
+		status = volt_rail_volt_dev_register_1x(g,
+			(struct voltage_rail *)pvolt_rail,
+			volt_dev_idx, operation_type);
+	} else if (version == CTRL_VOLT_RAIL_VERSION_30) {
+		status = volt_rail_volt_dev_register_3x(g,
+			(struct voltage_rail_3x *)pvolt_rail,
+			volt_dev_idx, operation_type);
+	} else {
+		status = -EINVAL;
+	}
+
 	if (status != 0) {
 		nvgpu_err(g, "Failed to register VOLTAGE_DEVICE");
 	}
@@ -536,14 +636,34 @@ exit:
 
 u8 nvgpu_pmu_volt_rail_volt_domain_convert_to_idx(struct gk20a *g, u8 volt_domain)
 {
-	(void)volt_domain;
-	if (g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal ==
-			CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL) {
-		return 0U;
-	} else {
-		nvgpu_err(g, "Unsupported volt domain hal");
-		return CTRL_BOARDOBJ_IDX_INVALID;
+	switch (g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal) {
+	case CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL:
+		switch (volt_domain) {
+		case CTRL_VOLT_DOMAIN_LOGIC:
+			return 0;
+		}
+		break;
+
+	case CTRL_VOLT_DOMAIN_HAL_GP10X_SPLIT_RAIL:
+		switch (volt_domain) {
+		case CTRL_VOLT_DOMAIN_LOGIC:
+			return 0;
+		case CTRL_VOLT_DOMAIN_SRAM:
+			return 1;
+		}
+		break;
+
+	case CTRL_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL:
+		switch (volt_domain) {
+		case CTRL_VOLT_DOMAIN_LOGIC:
+			return 0;
+		case CTRL_VOLT_DOMAIN_MSVDD:
+			return 1;
+		}
+		break;
 	}
+
+	return CTRL_BOARDOBJ_IDX_INVALID;
 }
 
 int nvgpu_pmu_volt_get_vmin_vmax_ps35(struct gk20a *g, u32 *vmin_uv, u32 *vmax_uv)
@@ -551,6 +671,7 @@ int nvgpu_pmu_volt_get_vmin_vmax_ps35(struct gk20a *g, u32 *vmin_uv, u32 *vmax_u
 	struct boardobjgrp *pboardobjgrp;
 	struct pmu_board_obj *obj = NULL;
 	struct voltage_rail *volt_rail = NULL;
+	struct voltage_rail_3x *volt_rail_3x = NULL;
 	int status;
 	u8 index;
 
@@ -562,13 +683,33 @@ int nvgpu_pmu_volt_get_vmin_vmax_ps35(struct gk20a *g, u32 *vmin_uv, u32 *vmax_u
 
 	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
 
+	/*
+	 * Currently NVGPU driver only supports changing GPC clock, but we need to add
+	 * support for NVD and SYS clocks. Since NVD and SYS clocks are on a different
+	 * volt rail than GPC clocks, will likely need to have a rail ID parameter as
+	 * an input to this function and return the vmin/vmax values from the appropriate
+	 * volt_rail object.
+	 * To Do: Add this support when the calling change_seq function is refactored.
+	 */
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*, obj, index) {
-		volt_rail = (struct voltage_rail *)(void *)obj;
-		if ((volt_rail->vmin_limitu_v != 0U) &&
-			(volt_rail->max_limitu_v != 0U)) {
-			*vmin_uv = volt_rail->vmin_limitu_v;
-			*vmax_uv = volt_rail->max_limitu_v;
-
+		if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
+			volt_rail = (struct voltage_rail *)(void *)obj;
+			if ((volt_rail->vmin_limitu_v != 0U) &&
+				(volt_rail->max_limitu_v != 0U)) {
+				*vmin_uv = volt_rail->vmin_limitu_v;
+				*vmax_uv = volt_rail->max_limitu_v;
+				return status;
+			}
+		} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
+			volt_rail_3x = (struct voltage_rail_3x *)(void *)obj;
+			if ((volt_rail_3x->vmin_limitu_v != 0U) &&
+				(volt_rail_3x->max_limitu_v != 0U)) {
+				*vmin_uv = volt_rail_3x->vmin_limitu_v;
+				*vmax_uv = volt_rail_3x->max_limitu_v;
+				return status;
+			}
+		} else {
+			nvgpu_err(g, "Unsupported volt rail version");
 			return status;
 		}
 	}
@@ -580,6 +721,7 @@ int nvgpu_pmu_volt_get_curr_volt_ps35(struct gk20a *g, u32 *vcurr_uv)
 	struct boardobjgrp *pboardobjgrp;
 	struct pmu_board_obj *obj = NULL;
 	struct voltage_rail *volt_rail = NULL;
+	struct voltage_rail_3x *volt_rail_3x = NULL;
 	int status;
 	u8 index;
 
@@ -591,10 +733,25 @@ int nvgpu_pmu_volt_get_curr_volt_ps35(struct gk20a *g, u32 *vcurr_uv)
 
 	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
 
+	/*
+	 * To Do: Return vcurr value from the appropriate volt rail object after
+	 * adding support for NVD and SYS clocks.
+	 */
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj*, obj, index) {
-		volt_rail = (struct voltage_rail *)(void *)obj;
-		if (volt_rail->current_volt_uv != 0U) {
-			*vcurr_uv = volt_rail->current_volt_uv;
+		if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
+			volt_rail = (struct voltage_rail *)(void *)obj;
+			if (volt_rail->current_volt_uv != 0U) {
+				*vcurr_uv = volt_rail->current_volt_uv;
+				return status;
+			}
+		} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
+			volt_rail_3x = (struct voltage_rail_3x *)(void *)obj;
+			if (volt_rail_3x->current_volt_uv != 0U) {
+				*vcurr_uv = volt_rail_3x->current_volt_uv;
+				return status;
+			}
+		} else {
+			nvgpu_err(g, "Unsupported volt rail version");
 			return status;
 		}
 	}
@@ -606,15 +763,27 @@ u8 nvgpu_pmu_volt_get_vmargin_ps35(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp;
 	struct pmu_board_obj *obj = NULL;
 	struct voltage_rail *volt_rail = NULL;
+	struct voltage_rail_3x *volt_rail_3x = NULL;
 	u8 index, vmargin_uv;
 
 	pboardobjgrp = &g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super;
 
 	BOARDOBJGRP_FOR_EACH(pboardobjgrp, struct pmu_board_obj *, obj, index) {
-		volt_rail = (struct voltage_rail *)(void *)obj;
-		if (volt_rail->volt_margin_limit_vfe_equ_idx != 255U) {
-			vmargin_uv = volt_rail->volt_margin_limit_vfe_equ_idx;
-			return vmargin_uv;
+		if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_10) {
+			volt_rail = (struct voltage_rail *)(void *)obj;
+			if (volt_rail->volt_margin_limit_vfe_equ_idx != 255U) {
+				vmargin_uv = volt_rail->volt_margin_limit_vfe_equ_idx;
+				return vmargin_uv;
+			}
+		} else if (g->pmu->volt->volt_metadata->volt_rail_metadata.version == CTRL_VOLT_RAIL_VERSION_30) {
+			volt_rail_3x = (struct voltage_rail_3x *)(void *)obj;
+			if (volt_rail_3x->volt_margin_limit_vfe_equ_idx != 255U) {
+				vmargin_uv = volt_rail_3x->volt_margin_limit_vfe_equ_idx;
+				return vmargin_uv;
+			}
+		} else {
+			nvgpu_err(g, "Unsupported volt rail version");
+			return 0U;
 		}
 	}
 	return 0U;

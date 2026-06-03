@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/bitops.h>
@@ -105,11 +86,11 @@ static int rpc_send_message(struct gk20a *g)
 		sim_dma_target_phys_pci_coherent_f() |
 		sim_dma_status_valid_f() |
 		sim_dma_size_4kb_f() |
-		sim_dma_addr_lo_f((u32)(nvgpu_mem_get_addr(g, &g->sim->msg_bfr)
+		sim_dma_addr_lo_f((u32)(nvgpu_mem_get_phys_addr(g, &g->sim->msg_bfr)
 				>> sim_dma_addr_lo_b()));
 
 	*sim_send_ring_bfr(g, (u32)(dma_hi_offset*sizeof(u32))) =
-		u64_hi32(nvgpu_mem_get_addr(g, &g->sim->msg_bfr));
+		u64_hi32(nvgpu_mem_get_phys_addr(g, &g->sim->msg_bfr));
 
 	*sim_msg_hdr(g, sim_msg_sequence_r()) = g->sim->sequence_base++;
 
@@ -158,7 +139,7 @@ static int rpc_recv_poll(struct gk20a *g)
 		recv_phys_addr = (u64)recv_phys_addr_hi << 32 |
 				 (u64)recv_phys_addr_lo << sim_dma_addr_lo_b();
 
-		nvgpu_mem_addr = nvgpu_mem_get_addr(g, &g->sim->msg_bfr);
+		nvgpu_mem_addr = nvgpu_mem_get_phys_addr(g, &g->sim->msg_bfr);
 
 		if (recv_phys_addr != nvgpu_mem_addr) {
 			nvgpu_err(g, "%s Error in RPC reply: "
@@ -262,7 +243,7 @@ static int nvgpu_sim_init_late(struct gk20a *g)
 	sim_writel(g->sim, sim_send_put_r(), g->sim->send_ring_put);
 
 	/*write send ring address and make it valid*/
-	phys = nvgpu_mem_get_addr(g, &g->sim->send_bfr);
+	phys = nvgpu_mem_get_phys_addr(g, &g->sim->send_bfr);
 	sim_writel(g->sim, sim_send_ring_hi_r(),
 		   sim_send_ring_hi_addr_f(u64_hi32(phys)));
 	sim_writel(g->sim, sim_send_ring_r(),
@@ -279,7 +260,7 @@ static int nvgpu_sim_init_late(struct gk20a *g)
 	sim_writel(g->sim, sim_recv_get_r(), g->sim->recv_ring_get);
 
 	/*write send ring address and make it valid*/
-	phys = nvgpu_mem_get_addr(g, &g->sim->recv_bfr);
+	phys = nvgpu_mem_get_phys_addr(g, &g->sim->recv_bfr);
 	sim_writel(g->sim, sim_recv_ring_hi_r(),
 		   sim_recv_ring_hi_addr_f(u64_hi32(phys)));
 	sim_writel(g->sim, sim_recv_ring_r(),

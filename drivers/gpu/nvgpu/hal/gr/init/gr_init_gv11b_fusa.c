@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -30,6 +11,7 @@
 #include <nvgpu/gr/ctx_mappings.h>
 #include <nvgpu/ltc.h>
 #include <nvgpu/netlist.h>
+#include <nvgpu/grmgr.h>
 
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr_utils.h>
@@ -1118,7 +1100,7 @@ void gv11b_gr_init_restore_stats_counter_bundle_data(struct gk20a *g,
 #endif
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-void gv11b_gr_init_rop_mapping(struct gk20a *g,
+int gv11b_gr_init_rop_mapping(struct gk20a *g,
 			      struct nvgpu_gr_config *gr_config)
 {
 	u32 map;
@@ -1132,9 +1114,11 @@ void gv11b_gr_init_rop_mapping(struct gk20a *g,
 
 	nvgpu_log_fn(g, " ");
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_support_gfx_with_numa(g) ||
+			(nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!(nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		nvgpu_log_fn(g, " MIG is enabled, skipped rop mapping");
-		return;
+		return 0;
 	}
 
 	nvgpu_writel(g, gr_crstr_map_table_cfg_r(),
@@ -1148,7 +1132,16 @@ void gv11b_gr_init_rop_mapping(struct gk20a *g,
 	 * so adding additional check for valid number of
 	 * tpcs before programming map register.
 	 */
-	mapregs = DIV_ROUND_UP(num_tpcs, GR_TPCS_INFO_FOR_MAPREGISTER);
+	/* This if-else logic implements DIV_ROUND_UP in a safe way */
+	if (nvgpu_safe_add_u32_return(num_tpcs, GR_TPCS_INFO_FOR_MAPREGISTER, &mapregs) == false) {
+		nvgpu_err(g, "buffer overflow");
+		return -EOVERFLOW;
+	} else if (nvgpu_safe_sub_u32_return(mapregs, 1, &mapregs) == false) {
+		nvgpu_err(g, "buffer underflow");
+		return -EOVERFLOW;
+	} else {
+		mapregs = mapregs / GR_TPCS_INFO_FOR_MAPREGISTER;
+	}
 
 	for (mapreg_num = 0U; mapreg_num < mapregs; mapreg_num++) {
 		map = 0U;
@@ -1156,7 +1149,7 @@ void gv11b_gr_init_rop_mapping(struct gk20a *g,
 		while ((offset < GR_TPCS_INFO_FOR_MAPREGISTER)
 			&& (num_tpcs > 0U)) {
 			tile_cnt = nvgpu_gr_config_get_map_tile_count(
-						gr_config, base + offset);
+						gr_config, nvgpu_safe_add_u32(base, offset));
 			if (offset == 0U) {
 				map = map | gr_crstr_gpc_map_tile0_f(tile_cnt);
 			} else if (offset == 1U) {
@@ -1209,6 +1202,8 @@ void gv11b_gr_init_rop_mapping(struct gk20a *g,
 			nvgpu_gr_config_get_map_row_offset(gr_config)) |
 		gr_rstr2d_map_table_cfg_num_entries_f(
 			nvgpu_gr_config_get_tpc_count(gr_config)));
+
+	return 0;
 }
 #endif /* CONFIG_NVGPU_GRAPHICS */
 
@@ -1261,7 +1256,8 @@ void gv11b_gr_init_commit_ctxsw_spill(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx, u64 addr, u32 size, bool patch)
 {
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_support_gfx_with_numa(g) || (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!(nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		nvgpu_log_fn(g, " MIG is enabled, skipped commit ctxsw spill");
 		return;
 	}
@@ -1285,7 +1281,8 @@ void gv11b_gr_init_commit_gfxp_wfi_timeout(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx, bool patch)
 {
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_support_gfx_with_numa(g) || (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!(nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		nvgpu_log_fn(g, " MIG is enabled, skipped gfxp wfi timeout");
 		return;
 	}
@@ -1300,7 +1297,8 @@ int gv11b_gr_init_preemption_state(struct gk20a *g)
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (!nvgpu_support_gfx_with_numa(g) || (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			!(nvgpu_grmgr_is_cur_instance_support_gfx(g)))) {
 		nvgpu_log_fn(g,
 			" MIG is enabled, skipped init gfxp wfi timeout");
 		return 0;

@@ -1,28 +1,10 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/netlist.h>
 #include <nvgpu/gr/gr_falcon.h>
+#include <nvgpu/falcon.h>
 #include <nvgpu/enabled.h>
 #include <nvgpu/debug.h>
 #include <nvgpu/gr/hwpm_map.h>
@@ -31,6 +13,7 @@
 #include <nvgpu/mm.h>
 #include <nvgpu/acr.h>
 #include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/io.h>
 #ifdef CONFIG_NVGPU_LS_PMU
 #include <nvgpu/pmu/lsfm.h>
 #include <nvgpu/pmu/pmu_pg.h>
@@ -42,6 +25,9 @@
 #include <nvgpu/static_analysis.h>
 
 #include "gr_falcon_priv.h"
+#include "gr_priv.h"
+
+#define MAX_NETLIST_NAME (sizeof("Gxxxx/") + sizeof("prod_test_nsr/NET?_img_xxxxx_encrypted.bin"))
 
 struct nvgpu_gr_falcon *nvgpu_gr_falcon_init_support(struct gk20a *g)
 {
@@ -82,7 +68,7 @@ void nvgpu_gr_falcon_remove_support(struct gk20a *g,
 }
 
 #ifdef CONFIG_NVGPU_POWER_PG
-int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g)
+int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g, u32 buf_id)
 {
 #ifdef CONFIG_NVGPU_LS_PMU
 	struct nvgpu_pmu *pmu = g->pmu;
@@ -105,7 +91,7 @@ int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g)
 
 	nvgpu_log(g, gpu_dbg_gr, "FECS PG buffer size = %u", size);
 
-	err = nvgpu_pmu_pg_buf_alloc(g, pmu, size);
+	err = nvgpu_pmu_pg_buf_alloc(g, pmu, size, buf_id);
 	if (err != 0) {
 		nvgpu_err(g, "failed to allocate pg_buf memory");
 		return err;
@@ -121,13 +107,49 @@ int nvgpu_gr_falcon_bind_fecs_elpg(struct gk20a *g)
 		return err;
 	}
 
-	data = u64_lo32(nvgpu_pmu_pg_buf_get_gpu_va(g, pmu) >> 8);
+	/*
+	 * In next-gen chips, the pmu instance block and virtual address of PG
+	 * buffer were expanded to 57b VA and 52b PA. So FECS added two new
+	 * methods in order to set the upper bits of these addresses.
+	 * Hence FECS Ucode added below additional steps to be included
+	 * on next-gen chips.
+	 * 1. It expects the full address instead of the 256B aligned address.
+	 * 2. The address is passed through NV_PGRAPH_PRI_FECS_METHOD_DATA instead of MAILBOX(4).
+	 */
+	if (g->ops.gr.falcon.get_fecs_current_ctx_hi_data != NULL) {
+		data = g->ops.gr.falcon.get_fecs_current_ctx_hi_data(g,
+							 &mm->pmu.inst_block);
+		err = g->ops.gr.falcon.ctrl_ctxsw(g,
+			NVGPU_GR_FALCON_METHOD_REGLIST_BIND_INSTANCE_HI, data, NULL);
+		if (err != 0) {
+			nvgpu_err(g,
+				"fail to bind_hi pmu inst to gr");
+			return err;
+		}
+	}
+
+	if (pmu->pg->pmu_get_pg_buf_gpu_va != NULL) {
+		data = pmu->pg->pmu_get_pg_buf_gpu_va(g, pmu, buf_id);
+	}
+
 	err = g->ops.gr.falcon.ctrl_ctxsw(g,
 		NVGPU_GR_FALCON_METHOD_REGLIST_SET_VIRTUAL_ADDRESS, data, NULL);
 	if (err != 0) {
 		nvgpu_err(g,
 			"fail to set pg buffer pmu va");
 		return err;
+	}
+
+	if (pmu->pg->pmu_get_pg_buf_gpu_va_hi != NULL) {
+		data = pmu->pg->pmu_get_pg_buf_gpu_va_hi(g, pmu, buf_id);
+		err = g->ops.gr.falcon.ctrl_ctxsw(g,
+			NVGPU_GR_FALCON_METHOD_REGLIST_SET_VIRTUAL_ADDRESS_HI,
+			data, NULL);
+		if (err != 0) {
+			nvgpu_err(g,
+				"fail to set pg buffer pmu va HI");
+			return err;
+		}
 	}
 
 	nvgpu_log(g, gpu_dbg_gr, "done");
@@ -143,6 +165,9 @@ int nvgpu_gr_falcon_init_ctxsw(struct gk20a *g, struct nvgpu_gr_falcon *falcon)
 	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	if (g->ops.gr.falcon.reset_ctxsw_mailbox_scratch != NULL)
+		g->ops.gr.falcon.reset_ctxsw_mailbox_scratch(g);
 
 	err = g->ops.gr.falcon.load_ctxsw_ucode(g, falcon);
 	if (err != 0) {
@@ -513,10 +538,323 @@ static void nvgpu_gr_falcon_load_with_bootloader(struct gk20a *g,
 		g->ops.gr.falcon.get_gpccs_start_reg_offset());
 }
 
-int nvgpu_gr_falcon_load_ctxsw_ucode(struct gk20a *g,
-					struct nvgpu_gr_falcon *falcon)
+static int nvgpu_gr_riscv_load_ctxsw_inst(struct gk20a *g,
+	struct nvgpu_falcon *flcn, u8 *inst, u32 size)
 {
-	int err;
+	u32 imem_size = 0U;
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_falcon_get_mem_size(flcn, MEM_IMEM, &imem_size);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv get IMEM size failed");
+	}
+
+	if (imem_size < size) {
+		nvgpu_err(g, "gr inst copy size overflow");
+		return -EINVAL;
+	}
+
+	err = nvgpu_falcon_copy_to_imem(flcn, 0, inst, size, 0, false, 0);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv inst copy to IMEM failed");
+	}
+
+	return err;
+
+}
+
+static int nvgpu_gr_riscv_load_ctxsw_data(struct gk20a *g,
+	struct nvgpu_falcon *flcn, u8 *data, u32 size)
+{
+	u32 dmem_size = 0U;
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_falcon_get_mem_size(flcn, MEM_DMEM, &dmem_size);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv get IMEM size failed");
+	}
+
+	if (dmem_size < size) {
+		nvgpu_err(g, "gr data copy size overflow");
+		return -EINVAL;
+	}
+
+	err = nvgpu_falcon_copy_to_dmem(flcn, 0, data, size, 0);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv data copy to DMEM failed");
+	}
+
+	return err;
+}
+
+static int nvgpu_gr_riscv_load_ctxsw_manifest(struct gk20a *g,
+	struct nvgpu_falcon *flcn, u8 *manifest, u32 size)
+{
+	u32 dmem_size = 0U;
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_falcon_get_mem_size(flcn, MEM_DMEM, &dmem_size);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv get IMEM size failed");
+	}
+
+	err = nvgpu_falcon_copy_to_dmem(flcn, (dmem_size - size),
+		manifest, size, 0);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv manifest copy to DMEM failed");
+	}
+
+	return err;
+}
+
+static int nvgpu_gr_riscv_load_ctxsw_bootplugin(struct gk20a *g,
+	struct nvgpu_falcon *flcn, u8 *bootplugin, u32 size)
+{
+	u32 imem_size = 0U;
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_falcon_get_mem_size(flcn, MEM_IMEM, &imem_size);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv get IMEM size failed");
+	}
+
+	err = nvgpu_falcon_copy_to_imem(flcn, (imem_size - size),
+		bootplugin, size, 0, false, 0);
+	if (err != 0) {
+		nvgpu_err(g, "gr nvriscv bootplugin copy to IMEM failed");
+	}
+
+	return err;
+}
+
+static int nvgpu_gr_riscv_load_ctxsw_ucode(struct gk20a *g, struct nvgpu_falcon *flcn)
+{
+	u32 imem_size = 0;
+	u32 brStatus = 0;
+	u32 mailbox0 = 0;
+	int err = 0;
+	u32 *text = NULL;
+	u8 *inst = NULL;
+	u8 *data = NULL;
+	u8 *manifest = NULL;
+	u8 *bootplugin = NULL;
+	u32 inst_size = 0;
+	u32 data_size = 0;
+	u32 manifest_size = 0;
+	u32 bp_code_size = 0;
+	struct nvgpu_firmware *desc_fw = NULL;
+	struct nvgpu_nvriscv_fw_desc *fw_desc_riscv = NULL;
+	const char *desc_fw_name;
+
+#ifdef CONFIG_NVGPU_SIM
+	if (nvgpu_is_enabled(g, NVGPU_IS_FMODEL)) {
+		if (flcn->flcn_id == FALCON_ID_FECS) {
+			// get inst section
+			inst = (u8 *)(void *)nvgpu_netlist_get_fecs_inst_list(g);
+			inst_size = (nvgpu_netlist_get_fecs_inst_count(g) * 4);
+			// get data section
+			data = (u8 *)(void *)nvgpu_netlist_get_fecs_data_list(g);
+			data_size = (nvgpu_netlist_get_fecs_data_count(g) * 4);
+			// manifest section
+			manifest = (u8 *)(void *)nvgpu_netlist_get_fecs_manifest_list(g);
+			manifest_size = (nvgpu_netlist_get_fecs_manifest_count(g));
+			// get bootplugin from file
+			if (g->ops.falcon.get_bootplugin_fw_name != NULL) {
+				g->ops.falcon.get_bootplugin_fw_name(g, &desc_fw_name, flcn->flcn_id);
+			} else {
+				nvgpu_err(g, "Failed to fetch CTXSW EB Bootplugin");
+				return -ENOENT;
+			}
+			desc_fw = nvgpu_request_firmware(g, desc_fw_name,
+					NVGPU_REQUEST_FIRMWARE_NO_WARN);
+			if (desc_fw == NULL) {
+				nvgpu_err(g, "Failed to read %s", desc_fw_name);
+				return -ENOENT;
+			}
+			bootplugin = desc_fw->data;
+			bp_code_size = desc_fw->size;
+		} else {
+			// get inst section
+			inst = (u8 *)(void *)nvgpu_netlist_get_gpccs_inst_list(g);
+			inst_size = (nvgpu_netlist_get_gpccs_inst_count(g) * 4);
+			// get data section
+			data = (u8 *)(void *)nvgpu_netlist_get_gpccs_data_list(g);
+			data_size = (nvgpu_netlist_get_gpccs_data_count(g) * 4);
+			// get manifest section
+			manifest = (u8 *)(void *)nvgpu_netlist_get_gpccs_manifest_list(g);
+			manifest_size = (nvgpu_netlist_get_gpccs_manifest_count(g));
+			// get bootplugin from file
+			if (g->ops.falcon.get_bootplugin_fw_name != NULL) {
+				g->ops.falcon.get_bootplugin_fw_name(g, &desc_fw_name, flcn->flcn_id);
+			} else {
+				nvgpu_err(g, "Failed to fetch CTXSW EB Bootplugin");
+				return -ENOENT;
+			}
+			desc_fw = nvgpu_request_firmware(g, desc_fw_name,
+					NVGPU_REQUEST_FIRMWARE_NO_WARN);
+			if (desc_fw == NULL) {
+				nvgpu_err(g, "Failed to read %s", desc_fw_name);
+				return -ENOENT;
+			}
+			bootplugin = desc_fw->data;
+			bp_code_size = desc_fw->size;
+		}
+	} else
+#endif
+	{
+		char name[MAX_NETLIST_NAME];
+
+		if (flcn->flcn_id == FALCON_ID_FECS) {
+			// Load The Desc of FECS
+			if (g->ops.netlist.get_fecs_desc_name == NULL) {
+				nvgpu_err(g, "failed to fetch get_fecs_desc_name hal");
+				err = -EINVAL;
+				goto done;
+			}
+			g->ops.netlist.get_fecs_desc_name(g, name);
+			desc_fw_name = name;
+			desc_fw = nvgpu_request_firmware(g, desc_fw_name,
+						NVGPU_REQUEST_FIRMWARE_NO_WARN);
+			if (desc_fw == NULL) {
+				nvgpu_err(g, "Failed to read firmware: %s", desc_fw_name);
+				err = -ENOENT;
+				goto done;
+			}
+			text = (u32 *)(void *)nvgpu_netlist_get_fecs_inst_list(g);
+		} else {
+			// Load The Desc of GPCCS
+			if (g->ops.netlist.get_gpccs_desc_name == NULL) {
+				nvgpu_err(g, "failed to fetch get_gpccs_desc_name hal");
+				err = -EINVAL;
+				goto done;
+			}
+			g->ops.netlist.get_gpccs_desc_name(g, name);
+			desc_fw_name = name;
+			desc_fw = nvgpu_request_firmware(g, desc_fw_name,
+						NVGPU_REQUEST_FIRMWARE_NO_WARN);
+			if (desc_fw == NULL) {
+				nvgpu_err(g, "Failed to read firmware: %s", desc_fw_name);
+				err = -ENOENT;
+				goto done;
+			}
+			text = (u32 *)(void *)nvgpu_netlist_get_gpccs_inst_list(g);
+		}
+
+		// populate descriptor
+		fw_desc_riscv = (struct nvgpu_nvriscv_fw_desc *)(void *)desc_fw->data;
+		// get code section
+		inst = (u8 *)(void *)&text[fw_desc_riscv->monitorCodeOffset / 4];
+		inst_size = fw_desc_riscv->monitorCodeSize;
+		// get data section
+		data = (u8 *)(void *)&text[fw_desc_riscv->monitorDataOffset / 4];
+		data_size = fw_desc_riscv->monitorDataSize;
+		// get manifest section
+		manifest = (u8 *)(void *)&text[fw_desc_riscv->manifestOffset / 4];
+		manifest_size = fw_desc_riscv->manifestSize;
+		// get bootplugin section
+		bootplugin = (u8 *)(void *)&text[fw_desc_riscv->swbromCodeOffset / 4];
+		bp_code_size = fw_desc_riscv->swbromCodeSize;
+	}
+
+	// configure bcr register
+	g->ops.falcon.set_bcr(flcn);
+
+	// get imem size
+	nvgpu_falcon_get_mem_size(flcn, MEM_IMEM, &imem_size);
+
+	// load bootplugin
+	err = nvgpu_gr_riscv_load_ctxsw_bootplugin(g, flcn, bootplugin, bp_code_size);
+	if (err != 0) {
+		goto done;
+	}
+
+	// load manifest
+	err = nvgpu_gr_riscv_load_ctxsw_manifest(g, flcn, manifest, manifest_size);
+	if (err != 0) {
+		goto done;
+	}
+
+	// bootstrap riscv from bootplugin
+	g->ops.falcon.bootstrap(flcn, (FALCON_RISCV_BOOTPLUGIN_IMEM_OFFSET
+				+ (imem_size - bp_code_size)));
+
+	// check br_retcode PASS and mailbox0 is STAGE1_COMPLETE
+	brStatus = nvgpu_falcon_wait_for_nvriscv_brom_completion(flcn);
+	if (!brStatus) {
+		mailbox0 = nvgpu_falcon_mailbox_read(flcn, FALCON_MAILBOX_0);
+
+		if (mailbox0 == NV_UPROC_BOOT_PLUGIN_MAILBOX_STAGE1_COMPLETE) {
+			nvgpu_err(g, "2-stage Boot-plugin signaled: STAGE1_COMPLETE.");
+		} else {
+			nvgpu_err(g,
+				"Expecting 2-stg Bt-plugin signal STAGE1_COMPLETE but got 0x%x",
+				mailbox0);
+			err = -EINVAL;
+			goto done;
+		}
+	} else {
+		nvgpu_err(g, "Boot-plugin 1st stage finished with result: FAIL");
+		err = -EINVAL;
+		goto done;
+	}
+
+	// load fmc into imem
+	err = nvgpu_gr_riscv_load_ctxsw_inst(g, flcn, inst, inst_size);
+	if (err != 0) {
+		goto done;
+	}
+
+	// load fmc into dmem
+	err = nvgpu_gr_riscv_load_ctxsw_data(g, flcn, data, data_size);
+	if (err != 0) {
+		goto done;
+	}
+
+	// signal to Boot-plugin FIRMWARE_LOADED and wait for br_retcode INIT
+	nvgpu_falcon_mailbox_write(flcn, FALCON_MAILBOX_0,
+			NV_UPROC_BOOT_PLUGIN_MAILBOX_FIRMWARE_LOADED);
+
+	// check br_retcode INIT
+	brStatus = nvgpu_falcon_wait_for_nvriscv_brom_init(flcn);
+	if (!brStatus) {
+		nvgpu_err(g, "Boot-plugin 2nd stage received signal and acked\n");
+	} else {
+		nvgpu_err(g, "2nd stage not acked");
+		goto done;
+	}
+
+	// signal to Boot-plugin TARGETMASK_LOWERED
+	// target mask operation skipped as it's not applicable with RM as boot agent
+	nvgpu_falcon_mailbox_write(flcn, FALCON_MAILBOX_0,
+			NV_UPROC_BOOT_PLUGIN_MAILBOX_TARGETMASK_LOWERED);
+
+	// check br_retcode PASS
+	brStatus = nvgpu_falcon_wait_for_nvriscv_brom_completion(flcn);
+	if (!brStatus) {
+			nvgpu_log(g, gpu_dbg_falcon, "Boot-plugin Passed");
+	} else {
+		nvgpu_err(g, "Boot-plugin Failed");
+		goto done;
+	}
+
+done:
+	//release desc file
+	nvgpu_release_firmware(g, desc_fw);
+	return err;
+}
+
+int nvgpu_gr_falcon_load_ctxsw_ucode(struct gk20a *g,
+			struct nvgpu_gr_falcon *falcon)
+{
+	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
 
@@ -526,27 +864,37 @@ int nvgpu_gr_falcon_load_ctxsw_ucode(struct gk20a *g,
 	}
 #endif
 
-	/*
-	 * In case bootloader is not supported, revert to the old way of
-	 * loading gr ucode, without the faster bootstrap routine.
-	 */
-	if (!nvgpu_is_enabled(g, NVGPU_GR_USE_DMA_FOR_FW_BOOTSTRAP)) {
-		nvgpu_gr_falcon_load_dmem(g);
-		nvgpu_gr_falcon_load_imem(g);
-		g->ops.gr.falcon.start_ucode(g);
-	} else {
-		if (!falcon->skip_ucode_init) {
-			err =  nvgpu_gr_falcon_init_ctxsw_ucode(g, falcon);
-			if (err != 0) {
-				return err;
+	if (!g->fecs_flcn.is_falcon2_enabled) {
+		// In case bootloader is not supported, revert to the old way of
+		// loading gr ucode, without the faster bootstrap routine.
+		if (!nvgpu_is_enabled(g, NVGPU_GR_USE_DMA_FOR_FW_BOOTSTRAP)) {
+			nvgpu_gr_falcon_load_dmem(g);
+			nvgpu_gr_falcon_load_imem(g);
+			g->ops.gr.falcon.start_ucode(g);
+		} else {
+			if (!falcon->skip_ucode_init) {
+				err =  nvgpu_gr_falcon_init_ctxsw_ucode(g, falcon);
+				if (err != 0) {
+					return err;
+				}
 			}
+			nvgpu_gr_falcon_load_with_bootloader(g, falcon);
+			falcon->skip_ucode_init = true;
 		}
-		nvgpu_gr_falcon_load_with_bootloader(g, falcon);
-		falcon->skip_ucode_init = true;
+	} else {
+		err = nvgpu_gr_riscv_load_ctxsw_ucode(g, g->gr->fecs_flcn);
+		if (err != 0) {
+			return err;
+		}
+
+		err = nvgpu_gr_riscv_load_ctxsw_ucode(g, g->gr->gpccs_flcn);
+		if (err != 0) {
+			return err;
+		}
 	}
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "done");
-	return 0;
+	return err;
 }
 
 static void nvgpu_gr_falcon_load_gpccs_with_bootloader(struct gk20a *g,
@@ -696,6 +1044,64 @@ static void gr_falcon_coldboot_bootstrap(struct gk20a *g,
 	}
 }
 
+static int nvgpu_gr_falcon_load_secure_ctxsw_falcon_ucode(struct gk20a *g,
+						struct nvgpu_gr_falcon *falcon)
+{
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_acr_boot_ctxsw_engine(g, FALCON_ID_FECS, 0);
+	if (err != 0) {
+		nvgpu_err(g, "flcn-%d: falcon ucode boot fecs failed: %d",
+				FALCON_ID_FECS, err);
+		err = ACR_BOOT_TIMEDOUT;
+		return err;
+	}
+
+	err = nvgpu_acr_boot_ctxsw_engine(g, FALCON_ID_GPCCS, 0);
+	if (err != 0) {
+		nvgpu_err(g, "flcn-%d: falcon ucode boot gpccs failed: %d",
+				FALCON_ID_GPCCS, err);
+		err = ACR_BOOT_TIMEDOUT;
+		return err;
+	}
+
+	/* bind WPR VA inst block */
+	nvgpu_gr_falcon_bind_instblk(g, falcon);
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "done");
+
+	return 0;
+}
+
+static int nvgpu_gr_falcon_load_secure_ctxsw_riscv_ucode(struct gk20a *g)
+{
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
+
+	err = nvgpu_acr_boot_ctxsw_engine(g, FALCON_ID_FECS_RISCV_EB, 0);
+	if (err != 0) {
+		nvgpu_err(g, "flcn-%d: RISCV EB ucode boot fecs failed: %d",
+				FALCON_ID_FECS_RISCV_EB, err);
+		err = ACR_BOOT_TIMEDOUT;
+		return err;
+	}
+
+	err = nvgpu_acr_boot_ctxsw_engine(g, FALCON_ID_GPCCS_RISCV_EB, 0);
+	if (err != 0) {
+		nvgpu_err(g, "flcn-%d: RISCV EB ucode boot gpccs failed: %d",
+				FALCON_ID_GPCCS_RISCV_EB, err);
+		err = ACR_BOOT_TIMEDOUT;
+		return err;
+	}
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "done");
+
+	return 0;
+}
+
 int nvgpu_gr_falcon_load_secure_ctxsw_ucode(struct gk20a *g,
 					struct nvgpu_gr_falcon *falcon)
 {
@@ -709,29 +1115,50 @@ int nvgpu_gr_falcon_load_secure_ctxsw_ucode(struct gk20a *g,
 	}
 #endif
 
-	if (falcon->coldboot_bootstrap_done) {
-		nvgpu_log(g, gpu_dbg_gr, "recovery bootstrap");
+	if (g->fecs_flcn.is_falcon2_enabled) {
+		err = nvgpu_gr_falcon_load_secure_ctxsw_riscv_ucode(g);
+		/**
+		 * Re-program the registers for GR SLCG and BLCG, after they are
+		 * reset during ACR bootstrap.
+		 */
+		nvgpu_cg_init_gr_load_gating_prod(g);
+		/* Load PMU register configuration for SLCG and BLCG*/
+		nvgpu_cg_slcg_pmu_load_enable(g);
+		nvgpu_cg_blcg_pmu_load_enable(g);
+		return err;
+	}
 
-		/* this must be recovery so bootstrap fecs and gpccs */
-		err = gr_falcon_recovery_bootstrap(g, falcon);
+	if (g->is_acr_ipc_supported == true) {
+		err = nvgpu_gr_falcon_load_secure_ctxsw_falcon_ucode(g, falcon);
 		if (err != 0) {
-			nvgpu_err(g, "Unable to recover GR falcon");
+			nvgpu_err(g, "CTXSW Falcon Secure load failed %d", err);
 			return err;
 		}
-
 	} else {
-		nvgpu_log(g, gpu_dbg_gr, "coldboot bootstrap");
+		if (falcon->coldboot_bootstrap_done) {
+			nvgpu_log(g, gpu_dbg_gr, "recovery bootstrap");
 
-		/* cold boot or rg exit */
-		falcon->coldboot_bootstrap_done = true;
-		gr_falcon_coldboot_bootstrap(g, falcon);
-#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_LS_PMU)
-		err = gr_falcon_sec2_or_ls_pmu_coldboot_bootstrap(g);
-		if (err != 0) {
-			nvgpu_err(g, "Unable to boot GPCCS");
-			return err;
+			/* this must be recovery so bootstrap fecs and gpccs */
+			err = gr_falcon_recovery_bootstrap(g, falcon);
+			if (err != 0) {
+				nvgpu_err(g, "Unable to recover GR falcon");
+				return err;
+			}
+
+		} else {
+			nvgpu_log(g, gpu_dbg_gr, "coldboot bootstrap");
+
+			/* cold boot or rg exit */
+			falcon->coldboot_bootstrap_done = true;
+			gr_falcon_coldboot_bootstrap(g, falcon);
+	#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_LS_PMU)
+			err = gr_falcon_sec2_or_ls_pmu_coldboot_bootstrap(g);
+			if (err != 0) {
+				nvgpu_err(g, "Unable to boot GPCCS");
+				return err;
+			}
+	#endif
 		}
-#endif
 	}
 
 	g->ops.gr.falcon.start_gpccs(g);

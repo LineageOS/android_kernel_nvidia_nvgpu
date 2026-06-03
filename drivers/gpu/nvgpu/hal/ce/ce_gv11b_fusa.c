@@ -1,26 +1,5 @@
-/*
- * Volta GPU series Copy Engine.
- *
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/log.h>
@@ -76,9 +55,9 @@ void gv11b_ce_stall_isr(struct gk20a *g, u32 inst_id, u32 pri_base,
 		nvgpu_err(g, "ce launch error interrupt with errcode:0x%x", err_code);
 		if ((err_code == ce_lce_launcherr_report_method_buffer_access_fault_v()) ||
 				(err_code == ce_lce_launcherr_report_invalid_config_v())) {
-			*needs_quiesce |= true;
+			*needs_quiesce = *needs_quiesce || true;
 		} else {
-			*needs_rc |= true;
+			*needs_rc = *needs_rc || true;
 		}
 		clear_intr |= ce_intr_status_launcherr_pending_f();
 	}
@@ -94,7 +73,7 @@ void gv11b_ce_stall_isr(struct gk20a *g, u32 inst_id, u32 pri_base,
 		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_CE,
 				GPU_CE_INVALID_CONFIG);
 		nvgpu_err(g, "ce: inst %d: invalid config", inst_id);
-		*needs_quiesce |= true;
+		*needs_quiesce = true;
 		clear_intr |= ce_intr_status_invalid_config_reset_f();
 	}
 
@@ -108,7 +87,7 @@ void gv11b_ce_stall_isr(struct gk20a *g, u32 inst_id, u32 pri_base,
 		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_CE,
 				GPU_CE_METHOD_BUFFER_FAULT);
 		nvgpu_err(g, "ce: inst %d: mthd buffer fault", inst_id);
-		*needs_quiesce |= true;
+		*needs_quiesce = true;
 		clear_intr |= ce_intr_status_mthd_buffer_fault_reset_f();
 	}
 #endif
@@ -160,17 +139,31 @@ void gv11b_ce_init_prod_values(struct gk20a *g)
 void gv11b_ce_halt_engine(struct gk20a *g, const struct nvgpu_device *dev)
 {
 	u32 reg_val;
+	struct nvgpu_timeout timeout;
+	u32 delay = POLL_DELAY_MIN_US;
+
+	nvgpu_timeout_init_cpu_timer(g, &timeout, nvgpu_get_poll_timeout(g));
 
 	reg_val = nvgpu_readl(g, ce_lce_engctl_r(dev->inst_id));
 	reg_val |= ce_lce_engctl_stallreq_true_f();
 	nvgpu_writel(g, ce_lce_engctl_r(dev->inst_id), reg_val);
 
-	reg_val = nvgpu_readl(g, ce_lce_engctl_r(dev->inst_id));
-	if ((reg_val & ce_lce_engctl_stallack_true_f()) == 0U) {
-		nvgpu_err(g, "The CE engine %u is not idle"
-					"while reset", dev->inst_id);
+	if (g->ops.fifo.wait_for_preempt_before_reset != NULL) {
+		g->ops.fifo.wait_for_preempt_before_reset(g, dev->runlist_id);
 	}
 
+	do {
+		reg_val = nvgpu_readl(g, ce_lce_engctl_r(dev->inst_id));
+
+		if ((reg_val & ce_lce_engctl_stallack_true_f()) != 0U) {
+			return;
+		}
+
+		nvgpu_usleep_range(delay, nvgpu_safe_mult_u32(delay, 2U));
+		delay = min_t(u32, delay << 1U, POLL_DELAY_MAX_US);
+	} while (nvgpu_timeout_expired(&timeout) == 0);
+
+	nvgpu_err(g, "Timed out waiting for CE%u engine idle", dev->inst_id);
 }
 
 u64 gv11b_ce_get_inst_ptr_from_lce(struct gk20a *g, u32 inst_id)
@@ -184,6 +177,6 @@ u64 gv11b_ce_get_inst_ptr_from_lce(struct gk20a *g, u32 inst_id)
 		return 0U;
 	}
 
-	return (((u64)(ce_lce_bind_status_ctx_ptr_v(reg_val))) <<
-			g->ops.ramin.base_shift());
+	return ce_lce_bind_status_ctx_ptr_v((u64)reg_val) <<
+			g->ops.ramin.base_shift();
 }

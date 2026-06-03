@@ -1,16 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 /*
  * GK20A Address Spaces
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 
 #include <linux/cdev.h>
@@ -225,45 +217,47 @@ static int gk20a_as_ioctl_get_va_regions(
 	struct vm_gk20a *vm = as_share->vm;
 	struct gk20a *g = gk20a_from_vm(vm);
 	unsigned int page_sizes = GMMU_PAGE_SIZE_KERNEL;
+	unsigned int user_entry_index;
 
 	nvgpu_log_fn(g, " ");
+
+	if (!vm->huge_pages)
+		page_sizes--;
 
 	if (!vm->big_pages)
 		page_sizes--;
 
-	write_entries = args->buf_size / sizeof(struct nvgpu_as_va_region);
-	if (write_entries > page_sizes)
-		write_entries = page_sizes;
+	if (args->buf_size == 0)
+		goto done;
 
+	write_entries = args->buf_size / sizeof(struct nvgpu_as_va_region);
 	user_region_ptr =
 		(struct nvgpu_as_va_region __user *)(uintptr_t)args->buf_addr;
 
-	for (i = 0; i < write_entries; ++i) {
+	for (i = 0, user_entry_index = 0; i < GMMU_PAGE_SIZE_KERNEL && write_entries > 0; ++i) {
 		struct nvgpu_as_va_region region;
 		struct nvgpu_allocator *vma = vm->vma[i];
 
 		(void) memset(&region, 0, sizeof(struct nvgpu_as_va_region));
 
+		if (i == GMMU_PAGE_SIZE_BIG && !vm->big_pages)
+			continue;
+		if (i == GMMU_PAGE_SIZE_HUGE && !vm->huge_pages)
+			continue;
+
 		region.page_size = vm->gmmu_page_sizes[i];
-		/*
-		 * The gmmu_page_sizes values are assigned in nvgpu_vm_init_attribute function.
-		 * The only value that can possibly be zero is vm->gmmu_page_sizes[1] when big_pages
-		 * are not enabled.
-		 * The upper bound on page_sizes already handles this issue. When big_pages are not enabled
-		 * write_entries will be 1 and hence vm->gmmu_page_sizes[1] will never be accessed.
-		 * Hence, an assert would suffice instead of an if check.
-		 */
-		nvgpu_assert(region.page_size > 0U);
 
 		region.offset = nvgpu_alloc_base(vma);
 		/* No __aeabi_uldivmod() on some platforms... */
 		region.pages = (nvgpu_alloc_end(vma) -
 			nvgpu_alloc_base(vma)) >> nvgpu_ilog2(region.page_size);
 
-		if (copy_to_user(user_region_ptr + i, &region, sizeof(region)))
+		if (copy_to_user(user_region_ptr + user_entry_index, &region, sizeof(region)))
 			return -EFAULT;
+		--write_entries;
+		++user_entry_index;
 	}
-
+done:
 	args->buf_size =
 		page_sizes * sizeof(struct nvgpu_as_va_region);
 
@@ -296,6 +290,42 @@ static int nvgpu_as_ioctl_get_sync_ro_map(
 	args->base_gpuva = base_gpuva;
 	args->sync_size = sync_size;
 	args->num_syncpoints = num_syncpoints;
+
+	return err;
+#else
+	return -EINVAL;
+#endif
+}
+
+static int nvgpu_as_ioctl_get_sync_ro_map_v2(
+	struct gk20a_as_share *as_share,
+	struct nvgpu_as_get_sync_ro_map_v2_args *args)
+{
+#ifdef CONFIG_TEGRA_GK20A_NVHOST
+	struct vm_gk20a *vm = as_share->vm;
+	struct gk20a *g = gk20a_from_vm(vm);
+	u64 base_gpuva[2];
+	u32 sync_size;
+	u32 num_syncpoints;
+	int err = 0;
+	int i = 0;
+
+	if (g->ops.sync.syncpt.get_sync_ro_map == NULL)
+		return -EINVAL;
+
+	if (!nvgpu_has_syncpoints(g))
+		return -EINVAL;
+
+	err = g->ops.sync.syncpt.get_sync_ro_map(vm, base_gpuva, &sync_size,
+						 &num_syncpoints);
+	if (err)
+		return err;
+	args->num_syncpoint_regions = g->num_nvhost;
+	for (i = 0; i < g->num_nvhost; i++) {
+		args->regions[i].base_gpuva = base_gpuva[i];
+		args->regions[i].sync_size = sync_size;
+		args->regions[i].num_syncpoints = num_syncpoints;
+	}
 
 	return err;
 #else
@@ -471,7 +501,7 @@ long gk20a_as_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct gk20a_as_share *as_share = filp->private_data;
 	struct gk20a *g = as_share->g;
 	bool always_copy_to_user = false;
-	u8 buf[NVGPU_AS_IOCTL_MAX_ARG_SIZE];
+	u8 *buf = NULL;
 
 	nvgpu_log_fn(g, "start %d", _IOC_NR(cmd));
 
@@ -481,15 +511,21 @@ long gk20a_as_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		(_IOC_SIZE(cmd) > NVGPU_AS_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_AS_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	err = gk20a_busy(g);
 	if (err)
-		return err;
+		goto exit;
 
 	nvgpu_speculation_barrier();
 	switch (cmd) {
@@ -561,6 +597,10 @@ long gk20a_as_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		err = nvgpu_as_ioctl_get_sync_ro_map(as_share,
 			(struct nvgpu_as_get_sync_ro_map_args *)buf);
 		break;
+	case NVGPU_AS_IOCTL_GET_SYNC_RO_MAP_V2:
+		err = nvgpu_as_ioctl_get_sync_ro_map_v2(as_share,
+			(struct nvgpu_as_get_sync_ro_map_v2_args *)buf);
+		break;
 	case NVGPU_AS_IOCTL_MAPPING_MODIFY:
 		err = nvgpu_as_ioctl_mapping_modify(as_share,
 			(struct nvgpu_as_mapping_modify_args *)buf);
@@ -581,5 +621,7 @@ long gk20a_as_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd)))
 			err = -EFAULT;
 
+exit:
+	nvgpu_kfree(g, buf);
 	return err;
 }

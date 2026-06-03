@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PBDMA_GM20B_H
@@ -61,8 +43,6 @@ u32 gm20b_pbdma_get_ctrl_hce_priv_mode_yes(void);
 u32 gm20b_pbdma_get_userd_aperture_mask(struct gk20a *g, struct nvgpu_mem *mem);
 u32 gm20b_pbdma_get_userd_addr(u32 addr_lo);
 u32 gm20b_pbdma_get_userd_hi_addr(u32 addr_hi);
-bool gm20b_pbdma_find_for_runlist(struct gk20a *g,
-				  u32 runlist_id, u32 *pbdma_mask);
 
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_pbdma_intr_enable(struct gk20a *g, bool enable);
@@ -79,6 +59,6 @@ void gm20b_pbdma_setup_hw(struct gk20a *g);
 u32 gm20b_pbdma_get_fc_formats(void);
 u32 gm20b_pbdma_get_fc_pb_header(void);
 void gm20b_pbdma_dump_status(struct gk20a *g, struct nvgpu_debug_context *o);
-#endif
+#endif /* CONFIG_NVGPU_HAL_NON_FUSA */
 
 #endif /* NVGPU_PBDMA_GM20B_H */

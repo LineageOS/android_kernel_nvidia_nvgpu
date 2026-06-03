@@ -1,6 +1,6 @@
 ##################### tell Emacs this is a -*- makefile-gmake -*-
 #
-# Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -20,46 +20,16 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 #
-# Build the doxygen output.
+# Build generic doxygen for nvgpu core code, Linux, and POSIX.
 #
 # Some assumptions: this is a local build only. You need installed:
 #
 #   doxygen
-#   python2
-#
-# You also must have $TOP/$TEGRA_TOP set; For L4T:
-#
-#   $ export TOP=$TEGRA_TOP
-#
-# Should work.
 #
 
-PYTHON2    = python2.7
-ARCH       = $(TEGRA_TOP)/core-private/tools/arch/arch.py
-NVGPU_ARCH = $(TOP)/kernel/nvgpu/arch
-ARCH_YAML  = $(NVGPU_ARCH)/*.yaml
-
-# Build the doxygen output. But make sure the sources file is generated
-# first.
-all: doxygen/sources
-	doxygen doxygen/Doxyfile.safety
-
-# Generate the sources file. This has a list of files that we shall include
-# in the doxygen output.
-doxygen/sources: $(ARCH) $(ARCH_YAML)
-	$(ARCH) --arch-file $(NVGPU_ARCH)/nvgpu.yaml files	\
-		--safe --gpu igpu --gpu both			\
-		--prefix 'INPUT += ' > doxygen/Doxyfile.sources.safety
-	@if [ ! -z "$(EXTRA_PATH)" ] ; then \
-		$(ARCH) --arch-file $(NVGPU_ARCH)/nvgpu.yaml \
-			--include-path $(EXTRA_PATH) files	\
-		--safe --gpu igpu --gpu both			\
-		--prefix 'INPUT += $(EXTRA_PATH)/' \
-		>> doxygen/Doxyfile.sources.safety ; \
-		cat $(EXTRA_PATH)/unit-tests/SWUTS.sources \
-			 >> doxygen/Doxyfile.sources.safety ; \
-	fi
+# Build the doxygen output.
+all:
+	doxygen doxygen/Doxyfile
 
 clean:
-	rm -rf doxygen/Doxyfile.sources.safety
 	rm -rf html

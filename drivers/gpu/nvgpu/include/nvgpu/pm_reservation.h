@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PM_RESERVATION_H
@@ -40,6 +22,8 @@ enum nvgpu_profiler_pm_resource_type {
 	NVGPU_PROFILER_PM_RESOURCE_TYPE_SMPC,
 	NVGPU_PROFILER_PM_RESOURCE_TYPE_PMA_STREAM,
 	NVGPU_PROFILER_PM_RESOURCE_TYPE_PC_SAMPLER,
+	NVGPU_PROFILER_PM_RESOURCE_TYPE_CWD_HES,
+	NVGPU_PROFILER_PM_RESOURCE_TYPE_CCU_PROF,
 	NVGPU_PROFILER_PM_RESOURCE_TYPE_COUNT,
 };
 
@@ -48,6 +32,8 @@ struct nvgpu_pm_resource_reservation_entry {
 
 	u32 reservation_id;
 	u32 vmid;
+	/* valid only for the PMA_STREAM_TYPE reservation entries */
+	u32 pma_channel_id;
 	enum nvgpu_profiler_pm_reservation_scope scope;
 };
 
@@ -67,14 +53,18 @@ struct nvgpu_pm_resource_reservations {
 int nvgpu_pm_reservation_init(struct gk20a *g);
 void nvgpu_pm_reservation_deinit(struct gk20a *g);
 
-int nvgpu_pm_reservation_acquire(struct gk20a *g, u32 reservation_id,
-	enum nvgpu_profiler_pm_resource_type pm_resource,
+int nvgpu_pm_reservation_acquire(struct gk20a *g, u32 gpu_instance_id,
+	u32 reservation_id, enum nvgpu_profiler_pm_resource_type pm_resource,
 	enum nvgpu_profiler_pm_reservation_scope scope,
-	u32 vmid);
-int nvgpu_pm_reservation_release(struct gk20a *g, u32 reservation_id,
-	enum nvgpu_profiler_pm_resource_type pm_resource,
-	u32 vmid);
-void nvgpu_pm_reservation_release_all_per_vmid(struct gk20a *g, u32 vmid);
+	u32 vmid, u32 *pma_channel_id);
+int nvgpu_pm_reservation_release(struct gk20a *g, u32 gpu_instance_id,
+	u32 reservation_id, enum nvgpu_profiler_pm_resource_type pm_resource,
+	u32 vmid, u32 pma_channel_id);
+void nvgpu_pm_reservation_release_all_per_vmid(struct gk20a *g,
+					u32 gpu_instance_id, u32 vmid);
+bool check_pm_resource_existing_reservation_locked(
+		struct nvgpu_pm_resource_reservations *reservations,
+		u32 reservation_id, u32 vmid);
 
 #endif /* CONFIG_NVGPU_PROFILER */
 #endif /* NVGPU_PM_RESERVATION_H */

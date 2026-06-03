@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_INTR_GV11B_H
@@ -96,14 +78,14 @@ int gv11b_gr_intr_handle_fecs_error(struct gk20a *g,
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gv11b_gr_intr_set_shader_cut_collector(struct gk20a *g, u32 data);
 void gv11b_gr_intr_set_skedcheck(struct gk20a *g, u32 data);
-#endif
 int gv11b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 				     u32 class_num, u32 offset, u32 data);
+void gv11b_gr_intr_handle_gpc_gpcmmu_exception(struct gk20a *g, u32 gpc,
+		u32 gpc_exception, u32 *corrected_err, u32 *uncorrected_err);
+#endif
 void gv11b_gr_intr_handle_gcc_exception(struct gk20a *g, u32 gpc,
 			u32 gpc_exception,
 			u32 *corrected_err, u32 *uncorrected_err);
-void gv11b_gr_intr_handle_gpc_gpcmmu_exception(struct gk20a *g, u32 gpc,
-		u32 gpc_exception, u32 *corrected_err, u32 *uncorrected_err);
 void gv11b_gr_intr_handle_gpc_prop_exception(struct gk20a *g, u32 gpc,
 		u32 gpc_exception);
 void gv11b_gr_intr_handle_gpc_zcull_exception(struct gk20a *g, u32 gpc,
@@ -117,13 +99,14 @@ void gv11b_gr_intr_handle_gpc_gpccs_exception(struct gk20a *g, u32 gpc,
 void gv11b_gr_intr_handle_tpc_mpc_exception(struct gk20a *g, u32 gpc, u32 tpc);
 void gv11b_gr_intr_handle_tpc_pe_exception(struct gk20a *g, u32 gpc, u32 tpc);
 void gv11b_gr_intr_enable_hww_exceptions(struct gk20a *g);
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+void gv11b_gr_intr_enable_gpc_exceptions(struct gk20a *g,
+					 struct nvgpu_gr_config *gr_config);
 void gv11b_gr_intr_enable_exceptions(struct gk20a *g,
 				     struct nvgpu_gr_config *gr_config,
 				     bool enable);
-void gv11b_gr_intr_enable_gpc_exceptions(struct gk20a *g,
-					 struct nvgpu_gr_config *gr_config);
-
 void gv11b_gr_intr_set_hww_esr_report_mask(struct gk20a *g);
+#endif
 void gv11b_gr_intr_handle_tpc_sm_ecc_exception(struct gk20a *g,
 					u32 gpc, u32 tpc);
 void gv11b_gr_intr_get_esr_sm_sel(struct gk20a *g, u32 gpc, u32 tpc,
@@ -132,7 +115,7 @@ void gv11b_gr_intr_clear_sm_hww(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
 				u32 global_esr);
 void gv11b_gr_intr_handle_ssync_hww(struct gk20a *g, u32 *ssync_esr);
 u32 gv11b_gr_intr_record_sm_error_state(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
-				struct nvgpu_channel *fault_ch);
+				struct nvgpu_gr_isr_data *isr_data);
 
 u32 gv11b_gr_intr_get_warp_esr_sm_hww(struct gk20a *g,
 			u32 gpc, u32 tpc, u32 sm);
@@ -143,9 +126,11 @@ u64 gv11b_gr_intr_get_warp_esr_pc_sm_hww(struct gk20a *g, u32 offset);
 
 u32 gv11b_gr_intr_ctxsw_checksum_mismatch_mailbox_val(void);
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 bool gv11b_gr_intr_sm_ecc_status_errors(struct gk20a *g,
 	u32 ecc_status_reg, enum nvgpu_gr_sm_ecc_error_types err_type,
 	struct nvgpu_gr_sm_ecc_status *ecc_status);
+#endif
 void gv11b_gr_intr_report_l1_tag_uncorrected_err(struct gk20a *g,
 		struct nvgpu_gr_sm_ecc_status *ecc_status, u32 gpc, u32 tpc);
 void gv11b_gr_intr_report_l1_tag_corrected_err(struct gk20a *g,
@@ -159,6 +144,10 @@ void gv11b_gr_intr_set_shader_exceptions(struct gk20a *g, u32 data);
 #if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_GRAPHICS)
 void gv11b_gr_intr_set_tex_in_dbg(struct gk20a *g, u32 data);
 void gv11b_gr_intr_set_coalesce_buffer_size(struct gk20a *g, u32 data);
+#endif
+
+#ifdef CONFIG_NVGPU_DEBUGGER
+void gv11b_gr_intr_handle_cilp_save_completed(struct gk20a *g, u32 gfid, u32 tsgid);
 #endif
 
 #endif /* NVGPU_GR_INTR_GV11B_H */

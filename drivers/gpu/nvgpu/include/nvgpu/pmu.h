@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PMU_H
@@ -48,7 +30,7 @@ struct nvgpu_clk_pmupstate;
 
 /**
  * @file
- * @page unit-PMU Unit PMU(Programmable Management Unit)
+ * @page PMU PMU(Programmable Management Unit)
  *
  * Acronyms
  * ========
@@ -179,6 +161,7 @@ struct nvgpu_clk_pmupstate;
 #define nvgpu_pmu_dbg(g, fmt, args...) \
 	nvgpu_log(g, gpu_dbg_pmu, fmt, ##args)
 
+
 /**
  *  The PMU unit system memory VM space
  */
@@ -221,8 +204,23 @@ struct nvgpu_clk_pmupstate;
 #define IDLE_COUNTER_2          2
 #define IDLE_COUNTER_3          3
 #define IDLE_COUNTER_4          4
+#define IDLE_COUNTER_5          5
 #define IDLE_COUNTER_6          6
+#define IDLE_COUNTER_7          7
+#define IDLE_COUNTER_8          8
 #define PMU_IDLE_THRESHOLD_V    0x7FFFFFFF
+
+/* only idle counter 0 can generate intr to nvgpu */
+/* when cnt val reach threshold so use it for BASE */
+#define IDLE_COUNTER_BASE       IDLE_COUNTER_0
+#define IDLE_COUNTER_NVENC0     IDLE_COUNTER_1
+#define IDLE_COUNTER_NVENC1     IDLE_COUNTER_2
+#define IDLE_COUNTER_GR         IDLE_COUNTER_3
+#define IDLE_COUNTER_NVD        IDLE_COUNTER_4
+#define IDLE_COUNTER_NVDEC0     IDLE_COUNTER_5
+#define IDLE_COUNTER_NVDEC1     IDLE_COUNTER_6
+#define IDLE_COUNTER_OFA        IDLE_COUNTER_7
+#define IDLE_COUNTER_NVJPG0     IDLE_COUNTER_8
 
 #ifdef CONFIG_NVGPU_LS_PMU
 struct rpc_handler_payload {
@@ -354,7 +352,8 @@ struct nv_next_core_bootldr_params {
 
 #define NV_REG_STR_NEXT_CORE_DUMP_SIZE_DEFAULT  8192U
 
-#define NV_NEXT_CORE_AMAP_EXTMEM2_START		0x8060000000000000ull
+#define NV_NEXT_CORE_AMAP_EXTMEM2_START		0x8060000000000000ULL
+#define NV_NEXT_CORE_AMAP_EXTMEM3_START         0xA000000000000000ULL
 
 /*
  * configuration for rtos
@@ -401,6 +400,19 @@ struct falcon_next_core_ucode_desc {
 #endif
 
 /**
+ * This struct holds the data related to
+ * debugfs nodes for residency of LPWR features.
+ */
+struct lpwr_mon_params {
+	/* LPWR_MON Index ID of the Engine */
+	u32 lpwr_mon_index;
+	/* Status of Monitor */
+	bool monitor_started;
+	/* Last returned value of residency */
+	u32 residency;
+};
+
+/**
  * This data struct holds PMU Engine h/w properties, PMU RTOS supporting data
  * structs, sub-unit's data structs & ops of the PMU unit which will be
  * populated based on the detected chip.
@@ -410,8 +422,14 @@ struct nvgpu_pmu {
 	bool sw_ready;
 	bool isr_enabled;
 	struct nvgpu_mutex isr_mutex;
+	struct nvgpu_mutex ptcb_queue_mutex;
 	struct nvgpu_falcon *flcn;
+	struct nvgpu_pmu_perfmon *pmu_perfmon;
 #ifdef CONFIG_NVGPU_LS_PMU
+	u64 ss_unmapped_members_size_add;
+	bool is_fbq_ptcb_enabled;
+	bool is_pmu_ucode_model_20;
+	bool driver_register_ongoing;
 	struct nvgpu_allocator dmem;
 	struct nvgpu_mem trace_buf;
 	struct pmu_sha1_gid gid_info;
@@ -424,11 +442,11 @@ struct nvgpu_pmu {
 	struct nvgpu_pmu_lsfm *lsfm;
 	struct nvgpu_pmu_super_surface *super_surface;
 	struct nvgpu_pmu_pg *pg;
-	struct nvgpu_pmu_perfmon *pmu_perfmon;
 	struct nvgpu_clk_pmupstate *clk_pmu;
 	struct nvgpu_pmu_perf *perf_pmu;
 	struct nvgpu_pmu_therm *therm_pmu;
 	struct nvgpu_pmu_volt *volt;
+	struct lpwr_mon_params lpwr_mon;
 
 	void (*remove_support)(struct nvgpu_pmu *pmu);
 	void (*therm_rpc_handler)(struct gk20a *g, struct nvgpu_pmu *pmu,
@@ -444,6 +462,12 @@ struct nvgpu_pmu {
 struct pg_init_sequence_list {
 	u32 regaddr;
 	u32 writeval;
+};
+
+/* fgpg structure */
+struct nvgpu_pmu_fgpg_ctrl {
+	u32 entry_threshold_us;
+	u32 min_resident_time_us;
 };
 
 /* PMU locks used along with PMU-RTOS */
@@ -512,6 +536,7 @@ void nvgpu_pmu_enable_irq(struct gk20a *g, bool enable);
  *
  * @param g   [in] The GPU driver struct. This function does
  *                 not perform any validation of this input parameter.
+ * @param inst_id [in] Instance id.
  *
  * Does the PMU Engine reset to bring into good known state. The reset sequence
  * also configures PMU Engine clock gating & interrupts if interrupt support is
@@ -524,7 +549,7 @@ void nvgpu_pmu_enable_irq(struct gk20a *g, bool enable);
  * @return 0 in case of success, < 0 in case of failure.
  * @retval -ETIMEDOUT if PMU engine reset times out.
  */
-int nvgpu_pmu_reset(struct gk20a *g);
+int nvgpu_pmu_reset(struct gk20a *g, u32 inst_id);
 
 /**
  * @brief PMU early initialization to allocate memory for PMU unit & set PMU

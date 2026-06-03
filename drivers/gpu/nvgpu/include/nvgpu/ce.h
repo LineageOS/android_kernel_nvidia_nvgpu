@@ -1,30 +1,12 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_CE_H
 #define NVGPU_CE_H
 
 /**
  * @file
- * @page unit-ce Unit CE
+ * @page common.ce common.ce
  *
  * Overview
  * ========
@@ -62,6 +44,7 @@
  */
 
 struct gk20a;
+struct nvgpu_device;
 
 /**
  * @brief Initialize the CE support.
@@ -82,6 +65,7 @@ struct gk20a;
  * @return 0 in case of success, < 0 in case of failure.
  */
 int nvgpu_ce_init_support(struct gk20a *g);
-
+int nvgpu_ce_early_init_support(struct gk20a *g);
 void nvgpu_ce_stall_isr(struct gk20a *g, u32 inst_id, u32 pri_base);
+s32 nvgpu_ce_reset(struct gk20a *g, const struct nvgpu_device *dev);
 #endif /*NVGPU_CE_H*/

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ACR_INTERFACE_V2_H
@@ -26,16 +8,17 @@
 #include "nvgpu_acr_interface.h"
 
 // ID to distinguish WPR component
-#define WPR_GENERIC_HEADER_ID_LSF_UCODE_DESC         (1)
-#define WPR_GENERIC_HEADER_ID_LSF_WPR_HEADER         (2)
-#define WPR_GENERIC_HEADER_ID_LSF_SHARED_SUB_WPR     (3)
-#define WPR_GENERIC_HEADER_ID_LSF_LSB_HEADER         (4)
-#define WPR_GENERIC_HEADER_ID_ACR_DESC_HEADER        (5)
+#define WPR_GENERIC_HEADER_ID_LSF_UCODE_DESC         (1U)
+#define WPR_GENERIC_HEADER_ID_LSF_WPR_HEADER         (2U)
+#define WPR_GENERIC_HEADER_ID_LSF_SHARED_SUB_WPR     (3U)
+#define WPR_GENERIC_HEADER_ID_LSF_LSB_HEADER         (4U)
+#define WPR_GENERIC_HEADER_ID_ACR_DESC_HEADER        (5U)
 
-#define ACR_DESC_GENERIC_HEADER_VERSION_1            (1)
-#define LSF_UCODE_DESC_VERSION_2                     (2)
-#define LSF_WPR_HEADER_VERSION                       (2)
-#define LSF_LSB_HEADER_VERSION_2                     (2)
+#define ACR_DESC_GENERIC_HEADER_VERSION_1            (1U)
+#define LSF_UCODE_DESC_VERSION_2                     (2U)
+#define LSF_WPR_HEADER_VERSION                       (2U)
+#define LSF_LSB_HEADER_VERSION_2                     (2U)
+#define LSF_LSB_HEADER_VERSION_3                     (3U)
 
 // The wrapper for LSF_WPR_HEADER
 typedef struct
@@ -79,6 +62,87 @@ typedef struct
     u32  hsOvlSigBlobOffset;         // HS Ovl Sig Blob Offset of single version of signature for All HS overlays
     u32  hsOvlSigBlobSize;           // HS Ovl Sig Blob size
 } HS_OVL_SIG_BLOB_PARAMS;
+
+typedef struct
+{
+	/** Code/data signature details of each LS falcon */
+	struct lsf_ucode_desc_wrapper signature;
+	/**
+	 * Offset from non-WPR base where UCODE is located,
+	 * Offset = Non-WPR base + #LSF_LSB_HEADER_ALIGNMENT +
+	 *          #LSF_UCODE_DATA_ALIGNMENT + ( #LSF_BL_DATA_ALIGNMENT *
+	 *          LS Falcon index)
+	 */
+	u32 ucode_off;
+	/**
+	 * Size of LS Falcon ucode, required to perform signature verification
+	 * of LS Falcon ucode by ACR HS.
+	 */
+	u32 ucode_size;
+	/**
+	 * Size of LS Falcon ucode data, required to perform signature
+	 * verification of LS Falcon ucode data by ACR HS.
+	 */
+	u32 data_size;
+	/** BL starting virtual address. Need for tagging */
+	u32 bl_imem_off;
+	/**
+	 * Size of bootloader that needs to be loaded by bootstrap owner.
+	 */
+	u32 bl_code_size;
+	/**
+	 * Offset from non-WPR base holding the BL data
+	 * Offset = (Non-WPR base + #LSF_LSB_HEADER_ALIGNMENT +
+	 *          #LSF_UCODE_DATA_ALIGNMENT + #LSF_BL_DATA_ALIGNMENT) *
+	 *          #LS Falcon index
+	 */
+	u32 bl_data_off;
+	/**
+	 * Size of BL data, BL data will be copied to LS Falcon DMEM of
+	 * bl data size
+	 */
+	u32 bl_data_size;
+
+	u32 manifest_off;
+
+	u32 manifest_size;
+	/**
+	 * Offset from non-WPR base address where UCODE Application code is
+	 * located.
+	 */
+	u32 app_code_off;
+	/**
+	 * Size of UCODE Application code.
+	 */
+	u32 app_code_size;
+	/**
+	 * Offset from non-WPR base address where UCODE Application data
+	 * is located
+	 */
+	u32 app_data_off;
+	/**
+	 * Size of UCODE Application data.
+	 */
+	u32 app_data_size;
+
+	u32 monitor_code_off;
+	/** Firmware code size */
+	u32 monitor_code_size;
+
+	u32 monitor_data_off;
+	/** Firmware data size */
+	u32 monitor_data_size;
+
+	u32 seq_code_off;
+	/** Firmware code size */
+	u32 seq_code_size;
+
+	u32 seq_data_off;
+	/** Firmware data size */
+	u32 seq_data_size;
+
+	u8 rsvd[16];
+}LSF_LSB_HEADER_V3, *PLSF_LSB_HEADER_V3;
 
 typedef struct
 {
@@ -181,7 +245,8 @@ typedef struct
 	HS_FMC_PARAMS hs_fmc_params;
 
 	HS_OVL_SIG_BLOB_PARAMS hs_ovl_sig_blob_params;
-
+	/** Firmware code size */
+	u32 monitor_code_size;
 	u8 rsvd[20];
 }LSF_LSB_HEADER_V2, *PLSF_LSB_HEADER_V2;
 
@@ -192,6 +257,7 @@ typedef struct
     union
     {
         LSF_LSB_HEADER_V2 lsfLsbHdrV2;
+        LSF_LSB_HEADER_V3 lsfLsbHdrV3;
     } u;
 } LSF_LSB_HEADER_WRAPPER, *PLSF_LSB_HEADER_WRAPPER;
 
@@ -232,13 +298,15 @@ typedef struct
 #define ACR_GENERIC_HEADER_SIZE_BYTE                           sizeof(struct acr_generic_header)
 
 #define LSF_LSB_HEADER_V2_SIZE_BYTE                            sizeof(LSF_LSB_HEADER_V2)
+#define LSF_LSB_HEADER_V3_SIZE_BYTE                            sizeof(LSF_LSB_HEADER_V3)
 #define RM_RISCV_ACR_DESC_V1_SIZE_BYTE                         sizeof(RM_RISCV_ACR_DESC_V1)
 #define LSF_WPR_HEADER_SIZE_BYTE                               sizeof(struct lsf_wpr_header)
-#define LSF_UCODE_DESC_V2_SIZE_BYTE                            sizeof(struct lsf_ucode_desc_v2)
+#define LSF_UCODE_DESC_V2_SIZE_BYTE                            sizeof(struct nvlsf_ucode_desc_v2)
 
 #define LSF_UCODE_DESC_WRAPPER_V2_SIZE_BYTE                    LSF_UCODE_DESC_V2_SIZE_BYTE + ACR_GENERIC_HEADER_SIZE_BYTE
 #define LSF_WPR_HEADER_WRAPPER_SIZE_BYTE                       LSF_WPR_HEADER_SIZE_BYTE + ACR_GENERIC_HEADER_SIZE_BYTE
 #define RM_RISCV_ACR_DESC_V1_WRAPPER_SIZE_BYTE                 RM_RISCV_ACR_DESC_V1_SIZE_BYTE + ACR_GENERIC_HEADER_SIZE_BYTE
 #define LSF_LSB_HEADER_WRAPPER_V2_SIZE_BYTE                    LSF_LSB_HEADER_V2_SIZE_BYTE + ACR_GENERIC_HEADER_SIZE_BYTE
+#define LSF_LSB_HEADER_WRAPPER_V3_SIZE_BYTE                    LSF_LSB_HEADER_V3_SIZE_BYTE + ACR_GENERIC_HEADER_SIZE_BYTE
 
 #endif /* NVGPU_ACR_INTERFACE_V2_H */

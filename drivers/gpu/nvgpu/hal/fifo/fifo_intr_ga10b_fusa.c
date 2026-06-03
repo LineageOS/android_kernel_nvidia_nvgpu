@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -61,8 +42,19 @@
  *                           NV_RUNLIST_INTR_0_intr_bit
  */
 
-static u32 runlist_intr_0_mask(void)
+u32 ga10b_runlist_intr_0(void)
 {
+	return runlist_intr_0_r();
+}
+
+u32 ga10b_runlist_intr_0_mask(void)
+{
+	/*
+	 * Remaining runlist FIFO interrupts are benign notification type
+	 * or debug type interrupts that aren't used by SW yet.
+	 * They are kept disabled to avoid unnecessary noise.
+	 */
+
 	u32 mask = (runlist_intr_0_en_set_tree_ctxsw_timeout_eng0_enabled_f() |
 		runlist_intr_0_en_set_tree_ctxsw_timeout_eng1_enabled_f() |
 		runlist_intr_0_en_set_tree_ctxsw_timeout_eng2_enabled_f() |
@@ -73,7 +65,7 @@ static u32 runlist_intr_0_mask(void)
 	return mask;
 }
 
-static u32 runlist_intr_0_recover(void)
+u32 ga10b_runlist_intr_0_recover_mask(void)
 {
 	u32 mask = runlist_intr_0_en_clear_tree_ctxsw_timeout_eng0_enabled_f() |
 		runlist_intr_0_en_clear_tree_ctxsw_timeout_eng1_enabled_f() |
@@ -82,7 +74,7 @@ static u32 runlist_intr_0_recover(void)
 	return mask;
 }
 
-static u32 runlist_intr_0_recover_unmask(void)
+u32 ga10b_runlist_intr_0_recover_unmask(void)
 {
 	u32 mask = runlist_intr_0_en_set_tree_ctxsw_timeout_eng0_enabled_f() |
 		runlist_intr_0_en_set_tree_ctxsw_timeout_eng1_enabled_f() |
@@ -91,7 +83,7 @@ static u32 runlist_intr_0_recover_unmask(void)
 	return mask;
 }
 
-static u32 runlist_intr_0_ctxsw_timeout_mask(void)
+u32 ga10b_runlist_intr_0_ctxsw_timeout_mask(void)
 {
 	u32 mask = runlist_intr_0_en_clear_tree_ctxsw_timeout_eng0_enabled_f() |
 		runlist_intr_0_en_clear_tree_ctxsw_timeout_eng1_enabled_f() |
@@ -188,9 +180,11 @@ static void ga10b_fifo_runlist_intr_disable(struct gk20a *g)
 				i + intr_tree, reg_val);
 		}
 		/** Clear interrupts */
-		reg_val = nvgpu_runlist_readl(g, runlist, runlist_intr_0_r());
+		reg_val = nvgpu_runlist_readl(g, runlist,
+				g->ops.fifo.runlist_intr_0());
 
-		nvgpu_runlist_writel(g, runlist, runlist_intr_0_r(), reg_val);
+		nvgpu_runlist_writel(g, runlist, g->ops.fifo.runlist_intr_0(),
+				reg_val);
 	}
 }
 
@@ -202,7 +196,7 @@ static void ga10b_fifo_runlist_intr_enable(struct gk20a *g)
 
 	intr_tree_0 = 0U;
 	intr_tree_1 = 1U;
-	intr0_en_mask = runlist_intr_0_mask();
+	intr0_en_mask = g->ops.fifo.get_runlist_intr_0_mask();
 
 	for (i = 0U; i < g->fifo.num_runlists; i++) {
 		runlist = &g->fifo.active_runlists[i];
@@ -213,17 +207,19 @@ static void ga10b_fifo_runlist_intr_enable(struct gk20a *g)
 		 * interrupts to tree0.
 		 */
 		/** Clear interrupts */
-		reg_val = nvgpu_runlist_readl(g, runlist, runlist_intr_0_r());
+		reg_val = nvgpu_runlist_readl(g, runlist,
+				g->ops.fifo.runlist_intr_0());
 
-		nvgpu_runlist_writel(g, runlist, runlist_intr_0_r(), reg_val);
+		nvgpu_runlist_writel(g, runlist, g->ops.fifo.runlist_intr_0(),
+				reg_val);
 
 		/** Enable interrupts in tree(0) */
 		nvgpu_runlist_writel(g, runlist,
-			runlist_intr_0_en_set_tree_r(intr_tree_0),
+			g->ops.fifo.runlist_intr_0_en_set_tree(intr_tree_0),
 			intr0_en_mask);
 		/** Disable all interrupts in tree(1) */
 		nvgpu_runlist_writel(g, runlist,
-			runlist_intr_0_en_clear_tree_r(intr_tree_1),
+			g->ops.fifo.runlist_intr_0_en_clear_tree(intr_tree_1),
 			U32_MAX);
 
 		reg_val = nvgpu_runlist_readl(g, runlist,
@@ -252,6 +248,7 @@ static void ga10b_fifo_runlist_intr_enable(struct gk20a *g)
 				runlist_intr_vectorid_r(intr_tree_1), reg_val);
 	}
 }
+
 void ga10b_fifo_intr_0_enable(struct gk20a *g, bool enable)
 {
 
@@ -278,13 +275,18 @@ void ga10b_fifo_intr_1_enable(struct gk20a *g, bool enable)
 	return;
 }
 
+u32 ga10b_runlist_intr_bad_tsg(void)
+{
+	return runlist_intr_bad_tsg_r();
+}
+
 static void ga10b_fifo_handle_bad_tsg(struct gk20a *g,
 			struct nvgpu_runlist *runlist)
 {
 	u32 bad_tsg;
 	u32 bad_tsg_code;
 
-	bad_tsg = nvgpu_runlist_readl(g, runlist, runlist_intr_bad_tsg_r());
+	bad_tsg = nvgpu_runlist_readl(g, runlist, g->ops.fifo.get_runlist_intr_bad_tsg());
 	bad_tsg_code = runlist_intr_bad_tsg_code_v(bad_tsg);
 
 	if (bad_tsg_code < ARRAY_SIZE(ga10b_bad_tsg_error_str)) {
@@ -298,7 +300,7 @@ static void ga10b_fifo_handle_bad_tsg(struct gk20a *g,
 			GPU_HOST_PFIFO_SCHED_ERROR);
 
 	/* id is unknown, preempt all runlists and do recovery */
-	/* TBD: nvgpu_rc_sched_error_bad_tsg(g); */
+	/* TBD: nvgpu_rc_sched_error_bad_tsg */
 }
 
 static void ga10b_fifo_runlist_intr_clear(struct gk20a *g)
@@ -309,11 +311,11 @@ static void ga10b_fifo_runlist_intr_clear(struct gk20a *g)
 	for (i = 0U; i < g->fifo.num_runlists; i++) {
 		runlist = &g->fifo.active_runlists[i];
 
-		intr_0 = nvgpu_runlist_readl(g, runlist, runlist_intr_0_r());
+		intr_0 = nvgpu_runlist_readl(g, runlist, g->ops.fifo.runlist_intr_0());
 
 		nvgpu_err(g, "unhandled runlist(%d) intr_0: 0x%08x", i, intr_0);
 
-		nvgpu_runlist_writel(g, runlist, runlist_intr_0_r(), intr_0);
+		nvgpu_runlist_writel(g, runlist, g->ops.fifo.runlist_intr_0(), intr_0);
 	}
 }
 
@@ -330,6 +332,12 @@ static int ga10b_fifo_pbdma_isr(struct gk20a *g, struct nvgpu_runlist *runlist,
 		return -EINVAL;
 	}
 	pbdma_info = runlist->pbdma_info;
+
+	/*
+	 * pbdma_id represents the global PBDMA ID (an implementation
+	 * detail due to the arrayed structure of the registers in
+	 * NV_PPBDMA)
+	 */
 	pbdma_id = pbdma_info->pbdma_id[pbdma_idx];
 	if (pbdma_id == PBDMA_ID_INVALID) {
 		nvgpu_err(g, "runlist_id(%d), pbdma_idx(%d): invalid PBDMA",
@@ -350,7 +358,7 @@ static int ga10b_fifo_pbdma_isr(struct gk20a *g, struct nvgpu_runlist *runlist,
 void ga10b_fifo_intr_0_isr(struct gk20a *g)
 {
 	u32 i, intr_0, handled_intr_0 = 0U;
-	u32 intr_0_en_mask = 0U;
+	u32 intr_0_en_mask = 0U, intr_0_ctxsw_timeout_mask;
 	u32 pbdma_idx = 0U;
 	u32 intr_tree_0 = 0U, intr_tree_1 = 1U;
 	struct nvgpu_runlist *runlist;
@@ -361,6 +369,9 @@ void ga10b_fifo_intr_0_isr(struct gk20a *g)
 		ga10b_fifo_runlist_intr_clear(g);
 		return;
 	}
+
+	intr_0_ctxsw_timeout_mask = g->ops.fifo.get_runlist_intr_0_ctxsw_timeout_mask();
+
 	/* note we're not actually in an "isr", but rather
 	 * in a threaded interrupt context... */
 	nvgpu_mutex_acquire(&g->fifo.intr.isr.mutex);
@@ -368,18 +379,19 @@ void ga10b_fifo_intr_0_isr(struct gk20a *g)
 	for (i = 0U; i < g->fifo.num_runlists; i++) {
 		runlist = &g->fifo.active_runlists[i];
 
-		intr_0 = nvgpu_runlist_readl(g, runlist, runlist_intr_0_r());
+		intr_0 = nvgpu_runlist_readl(g, runlist, g->ops.fifo.runlist_intr_0());
 
-		if (intr_0 & runlist_intr_0_bad_tsg_pending_f()) {
+		if ((intr_0 & runlist_intr_0_bad_tsg_pending_f()) != 0U) {
 			ga10b_fifo_handle_bad_tsg(g, runlist);
 			handled_intr_0 |= runlist_intr_0_bad_tsg_pending_f();
 		}
 
+		/* pbdma_idx represents per-runlist PBDMA id of the PBDMA */
 		for (pbdma_idx = 0U;
 			pbdma_idx < runlist_intr_0_pbdmai_intr_tree_j__size_1_v();
 			pbdma_idx++) {
-			if (intr_0 &
-				runlist_intr_0_pbdmai_intr_tree_j_pending_f(pbdma_idx, intr_tree_0)) {
+			if ((intr_0 &
+				runlist_intr_0_pbdmai_intr_tree_j_pending_f(pbdma_idx, intr_tree_0)) != 0U) {
 				/**
 				 * Quiesce is triggered as part of nvgpu_rc_pbdma_fault
 				 * failure case, so -
@@ -389,16 +401,20 @@ void ga10b_fifo_intr_0_isr(struct gk20a *g)
 				 *    pbdma_intr field value here in handled_intr_0.
 				 */
 				if (err == 0) {
+					nvgpu_err(g, "PFIFO PBDMA Interrupt: runlist %d, "
+						"pbdma_idx %d", runlist->id, pbdma_idx);
 					err = ga10b_fifo_pbdma_isr(g, runlist, pbdma_idx);
+					if (err != 0) {
+						nvgpu_err(g, "pbdma intr failed id: %u", pbdma_idx);
+					}
 				}
 				handled_intr_0 |= runlist_intr_0_pbdmai_intr_tree_j_pending_f(pbdma_idx, intr_tree_0);
 			}
 		}
 
-		if ((intr_0 & runlist_intr_0_ctxsw_timeout_mask()) != 0U) {
+		if ((intr_0 & intr_0_ctxsw_timeout_mask) != 0U) {
 			ga10b_fifo_ctxsw_timeout_isr(g, runlist);
-			handled_intr_0 |=
-				(runlist_intr_0_ctxsw_timeout_mask() & intr_0);
+			handled_intr_0 |= (intr_0_ctxsw_timeout_mask & intr_0);
 		}
 
 		/*
@@ -409,9 +425,9 @@ void ga10b_fifo_intr_0_isr(struct gk20a *g)
 		 * unhandled interrupts.
 		 */
 		intr_0_en_mask = nvgpu_runlist_readl(g, runlist,
-				runlist_intr_0_en_set_tree_r(intr_tree_0));
+				g->ops.fifo.runlist_intr_0_en_set_tree(intr_tree_0));
 		intr_0_en_mask |= nvgpu_runlist_readl(g, runlist,
-				runlist_intr_0_en_set_tree_r(intr_tree_1));
+				g->ops.fifo.runlist_intr_0_en_set_tree(intr_tree_1));
 
 		if (handled_intr_0 != (intr_0 & intr_0_en_mask)) {
 			nvgpu_err(g,
@@ -422,7 +438,7 @@ void ga10b_fifo_intr_0_isr(struct gk20a *g)
 
 		handled_intr_0 = 0U;
 		/** Clear interrupts */
-		nvgpu_runlist_writel(g, runlist, runlist_intr_0_r(), intr_0);
+		nvgpu_runlist_writel(g, runlist, g->ops.fifo.runlist_intr_0(), intr_0);
 	}
 	nvgpu_mutex_release(&g->fifo.intr.isr.mutex);
 
@@ -457,9 +473,19 @@ void ga10b_fifo_intr_set_recover_mask(struct gk20a *g)
 		 * interrupts instead of the previous write value.
 		 */
 		nvgpu_runlist_writel(g, runlist,
-			runlist_intr_0_en_clear_tree_r(intr_tree_0),
-			runlist_intr_0_recover());
+			g->ops.fifo.runlist_intr_0_en_clear_tree(intr_tree_0),
+			g->ops.fifo.get_runlist_intr_0_recover_mask());
 	}
+}
+
+u32 ga10b_runlist_intr_0_en_clear_tree(u32 intr_tree)
+{
+	return runlist_intr_0_en_clear_tree_r(intr_tree);
+}
+
+u32 ga10b_runlist_intr_0_en_set_tree(u32 intr_tree)
+{
+	return runlist_intr_0_en_set_tree_r(intr_tree);
 }
 
 void ga10b_fifo_intr_unset_recover_mask(struct gk20a *g)
@@ -491,10 +517,15 @@ void ga10b_fifo_intr_unset_recover_mask(struct gk20a *g)
 		 * interrupts instead of the previous write value.
 		 */
 		nvgpu_runlist_writel(g, runlist,
-			runlist_intr_0_en_set_tree_r(intr_tree_0),
-			runlist_intr_0_recover_unmask());
+			g->ops.fifo.runlist_intr_0_en_set_tree(intr_tree_0),
+			g->ops.fifo.get_runlist_intr_0_recover_unmask());
 	}
 
+}
+
+u32 ga10b_runlist_intr_retrigger_reg_off(u32 intr_tree)
+{
+	return runlist_intr_retrigger_r(intr_tree);
 }
 
 void ga10b_fifo_runlist_intr_retrigger(struct gk20a *g, u32 intr_tree)
@@ -506,7 +537,7 @@ void ga10b_fifo_runlist_intr_retrigger(struct gk20a *g, u32 intr_tree)
 		runlist = &g->fifo.active_runlists[i];
 
 		nvgpu_runlist_writel(g, runlist,
-				runlist_intr_retrigger_r(intr_tree),
+				g->ops.fifo.get_runlist_intr_retrigger_reg_off(intr_tree),
 				runlist_intr_retrigger_trigger_true_f());
 	}
 

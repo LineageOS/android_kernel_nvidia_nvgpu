@@ -1,26 +1,5 @@
-/*
- * GA100 Tegra HAL interface
- *
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/errata.h>
@@ -123,7 +102,9 @@
 #include "hal/ltc/ltc_gv11b.h"
 #include "hal/ltc/ltc_tu104.h"
 #include "hal/ltc/ltc_ga10b.h"
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 #include "hal/ltc/intr/ltc_intr_gv11b.h"
+#endif
 #include "hal/ltc/intr/ltc_intr_ga10b.h"
 #include "hal/fb/fb_gm20b.h"
 #include "hal/fb/fb_gp10b.h"
@@ -287,7 +268,6 @@
 #include "hal/top/top_ga10b.h"
 #include "hal/bios/bios_tu104.h"
 #include "hal/pramin/pramin_init.h"
-#include "hal/xve/xve_gp106.h"
 #include "hal/xve/xve_tu104.h"
 
 #include "hal/fifo/channel_gk20a.h"
@@ -372,10 +352,17 @@ static const struct gops_ecc ga100_ops_ecc = {
 
 static const struct gops_ltc_intr ga100_ops_ltc_intr = {
 	.configure = ga10b_ltc_intr_configure,
+	.configure_intr1 = ga10b_ltc_intr1_configure,
+	.configure_intr2 = ga10b_ltc_intr2_configure,
+	.configure_intr3 = ga10b_ltc_intr3_configure,
 	.isr = ga10b_ltc_intr_isr,
+	.handle_intr1 = ga10b_ltc_intr_handle_lts_intr,
+	.handle_intr2 = ga10b_ltc_intr_handle_lts_intr2,
+	.handle_intr3 = ga10b_ltc_intr_handle_lts_intr3,
+	.handle_ecc_intr3 = ga10b_ltc_intr3_ecc_interrupts,
 #ifdef CONFIG_NVGPU_NON_FUSA
-	.en_illegal_compstat = gv11b_ltc_intr_en_illegal_compstat,
-	.handle_illegal_compstat = ga10b_ltc_intr_handle_illegal_compstat,
+	.en_illegal_compstat = NULL,
+	.handle_illegal_compstat = NULL,
 #endif
 	.read_intr1 = ga10b_ltc_intr_read_intr1,
 	.read_intr2 = ga10b_ltc_intr_read_intr2,
@@ -448,6 +435,7 @@ static const struct gops_ce ga100_ops_ce = {
 	.halt_engine = gv11b_ce_halt_engine,
 	.request_idle = NULL,
 	.get_inst_ptr_from_lce = gv11b_ce_get_inst_ptr_from_lce,
+	.reset = nvgpu_ce_reset,
 };
 
 static const struct gops_gr_ecc ga100_ops_gr_ecc = {
@@ -471,6 +459,7 @@ static const struct gops_gr_ctxsw_prog ga100_ops_gr_ctxsw_prog = {
 	.set_patch_count = gm20b_ctxsw_prog_set_patch_count,
 	.set_patch_addr = gm20b_ctxsw_prog_set_patch_addr,
 	.set_compute_preemption_mode_cta = gp10b_ctxsw_prog_set_compute_preemption_mode_cta,
+	.get_main_image_ctx_id = gm20b_ctxsw_prog_get_main_image_ctx_id,
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.init_ctxsw_hdr_data = gp10b_ctxsw_prog_init_ctxsw_hdr_data,
 	.disable_verif_features = gm20b_ctxsw_prog_disable_verif_features,
@@ -500,7 +489,6 @@ static const struct gops_gr_ctxsw_prog ga100_ops_gr_ctxsw_prog = {
 	.hw_get_extended_buffer_segments_size_in_bytes = gm20b_ctxsw_prog_hw_get_extended_buffer_segments_size_in_bytes,
 	.hw_extended_marker_size_in_bytes = gm20b_ctxsw_prog_hw_extended_marker_size_in_bytes,
 	.hw_get_perf_counter_control_register_stride = gm20b_ctxsw_prog_hw_get_perf_counter_control_register_stride,
-	.get_main_image_ctx_id = gm20b_ctxsw_prog_get_main_image_ctx_id,
 	.set_pm_ptr = gv11b_ctxsw_prog_set_pm_ptr,
 	.set_pm_mode = gm20b_ctxsw_prog_set_pm_mode,
 	.set_pm_smpc_mode = gm20b_ctxsw_prog_set_pm_smpc_mode,
@@ -585,15 +573,19 @@ static const struct gops_gr_setup ga100_ops_gr_setup = {
 
 #ifdef CONFIG_NVGPU_GRAPHICS
 static const struct gops_gr_zbc ga100_ops_gr_zbc = {
+#ifdef CONFIG_NVGPU_ZBC_USER
 	.add_color = gp10b_gr_zbc_add_color,
+	.get_gpcs_swdx_dss_zbc_c_format_reg = gv11b_gr_zbc_get_gpcs_swdx_dss_zbc_c_format_reg,
+#endif
 	.load_default_sw_table = gm20b_gr_zbc_load_default_sw_table,
 	.add_depth = gp10b_gr_zbc_add_depth,
 	.set_table = nvgpu_gr_zbc_set_table,
 	.query_table = nvgpu_gr_zbc_query_table,
 	.add_stencil = gv11b_gr_zbc_add_stencil,
-	.get_gpcs_swdx_dss_zbc_c_format_reg = gv11b_gr_zbc_get_gpcs_swdx_dss_zbc_c_format_reg,
 	.get_gpcs_swdx_dss_zbc_z_format_reg = gv11b_gr_zbc_get_gpcs_swdx_dss_zbc_z_format_reg,
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.init_table_indices = gv11b_gr_zbc_init_table_indices,
+#endif
 };
 #endif
 
@@ -609,6 +601,8 @@ static const struct gops_gr_zcull ga100_ops_gr_zcull = {
 static const struct gops_gr_hwpm_map ga100_ops_gr_hwpm_map = {
 	.align_regs_perf_pma = gv100_gr_hwpm_map_align_regs_perf_pma,
 	.get_active_fbpa_mask = gv100_gr_hwpm_map_get_active_fbpa_mask,
+	.add_ctxsw_buffer_gpc_perf_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
+	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
 };
 #endif
 
@@ -623,7 +617,7 @@ static const struct gops_gr_init ga100_ops_gr_init = {
 	.su_coalesce = NULL,
 	.pes_vsc_stream = gm20b_gr_init_pes_vsc_stream,
 	.gpc_mmu = ga10b_gr_init_gpc_mmu,
-	.reset_gpcs = ga10b_gr_init_reset_gpcs,
+	.set_gpcs_reset = ga10b_gr_init_set_gpcs_reset,
 	.fifo_access = gm20b_gr_init_fifo_access,
 	.set_sm_l1tag_surface_collector = ga100_gr_init_set_sm_l1tag_surface_collector,
 #ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
@@ -724,6 +718,7 @@ static const struct gops_gr_intr ga100_ops_gr_intr = {
 	.read_gpc_exception = gm20b_gr_intr_read_gpc_exception,
 	.read_exception1 = gm20b_gr_intr_read_exception1,
 	.trapped_method_info = gm20b_gr_intr_get_trapped_method_info,
+	.get_fault_context = nvgpu_gr_intr_get_fault_context,
 	.handle_semaphore_pending = nvgpu_gr_intr_handle_semaphore_pending,
 	.handle_notify_pending = nvgpu_gr_intr_handle_notify_pending,
 	.handle_gcc_exception = gv11b_gr_intr_handle_gcc_exception,
@@ -759,6 +754,9 @@ static const struct gops_gr_intr ga100_ops_gr_intr = {
 	.get_sm_no_lock_down_hww_global_esr_mask = gv11b_gr_intr_get_sm_no_lock_down_hww_global_esr_mask,
 	.get_ctxsw_checksum_mismatch_mailbox_val = gv11b_gr_intr_ctxsw_checksum_mismatch_mailbox_val,
 	.sm_ecc_status_errors = ga10b_gr_intr_sm_ecc_status_errors,
+	.sm_l1_data_ecc_status_errors = ga10b_gr_intr_sm_l1_data_ecc_status_errors,
+	.sm_l1_tag_ecc_status_errors = ga10b_gr_intr_sm_l1_tag_ecc_status_errors,
+	.sm_rams_ecc_status_errors = ga10b_gr_intr_sm_rams_ecc_status_errors,
 #ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.handle_tex_exception = NULL,
 	.set_shader_exceptions = gv11b_gr_intr_set_shader_exceptions,
@@ -767,6 +765,7 @@ static const struct gops_gr_intr ga100_ops_gr_intr = {
 #ifdef CONFIG_NVGPU_DEBUGGER
 	.tpc_exception_sm_disable = gm20b_gr_intr_tpc_exception_sm_disable,
 	.tpc_enabled_exceptions = gm20b_gr_intr_tpc_enabled_exceptions,
+	.handle_cilp_save_completed = gv11b_gr_intr_handle_cilp_save_completed,
 #endif
 };
 
@@ -791,6 +790,7 @@ static const struct gops_gr_falcon ga100_ops_gr_falcon = {
 	.ctrl_ctxsw = ga100_gr_falcon_ctrl_ctxsw,
 	.get_current_ctx = gm20b_gr_falcon_get_current_ctx,
 	.get_ctx_ptr = gm20b_gr_falcon_get_ctx_ptr,
+	.get_current_ctx_id = gv11b_gr_falcon_get_current_ctx_id,
 	.get_fecs_current_ctx_data = gm20b_gr_falcon_get_fecs_current_ctx_data,
 	.init_ctx_state = gp10b_gr_falcon_init_ctx_state,
 	.get_zcull_image_size = gm20b_gr_falcon_get_zcull_image_size,
@@ -827,6 +827,13 @@ static const struct gops_gr ga100_ops_gr = {
 	.set_circular_buffer_size = gr_ga100_set_circular_buffer_size,
 	.get_sm_dsm_perf_regs = gv11b_gr_get_sm_dsm_perf_regs,
 	.get_sm_dsm_perf_ctrl_regs = gr_tu104_get_sm_dsm_perf_ctrl_regs,
+	.get_sm_dbgr_ctrl_base = gv11b_get_sm_dbgr_ctrl_base,
+	.get_sm_dbgr_status_base = gv11b_get_sm_dbgr_status_base,
+	.get_sm_hww_global_esr_base = gv11b_get_sm_hww_global_esr_base,
+	.get_sm_hww_warp_esr_base = gv11b_get_sm_hww_warp_esr_base,
+	.get_gpcs_pri_mmu_debug_ctrl_reg = gm20b_get_gpcs_pri_mmu_debug_ctrl_reg,
+	.get_gpcs_tpcs_tex_in_dbg_reg = gv11b_get_gpcs_tpcs_tex_in_dbg_reg,
+	.get_gpcs_tpcs_sm_l1tag_ctrl_reg = gv11b_get_gpcs_tpcs_sm_l1tag_ctrl_reg,
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
 	.set_gpc_tpc_mask = gr_gv100_set_gpc_tpc_mask,
 #endif
@@ -869,6 +876,7 @@ static const struct gops_gr ga100_ops_gr = {
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gv11b_gr_get_egpc_base,
+	.get_egpc_shared_base = gv11b_gr_get_egpc_shared_base,
 	.get_egpc_etpc_num = gv11b_gr_get_egpc_etpc_num,
 	.is_egpc_addr = gv11b_gr_pri_is_egpc_addr,
 	.decode_egpc_addr = gv11b_gr_decode_egpc_addr,
@@ -887,6 +895,7 @@ static const struct gops_gr ga100_ops_gr = {
 	.find_priv_offset_in_buffer =
 		gr_gk20a_find_priv_offset_in_buffer,
 	.check_warp_esr_error = ga10b_gr_check_warp_esr_error,
+	.set_cilp_preempt_pending = gr_gp10b_set_cilp_preempt_pending,
 #endif /* CONFIG_NVGPU_DEBUGGER */
 };
 
@@ -899,8 +908,8 @@ static const struct gops_class ga100_ops_gpu_class = {
 };
 
 static const struct gops_fb_ecc ga100_ops_fb_ecc = {
-	.init = ga10b_fb_ecc_init,
-	.free = ga10b_fb_ecc_free,
+	.ecc_counter_init = ga10b_fb_ecc_init,
+	.ecc_counter_free = ga10b_fb_ecc_free,
 	.l2tlb_error_mask = ga10b_fb_ecc_l2tlb_error_mask,
 };
 
@@ -943,8 +952,10 @@ static const struct gops_fb ga100_ops_fb = {
 	.compressible_page_size = gp10b_fb_compressible_page_size,
 	.compression_align_mask = gm20b_fb_compression_align_mask,
 #endif
+#ifdef CONFIG_NVGPU_VPR
 	.vpr_info_fetch = ga10b_fb_vpr_info_fetch,
 	.dump_vpr_info = ga10b_fb_dump_vpr_info,
+#endif
 	.dump_wpr_info = ga10b_fb_dump_wpr_info,
 	.read_wpr_info = ga10b_fb_read_wpr_info,
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -986,6 +997,7 @@ static const struct gops_fb ga100_ops_fb = {
 	.config_veid_smc_map = ga10b_fb_config_veid_smc_map,
 	.set_smc_eng_config = ga10b_fb_set_smc_eng_config,
 	.set_remote_swizid = ga10b_fb_set_remote_swizid,
+	.set_smc_veid_table_mask = ga10b_fb_set_smc_veid_table_mask,
 #endif
 };
 
@@ -1034,6 +1046,7 @@ static const struct gops_fifo ga100_ops_fifo = {
 	.reset_enable_hw = ga10b_init_fifo_reset_enable_hw,
 #ifdef CONFIG_NVGPU_RECOVERY
 	.recover = gv11b_fifo_recover,
+	.rc_cleanup_and_reenable_ctxsw = gv11b_fifo_rc_cleanup_and_reenable_ctxsw,
 #endif
 	.intr_set_recover_mask = ga10b_fifo_intr_set_recover_mask,
 	.intr_unset_recover_mask = ga10b_fifo_intr_unset_recover_mask,
@@ -1048,8 +1061,12 @@ static const struct gops_fifo ga100_ops_fifo = {
 	.intr_0_isr = ga10b_fifo_intr_0_isr,
 	.intr_1_isr = NULL,
 	.runlist_intr_retrigger = ga10b_fifo_runlist_intr_retrigger,
+	.runlist_intr_0_en_clear_tree = ga10b_runlist_intr_0_en_clear_tree,
+	.runlist_intr_0_en_set_tree = ga10b_runlist_intr_0_en_set_tree,
 	.handle_sched_error = NULL,
 	.ctxsw_timeout_enable = ga10b_fifo_ctxsw_timeout_enable,
+	.ctxsw_timeout_config = ga10b_fifo_ctxsw_timeout_config,
+	.ctxsw_timeout_config_size_1 = ga10b_ctxsw_timeout_config_size_1,
 	.handle_ctxsw_timeout = NULL,
 	.trigger_mmu_fault = NULL,
 	.get_mmu_fault_info = NULL,
@@ -1059,6 +1076,15 @@ static const struct gops_fifo ga100_ops_fifo = {
 	.get_runlist_timeslice = NULL,
 	.get_pb_timeslice = NULL,
 	.mmu_fault_id_to_pbdma_id = ga10b_fifo_mmu_fault_id_to_pbdma_id,
+	.runlist_intr_0 = ga10b_runlist_intr_0,
+	.get_runlist_intr_0_mask = ga10b_runlist_intr_0_mask,
+	.get_runlist_intr_0_recover_mask = ga10b_runlist_intr_0_recover_mask,
+	.get_runlist_intr_0_recover_unmask = ga10b_runlist_intr_0_recover_unmask,
+	.get_runlist_intr_0_ctxsw_timeout_mask = ga10b_runlist_intr_0_ctxsw_timeout_mask,
+	.get_runlist_intr_bad_tsg = ga10b_runlist_intr_bad_tsg,
+	.get_runlist_intr_retrigger_reg_off = ga10b_runlist_intr_retrigger_reg_off,
+	.get_runlist_preempt_reg = ga10b_runlist_preempt_reg,
+	.get_rleng_ctxsw_timeout_info_reg_off = ga10b_rleng_ctxsw_timeout_info_reg_off,
 };
 
 static const struct gops_engine ga100_ops_engine = {
@@ -1118,6 +1144,10 @@ static const struct gops_pbdma ga100_ops_pbdma = {
 	.config_userd_writeback_enable = gv11b_pbdma_config_userd_writeback_enable,
 	.get_mmu_fault_id = ga10b_pbdma_get_mmu_fault_id,
 	.get_num_of_pbdmas = ga100_pbdma_get_num_of_pbdmas,
+	.intr_0_reg_addr = ga10b_intr_0_reg_addr,
+	.intr_1_reg_addr = ga10b_intr_1_reg_addr,
+	.hce_dbg0_reg_addr = ga10b_hce_dbg0_reg_addr,
+	.hce_dbg1_reg_addr = ga10b_hce_dbg1_reg_addr,
 };
 
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
@@ -1152,10 +1182,15 @@ static const struct gops_engine_status ga100_ops_engine_status = {
 	.read_engine_status_info = ga10b_read_engine_status_info,
 	/* TODO update this hal for ga100 */
 	.dump_engine_status = gv100_dump_engine_status,
+	.get_rleng_status0_reg_off = ga10b_rleng_status0_reg_off,
+	.get_rleng_status1_reg_off = ga10b_rleng_status1_reg_off,
 };
 
 static const struct gops_pbdma_status ga100_ops_pbdma_status = {
 	.read_pbdma_status_info = ga10b_read_pbdma_status_info,
+	.pbdma_status_sched_reg_addr = ga10b_pbdma_status_sched_reg_addr,
+	.pbdma_channel_reg_addr = ga10b_pbdma_channel_reg_addr,
+	.pbdma_next_channel_reg_addr = ga10b_pbdma_next_channel_reg_addr,
 };
 
 static const struct gops_ramfc ga100_ops_ramfc = {
@@ -1204,6 +1239,7 @@ static const struct gops_runlist ga100_ops_runlist = {
 	.get_tsg_max_timeslice = gv11b_runlist_max_timeslice,
 	.get_esched_fb_thread_id = ga10b_runlist_get_esched_fb_thread_id,
 	.get_max_channels_per_tsg = gv11b_runlist_get_max_channels_per_tsg,
+	.get_sched_disable_reg_off = ga10b_sched_disable_reg_off,
 };
 
 static const struct gops_userd ga100_ops_userd = {
@@ -1240,7 +1276,7 @@ static const struct gops_channel ga100_ops_channel = {
 
 static const struct gops_tsg ga100_ops_tsg = {
 	.enable = gv11b_tsg_enable,
-	.disable = nvgpu_tsg_disable,
+	.disable = gv11b_tsg_disable,
 	.init_subctx_state = gv11b_tsg_init_subctx_state,
 	.deinit_subctx_state = gv11b_tsg_deinit_subctx_state,
 	.add_subctx_channel_hw = gv11b_tsg_add_subctx_channel_hw,
@@ -1287,12 +1323,16 @@ static const struct gops_mm_mmu_fault ga100_ops_mm_mmu_fault = {
 	.info_mem_destroy = gv11b_mm_mmu_fault_info_mem_destroy,
 	.disable_hw = gv11b_mm_mmu_fault_disable_hw,
 	.parse_mmu_fault_info = ga10b_mm_mmu_fault_parse_mmu_fault_info,
+	.mmu_eng_id_ce0_val = gv11b_gmmu_fault_mmu_eng_id_ce0_val,
 };
 
 static const struct gops_mm_cache ga100_ops_mm_cache = {
 	.fb_flush = gk20a_mm_fb_flush,
+	.token_based_fb_flush = NULL,
 	.l2_invalidate = gk20a_mm_l2_invalidate,
+	.token_based_l2_invalidate_locked = NULL,
 	.l2_flush = gv11b_mm_l2_flush,
+	.token_based_l2_flush = NULL,
 #ifdef CONFIG_NVGPU_COMPRESSION
 	.cbc_clean = gk20a_mm_cbc_clean,
 #endif
@@ -1409,6 +1449,7 @@ static const struct gops_pmu ga100_ops_pmu = {
 	.pmu_mutex_size = tu104_pmu_mutex__size_1_v,
 	.is_engine_in_reset = gv11b_pmu_is_engine_in_reset,
 	.pmu_get_queue_tail = tu104_pmu_queue_tail_r,
+	.pmu_get_msgq_tail = gm20b_pmu_msgq_tail_r,
 	.get_irqdest = gk20a_pmu_get_irqdest,
 	.handle_ext_irq = NULL,
 	.handle_swgen1_irq = NULL,
@@ -1613,8 +1654,8 @@ static const struct gops_pm_reservation ga100_ops_pm_reservation = {
 static const struct gops_profiler ga100_ops_profiler = {
 	.bind_hwpm = nvgpu_profiler_bind_hwpm,
 	.unbind_hwpm = nvgpu_profiler_unbind_hwpm,
-	.bind_hwpm_streamout = nvgpu_profiler_bind_hwpm_streamout,
-	.unbind_hwpm_streamout = nvgpu_profiler_unbind_hwpm_streamout,
+	.bind_pma_streamout = nvgpu_profiler_bind_pma_streamout,
+	.unbind_pma_streamout = nvgpu_profiler_unbind_pma_streamout,
 	.bind_smpc = nvgpu_profiler_bind_smpc,
 	.unbind_smpc = nvgpu_profiler_unbind_smpc,
 };
@@ -1637,7 +1678,9 @@ static const struct gops_bus ga100_ops_bus = {
 
 #ifdef CONFIG_NVGPU_LS_PMU
 static const struct gops_ptimer ga100_ops_ptimer = {
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	.isr = gk20a_ptimer_isr,
+#endif
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 	.read_ptimer = gk20a_read_ptimer,
 	.get_timestamps_zipper = nvgpu_get_timestamps_zipper,
@@ -1667,13 +1710,13 @@ static const struct gops_css ga100_ops_css = {
 
 #ifdef CONFIG_NVGPU_LS_PMU
 static const struct gops_xve ga100_ops_xve = {
-	.get_speed = xve_get_speed_gp106,
-	.xve_readl = xve_xve_readl_gp106,
-	.xve_writel = xve_xve_writel_gp106,
-	.disable_aspm = xve_disable_aspm_gp106,
-	.reset_gpu = xve_reset_gpu_gp106,
+	.get_speed = NULL,
+	.xve_readl = NULL,
+	.xve_writel = NULL,
+	.disable_aspm = NULL,
+	.reset_gpu = NULL,
 #if defined(CONFIG_PCI_MSI)
-	.rearm_msi = xve_rearm_msi_gp106,
+	.rearm_msi = NULL,
 #endif
 	.enable_shadow_rom = NULL,
 	.disable_shadow_rom = NULL,
@@ -1796,6 +1839,7 @@ static const struct gops_gsp ga100_ops_gsp = {
 static const struct gops_top ga100_ops_top = {
 	.device_info_parse_enum = NULL,
 	.device_info_parse_data = NULL,
+	.get_expected_chip_info_cfg_version = NULL,
 	.parse_next_device = ga10b_top_parse_next_dev,
 	.get_max_gpc_count = gm20b_top_get_max_gpc_count,
 	.get_max_tpc_per_gpc_count = gm20b_top_get_max_tpc_per_gpc_count,
@@ -1963,12 +2007,6 @@ int ga100_init_hal(struct gk20a *g)
 
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_SEC2_RTOS, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_PMU_RTOS_FBQ, true);
-#ifdef CONFIG_NVGPU_GRAPHICS
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL, true);
-#endif
-#ifdef CONFIG_NVGPU_GFXP
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_PREEMPTION_GFXP, true);
-#endif
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_SEC2_VM, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_GSP_VM, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_PMU_SUPER_SURFACE, true);

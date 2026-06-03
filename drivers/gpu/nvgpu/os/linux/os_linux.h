@@ -1,17 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_OS_LINUX_H
@@ -96,8 +84,6 @@ struct nvgpu_os_linux {
 
 	struct devfreq *devfreq;
 
-	struct device_dma_parameters dma_parms;
-
 	atomic_t nonstall_ops;
 
 	struct work_struct nonstall_fn_work;
@@ -127,6 +113,7 @@ struct nvgpu_os_linux {
 
 	struct dentry *debugfs_dump_ctxsw_stats;
 	struct dentry *debugfs_gsp;
+	struct dentry *debugfs_multimedia;
 #endif
 	struct dev_ext_attribute *ecc_attrs;
 
@@ -140,6 +127,20 @@ struct nvgpu_os_linux {
 	bool init_done;
 
 	bool enable_platform_dbg;
+
+	/*
+	 * Profile boot-time latency.
+	 *
+	 * With NO GPU virtualization, boot-time latency for
+	 * T264 is execution time for gk20a_init()+gk20a_pm_finalize_poweron().
+	 *     nvgpu_pci_probe() is invoked as nested call within gk20a_init().
+	 * T234 is execution time for gk20a_init()+gk20a_probe()+gk20a_pm_finalize_poweron().
+	 *
+	 * For gk20_init(), struct nvgpu_os_linux is yet to be allocated during gk20a_init()
+	 * execution, therefore nvgpu_init_time_ns shall be allocated as global.
+	 */
+	u64 probe_time_ns;
+	u64 poweron_time_ns;
 };
 
 static inline struct nvgpu_os_linux *nvgpu_os_linux_from_gk20a(struct gk20a *g)

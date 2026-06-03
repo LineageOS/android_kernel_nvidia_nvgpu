@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2016-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ACR_H
@@ -25,7 +7,7 @@
 
 /**
  * @file
- * @page unit-acr Unit ACR(Access Controlled Regions)
+ * @page acr ACR(Access Controlled Regions)
  *
  * Acronyms
  * ========
@@ -151,6 +133,9 @@ struct gk20a;
 struct nvgpu_falcon;
 struct nvgpu_firmware;
 struct nvgpu_acr;
+struct nv_flcn_cmd_gsp;
+struct hs_acr;
+struct nvgpu_gsp_ipc;
 
 /**
  * This assigns an unique index for errors in ACR unit.
@@ -216,6 +201,105 @@ int nvgpu_acr_init(struct gk20a *g);
 int nvgpu_acr_alloc_blob_prerequisite(struct gk20a *g, struct nvgpu_acr *acr,
 	size_t size);
 #endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+int nvgpu_next_acr_wait_for_completion(struct gk20a *g,
+				struct hs_acr *acr_desc, u32 timeout);
+#endif
+
+void nvgpu_acr_suspend(struct gk20a *g);
+
+/**
+ * @brief Deinitialize the ACR unit.
+ *
+ * @param g [in] The GPU driver struct.
+ *
+ * This function deinitializes the ACR unit.
+ */
+void nvgpu_acr_deinit(struct gk20a *g);
+
+/**
+ * @brief Process a message from the GSP ACR unit.
+ *
+ * @param g [in] The GPU driver struct.
+ *
+ * This function processes a message from the GSP ACR unit.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
+int nvgpu_acr_process_message(struct gk20a *g);
+
+/**
+ * @brief Send a command and wait for an acknowledgment.
+ *
+ * @param g [in] The GPU driver struct.
+ * @param cmd [in] The command to send.
+ * @param unit_id [in] The unit ID.
+ * @param size [in] The size of the command.
+ *
+ * This function sends a command and waits for an acknowledgment.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
+int nvgpu_acr_send_cmd_and_wait_for_ack(struct gk20a *g,
+		struct nv_flcn_cmd_gsp *cmd, u32 unit_id, u32 size);
+
+/**
+ * @brief Bootstrap the context switch engine.
+ *
+ * @param g [in] The GPU driver struct.
+ * @param falcon_id [in] The Falcon ID.
+ * @param falcon_instance [in] The Falcon instance.
+ *
+ * This function bootstraps the context switch engine with the given parameters.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
+int nvgpu_acr_boot_ctxsw_engine(struct gk20a *g, u32 falcon_id,
+	u32 falcon_instance);
+
+/**
+ * @brief Lock the WPR memory.
+ *
+ * @param g [in] The GPU driver struct.
+ * @param wpr_address_lo [in] The lower 32 bits of the WPR address.
+ * @param wpr_address_hi [in] The upper 32 bits of the WPR address.
+ *
+ * This function programs the WPR memory with the given ucode blob address.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
+int nvgpu_acr_lock_wpr(struct gk20a *g, u32 wpr_address_lo, u32 wpr_address_hi);
+
+/**
+ * @brief Bootstrap the specified engine.
+ *
+ * @param g [in] The GPU driver struct.
+ * @param engine_id [in] The engine ID.
+ * @param engine_instance [in] The engine instance.
+ * @param engine_index_mask [in] The engine index mask.
+ * @param intr_ctrl_0 [in] The interrupt control register 0.
+ * @param intr_ctrl_1 [in] The interrupt control register 1.
+ *
+ * This function bootstraps the specified engine with the given parameters.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
+int nvgpu_acr_bootstrap_engine(struct gk20a *g,
+		u32 engine_id, u32 engine_instance, u32 engine_index_mask,
+		u32 intr_ctrl_0, u32 intr_ctrl_1);
+
+/**
+ * @brief Check if LSB v3 is supported.
+ *
+ * @param g [in] The GPU driver struct.
+ *
+ * This function checks if LSB (Light Secure Boot) version 3 is supported by the GPU.
+ * LSB v3 is a newer version of the secure boot protocol with enhanced security features.
+ *
+ * @return true if LSB v3 is supported, false otherwise.
+ */
+bool nvgpu_acr_is_lsb_v3_supported(struct gk20a *g);
 
 /**
  * @brief After ACR init which allocates and sets required properties of ACR,
@@ -393,6 +477,7 @@ int nvgpu_acr_construct_execute(struct gk20a *g);
  */
 int nvgpu_acr_bootstrap_hs_acr(struct gk20a *g, struct nvgpu_acr *acr);
 
+#if defined(CONFIG_NVGPU_LS_PMU)
 /**
  * @brief During ACR initialization lsf_enable_mask is set for supported
  *        LS Falcon and it is used during blob creation to add LS Falcon
@@ -411,6 +496,7 @@ int nvgpu_acr_bootstrap_hs_acr(struct gk20a *g, struct nvgpu_acr *acr);
  */
 bool nvgpu_acr_is_lsf_lazy_bootstrap(struct gk20a *g, struct nvgpu_acr *acr,
 	u32 falcon_id);
+#endif
 
 #endif /* NVGPU_ACR_H */
 

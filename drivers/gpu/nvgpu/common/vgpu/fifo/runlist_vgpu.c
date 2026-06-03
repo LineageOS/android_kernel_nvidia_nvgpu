@@ -1,26 +1,5 @@
-/*
- * Virtualized GPU Runlist
- *
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/string.h>
@@ -41,15 +20,13 @@ static int vgpu_submit_runlist(struct gk20a *g, u64 handle,
 	struct tegra_vgpu_cmd_msg msg;
 	struct tegra_vgpu_runlist_params *p;
 	int err;
-	void *oob_handle;
 	void *oob;
 	size_t size, oob_size;
+	int ivc;
 
-	oob_handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD,
-			&oob, &oob_size);
-	if (!oob_handle) {
-		return -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, &oob, &oob_size);
+	if (ivc < 0) {
+		return ivc;
 	}
 
 	size = sizeof(u16) * domain->mem->count;
@@ -65,12 +42,12 @@ static int vgpu_submit_runlist(struct gk20a *g, u64 handle,
 	p->num_entries = domain->mem->count;
 
 	nvgpu_memcpy((u8 *)oob, (u8 *)domain->mem->mem.cpu_va, size);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 
 	err = (err || msg.ret) ? -1 : 0;
 
 done:
-	vgpu_ivc_oob_put_ptr(oob_handle);
+	vgpu_comm_free_ivc(g, ivc);
 	return err;
 }
 

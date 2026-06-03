@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_CLASS_H
 #define NVGPU_GOPS_CLASS_H
@@ -27,12 +9,38 @@
 /**
  * @file
  *
- * common.class unit HAL interface
+ * class unit HAL interface
+ * @page class class
  *
+ * Overview
+ * ========
+ *
+ * The class unit of |nvgpu-rm| provides:
+ *
+ * - List of valid class numbers supported in our GPU architecture.
+ * - API to query if the given class number is supported.
+ * - API to query if the given class number belongs to compute class.
+ *
+ * Data Structures
+ * ===============
+ *
+ * The class unit exposes following list of supported class numbers:
+ *
+ *  + @ref NVGPU_CLASS_VALID_NUM
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *
+ *   + nvgpu_falcon_sw_init()
+ *   + gops_class.is_valid
+ *   + gops_class.is_valid_compute
  */
 
 /**
- * common.class unit HAL operations
+ * class unit HAL operations
  *
  * @see gpu_ops
  */
@@ -121,6 +129,48 @@ struct gops_class {
 	 *	   false otherwise.
 	 */
 	bool (*is_valid_nvenc)(u32 class_num);
+
+	/**
+	 * @brief Checks if given class number is valid ofa class number
+	 *        as per our GPU architecture.
+	 *
+	 * @param class_num [in]	Class number to be validated based on
+	 *				GPU architecture.
+	 *				- No validation is performed on this
+	 *				  parameter
+	 *
+	 * @return true when \a class_num is matching with one of the ofa class,
+	 *	   false otherwise.
+	 */
+	bool (*is_valid_ofa)(u32 class_num);
+
+	/**
+	 * @brief Checks if given class number is valid nvdec class number
+	 *        as per our GPU architecture.
+	 *
+	 * @param class_num [in]	Class number to be validated based on
+	 *				GPU architecture.
+	 *				- No validation is performed on this
+	 *				  parameter
+	 *
+	 * @return true when \a class_num is matching with one of the nvdec class,
+	 *	   false otherwise.
+	 */
+	bool (*is_valid_nvdec)(u32 class_num);
+
+	/**
+	 * @brief Checks if given class number is valid nvjpg class number
+	 *        as per our GPU architecture.
+	 *
+	 * @param class_num [in]	Class number to be validated based on
+	 *				GPU architecture.
+	 *				- No validation is performed on this
+	 *				  parameter
+	 *
+	 * @return true when \a class_num is matching with one of the nvjpg class,
+	 *	   false otherwise.
+	 */
+	bool (*is_valid_nvjpg)(u32 class_num);
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };
 

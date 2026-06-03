@@ -1,24 +1,7 @@
-/*
-* Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
-*
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025, NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ */
 
 #ifndef NVGPU_BOARDOBJGRP_H
 #define NVGPU_BOARDOBJGRP_H
@@ -31,7 +14,7 @@ struct nvgpu_list_node;
 #include <nvgpu/boardobjgrpmask.h>
 #include <nvgpu/list.h>
 #include <nvgpu/nvgpu_mem.h>
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu/pmu/super_surface.h>
 #endif
 #include <nvgpu/flcnif_cmn.h>
@@ -63,6 +46,7 @@ int nvgpu_boardobjgrp_pmu_hdr_data_init_super(struct gk20a *g,
 * Fills out the appropriate the PMU_BOARDOBJGRP_<xyz> driver->PMU description
 * structure, describing the BOARDOBJGRP and all of its BOARDOBJs to the PMU.
 */
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 int nvgpu_boardobjgrp_pmu_data_init_super(struct gk20a *g,
 		struct boardobjgrp *pboardobjgrp,
 		struct nv_pmu_boardobjgrp_super *pboardobjgrppmu);
@@ -165,6 +149,14 @@ struct boardobjgrp {
 			struct nv_pmu_boardobj_query **obj_pmu_status,
 			u8 idx);
 	struct nvgpu_list_node node;
+};
+
+struct boardobjgrp_iface_model_10 {
+	bool b_copy_in;
+	bool b_hdr_export;
+
+	// Todo: finish implementing: add api callback pointers.
+
 };
 
 /*

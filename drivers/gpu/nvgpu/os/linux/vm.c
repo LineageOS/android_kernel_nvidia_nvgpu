@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-buf.h>
 #include <linux/dma-direction.h>
@@ -343,6 +330,16 @@ int nvgpu_vm_map_linux(struct vm_gk20a *vm,
 	if (err != 0) {
 		goto clean_up;
 	}
+
+#ifdef CONFIG_NVGPU_COMPRESSION
+	if (g->cbc_use_raw_mode &&
+	    mapped_buffer->compr_kind_selected) {
+		err = gk20a_dmabuf_map_private(dmabuf, g, sgt);
+		if (err != 0) {
+			goto clean_up;
+		}
+	}
+#endif
 
 	mapped_buffer->os_priv.dmabuf = dmabuf;
 	mapped_buffer->os_priv.attachment = attachment;

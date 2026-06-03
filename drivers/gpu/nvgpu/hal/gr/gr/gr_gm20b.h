@@ -1,25 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
 /*
  * GM20B GPC MMU
- *
- * Copyright (c) 2014-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  */
 
 #ifndef NVGPU_GM20B_GR_GM20B_H
@@ -61,8 +44,9 @@ int gm20b_gr_clear_sm_error_state(struct gk20a *g,
 		struct nvgpu_channel *ch, u32 sm_id);
 void gm20b_gr_set_debug_mode(struct gk20a *g, bool enable);
 int gm20b_gr_set_mmu_debug_mode(struct gk20a *g,
-		struct nvgpu_channel *ch, bool enable);
+		struct nvgpu_channel *ch, bool enable, bool enable_gcc);
 bool gm20b_gr_esr_bpt_pending_events(u32 global_esr,
 				     enum nvgpu_event_id_type bpt_event);
+u32 gm20b_get_gpcs_pri_mmu_debug_ctrl_reg(void);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GM20B_GR_GM20B_H */

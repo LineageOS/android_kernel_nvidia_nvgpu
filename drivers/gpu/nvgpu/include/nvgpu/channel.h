@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_CHANNEL_H
@@ -192,6 +174,8 @@ struct nvgpu_channel_dump_info {
 	u32 chid;
 	/** TSG Identifier. */
 	u32 tsgid;
+	/** TSG Disable count. */
+	u32 tsg_disable_count;
 	/** Pid of the process that created this channel. */
 	int pid;
 	/**
@@ -244,9 +228,9 @@ struct nvgpu_channel_dump_info {
 struct nvgpu_setup_bind_args {
 	u32 num_gpfifo_entries;
 	u32 num_inflight_jobs;
-	u32 userd_dmabuf_fd;
+	u64 userd_dmabuf_fd;
 	u64 userd_dmabuf_offset;
-	u32 gpfifo_dmabuf_fd;
+	u64 gpfifo_dmabuf_fd;
 	u64 gpfifo_dmabuf_offset;
 	u32 work_submit_token;
 	u64 gpfifo_gpu_va;
@@ -530,19 +514,12 @@ struct nvgpu_channel {
 	bool replayable;
 
 	/**
-	 * Recovery path can be entered twice for the same error in
-	 * case of mmu_nack. This flag indicates if we already recovered
-	 * for the same context.
-	 */
-	bool mmu_nack_handled;
-
-	/**
 	 * Indicates if we can take more references on a given channel.
 	 * Typically it is not possible to take more references on a
 	 * free or unserviceable channel.
 	 */
 	bool referenceable;
-	/** True if VPR support was requested during setup bind */
+	/** True if VPR support was requested during alloc obj context */
 	bool vpr;
 #ifdef CONFIG_NVGPU_DETERMINISTIC_CHANNELS
 	/**
@@ -579,9 +556,13 @@ struct nvgpu_channel {
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 	/**
-	 * MMU Debugger Mode is enabled for this channel if refcnt > 0
+	 * MMU Debugger Mode is enabled for this channel if mmu_debug_mode_refcnt > 0
 	 */
-	u32 mmu_debug_mode_refcnt;
+	nvgpu_atomic_t mmu_debug_mode_refcnt;
+	/**
+	 * MMU Debugger GCC Mode is enabled for this channel if mmu_debug_gcc_mode_refcnt > 0
+	 */
+	nvgpu_atomic_t mmu_debug_gcc_mode_refcnt;
 	/**
 	 * ERRBAR is enabled for this channel if refcnt > 0
 	 */
@@ -697,17 +678,39 @@ void nvgpu_channel_commit_va(struct nvgpu_channel *c);
  * @brief Initializes channel context.
  *
  * @param g [in]	Pointer to GPU driver struct.
+ *                      - No validation is performed on this parameter.
  * @param chid [in]	Channel H/W Identifier.
+ *                      - No validation is performed on this parameter.
  *
- * Initializes channel context to default values.
- * This includes mutexes and list nodes initialization.
+ * Below, \a c is used as a shorthand for &g->fifo.channel[chid].
  *
- * @return 0 in case of success, < 0 in case of failure.
- * @retval -ENOMEM in case there is not enough memory to allocate channels.
- * @retval -EINVAL for invalid condition variable value.
- * @retval -EBUSY in case reference condition variable pointer isn't NULL.
- * @retval -EFAULT in case any faults occurred while accessing condition
- * variable or attribute.
+ * - Assign c->g = NULL.
+ * - Assign c->chid = chid.
+ * - Initialize c->bound to zero by \ref nvgpu_atomic_set(&c->bound, 0).
+ * - Initialize the channel reference lock by \ref nvgpu_spinlock_init(&c->ref_obtain_lock).
+ * - Initialize the channel reference count by \ref nvgpu_atomic_set(&c->ref_count, 0).
+ * - Assign c->referenceable = false.
+ * - Initialize the channel refcount workqueue by \ref nvgpu_cond_init(&c->ref_count_dec_wq).
+ *   In case of error, log a descriptive message using nvgpu_err() return the same error.
+ * - Initialize the following spinlocks with nvgpu_spinlock_init():
+ *   - c->unserviceable_lock
+ *   - c->ref_actions_lock (if GK20A_CHANNEL_REFCOUNT_TRACKING is set)
+ * - Initialize the following list nodes with nvgpu_init_list_node():
+ *   - c->worker_item (if \ref CONFIG_NVGPU_KERNEL_MODE_SUBMIT is set)
+ *   - c->dbg_s_list (if \ref CONFIG_NVGPU_DEBUGGER is set)
+ *   - c->ch_entry
+ * - Initialize the following mutexes with nvgpu_mutex_init():
+ *   - c->joblist.pre_alloc.read_lock (if \ref CONFIG_NVGPU_KERNEL_MODE_SUBMIT is set)
+ *   - c->ioctl_lock
+ *   - c->sync_lock
+ *   - c->cyclestate.cyclestate_buffer_mutex (if \ref CONFIG_NVGPU_CYCLESTATS is set)
+ *   - c->cs_client_mutex (if \ref CONFIG_NVGPU_CYCLESTATS is set)
+ *   - c->dbg_s_lock (if \ref CONFIG_NVGPU_DEBUGGER is set)
+ * - Initialize channel's entry list and subctx_entry list using nvgpu_init_list_node().
+ * - Add the channel to the free channels list by \ref nvgpu_list_add(&c->free_chs, &g->fifo.free_chs).
+ *
+ * @retval 0 in case of success.
+ * @retval <0 Unspecified error.
  */
 int nvgpu_channel_init_support(struct gk20a *g, u32 chid);
 
@@ -715,17 +718,32 @@ int nvgpu_channel_init_support(struct gk20a *g, u32 chid);
  * @brief Initializes channel unit.
  *
  * @param g [in]	Pointer to GPU driver struct.
+ *                      No validation is performed on this parameter.
  *
- * Gets number of channels from hardware.
- * Allocates and initializes channel contexts.
- * Initializes mutexes and list of free channels.
+ * Set up software resources used for channels during driver lifetime.
  *
- * @return 0 in case of success, < 0 in case of failure.
- * @retval -ENOMEM in case there is not enough memory to allocate channels.
- * @retval -EINVAL for invalid condition variable value.
- * @retval -EBUSY in case reference condition variable pointer isn't NULL.
- * @retval -EFAULT in case any faults occurred while accessing condition
- * variable or attribute.
+ * - Get number of channels from hardware using \ref #gops_channel.count "g->ops.channel.count(g)",
+ *   assign it to \ref #nvgpu_fifo.num_channels "g->fifo.num_channels".
+ * - Initialize the mutex that guards free channel list access by
+ *   \ref nvgpu_mutex_init(&g->fifo.free_chs_mutex).
+ *     - Upon failure of any subsequent step, call \ref nvgpu_mutex_destroy(&g->fifo.free_chs_mutex)
+ *       before returning to release the mutex resources.
+ * - Allocate memory for g->fifo.channel by
+ *   \ref nvgpu_vzalloc(g, g->fifo.num_channels * sizeof(*g->fifo.channel))
+ *   - On failure, log a descriptive error with nvgpu_err() and return -ENOMEM.
+ * - Initialize free channel list head by \ref nvgpu_init_list_node(&g->fifo.free_chs)
+ * - Loop \a chid from 0 to g->fifo.num_channels - 1. On each iteration:
+ *     - Call \ref nvgpu_channel_init_support "nvgpu_channel_init_support(g, chid)".
+ *       If the call fails, do the following and return the obtained error code.
+ *       - Log a descriptive error with nvgpu_err().
+ *       - For each \a chid that initialized a channel successfully, call
+ *         \ref nvgpu_channel_destroy(g->fifo.channel[chid]).
+ *       - Release the allocated channel memory by \ref nvgpu_vfree(g, g->fifo.channel).
+ *       - Assign g->fifo.channel = NULL.
+
+ * @retval 0 success
+ * @retval -ENOMEM insufficient memory
+ * @retval <0 Other unspecified error
  */
 int nvgpu_channel_setup_sw(struct gk20a *g);
 
@@ -733,10 +751,17 @@ int nvgpu_channel_setup_sw(struct gk20a *g);
  * @brief De-initializes channel unit.
  *
  * @param g [in]	Pointer to GPU driver struct.
+ *                      - No validation is performed on this parameter.
  *
- * Forcibly closes all opened channels.
- * Frees all channel contexts.
- * De-initalizes mutexes.
+ * Undo the resource allocations performed in nvgpu_channel_setup_sw().
+ *
+ * - For each \a chid from 0 to g->fifo.num_channels:
+ *     - Obtain &f->channel[chid] as \a ch
+ *     - If ch->referenceable is true, use nvgpu_channel_kill() to mark the channel free by force.
+ *     - Destroy remaining channel resources with nvgpu_channel_destroy().
+ * - Release memory allocated for the channel list by \ref nvgpu_vfree(g, g->fifo.channel).
+ * - Set g->fifo.channel to NULL.
+ * - Destroy the free channels mutex by \ref nvgpu_mutex_destroy(&f->free_chs_mutex).
  */
 void nvgpu_channel_cleanup_sw(struct gk20a *g);
 
@@ -744,12 +769,20 @@ void nvgpu_channel_cleanup_sw(struct gk20a *g);
  * @brief Emergency quiescing of channels
  *
  * @param g [in]	Pointer to GPU driver struct.
+ *              	- No validation is performed on this parameter.
  *
- * Driver has encountered uncorrectable error, and is entering
- * SW Quiesce state. For each channel:
- * - set error notifier
- * - mark channel as unserviceable
- * - signal on wait queues (notify_wq and semaphore_wq)
+ * Driver has encountered uncorrectable error, and is entering SW Quiesce state. Mark all open
+ * channels unusable and signal all threads waiting for such conditions.
+ *
+ * - For each channel \a ch in \ref #gk20a.fifo.channel "g->fifo.channel[chid]"
+ *   (chid from 0 to \ref gk20a.fifo.num_channels "g->fifo.num_channels-1)".
+ *   - Try to get a reference by \ref nvgpu_channel_get(ch). If returned non-NULL:
+ *     - Call nvgpu_channel_set_error_notifier() with NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT
+ *       to mark the channel unusable
+ *     - Call nvgpu_channel_set_unserviceable() to mark channel as unserviceable.
+ *     - Call nvgpu_channel_wakeup_wqs() to signal on wait queues
+ *       (notify_wq and semaphore_wq)
+ *     - Release the reference: call \ref nvgpu_channel_put(ch)
  */
 void nvgpu_channel_sw_quiesce(struct gk20a *g);
 
@@ -757,16 +790,11 @@ void nvgpu_channel_sw_quiesce(struct gk20a *g);
  * @brief Close channel
  *
  * @param ch [in]	Channel pointer.
- *
- * Unbinds channel from TSG, waits until there is no more refs to the channel,
- * then frees channel resources.
- *
- * In case the TSG contains deterministic or usermode submit channels,
- * userspace must make sure that the whole TSG is idle, before closing the
- * channel. This can be performed by submitting a kickoff containing WFI
- * method and waiting for its completion.
+ *			- No validation is performed on this parameter.
  *
  * @note must be inside gk20a_busy()..gk20a_idle()
+ *
+ * This calls channel_free() internally with the \a force parameter set to false.
  */
 void nvgpu_channel_close(struct nvgpu_channel *ch);
 
@@ -775,8 +803,8 @@ void nvgpu_channel_close(struct nvgpu_channel *ch);
  *
  * @param ch [in]	Channel pointer.
  *
- * Forcibly close a channel. It is meant for terminating channels
- * when we know the driver is otherwise dying. Ref counts and the like
+ * Forcibly close a channel by calling channel_free() with force as true. It is meant for
+ * terminating channels when we know the driver is otherwise dying. Ref counts and the like
  * are ignored by this version of the cleanup.
  *
  * @note must be inside gk20a_busy()..gk20a_idle()
@@ -961,26 +989,64 @@ struct nvgpu_channel *nvgpu_channel_from_id__func(
  * @brief Open and initialize a new channel.
  *
  * @param g [in]		Pointer to GPU driver struct.
+ *				- No validation is performed on this parameter.
  * @param runlist_id [in]	Runlist Identifer.
- *				-1 is synonym for #NVGPU_ENGINE_GR.
+ *				- Invalid runlist ID is replaced by #NVGPU_ENGINE_GR.
  * @param is_privileged [in]	Privileged channel will be able to execute
  *				privileged operations via Host methods on its
  *				pushbuffer.
  * @param pid [in]		pid of current thread (for tracking).
+ *				- No validation is performed on this parameter.
  * @param tid [in]		tid of current thread (for tracking).
+ *				- No validation is performed on this parameter.
  *
- * Allocates channel from the free list.
- * Allocates channel instance block.
- * Set default values for the channel.
+ * Acquire a channel handle for use.
  *
- * @note This function only takes care or the basic channel context
- * initialization. Channel still needs an address space, as well as
- * a gpfifo and userd to submit some work. It will also need to be
- * bound to a TSG, since standalone channels are not supported.
+ * This function only takes care or the basic channel context initialization. The channel still
+ * needs an address space, as well as a gpfifo and userd to submit some work. It will also need to
+ * be bound to a TSG, since standalone channels are not supported.
  *
- * @return channel pointer if channel could be opened, NULL otherwise.
- * @retval NULL if there is not enough resources to allocate and
- *         initialize the channel.
+ * @return Valid channel pointer if channel could be opened, NULL if there are not enough resources
+ * to allocate and initialize the channel.
+ *
+ * - Obtain nvgpu_channel ch from \ref allocate_channel(g->fifo). In case of error, log a
+ *   descriptive message using nvgpu_err() and return NULL.
+ *   - In case any of the further steps fail, release the allocated channel by calling
+ *   \ref free_channel(g->fifo, ch) before returning.
+ * - Call \ref BUG_ON(ch->g != NULL) to check that the channel is not already active.
+ * - Assign ch->g = g.
+ *     - In case any of the further steps fail, assign NULL to ch->g.
+ * - Assign ch->runlist_id = f->runlists[runlist_id].
+ * - Assign ch->is_privileged_channel = is_privileged_channel.
+ * - Assign ch->pid = tid.
+ * - Assign ch->tgid = pid.
+ * - If CONFIG_NVGPU_USERD is set:
+ *   - Initialize this channel's userd memory by calling \ref nvgpu_userd_init_channel(g, ch).
+ *     In case of error, log a descriptive message using nvgpu_err() and return NULL.
+ * - Allocate instance block memory for this channel by calling
+ *   \ref gops_channel.alloc_inst "g->ops.channel.alloc_inst(g, ch)". In case of error, log a
+ *   descriptive message using nvgpu_err() and return NULL.
+ * - Set ch->tsgid to NVGPU_INVALID_TSG_ID.
+ * - Set ch->ctxsw_timeout_accumulated_ms to 0.
+ * - Set ch->ctxsw_timeout_gpfifo_get to 0.
+ * - Set ch->ctxsw_timeout_max_ms to \ref nvgpu_get_poll_timeout(g).
+ * - Set ch->ctxsw_timeout_debug_dump to true.
+ * - Set ch->unserviceable to true.
+ * - Set ch->obj_class to 0.
+ * - Set ch->subctx_id to 0.
+ * - Set ch->runqueue_sel to 0.
+ * - Set ch->vpr to false;
+ * - Set ch->mmu_nack_handled to false.
+ *
+ * - Initialize ch->notifier_wq with nvgpu_cond_init().
+ *   In case of error, log a descriptive message using nvgpu_err() and return NULL.
+ * - Initialize ch->semaphore_wq by nvgpu_cond_init().
+ *   In case of error, log a descriptive message using nvgpu_err() and return NULL.
+ * - Call \ref nvgpu_spinlock_acquire(&ch->ref_obtain_lock) to guard access to the following.
+ *   - Set ch->referenceable to true.
+ *   - Set the refcount to one by \ref nvgpu_atomic_set(&ch->ref_count, 1).
+ * - Release the lock by \ref nvgpu_spinlock_release(&ch->ref_obtain_lock).
+ * - Return \a ch.
  */
 struct nvgpu_channel *nvgpu_channel_open_new(struct gk20a *g,
 		u32 runlist_id,
@@ -988,27 +1054,66 @@ struct nvgpu_channel *nvgpu_channel_open_new(struct gk20a *g,
 		pid_t pid, pid_t tid);
 
 /**
- * @brief Setup and bind the channel and add subcontext PDB.
+ * @brief Setup and bind the channel
  *
- * @param ch [in]	Channel pointer.
+ * @param c [in]	Channel pointer.
+ *                      - No validation is performed on pointer validity.
+ *                        See the description for valid states.
  * @param args [in]	Setup bind arguments.
+ *                      - No validation is performed on pointer validity.
+ *                        See the description for valid states.
  *
- * Configures gpfifo and userd for the channel.
- * Configures channel instance block and commits it to H/W.
- * Adds channel to the runlist.
+ * Configure gpfifo and userd for the channel. Configure channel instance block and commit it to
+ * hardware. Add the channel to the runlist.
  *
- * If #NVGPU_CHANNEL_SETUP_BIND_FLAGS_USERMODE_SUPPORT is specified in
- * arguments flags, this function will set up userspace-managed userd and
- * gpfifo for the channel, using buffers (dmabuf fd and offsets)
- * provided in args. A submit token is passed back to be written in the
- * doorbell register in the usermode region to notify the GPU for new
- * work on this channel.
- * Update the instance blocks of all channels to add the subctx pdb.
+ * If \ref NVGPU_CHANNEL_SETUP_BIND_FLAGS_USERMODE_SUPPORT is specified in arguments flags, this
+ * function will set up userspace-managed userd and gpfifo for the channel, using buffers (dmabuf fd
+ * and offsets) provided in args. A submit token is passed back to be written in the doorbell
+ * register in the usermode region to notify the GPU for new work on this channel.
  *
- * @note An address space needs to have been bound to the channel before
- *       calling this function.
+ * @note An address space needs to have been bound to the channel before calling this function.
  *
- * @return 0 in case of success, < 0 in case of failure.
+ * - Initialize g = c->g.
+ * - Call \ref channel_setup_bind_prechecks "channel_setup_bind_prechecks(c, args)". In case of
+ *   error, log a descriptive message with nvgpu_err() return the same error. A failure here means
+ *   that the channel was not in a valid state for the requested operation. See
+ *   channel_setup_bind_prechecks() for details.
+ * - If \ref CONFIG_NVGPU_DETERMINISTIC_CHANNELS is set:
+ *   - If args->flags has the \ref NVGPU_SETUP_BIND_FLAGS_SUPPORT_DETERMINISTIC bit set:
+ *     - Call \ref nvgpu_rwsem_down_read(&g->deterministic_busy).
+ *     - Call gk20a_busy(). In case of error, call \ref nvgpu_rwsem_up_read(&g->deterministic_busy)
+ *       and return the same error.
+ *     - Set c->deterministic to true.
+ *     - Call \ref nvgpu_rwsem_up_read(&g->deterministic_busy).
+ * - If args->flags has the \ref NVGPU_SETUP_BIND_FLAGS_USERMODE_SUPPORT bit set:
+ *   - Call \ref nvgpu_channel_setup_usermode "nvgpu_channel_setup_usermode(c, args)". Store the
+ *     return code.
+ *     - When successful, \ref nvgpu_channel_setup_usermode(c, args) maps usermode gpfifo and
+ *       userd buffers, initializes host state in memory and marks channel active
+ *       by adding to the channel runlist.
+ *     - This function will further call \ref nvgpu_channel_update_runlist(c, true) to
+ *       add channel in the channel runlist in a blocking manner.
+ * - Else:
+ *   - If \ref CONFIG_NVGPU_KERNEL_MODE_SUBMIT is set:
+ *     - If \ref #gk20a.os_channel.open "g->os_channel.open" is not NULL,
+ *       call g->os_channel.open(c).
+ *     - Call \ref channel_setup_kernelmode "channel_setup_kernelmode(c, args)".
+ *       Store the return code.
+ *   - Else:
+ *     - Store -EINVAL for below.
+ * - If the above calls failed:
+ *   - If \ref CONFIG_NVGPU_DETERMINISTIC_CHANNELS is set and nvgpu_channel_is_deterministic()
+ *     returns true:
+ *     - call \ref nvgpu_rwsem_down_read(&g->deterministic_busy).
+ *     - call gk20a_idle();
+ *     - set c->deterministic to false.
+ *     - call \ref nvgpu_rwsem_up_read(&g->deterministic_busy).
+ *     - Return the error code stored above.
+ * - Else:
+ *     - Call \ref gops_channel.bind "g->ops.channel.bind(c)".
+ *     - Return 0.
+ *
+ * @retval 0 success
  * @retval -EINVAL if channel is not bound to an address space.
  * @retval -EINVAL if attempting to use kernel mode submit in a safety build.
  * @retval -EINVAL if num_gpfifo_entries in #args is greater than 2^31.
@@ -1022,18 +1127,22 @@ int nvgpu_channel_setup_bind(struct nvgpu_channel *c,
 /**
  * @brief Add/remove channel to/from runlist.
  *
- * @param ch [in]	Channel pointer (must be non-NULL).
+ * @param c [in]	Channel pointer (must be non-NULL).
+ *                      - No validation is performed on this parameter.
  * @param add [in]	True to add a channel, false to remove it.
+ *                      - No validation is performed on this parameter.
  *
  * When \a add is true, adds \a c to runlist.
  * When \a add is false, removes \a c from runlist.
  *
- * Function waits until H/W is done transitionning to the new runlist.
+ * Block until H/W is done transitioning to the new runlist.
  *
- * @return 0 in case of success, < 0 in case of failure.
+ * This is a wrapper for gops_runlist.update_for_channel
+ *
+ * @retval 0 Success
  * @retval -E2BIG in case there are not enough entries in runlist buffer to
  *         accommodate all active channels/TSGs.
- * @retval -ETIMEDOUT if runlist update timedout.
+ * @retval -ETIMEDOUT runlist update timed out.
  */
 int nvgpu_channel_update_runlist(struct nvgpu_channel *c, bool add);
 
@@ -1041,21 +1150,35 @@ int nvgpu_channel_update_runlist(struct nvgpu_channel *c, bool add);
  * @brief Wait until atomic counter is equal to N.
  *
  * @param ch [in]		Channel pointer (must be non-NULL).
+ *               		- No validation is performed on this parameter.
  * @param counter [in]		The counter to check.
+ *               		- No validation is performed on this parameter.
  * @param wait_value [in]	The target value for the counter.
+ *               		- No validation is performed on this parameter.
  * @param c [in]		The condition variable to sleep on. This
  *				condition variable is typically signaled
  *				by the thread which updates the counter.
+ *               		- No validation is performed on this parameter.
  * @param caller_name [in]	Function name of caller.
+ *               		- No validation is performed on this parameter.
  * @param counter_name [in]	Counter name.
+ *               		- No validation is performed on this parameter.
  *
- * Waits until an atomic counter is equal to N.
- * It is typically used to check the number of references on a channel.
- * While waiting on the counter to reach N, periodic warnings are thrown with
+ * Blocks until an atomic counter is equal to a specified value.
+ * This is typically used to check the number of references on a channel.
+ * While waiting on the counter to reach \a wait_value, periodic warnings are logged with
  * current and expected counter values.
  *
  * @note There is no timeout for this function. It will wait indefinitely
- *       until counter is equal to N.
+ *       until counter is equal to \a wait_value.
+ *
+ * Loop forever doing the following:
+ *   - Use NVGPU_COND_WAIT() on \a c to wait for the following condition for five seconds:
+ *     nvgpu_atomic_read(counter) == wait_value
+ *   - If the wait returns successfully, break out of the loop.
+ *   - Print a descriptive warning with nvgpu_warn() including \a ch->chid, \a counter_name,
+ *     \a nvgpu_atomic_read(counter) and \a wait_value.
+ *   - Call channel_dump_ref_actions() to log debug information if enabled.
  */
 void nvgpu_channel_wait_until_counter_is_N(
 	struct nvgpu_channel *ch, nvgpu_atomic_t *counter, int wait_value,
@@ -1077,7 +1200,7 @@ void nvgpu_channel_free_usermode_buffers(struct nvgpu_channel *c);
  */
 static inline u32 nvgpu_get_gpfifo_entry_size(void)
 {
-	return sizeof(struct nvgpu_gpfifo_entry);
+	return nvgpu_safe_cast_u64_to_u32(sizeof(struct nvgpu_gpfifo_entry));
 }
 
 #ifdef CONFIG_DEBUG_FS
@@ -1131,7 +1254,8 @@ void nvgpu_channel_wakeup_wqs(struct gk20a *g, struct nvgpu_channel *ch);
  */
 static inline u64 nvgpu_channel_userd_addr(struct nvgpu_channel *ch)
 {
-	return nvgpu_mem_get_addr(ch->g, ch->userd_mem) + ch->userd_offset;
+	return nvgpu_safe_add_u64(nvgpu_mem_get_addr(ch->g, ch->userd_mem),
+				  ch->userd_offset);
 }
 
 /**
@@ -1145,7 +1269,8 @@ static inline u64 nvgpu_channel_userd_addr(struct nvgpu_channel *ch)
 static inline u64 nvgpu_channel_userd_gpu_va(struct nvgpu_channel *c)
 {
 	struct nvgpu_mem *mem = c->userd_mem;
-	return (mem->gpu_va != 0ULL) ? mem->gpu_va + c->userd_offset : 0ULL;
+	return (mem->gpu_va != 0ULL) ?
+		nvgpu_safe_add_u64(mem->gpu_va, c->userd_offset) : 0ULL;
 }
 #endif
 
@@ -1251,9 +1376,19 @@ static inline void nvgpu_channel_set_wdt_debug_dump(struct nvgpu_channel *ch,
 #endif
 
 /**
- * @brief Get maximum sub context count.
+ * @brief Get the maximum number of subcontexts for a channel.
  *
- * @param ch [in]	Channel pointer.
+ * This function retrieves the maximum number of subcontexts that can be created
+ * for a channel based on the GPU instance. The steps are as follows:
+ * -# Retrieve the GPU structure from the channel structure.
+ * -# Retrieve the channel RMOS-specific data from the channel structure.
+ * -# Call nvgpu_grmgr_get_gpu_instance_max_veid_count() to get the maximum
+ *    number of VEID (subcontext IDs) supported by the GPU instance.
+ * -# Return the maximum number of VEID as the maximum number of subcontexts.
+ *
+ * @param [in]  ch  Pointer to the channel structure.
+ *
+ * @return The maximum number of subcontexts supported by the GPU instance.
  */
 u32 nvgpu_channel_get_max_subctx_count(struct nvgpu_channel *ch);
 

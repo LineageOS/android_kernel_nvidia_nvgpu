@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_BUS_H
 #define NVGPU_GOPS_BUS_H
@@ -27,7 +9,33 @@
 /**
  * @file
  *
- * common.bus interface.
+ * bus interface.
+ * @page bus bus
+ *
+ * Overview
+ * ========
+ * The |nvgpu-rm| bus unit provides lot of utilities for s/w control of h/w.
+ * The |nvgpu-rm| bus unit provides interfaces to enable and handle
+ * interrupts for priv errors. Following host h/w errors are reported to upper
+ * layer:
+ * - GPU_HOST_PBUS_SQUASH_ERROR indicates priv transaction is killed since
+ *  the target is in reset.
+ * - GPU_HOST_PBUS_FECS_ERROR indicates fecs hit with a priv error.
+ * - GPU_HOST_PBUS_TIMEOUT_ERROR indicates priv target failed to respond or
+ *  any other priv timeout error.
+ * The |nvgpu-rm| bus unit also provide interfaces for bar1 and bar2
+ * binding, which are required for data sharing between h/w and s/w like
+ * mmu fault buffers.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + gops_bus.init_hw
+ *   + gops_bus.isr
+ *   + gops_bus.bar2_bind
+ *   + gops_bus.bar1_bind
  */
 struct gk20a;
 

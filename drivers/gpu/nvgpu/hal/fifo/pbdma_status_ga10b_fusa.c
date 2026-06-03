@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/gk20a.h>
@@ -27,6 +8,24 @@
 
 #include "pbdma_status_ga10b.h"
 #include <nvgpu/hw/ga10b/hw_pbdma_ga10b.h>
+
+u32 ga10b_pbdma_status_sched_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_status_sched_r(pbdma_id);
+}
+
+u32 ga10b_pbdma_channel_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_channel_r(pbdma_id);
+}
+
+u32 ga10b_pbdma_next_channel_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_next_channel_r(pbdma_id);
+}
 
 static void populate_invalid_chsw_status_info(
 		struct nvgpu_pbdma_status_info *status_info)
@@ -91,10 +90,16 @@ void ga10b_read_pbdma_status_info(struct gk20a *g, u32 pbdma_id,
 {
 	u32 pbdma_reg_status;
 	u32 pbdma_channel_status;
+	u32 pbdma_ch;
+	u32 pbdma_next_ch;
+	u32 pbdma_status_sched_reg_addr;
+	u32 pbdma_channel_reg_addr;
+	u32 pbdma_next_channel_reg_addr;
 
 	(void) memset(status, 0, sizeof(*status));
 
-	pbdma_reg_status = nvgpu_readl(g, pbdma_status_sched_r(pbdma_id));
+	pbdma_status_sched_reg_addr = g->ops.pbdma_status.pbdma_status_sched_reg_addr(g, pbdma_id);
+	pbdma_reg_status = nvgpu_readl(g, pbdma_status_sched_reg_addr);
 
 	status->pbdma_reg_status = pbdma_reg_status;
 
@@ -117,5 +122,21 @@ void ga10b_read_pbdma_status_info(struct gk20a *g, u32 pbdma_id,
 		populate_switch_chsw_status_info(status);
 	} else {
 		populate_invalid_chsw_status_info(status);
+	}
+
+	pbdma_channel_reg_addr = g->ops.pbdma_status.pbdma_channel_reg_addr(g, pbdma_id);
+	pbdma_next_channel_reg_addr = g->ops.pbdma_status.pbdma_next_channel_reg_addr(g, pbdma_id);
+	pbdma_ch = nvgpu_readl(g, pbdma_channel_reg_addr);
+	pbdma_next_ch = nvgpu_readl(g, pbdma_next_channel_reg_addr);
+
+	if (status->id != PBDMA_STATUS_ID_INVALID) {
+		status->gfid = pbdma_channel_gfid_v(pbdma_ch);
+	} else {
+		status->gfid = PBDMA_STATUS_ID_INVALID;
+	}
+	if (status->next_id != PBDMA_STATUS_NEXT_ID_INVALID) {
+		status->next_gfid = pbdma_next_channel_gfid_v(pbdma_next_ch);
+	} else {
+		status->next_gfid = PBDMA_STATUS_NEXT_ID_INVALID;
 	}
 }

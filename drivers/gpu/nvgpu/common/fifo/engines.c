@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 
 #include <nvgpu/log.h>
@@ -45,6 +26,7 @@
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/swprofile.h>
 #include <nvgpu/multimedia.h>
+#include <nvgpu/gr/gr_instances.h>
 
 #include <nvgpu/fifo/swprofile.h>
 
@@ -65,6 +47,12 @@ enum nvgpu_fifo_engine nvgpu_engine_enum_from_dev(struct gk20a *g,
 		ret = NVGPU_ENGINE_ASYNC_CE;
 	} else if (nvgpu_device_is_nvenc(g, dev)) {
 		ret = NVGPU_ENGINE_NVENC;
+	} else if (nvgpu_device_is_ofa(g, dev)) {
+		ret = NVGPU_ENGINE_OFA;
+	} else if (nvgpu_device_is_nvdec(g, dev)) {
+		ret = NVGPU_ENGINE_NVDEC;
+	} else if (nvgpu_device_is_nvjpg(g, dev)) {
+		ret = NVGPU_ENGINE_NVJPG;
 	} else {
 		ret = NVGPU_ENGINE_INVAL;
 	}
@@ -446,7 +434,7 @@ void nvgpu_engine_cleanup_sw(struct gk20a *g)
 }
 
 #ifdef CONFIG_NVGPU_ENGINE_RESET
-static void nvgpu_engine_gr_reset(struct gk20a *g)
+static void nvgpu_engine_gr_reset(struct gk20a *g, const struct nvgpu_device *dev)
 {
 	struct nvgpu_swprofiler *prof = &g->fifo.eng_reset_profiler;
 	int err = 0;
@@ -486,6 +474,10 @@ static void nvgpu_engine_gr_reset(struct gk20a *g)
 
 	nvgpu_swprofile_snapshot(prof, PROF_ENG_RESET_HALT_PIPELINE);
 
+	if (g->ops.fifo.wait_for_preempt_before_reset != NULL) {
+		g->ops.fifo.wait_for_preempt_before_reset(g, dev->runlist_id);
+	}
+
 	/*
 	 * resetting only engine is not
 	 * enough, we do full init sequence
@@ -524,36 +516,48 @@ void nvgpu_engine_reset(struct gk20a *g, u32 engine_id)
 
 	if (!nvgpu_device_is_ce(g, dev) &&
 	    !nvgpu_device_is_graphics(g, dev) &&
-	    !nvgpu_device_is_nvenc(g, dev)) {
+	    !nvgpu_device_is_nvenc(g, dev) &&
+	    !nvgpu_device_is_ofa(g, dev) &&
+	    !nvgpu_device_is_nvdec(g, dev) &&
+	    !nvgpu_device_is_nvjpg(g, dev)) {
 		nvgpu_warn(g, "Ignoring reset for non-host engine.");
 		return;
 	}
 
 	if (nvgpu_device_is_ce(g, dev)) {
-		/*
-		 * Simple case first: reset a copy engine.
-		 */
-		if (g->ops.ce.halt_engine != NULL) {
-			g->ops.ce.halt_engine(g, dev);
-		}
-		err = nvgpu_mc_reset_dev(g, dev);
-		if (g->ops.ce.request_idle != NULL) {
-			/*
-			 * Read CE register for CE to switch
-			 * from reset to idle state.
-			 */
-			g->ops.ce.request_idle(g);
-		}
+		/* Reset copy engine. */
+		err = g->ops.ce.reset(g, dev);
 		if (err != 0) {
 			nvgpu_log_info(g, "CE engine [id:%u] reset failed",
 				dev->engine_id);
 		}
 	} else if (nvgpu_device_is_nvenc(g, dev)) {
-		/* Reset nvenc engine. */
-		err = g->ops.nvenc.reset(g);
+		/* Reset and boot nvenc engine. */
+		err = g->ops.nvenc.reset_and_boot(g, dev);
 		if (err != 0) {
-			nvgpu_log(g, gpu_dbg_info, "NVENC engine [id:%u] reset failed",
-				dev->engine_id);
+			nvgpu_log(g, gpu_dbg_info, "NVENC%d engine [id:%u] reset failed",
+				dev->inst_id, dev->engine_id);
+		}
+	} else if (nvgpu_device_is_ofa(g, dev)) {
+		/* Reset and boot ofa engine. */
+		err = g->ops.ofa.reset_and_boot(g, dev);
+		if (err != 0) {
+			nvgpu_log(g, gpu_dbg_info, "OFA%d engine [id:%u] reset failed",
+				dev->inst_id, dev->engine_id);
+		}
+	} else if (nvgpu_device_is_nvdec(g, dev)) {
+		/* Reset and boot nvdec engine. */
+		err = g->ops.nvdec.reset_and_boot(g, dev);
+		if (err != 0) {
+			nvgpu_log(g, gpu_dbg_info, "NVDEC%d engine [id:%u] reset failed",
+				dev->inst_id, dev->engine_id);
+		}
+	} else if (nvgpu_device_is_nvjpg(g, dev)) {
+		/* Reset and boot nvjpg engine. */
+		err = g->ops.nvjpg.reset_and_boot(g, dev);
+		if (err != 0) {
+			nvgpu_log(g, gpu_dbg_info, "NVJPG%d engine [id:%u] reset failed",
+				dev->inst_id, dev->engine_id);
 		}
 	} else {
 		/*
@@ -564,53 +568,38 @@ void nvgpu_engine_reset(struct gk20a *g, u32 engine_id)
 				g, dev->inst_id);
 
 		nvgpu_gr_exec_for_instance(g,
-			gr_instance_id, nvgpu_engine_gr_reset(g));
+			gr_instance_id, nvgpu_engine_gr_reset(g, dev));
 	}
 }
 #endif
 
-u32 nvgpu_engine_get_fast_ce_runlist_id(struct gk20a *g)
+int nvgpu_engine_get_fast_ce_runlist_id(struct gk20a *g, u32 gpu_instance_id, u32 *ce_runlist_id)
 {
-	const struct nvgpu_device *dev;
-	u32 nr_lces;
 	u32 i;
+	struct nvgpu_gpu_instance *gpu_instance;
+	const struct nvgpu_device *lce_dev;
 
-	/*
-	 * Obtain a runlist ID for the fastest available CE. The priority order
-	 * is:
-	 *
-	 *   1. Last available LCE
-	 *   2. Last available COPY[0-2]
-	 *   3. GRAPHICS runlist as a last resort.
-	 */
-	nr_lces = nvgpu_device_count(g, NVGPU_DEVTYPE_LCE);
-	if (nr_lces > 0U) {
-		dev = nvgpu_device_get(g,
-				       NVGPU_DEVTYPE_LCE,
-				       nr_lces - 1U);
-		nvgpu_assert(dev != NULL);
+	gpu_instance = &g->mig.gpu_instance[gpu_instance_id];
 
-		return dev->runlist_id;
+	if (gpu_instance->num_lce > 0) {
+		/*
+		 * Perform a reverse search to find the last Async LCE device since userspace is biased towards
+		 * using first available CE.
+		 */
+		i = gpu_instance->num_lce;
+		do {
+			--i;
+			lce_dev = gpu_instance->lce_devs[i];
+			if (nvgpu_engine_enum_from_dev(g, lce_dev) == NVGPU_ENGINE_ASYNC_CE) {
+				*ce_runlist_id = lce_dev->runlist_id;
+				return 0;
+			}
+		} while (i != 0);
 	}
 
-	/*
-	 * Note: this only works since NVGPU_DEVTYPE_GRAPHICS is 0 and the COPYx
-	 * are all > 0.
-	 */
-	for (i = NVGPU_DEVTYPE_COPY2; i >= NVGPU_DEVTYPE_COPY0; i--) {
-		dev = nvgpu_device_get(g, i, i - NVGPU_DEVTYPE_COPY0);
-		if (dev != NULL) {
-			return dev->runlist_id;
-		}
-	}
+	nvgpu_err(g, "Failed to find an Async LCE for GPU instance %u", gpu_instance_id);
 
-	/*
-	 * Fall back to GR.
-	 */
-	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_GRAPHICS, 0);
-	nvgpu_assert(dev != NULL);
-
-	return dev->runlist_id;
+	return -ENOENT;
 }
 
 u32 nvgpu_engine_get_gr_runlist_id(struct gk20a *g)
@@ -626,11 +615,11 @@ u32 nvgpu_engine_get_gr_runlist_id(struct gk20a *g)
 	return dev->runlist_id;
 }
 
-u32 nvgpu_engine_get_nvenc_runlist_id(struct gk20a *g)
+u32 nvgpu_engine_get_nvenc_runlist_id(struct gk20a *g, u32 inst_id)
 {
 	const struct nvgpu_device *dev;
 
-	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVENC, 0);
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVENC, inst_id);
 	if (dev == NULL) {
 		return NVGPU_INVALID_RUNLIST_ID;
 	}
@@ -638,11 +627,11 @@ u32 nvgpu_engine_get_nvenc_runlist_id(struct gk20a *g)
 	return dev->runlist_id;
 }
 
-u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g)
+u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g, u32 inst_id)
 {
 	const struct nvgpu_device *dev;
 
-	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_OFA, 0);
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_OFA, inst_id);
 	if (dev == NULL) {
 		return NVGPU_INVALID_RUNLIST_ID;
 	}
@@ -650,11 +639,11 @@ u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g)
 	return dev->runlist_id;
 }
 
-u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g)
+u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g, u32 inst_id)
 {
 	const struct nvgpu_device *dev;
 
-	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVDEC, 0);
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVDEC, inst_id);
 	if (dev == NULL) {
 		return NVGPU_INVALID_RUNLIST_ID;
 	}
@@ -662,11 +651,11 @@ u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g)
 	return dev->runlist_id;
 }
 
-u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g)
+u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g, u32 inst_id)
 {
 	const struct nvgpu_device *dev;
 
-	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVJPG, 0);
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_NVJPG, inst_id);
 	if (dev == NULL) {
 		return NVGPU_INVALID_RUNLIST_ID;
 	}
@@ -692,21 +681,34 @@ bool nvgpu_engine_is_valid_runlist_id(struct gk20a *g, u32 runlist_id)
 
 bool nvgpu_engine_is_multimedia_runlist_id(struct gk20a *g, u32 runlist_id)
 {
-	u32 dev_type, instance;
-	s32 mm_engine;
+	u32 mm_engine;
 	const struct nvgpu_device *dev;
 
 	for (mm_engine = NVGPU_MULTIMEDIA_ENGINE_NVENC; mm_engine < NVGPU_MULTIMEDIA_ENGINE_MAX;
 		mm_engine++) {
-		if (nvgpu_multimedia_get_devtype(mm_engine, &dev_type, &instance)) {
-			dev = nvgpu_device_get(g, dev_type, instance);
-			if ((dev != NULL) && (dev->runlist_id == runlist_id)) {
-				return true;
-			}
+		dev = nvgpu_multimedia_get_dev(g, mm_engine);
+		if ((dev != NULL) && (dev->runlist_id == runlist_id)) {
+			return true;
 		}
 	}
 
 	return false;
+}
+
+u32 nvgpu_engine_multimedia_id_from_runlist(struct gk20a *g, u32 runlist_id)
+{
+	u32 mm_engine;
+	const struct nvgpu_device *dev;
+
+	for (mm_engine = NVGPU_MULTIMEDIA_ENGINE_NVENC; mm_engine < NVGPU_MULTIMEDIA_ENGINE_MAX;
+		mm_engine++) {
+		dev = nvgpu_multimedia_get_dev(g, mm_engine);
+		if ((dev != NULL) && (dev->runlist_id == runlist_id)) {
+			return mm_engine;
+		}
+	}
+
+	return NVGPU_MULTIMEDIA_ENGINE_MAX;
 }
 
 /*
@@ -728,6 +730,7 @@ u32 nvgpu_engine_id_to_mmu_fault_id(struct gk20a *g, u32 engine_id)
 	return dev->fault_id;
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 u32 nvgpu_engine_mmu_fault_id_to_engine_id(struct gk20a *g, u32 fault_id)
 {
 	u32 i;
@@ -830,8 +833,34 @@ int nvgpu_engine_init_one_dev_extra(struct gk20a *g,
 	return 0;
 }
 
+/**
+ * @brief Initializes a single engine device.
+ *
+ * This function populates the PBDMA information for a given device and updates
+ * the FIFO's host and active engine lists with the device. It handles additional
+ * initialization for Ampere and newer devices.
+ *
+ * The steps performed by the function are as follows:
+ * -# Cast the constant device pointer to a mutable one for internal updates.
+ * -# If the function pointer 'find_pbdma_for_runlist' is not NULL, call it to
+ *    populate the PBDMA ID for the device based on its runlist ID.
+ *    -# If the PBDMA ID is not found, log an error and return with error code
+ *       -#EINVAL.
+ * -# Call 'nvgpu_engine_init_one_dev_extra()' to handle additional initialization
+ *    for Ampere and newer devices. If an error occurs, return that error.
+ * -# Add the device to the FIFO's host engine list at the index specified by the
+ *    device's engine ID.
+ * -# Add the device to the next available slot in the FIFO's active engine list.
+ * -# Increment the FIFO's engine count.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in] f    Pointer to the GPU FIFO struct containing engine information.
+ * @param [in] dev  Pointer to the device to initialize.
+ *
+ * @return Zero on success, or a negative error code on failure.
+ */
 static int nvgpu_engine_init_one_dev(struct nvgpu_fifo *f,
-				     const struct nvgpu_device *dev)
+			const struct nvgpu_device *dev)
 {
 	bool found;
 	struct nvgpu_device *dev_rw;
@@ -869,7 +898,7 @@ static int nvgpu_engine_init_one_dev(struct nvgpu_fifo *f,
 
 	f->host_engines[dev->engine_id] = dev;
 	f->active_engines[f->num_engines] = dev;
-	++f->num_engines;
+	f->num_engines = nvgpu_safe_add_u32(f->num_engines, 1U);
 
 	return 0;
 }
@@ -928,8 +957,7 @@ int nvgpu_engine_init_info(struct nvgpu_fifo *f)
 	int err;
 	struct gk20a *g = f->g;
 	const struct nvgpu_device *dev;
-	u32 dev_type, instance;
-	s32 mm_engine;
+	u32 mm_engine;
 
 	f->num_engines = 0;
 
@@ -946,13 +974,11 @@ int nvgpu_engine_init_info(struct nvgpu_fifo *f)
 
 	for (mm_engine = NVGPU_MULTIMEDIA_ENGINE_NVENC; mm_engine < NVGPU_MULTIMEDIA_ENGINE_MAX;
 		mm_engine++) {
-		if (nvgpu_multimedia_get_devtype(mm_engine, &dev_type, &instance)) {
-			dev = nvgpu_device_get(g, dev_type, instance);
-			if (dev != NULL) {
-				err = nvgpu_engine_init_one_dev(f, dev);
-				if (err != 0) {
-					return err;
-				}
+		dev = nvgpu_multimedia_get_dev(g, mm_engine);
+		if (dev != NULL) {
+			err = nvgpu_engine_init_one_dev(f, dev);
+			if (err != 0) {
+				return err;
 			}
 		}
 	}
@@ -980,6 +1006,7 @@ void nvgpu_engine_get_id_and_type(struct gk20a *g, u32 engine_id,
 	}
 }
 
+#ifdef CONFIG_NVGPU_NON_FUSA
 u32 nvgpu_engine_find_busy_doing_ctxsw(struct gk20a *g,
 			u32 *id_ptr, bool *is_tsg_ptr)
 {
@@ -1034,6 +1061,7 @@ u32 nvgpu_engine_find_busy_doing_ctxsw(struct gk20a *g,
 
 	return dev->engine_id;
 }
+#endif
 
 u32 nvgpu_engine_get_runlist_busy_engines(struct gk20a *g, u32 runlist_id)
 {
@@ -1063,6 +1091,16 @@ bool nvgpu_engine_should_defer_reset(struct gk20a *g, u32 engine_id,
 
 	dev = nvgpu_engine_get_active_eng_info(g, engine_id);
 	if (dev == NULL) {
+		return false;
+	}
+
+	/*
+	 * Deferred reset is not currently supported in virtualization, so check for
+	 * NULL HALs in case this is called on the VF. If they are not defined, just
+	 * assume no deferred reset.
+	 */
+	if (g->ops.gr.sm_debugger_attached == NULL ||
+	    g->ops.fb.is_debug_mode_enabled == NULL) {
 		return false;
 	}
 
@@ -1106,11 +1144,41 @@ u32 nvgpu_engine_mmu_fault_id_to_veid(struct gk20a *g, u32 mmu_fault_id,
 	return veid;
 }
 
+/**
+ * @brief Maps an MMU fault ID to the corresponding engine ID and VEID.
+ *
+ * This function iterates over the list of active engines to find a match for the
+ * given MMU fault ID. If the engine type is graphics, it attempts to calculate
+ * the VEID. If a match is found or if the engine type is not graphics, it returns
+ * the corresponding engine ID. The VEID is set to #INVAL_ID if not applicable.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the engine ID to #INVAL_ID to indicate an invalid or not found state.
+ * -# Iterate over the list of active engines.
+ *    -# If the engine type is graphics, call 'nvgpu_engine_mmu_fault_id_to_veid()'
+ *       to get the VEID for the given MMU fault ID and the engine's fault ID.
+ *    -# If a valid VEID is returned, set the engine ID to the current engine's ID
+ *       and break out of the loop.
+ *    -# If the engine type is not graphics and the engine's fault ID matches the
+ *       given MMU fault ID, set the engine ID to the current engine's ID, set the
+ *       VEID to #INVAL_ID, and break out of the loop.
+ * -# Return the found engine ID or #INVAL_ID if no match was found.
+ *
+ * @param [in]  g             Pointer to the GPU driver struct.
+ * @param [in]  mmu_fault_id  MMU fault ID to map to an engine ID.
+ * @param [out] veid          Pointer to store the VEID.
+ *
+ * @return The engine ID corresponding to the given MMU fault ID, or #INVAL_ID if
+ *         no match is found.
+ */
 static u32 nvgpu_engine_mmu_fault_id_to_eng_id_and_veid(struct gk20a *g,
 			 u32 mmu_fault_id, u32 *veid)
 {
 	u32 i;
 	u32 engine_id = INVAL_ID;
+	u32 veid_end = 0U;
+	struct nvgpu_gpu_instance *gpu_instance = NULL;
+	struct nvgpu_gr_syspipe *gr_syspipe = NULL;
 	const struct nvgpu_device *dev;
 	struct nvgpu_fifo *f = &g->fifo;
 
@@ -1121,8 +1189,21 @@ static u32 nvgpu_engine_mmu_fault_id_to_eng_id_and_veid(struct gk20a *g,
 			*veid = nvgpu_engine_mmu_fault_id_to_veid(g,
 					mmu_fault_id, dev->fault_id);
 			if (*veid != INVAL_ID) {
-				engine_id = dev->engine_id;
-				break;
+				if (nvgpu_grmgr_is_multi_gr_enabled(g) ) {
+					gpu_instance = &g->mig.gpu_instance[dev->inst_id + 1];
+					gr_syspipe = &gpu_instance->gr_syspipe;
+					veid_end = gr_syspipe->veid_start_offset +
+							gr_syspipe->max_veid_count_per_tsg;
+					if ((dev == gr_syspipe->gr_dev) &&
+							(*veid >= gr_syspipe->veid_start_offset) &&
+							(*veid < veid_end)) {
+						engine_id = dev->engine_id;
+						break;
+					}
+				} else {
+					engine_id = dev->engine_id;
+					break;
+				}
 			}
 		} else {
 			if (dev->fault_id == mmu_fault_id) {
@@ -1147,4 +1228,63 @@ void nvgpu_engine_mmu_fault_id_to_eng_ve_pbdma_id(struct gk20a *g,
 	} else {
 		*pbdma_id = INVAL_ID;
 	}
+}
+
+static int nvgpu_halt_ctxsw(struct gk20a *g)
+{
+	int err;
+
+	err = g->ops.gr.falcon.ctrl_ctxsw(g,
+			NVGPU_GR_FALCON_METHOD_HALT_PIPELINE, 0U, NULL);
+	if (err != 0) {
+		nvgpu_err(g, "failed to halt gr pipe");
+	}
+
+	return err;
+}
+
+int nvgpu_halt_engines(struct gk20a *g)
+{
+	struct nvgpu_fifo *f = &g->fifo;
+	const struct nvgpu_device *dev;
+	int err = 0;
+	u32 i;
+
+	err = nvgpu_gr_exec_with_ret_for_each_instance(g,
+			nvgpu_halt_ctxsw(g));
+	if (err != 0) {
+		nvgpu_err(g, "failed to halt ctxsw engines %d", err);
+		return err;
+	}
+
+	for (i = 0U; i < f->max_engines; i++) {
+		dev = nvgpu_engine_get_active_eng_info(g, i);
+		if (dev == NULL) {
+			nvgpu_log_info(g, "unsupported engine_id %d", i);
+			continue;
+		}
+
+		if (nvgpu_device_is_ce(g, dev)) {
+			if (g->ops.ce.halt_engine != NULL) {
+				g->ops.ce.halt_engine(g, dev);
+			}
+		}
+
+		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MULTIMEDIA)) {
+			if (nvgpu_device_is_nvenc(g, dev)) {
+				g->ops.nvenc.halt_engine(g, dev->inst_id);
+			}
+			if (nvgpu_device_is_nvdec(g, dev)) {
+				g->ops.nvdec.halt_engine(g, dev->inst_id);
+			}
+			if (nvgpu_device_is_nvjpg(g, dev)) {
+				g->ops.nvjpg.halt_engine(g, dev->inst_id);
+			}
+			if (nvgpu_device_is_ofa(g, dev)) {
+				g->ops.ofa.halt_engine(g, dev->inst_id);
+			}
+		}
+	}
+
+	return err;
 }

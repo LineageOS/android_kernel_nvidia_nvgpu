@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/nvgpu_init.h>
+#include <nvgpu/tsg.h>
 
-#include <linux/of_address.h>
 #include <linux/pci.h>
+#include <linux/pm_runtime.h>
 
 #include "os/linux/module.h"
 #include "os/linux/os_linux.h"
@@ -14,10 +15,11 @@
 
 static irqreturn_t vf_isr(int irq, void *dev_id)
 {
-	struct gk20a *g = dev_id;
-	u32 ret_nonstall = nvgpu_cic_mon_intr_nonstall_isr(g);
+	struct nvgpu_msi_cookie *cookie = dev_id;
+	struct gk20a *g = cookie->g;
+	u32 ret = nvgpu_cic_mon_intr_msi_isr(g, cookie->id);
 
-	if (ret_nonstall == NVGPU_CIC_INTR_HANDLE) {
+	if (ret == NVGPU_CIC_INTR_HANDLE) {
 		return IRQ_WAKE_THREAD;
 	}
 
@@ -26,9 +28,11 @@ static irqreturn_t vf_isr(int irq, void *dev_id)
 
 static irqreturn_t vf_intr_thread(int irq, void *dev_id)
 {
-	struct gk20a *g = dev_id;
+	struct nvgpu_msi_cookie *cookie = dev_id;
+	struct gk20a *g = cookie->g;
 
-	nvgpu_cic_mon_intr_nonstall_handle(g);
+	nvgpu_cic_mon_intr_msi_handle(g, cookie->id);
+
 	return IRQ_HANDLED;
 }
 
@@ -67,12 +71,28 @@ static int vf_pci_init_support(struct pci_dev *pdev)
 	return 0;
 }
 
+static void vf_init_timeslice(struct gk20a *g)
+{
+	g->runlist_interleave = true;
+
+	g->tsg_timeslice_low_priority_us =
+			NVGPU_TSG_TIMESLICE_LOW_PRIORITY_US;
+	g->tsg_timeslice_medium_priority_us =
+			NVGPU_TSG_TIMESLICE_MEDIUM_PRIORITY_US;
+	g->tsg_timeslice_high_priority_us =
+			NVGPU_TSG_TIMESLICE_HIGH_PRIORITY_US;
+
+	g->tsg_timeslice_min_us = NVGPU_TSG_TIMESLICE_MIN_US;
+	g->tsg_timeslice_max_us = NVGPU_TSG_TIMESLICE_MAX_US;
+	g->tsg_dbg_timeslice_max_us = NVGPU_TSG_DBG_TIMESLICE_MAX_US_DEFAULT;
+}
+
 int vf_probe(struct pci_dev *pdev, struct gk20a_platform *platform)
 {
 	struct nvgpu_os_linux *l;
 	struct gk20a *g;
-	struct device_node *np;
 	int err;
+	u32 i = 0U;
 
 	l = devm_kzalloc(&pdev->dev, sizeof(*l), GFP_KERNEL);
 	if (l == NULL) {
@@ -88,12 +108,6 @@ int vf_probe(struct pci_dev *pdev, struct gk20a_platform *platform)
 	g->is_pci_igpu = platform->is_pci_igpu;
 
 	pci_set_drvdata(pdev, platform);
-
-	np = nvgpu_get_node(g);
-	if (of_dma_is_coherent(np)) {
-		nvgpu_set_enabled(g, NVGPU_USE_COHERENT_SYSMEM, true);
-		nvgpu_set_enabled(g, NVGPU_SUPPORT_IO_COHERENCE, true);
-	}
 
 	err = pci_enable_device(pdev);
 	if (err) {
@@ -115,37 +129,48 @@ int vf_probe(struct pci_dev *pdev, struct gk20a_platform *platform)
 			"MSI-X alloc failed, err=%d", err);
 		return err;
 	}
-	/* TODO: separate stall/non-stall interrupts once support multi-vector */
-	l->interrupts.nonstall_size = err;
+
+	l->interrupts.msi_size = nvgpu_safe_cast_s32_to_u32(err);
 	g->msi_enabled = true;
 
-	/* TODO: support multiple nonstall irqs */
-	l->interrupts.nonstall_line = pci_irq_vector(pdev, 0);
+	for (i = 0U; i < l->interrupts.msi_size; i++) {
+		l->interrupts.msi_lines[i] =
+			nvgpu_safe_cast_s32_to_u32(pci_irq_vector(pdev, i));
+		l->interrupts.msi_cookies[i].g = g;
+		l->interrupts.msi_cookies[i].id = i;
 
-	err = devm_request_threaded_irq(&pdev->dev,
-			l->interrupts.nonstall_line,
-			vf_isr,
-			vf_intr_thread,
-			0, "nvgpu", g);
-	if (err) {
-		nvgpu_err(g,
-			"failed to request irq @ %d err=%d",
-			l->interrupts.nonstall_line, err);
-		return err;
+		err = devm_request_threaded_irq(&pdev->dev,
+				l->interrupts.msi_lines[i],
+				vf_isr,
+				vf_intr_thread,
+				0, "nvgpu", &l->interrupts.msi_cookies[i]);
+		if (err) {
+			nvgpu_err(g,
+					"failed to request irq @ %d err=%d",
+					l->interrupts.msi_lines[i], err);
+			return err;
+		}
 	}
+
 	nvgpu_disable_irqs(g);
 
 	err = vf_pci_init_support(pdev);
 	if (err)
 		return err;
 
+	vf_init_timeslice(g);
 	err = vgpu_probe_common(l);
 	if (err) {
 		nvgpu_err(g, "common probe failed, err=%d", err);
 		return err;
 	}
 
+	nvgpu_set_enabled(g, NVGPU_IS_VIRTUAL_FUNCTION, true);
+	pm_runtime_disable(&pdev->dev);
+
 	g->probe_done = true;
+
+	gk20a_busy(g);
 
 	return 0;
 }

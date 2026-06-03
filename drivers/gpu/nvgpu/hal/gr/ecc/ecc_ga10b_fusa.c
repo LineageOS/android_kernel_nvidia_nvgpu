@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/gk20a.h>
@@ -154,12 +135,12 @@ void ga10b_ecc_detect_enabled_units(struct gk20a *g)
 		ga10b_ecc_enable_sm_cbu(g, &ecc_feature, opt_ecc_en);
 		/*
 		 * Further feature override checking tracked by
-		 * https://jirasw.nvidia.com/browse/NVGPU-5284
+		 * https:jirasw.nvidia.com/browse/NVGPU-5284
 		 */
 	}
 }
 
-static int _ga10b_gr_gpc_tpc_ecc_init(struct gk20a *g)
+static int ga10b_gr_gpc_tpc_ecc_init_sm_rams(struct gk20a *g)
 {
 	NVGPU_ECC_COUNTER_INIT_PER_TPC_OR_RETURN(sm_rams_ecc_corrected_err_count);
 	NVGPU_ECC_COUNTER_INIT_PER_TPC_OR_RETURN(sm_rams_ecc_uncorrected_err_count);
@@ -176,7 +157,7 @@ int ga10b_gr_gpc_tpc_ecc_init(struct gk20a *g)
 		goto done;
 	}
 
-	err = _ga10b_gr_gpc_tpc_ecc_init(g);
+	err = ga10b_gr_gpc_tpc_ecc_init_sm_rams(g);
 	if (err != 0) {
 		goto done;
 	}
@@ -187,7 +168,7 @@ done:
 		ga10b_gr_gpc_tpc_ecc_deinit(g);
 	}
 
-	return 0;
+	return err;
 }
 
 void ga10b_gr_gpc_tpc_ecc_deinit(struct gk20a *g)

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_GIN_H
 #define NVGPU_GOPS_GIN_H
@@ -37,8 +19,33 @@ struct gk20a;
  * @see gpu_ops.
  */
 struct gops_gin {
+	void (*init)(struct gk20a *g);
+
 	u32 (*get_intr_ctrl_msg)(struct gk20a *g, u32 vector,
 		bool cpu_enable, bool gsp_enable);
+
+	u32 (*get_vector_from_intr_ctrl_msg)(struct gk20a *g, u32 intr_ctrl_msg);
+
+	u64 (*read_intr_top)(struct gk20a *g, u64 intr_top_mask);
+
+	void (*write_intr_top_en_set)(struct gk20a *g, u64 val);
+
+	void (*write_intr_top_en_clear)(struct gk20a *g, u64 val);
+
+	u64 (*subtree_leaf_status)(struct gk20a *g, u32 subtree);
+
+	void (*subtree_leaf_clear)(struct gk20a *g, u32 subtree, u64 leaf);
+
+	void (*subtree_leaf_enable)(struct gk20a *g, u32 subtree, u64 leaf);
+
+	void (*subtree_leaf_disable)(struct gk20a *g, u32 subtree, u64 leaf);
+
+	u32 (*get_num_vectors)(struct gk20a *g);
+
+	bool (*is_mmu_fault_pending)(struct gk20a *g);
+
+	bool (*is_stall_and_eng_intr_pending)(struct gk20a *g,
+			u32 engine_id, u32 *eng_intr_pending);
 };
 
 #endif

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_UTILS_H
@@ -86,6 +68,7 @@ struct nvgpu_gr_falcon *nvgpu_gr_get_falcon_ptr(struct gk20a *g);
  */
 struct nvgpu_gr_config *nvgpu_gr_get_config_ptr(struct gk20a *g);
 
+#if defined(CONFIG_NVGPU_NON_FUSA) || defined(CONFIG_NVGPU_MIG)
 /**
  * @brief Get GR configuration struct pointer.
  *
@@ -98,6 +81,7 @@ struct nvgpu_gr_config *nvgpu_gr_get_config_ptr(struct gk20a *g);
  */
 struct nvgpu_gr_config *nvgpu_gr_get_gr_instance_config_ptr(struct gk20a *g,
 		u32 gr_instance_id);
+#endif
 
 /**
  * @brief Get GR interrupt data struct pointer.
@@ -119,9 +103,14 @@ void nvgpu_gr_override_ecc_val(struct nvgpu_gr *gr, u32 ecc_val);
 struct nvgpu_gr_zcull *nvgpu_gr_get_zcull_ptr(struct gk20a *g);
 struct nvgpu_gr_zbc *nvgpu_gr_get_zbc_ptr(struct gk20a *g);
 #endif
+int nvgpu_gr_get_dump_gr_hw_state_on_ctxsw_timeout(struct gk20a *g, bool *state);
+int nvgpu_gr_set_dump_gr_hw_state_on_ctxsw_timeout(struct gk20a *g, bool enable);
 #ifdef CONFIG_NVGPU_CILP
-u32 nvgpu_gr_get_cilp_preempt_pending_chid(struct gk20a *g);
-void nvgpu_gr_clear_cilp_preempt_pending_chid(struct gk20a *g);
+bool nvgpu_gr_get_cilp_preempt_pending(struct gk20a *g);
+void nvgpu_gr_set_cilp_preempt_pending(struct gk20a *g,
+	bool cilp_preempt_pending);
+u32 nvgpu_gr_get_cilp_preempt_pending_tsgid(struct gk20a *g);
+void nvgpu_gr_clear_cilp_preempt_pending_tsgid(struct gk20a *g);
 #endif
 struct nvgpu_gr_obj_ctx_golden_image *nvgpu_gr_get_golden_image_ptr(
 		struct gk20a *g);

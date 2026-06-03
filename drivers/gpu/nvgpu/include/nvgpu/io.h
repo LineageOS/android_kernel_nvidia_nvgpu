@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_IO_H
 #define NVGPU_IO_H
@@ -31,7 +13,7 @@ struct gk20a;
  *
  * @param addr [in]		Register cpu virtual address.
  *
- * Read a 32-bit value from the register cpu virtuall address.
+ * Read a 32-bit value from the register cpu virtual address.
  * OS layer must implement this function.
  *
  * @return Value of the given register.
@@ -50,6 +32,8 @@ u32 nvgpu_os_readl(uintptr_t addr);
  * @return None.
  */
 void nvgpu_os_writel(u32 v, uintptr_t addr);
+
+#ifdef CONFIG_NVGPU_DGPU
 /**
  * @brief Write a value to a register without an ordering constraint.
  *
@@ -63,6 +47,7 @@ void nvgpu_os_writel(u32 v, uintptr_t addr);
  * @return None.
  */
 void nvgpu_os_writel_relaxed(u32 v, uintptr_t addr);
+#endif
 
 /**
  * @brief Create a virtual mapping for the specified physical address range.
@@ -95,6 +80,29 @@ void nvgpu_io_unmap(struct gk20a *g, uintptr_t ptr, size_t size);
  * @file
  *
  * Interface for mmio access.
+ *
+ * @page io io
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| io unit provides a set of interfaces to read or write
+ * various registers in GPU IO space. These interfaces are used by other
+ * GPU units to read and write to their register spaces. The interfaces provided
+ * by this unit are implemented by the OS layer.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_writel()
+ *   + nvgpu_writel_check()
+ *   + nvgpu_readl()
+ *   + nvgpu_readl_impl()
+ *   + nvgpu_bar1_readl()
+ *   + nvgpu_io_exists()
+ *   + nvgpu_io_valid_reg()
  */
 
 /* Legacy defines - should be removed once everybody uses nvgpu_* */
@@ -113,12 +121,12 @@ struct gk20a;
  *
  * @param g [in]		GPU super structure.
  * @param r [in]		Register offset in GPU IO space.
- *				Range: 0 to (TEGRA_GK20A_BAR0_SIZE - 4).
+ *				Range: 0 to (#TEGRA_GK20A_BAR0_SIZE - 4).
  * @param v [in]		Value to write at the offset.
  *
  * Write a 32-bit value to register offset in GPU IO space with an
  * ordering constraint on memory operations. API supports write from offset 0 to
- * TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed as this is
+ * #TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed as this is
  * called frequently.
  *
  * @return None.
@@ -146,12 +154,12 @@ void nvgpu_writel_relaxed(struct gk20a *g, u32 r, u32 v);
  *
  * @param g [in]		GPU super structure.
  * @param r [in]		Register offset in GPU IO space.
- *				Range: 0 to (TEGRA_GK20A_BAR0_SIZE - 4).
+ *				Range: 0 to (#TEGRA_GK20A_BAR0_SIZE - 4).
  *
  * Read a 32-bit value from register offset in GPU IO space. If all the bits are
  * set in the value read then check for gpu state validity. Refer
  * #nvgpu_check_gpu_state() for gpu state validity check. API supports read
- * from offset 0 to TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed
+ * from offset 0 to #TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed
  * as this is called frequently.
  *
  * @return Value at the given register offset in GPU IO space.
@@ -163,11 +171,11 @@ u32 nvgpu_readl(struct gk20a *g, u32 r);
  *
  * @param g [in]		GPU super structure.
  * @param r [in]		Register offset in GPU IO space.
- *				Range: 0 to (TEGRA_GK20A_BAR0_SIZE - 4).
+ *				Range: 0 to (#TEGRA_GK20A_BAR0_SIZE - 4).
  *
  * Read a 32-bit value from register offset in GPU IO space. If all the bits are
  * set in the value read then check for gpu state validity. API supports read
- * from offset 0 to TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed
+ * from offset 0 to #TEGRA_GK20A_BAR0_SIZE but check for this range is not imposed
  * as this is called frequently.
  *
  * @return Value at the given register offset in GPU IO space.
@@ -179,7 +187,7 @@ u32 nvgpu_readl_impl(struct gk20a *g, u32 r);
  *
  * @param g [in]		GPU super structure.
  * @param r [in]		Register offset in GPU IO space.
- *				Range: 0 to (TEGRA_GK20A_BAR0_SIZE - 4).
+ *				Range: 0 to (#TEGRA_GK20A_BAR0_SIZE - 4).
  * @param v [in]		Value to write at the offset.
  *
  * Write a 32-bit value to register offset in GPU IO space and reads it
@@ -247,7 +255,7 @@ bool nvgpu_io_exists(struct gk20a *g);
  *
  * @param g [in]		GPU super structure.
  * @param r [in]		Register offset in io-region.
- *				Range: 0 to (TEGRA_GK20A_BAR0_SIZE - 4).
+ *				Range: 0 to (#TEGRA_GK20A_BAR0_SIZE - 4).
  *
  * - BAR0 Offset is valid if it falls into BAR0 range.
  *
@@ -263,7 +271,7 @@ bool nvgpu_io_valid_reg(struct gk20a *g, u32 r);
  * @param v [in]		Value to write at the offset.
  *
  * - Write a 32-bit value at phys offset. Phys_offset can be retrieved using
- * gops.func.get_full_phys_offset().
+ * gops_func.get_full_phys_offset().
  *
  * @return None.
  */
@@ -276,7 +284,7 @@ void nvgpu_func_writel(struct gk20a *g, u32 r, u32 v);
  * @param b [in]		Register offset in GPU IO-space.
  *
  * - Read a 32-bit value from phys offset. Phys_offset can be retrieved using
- * gops.func.get_full_phys_offset().
+ * gops_func.get_full_phys_offset().
  *
  * @return Value at the given offset.
  */

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/kmem.h>
@@ -61,7 +42,7 @@ u32 nvgpu_aperture_mask_raw(struct gk20a *g, enum nvgpu_aperture aperture,
 	 * Some iGPUs treat sysmem (i.e SoC DRAM) as vidmem. In these cases the
 	 * "sysmem" aperture should really be translated to VIDMEM.
 	 */
-	if (!nvgpu_is_enabled(g, NVGPU_MM_HONORS_APERTURE) && ret_mask != 0) {
+	if (!nvgpu_is_enabled(g, NVGPU_MM_HONORS_APERTURE) && ret_mask != 0U) {
 		ret_mask = vidmem_mask;
 	}
 
@@ -246,6 +227,24 @@ void nvgpu_memset(struct gk20a *g, struct nvgpu_mem *mem, u64 offset,
 	}
 }
 
+/**
+ * @brief Retrieve the next scatter gather list entry.
+ *
+ * This function returns the next entry in a scatter gather list by accessing
+ * the 'next' pointer of the current scatter gather list entry.
+ *
+ * The steps performed by the function are as follows:
+ * -# Cast the input void pointer to a pointer of type 'struct nvgpu_mem_sgl'.
+ * -# Access the 'next' field of the casted scatter gather list entry.
+ * -# Return the 'next' field as a void pointer.
+ *
+ * @param [in] sgl  Pointer to the current scatter gather list entry.
+ *                  Range: Valid pointer to 'struct nvgpu_mem_sgl'.
+ *
+ * @return Pointer to the next scatter gather list entry.
+ *         Range: NULL if there is no next entry, otherwise a valid pointer to
+ *         'struct nvgpu_mem_sgl'.
+ */
 static void *nvgpu_mem_phys_sgl_next(void *sgl)
 {
 	struct nvgpu_mem_sgl *sgl_impl = (struct nvgpu_mem_sgl *)sgl;
@@ -253,9 +252,25 @@ static void *nvgpu_mem_phys_sgl_next(void *sgl)
 	return (void *)(void *)sgl_impl->next;
 }
 
-/*
+/**
+ * @brief Returns the physical address of the scatter-gather list entry.
+ *
+ * This function retrieves the physical address stored within a scatter-gather
+ * list entry. The scatter-gather list entry is expected to be of type
+ * `struct nvgpu_mem_sgl`, which contains the physical address of the memory
+ * chunk it represents.
+ *
  * Provided for compatibility - the DMA address is the same as the phys address
  * for these nvgpu_mem's.
+ *
+ * The steps performed by the function are as follows:
+ * -# Return the physical address field from the scatter-gather list entry.
+ *
+ * @param [in] sgl  Pointer to the scatter-gather list entry. The pointer is
+ *                  expected to be a valid non-NULL pointer to a
+ *                  `struct nvgpu_mem_sgl` object.
+ *
+ * @return The physical address of the scatter-gather list entry.
  */
 static u64 nvgpu_mem_phys_sgl_dma(void *sgl)
 {
@@ -264,6 +279,25 @@ static u64 nvgpu_mem_phys_sgl_dma(void *sgl)
 	return sgl_impl->phys;
 }
 
+/**
+ * @brief Retrieve the physical address from a scatter-gather list entry.
+ *
+ * This function extracts the physical address field from a given scatter-gather
+ * list entry which is represented by a struct nvgpu_mem_sgl. The function
+ * assumes that the scatter-gather list entry is of type struct nvgpu_mem_sgl
+ * and directly accesses the 'phys' member to obtain the physical address.
+ *
+ * The steps performed by the function are as follows:
+ * -# Cast the input void pointer to a struct nvgpu_mem_sgl pointer.
+ * -# Return the 'phys' member of the struct nvgpu_mem_sgl, which contains the
+ *    physical address.
+ *
+ * @param [in]  g    The GPU driver struct (unused in this function).
+ * @param [in]  sgl  Pointer to the scatter-gather list entry.
+ *                   Range: Valid pointer to a struct nvgpu_mem_sgl.
+ *
+ * @return The physical address contained in the scatter-gather list entry.
+ */
 static u64 nvgpu_mem_phys_sgl_phys(struct gk20a *g, void *sgl)
 {
 	struct nvgpu_mem_sgl *sgl_impl = (struct nvgpu_mem_sgl *)sgl;
@@ -272,6 +306,25 @@ static u64 nvgpu_mem_phys_sgl_phys(struct gk20a *g, void *sgl)
 	return sgl_impl->phys;
 }
 
+/**
+ * @brief Converts an intermediate physical address (IPA) to a physical address (PA).
+ *
+ * This function is a stub that simply returns the provided IPA as the PA. It does not
+ * perform any actual conversion or lookup. The parameters related to the GPU state and
+ * scatter-gather list (SGL) are unused in this implementation.
+ *
+ * The steps performed by the function are as follows:
+ * -# The function accepts the GPU state, SGL, IPA, and a pointer to store the length
+ *    of the physical memory, but these parameters are not used.
+ * -# The function directly returns the provided IPA as the PA.
+ *
+ * @param [in]  g         Pointer to the GPU state structure.
+ * @param [in]  sgl       Pointer to the scatter-gather list.
+ * @param [in]  ipa       Intermediate physical address to be converted.
+ * @param [out] pa_len    Pointer to store the length of the physical memory.
+ *
+ * @return The physical address which is the same as the input intermediate physical address.
+ */
 static u64 nvgpu_mem_phys_sgl_ipa_to_pa(struct gk20a *g,
 		void *sgl, u64 ipa, u64 *pa_len)
 {
@@ -281,6 +334,21 @@ static u64 nvgpu_mem_phys_sgl_ipa_to_pa(struct gk20a *g,
 	return ipa;
 }
 
+/**
+ * @brief Retrieves the length of a scatter-gather list entry.
+ *
+ * This function returns the length of the memory region described by a single
+ * scatter-gather list entry. The length represents the size of the memory
+ * region in bytes.
+ *
+ * The steps performed by the function are as follows:
+ * -# Cast the input void pointer to a struct nvgpu_mem_sgl pointer.
+ * -# Return the length field of the struct nvgpu_mem_sgl.
+ *
+ * @param [in] sgl  Pointer to the scatter-gather list entry.
+ *
+ * @return Length of the memory region described by the scatter-gather list entry.
+ */
 static u64 nvgpu_mem_phys_sgl_length(void *sgl)
 {
 	struct nvgpu_mem_sgl *sgl_impl = (struct nvgpu_mem_sgl *)sgl;
@@ -288,6 +356,22 @@ static u64 nvgpu_mem_phys_sgl_length(void *sgl)
 	return sgl_impl->length;
 }
 
+/**
+ * @brief Returns the physical address associated with a scatter gather list entry.
+ *
+ * This function retrieves the GPU accessible address from the provided scatter gather
+ * list entry structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Cast the input scatter gather list pointer to a struct nvgpu_mem_sgl pointer.
+ * -# Return the physical address field of the struct nvgpu_mem_sgl.
+ *
+ * @param [in]  g       The GPU driver struct (unused in this function).
+ * @param [in]  sgl     Pointer to the scatter gather list entry.
+ * @param [in]  attrs   Attributes for the GMMU (unused in this function).
+ *
+ * @return The GPU accessible address associated with the scatter gather list entry.
+ */
 static u64 nvgpu_mem_phys_sgl_gpu_addr(struct gk20a *g, void *sgl,
 					 struct nvgpu_gmmu_attrs *attrs)
 {
@@ -298,6 +382,26 @@ static u64 nvgpu_mem_phys_sgl_gpu_addr(struct gk20a *g, void *sgl,
 	return sgl_impl->phys;
 }
 
+/**
+ * @brief Frees the scatter gather table associated with nvgpu_mem.
+ *
+ * This function is a no-operation function. It is intended to be used in
+ * contexts where the scatter gather table does not need to be explicitly freed
+ * because its memory management is handled elsewhere, specifically by the
+ * freeing of the nvgpu_mem structure itself.
+ *
+ * The steps performed by the function are as follows:
+ * -# The function accepts two parameters but does not perform any operations
+ *    on them.
+ * -# The function serves as a placeholder to match the signature expected by
+ *    other parts of the system that may require a function to free scatter
+ *    gather tables.
+ *
+ * @param [in] g         The GPU driver structure.
+ * @param [in] sgt       The scatter gather table to be freed.
+ *
+ * There are no return values for this function as it is a void function.
+ */
 static void nvgpu_mem_phys_sgt_free(struct gk20a *g, struct nvgpu_sgt *sgt)
 {
 	(void)g;

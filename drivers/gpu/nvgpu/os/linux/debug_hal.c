@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include "debug_hal.h"
 #include "os_linux.h"
@@ -28,14 +15,18 @@ static void __hal_print_op(struct seq_file *s, void *op_ptr)
 
 /*
  * Prints an array of function pointer addresses in op_ptrs to the
- * specified seq_file
+ * specified seq_file.
  */
-static void __hal_print_ops(struct seq_file *s, void **op_ptrs, int num_ops)
+static void __hal_print_ops(struct seq_file *s, void *op_ptrs, int num_ops)
 {
 	int i;
+	void *ptr;
 
-	for (i = 0; i < num_ops; i++)
-		__hal_print_op(s, op_ptrs[i]);
+	for (i = 0; i < num_ops; i++) {
+		/* Safely extract each function pointer */
+		memcpy(&ptr, (char *)op_ptrs + (i * sizeof(void *)), sizeof(void *));
+		__hal_print_op(s, ptr);
+	}
 }
 
 /*
@@ -47,9 +38,21 @@ static void __hal_print_ops(struct seq_file *s, void **op_ptrs, int num_ops)
 static int __hal_show(struct seq_file *s, void *unused)
 {
 	struct gpu_ops *gops = s->private;
+	void *op_ptrs;
+	size_t num_ops = sizeof(*gops) / sizeof(void *);
 
-	__hal_print_ops(s, (void **)gops, sizeof(*gops) / sizeof(void *));
+	/* Allocate memory for the temporary array */
+	op_ptrs = kmalloc(sizeof(*gops), GFP_KERNEL);
+	if (op_ptrs == NULL) {
+		return -ENOMEM;
+	}
 
+	/* Copy the function pointers from gops to op_ptrs */
+	memcpy(op_ptrs, gops, sizeof(*gops));
+
+	__hal_print_ops(s, op_ptrs, num_ops);
+
+	kfree(op_ptrs);
 	return 0;
 }
 

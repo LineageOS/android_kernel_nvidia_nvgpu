@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/vm.h>
@@ -74,7 +55,7 @@ static void nvgpu_vm_remap_mpool_release(struct nvgpu_ref *ref)
 
 	/* L2 must be flushed before we destroy any SMMU mappings. */
 	if (*mpool->l2_flushed == false) {
-		(void) nvgpu_pg_elpg_ms_protected_call(g, g->ops.mm.cache.l2_flush(g, true));
+		(void) g->ops.mm.cache.l2_flush(g, true);
 		*mpool->l2_flushed = true;
 	}
 
@@ -90,10 +71,13 @@ static inline void nvgpu_vm_remap_mpool_put(struct vm_gk20a *vm,
 					struct nvgpu_vm_remap_mpool *mpool,
 					bool *l2_flushed)
 {
+	int ret;
+
 	if (mpool != NULL) {
 		mpool->l2_flushed = l2_flushed;
-		nvgpu_ref_put(&mpool->ref, nvgpu_vm_remap_mpool_release);
-		mpool->l2_flushed = NULL;
+		ret = nvgpu_ref_put_return(&mpool->ref, nvgpu_vm_remap_mpool_release);
+		if (!ret)
+			mpool->l2_flushed = NULL;
 	}
 }
 
@@ -217,8 +201,7 @@ static int nvgpu_vm_remap_validate_map(struct vm_gk20a *vm,
 	}
 
 #ifdef CONFIG_NVGPU_COMPRESSION
-	if (op->compr_kind != NVGPU_KIND_INVALID &&
-	    !g->cbc_use_raw_mode) {
+	if (op->compr_kind != NVGPU_KIND_INVALID) {
 
 		struct gk20a_comptags comptags = { 0 };
 
@@ -360,10 +343,6 @@ static u64 nvgpu_vm_remap_get_ctag_offset(struct vm_gk20a *vm,
 	u64 phys_offset = nvgpu_safe_mult_u64(op->mem_offset_in_pages,
 					page_size);
 	u64 compression_page_size;
-
-	if (g->cbc_use_raw_mode) {
-		return 0;
-	}
 
 	gk20a_get_comptags(os_buf, &comptags);
 

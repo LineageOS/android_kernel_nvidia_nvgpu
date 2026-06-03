@@ -1,37 +1,21 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
 #include <nvgpu/class.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/nvgpu_err.h>
+#include <nvgpu/grmgr.h>
 
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/gr_intr.h>
 #include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/gr/gr_instances.h>
 
 #include "common/gr/gr_intr_priv.h"
+#include "common/gr/gr_config_priv.h"
 
 #include "gr_intr_gm20b.h"
 
@@ -316,8 +300,11 @@ void gm20b_gr_intr_clear_sm_hww(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
 }
 
 static int gm20b_gr_intr_read_sm_error_state(struct gk20a *g,
-		struct nvgpu_tsg *tsg, u32 offset, u32 sm_id)
+		struct nvgpu_gr_isr_data *isr_data, u32 offset, u32 sm_id)
 {
+	u32 instance_id;
+	u32 current_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
+
 	u32 hww_global_esr = gk20a_readl(g, nvgpu_safe_add_u32(
 			gr_gpc0_tpc0_sm_hww_global_esr_r(), offset));
 	u32 hww_warp_esr = gk20a_readl(g, nvgpu_safe_add_u32(
@@ -328,22 +315,23 @@ static int gm20b_gr_intr_read_sm_error_state(struct gk20a *g,
 		       gr_gpc0_tpc0_sm_hww_global_esr_report_mask_r(), offset));
 	u32 hww_warp_esr_report_mask = gk20a_readl(g, nvgpu_safe_add_u32(
 			gr_gpc0_tpc0_sm_hww_warp_esr_report_mask_r(), offset));
+	u32 hww_cga_esr = 0U;
 
-	return nvgpu_tsg_store_sm_error_state(tsg, sm_id,
+	instance_id = nvgpu_grmgr_get_gpu_instance_id(g, current_gr_instance_id);
+	return nvgpu_tsg_store_sm_error_state(g, isr_data, sm_id,
 		hww_global_esr, hww_warp_esr,
 		hww_warp_esr_pc, hww_global_esr_report_mask,
-		hww_warp_esr_report_mask);
+		hww_warp_esr_report_mask, hww_cga_esr, instance_id);
 }
 
 u32 gm20b_gr_intr_record_sm_error_state(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
-				struct nvgpu_channel *fault_ch)
+				struct nvgpu_gr_isr_data *isr_data)
 {
 	u32 sm_id;
 	u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
 	u32 tpc_in_gpc_stride = nvgpu_get_litter_value(g,
 					       GPU_LIT_TPC_IN_GPC_STRIDE);
 	u32 offset;
-	struct nvgpu_tsg *tsg = NULL;
 	int err = 0;
 
 	(void)sm;
@@ -360,21 +348,11 @@ u32 gm20b_gr_intr_record_sm_error_state(struct gk20a *g, u32 gpc, u32 tpc, u32 s
 			gk20a_readl(g, nvgpu_safe_add_u32(
 				gr_gpc0_tpc0_sm_cfg_r(), offset)));
 
-	if (fault_ch != NULL) {
-		tsg = nvgpu_tsg_from_ch(fault_ch);
-	}
-
-	if (tsg == NULL) {
-		nvgpu_err(g, "no valid tsg");
-		goto record_fail;
-	}
-
-	err = gm20b_gr_intr_read_sm_error_state(g, tsg, offset, sm_id);
+	err = gm20b_gr_intr_read_sm_error_state(g, isr_data, offset, sm_id);
 	if (err != 0) {
 		nvgpu_err(g, "error writing sm_error_state");
 	}
 
-record_fail:
 #ifdef CONFIG_NVGPU_DEBUGGER
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
 #endif
@@ -445,12 +423,12 @@ u64 gm20b_gr_intr_tpc_enabled_exceptions(struct gk20a *g)
 	u32 offset, regval, tpc_offset, gpc_offset;
 	u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
 	u32 tpc_in_gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_STRIDE);
-	u32 no_of_sm = g->ops.gr.init.get_no_of_sm(g);
 	struct nvgpu_gr_config *config = nvgpu_gr_get_config_ptr(g);
 
-	for (sm_id = 0; sm_id < no_of_sm; sm_id++) {
+	for (sm_id = 0; sm_id < config->no_of_sm; sm_id++) {
 		struct nvgpu_sm_info *sm_info =
 			nvgpu_gr_config_get_sm_info(config, sm_id);
+		nvgpu_assert(sm_info != NULL);
 		tpc_offset = nvgpu_safe_mult_u32(tpc_in_gpc_stride,
 			nvgpu_gr_config_get_sm_info_tpc_index(sm_info));
 		gpc_offset = nvgpu_safe_mult_u32(gpc_stride,

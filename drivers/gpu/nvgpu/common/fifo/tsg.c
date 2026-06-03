@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #include <nvgpu/bug.h>
@@ -43,6 +25,11 @@
 #include <nvgpu/profiler.h>
 #endif
 #include <nvgpu/multimedia.h>
+#ifdef CONFIG_NVGPU_CHECKER
+#include <nvgpu/checker_common_data_utils.h>
+#endif
+
+#include "common/gr/gr_intr_priv.h"
 
 #define MATCH_VEID		true
 #define MATCH_PBDMA_ID		true
@@ -50,8 +37,8 @@
 #define DONT_MATCH_PBDMA_ID	false
 
 /**
- * Refer section "SCG, PBDMA, and CILP Rules" from https://p4viewer.nvidia.com/
- * /get//hw/doc/gpu/volta/volta/design/Functional_Descriptions/
+ * Refer section "SCG, PBDMA, and CILP Rules" from https:p4viewer.nvidia.com/
+ * /get/hw/doc/gpu/volta/volta/design/Functional_Descriptions/
  * /Volta_Subcontexts_Functional_Description.docx
  */
 int nvgpu_tsg_validate_class_veid_pbdma(struct nvgpu_channel *ch)
@@ -66,8 +53,13 @@ int nvgpu_tsg_validate_class_veid_pbdma(struct nvgpu_channel *ch)
 		return 0;
 	}
 
+	if (tsg == NULL) {
+		nvgpu_err(g, "tsgid is invalid");
+		return -EINVAL;
+	}
+
 	if (g->ops.gpu_class.is_valid_gfx(ch->obj_class)) {
-		if (ch->runqueue_sel != 0) {
+		if (ch->runqueue_sel != 0U) {
 			nvgpu_err(g, "Can't have Graphics in non-zero'th PBDMA");
 			return -EINVAL;
 		}
@@ -85,12 +77,12 @@ int nvgpu_tsg_validate_class_veid_pbdma(struct nvgpu_channel *ch)
 	if (veid0_gfx_active) {
 		if (g->ops.gpu_class.is_valid_compute(ch->obj_class)) {
 			if (ch->subctx_id == CHANNEL_INFO_VEID0) {
-				if (ch->runqueue_sel != 0) {
+				if (ch->runqueue_sel != 0U) {
 					nvgpu_err(g, "VEID0 can't do Graphics and Async Compute");
 					return -EINVAL;
 				}
 			} else {
-				if (ch->runqueue_sel == 0) {
+				if (ch->runqueue_sel == 0U) {
 					nvgpu_err(g, "Async Compute can't be mixed with Graphics on PBDMA0");
 					return -EINVAL;
 				}
@@ -194,13 +186,73 @@ int nvgpu_tsg_validate_cilp_config(struct nvgpu_channel *ch)
 
 void nvgpu_tsg_disable(struct nvgpu_tsg *tsg)
 {
-	struct nvgpu_channel *ch;
+	struct gk20a *g = tsg->g;
 
-	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
-	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
-		nvgpu_channel_disable(ch);
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_rwsem_down_write(&tsg->ch_list_lock);
+	tsg->disable_count = nvgpu_safe_add_u32(tsg->disable_count, 1U);
+	if (tsg->disable_count == 1U) {
+		nvgpu_log_info(tsg->g, "disabling tsg: %u, disable_count: %u",
+			       tsg->tsgid, tsg->disable_count);
+		g->ops.tsg.disable(tsg);
+	} else {
+		nvgpu_log_info(tsg->g, "tsg: %u already disabled, disable_count: %u",
+			       tsg->tsgid, tsg->disable_count);
 	}
-	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
+	nvgpu_rwsem_up_write(&tsg->ch_list_lock);
+
+	nvgpu_log_fn(g, "done");
+}
+
+void nvgpu_tsg_enable(struct nvgpu_tsg *tsg)
+{
+	struct gk20a *g = tsg->g;
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_rwsem_down_write(&tsg->ch_list_lock);
+	if (tsg->disable_count == 0U) {
+		nvgpu_log_info(g, "tsg: %u already enabled, disable_count: %u",
+			       tsg->tsgid, tsg->disable_count);
+		goto tsg_already_enabled;
+	}
+	tsg->disable_count = nvgpu_safe_sub_u32(tsg->disable_count, 1U);
+	if (tsg->disable_count == 0U) {
+		nvgpu_log_info(g, "enabling tsg: %u, disable_count: %u",
+			       tsg->tsgid, tsg->disable_count);
+		g->ops.tsg.enable(tsg);
+	} else {
+		nvgpu_log_info(g, "skipped enabling tsg: %u, disable_count: %u",
+			       tsg->tsgid, tsg->disable_count);
+	}
+
+tsg_already_enabled:
+	nvgpu_rwsem_up_write(&tsg->ch_list_lock);
+
+	nvgpu_log_fn(g, "done");
+}
+
+void nvgpu_tsg_enable_for_cilp_cmpl(struct nvgpu_tsg *tsg)
+{
+	struct gk20a *g = tsg->g;
+
+	nvgpu_log_fn(g, " ");
+
+	/*
+	 * CILP preemption completion causes TSG to be disabled once.
+	 *
+	 * With TSG sharing, as many processes sharing TSG can get
+	 * CILP preemption completion event and can call TSG_ENABLE/
+	 * RESUME_ALL_CONTEXTS. Hence, once invoked, reset the flag.
+	 */
+	if (nvgpu_atomic_cmpxchg(&tsg->cilp_save_cmpl, 1, 0) != 0) {
+		nvgpu_log_info(g, "enabling tsg: %u once for cilp save completion",
+			       tsg->tsgid);
+		nvgpu_tsg_enable(tsg);
+	}
+
+	nvgpu_log_fn(g, "done");
 }
 
 struct nvgpu_tsg *nvgpu_tsg_check_and_get_from_id(struct gk20a *g, u32 tsgid)
@@ -236,6 +288,34 @@ struct nvgpu_tsg *nvgpu_tsg_get_from_id(struct gk20a *g, u32 tsgid)
 
 #define MAX_SYNC_SUBCONTEXTS	1U
 
+/**
+ * @brief Allocate a synchronous VEID for a TSG.
+ *
+ * This function attempts to allocate a synchronous VEID (Virtual Engine ID) for
+ * the specified TSG. Synchronous VEIDs are used for channels that require
+ * deterministic context switching, such as graphics channels. There can only be
+ * one synchronous VEID per TSG, and it is always VEID 0. If the TSG already has
+ * a synchronous VEID allocated, the function reports an error and returns.
+ *
+ * @param [in]  g      Pointer to the GPU driver struct.
+ * @param [in]  tsg    Pointer to the TSG struct for which to allocate the VEID.
+ * @param [out] veid   Pointer to the variable where the allocated VEID will be stored.
+ *
+ * Steps:
+ * -# Check if the TSG already has a synchronous VEID allocated by examining the
+ *    'sync_veid' flag within the TSG structure.
+ * -# If a synchronous VEID is already allocated ('sync_veid' is true), log an
+ *    error message using nvgpu_err() and return with error code -#ENOSPC.
+ * -# If a synchronous VEID is not already allocated ('sync_veid' is false),
+ *    set the 'sync_veid' flag to true to indicate that VEID 0 is now allocated
+ *    to this TSG.
+ * -# Store the value 0 (indicating synchronous VEID) in the location pointed to
+ *    by the 'veid' output parameter.
+ * -# Return 0 to indicate successful allocation of the synchronous VEID.
+ *
+ * @return 0 if the synchronous VEID was successfully allocated.
+ * @return -#ENOSPC if the synchronous VEID is already allocated.
+ */
 static int nvgpu_tsg_create_sync_subcontext(struct gk20a *g,
 				struct nvgpu_tsg *tsg, u32 *veid)
 {
@@ -251,6 +331,33 @@ static int nvgpu_tsg_create_sync_subcontext(struct gk20a *g,
 	return 0;
 }
 
+/**
+ * @brief Create an asynchronous subcontext for a TSG.
+ *
+ * -# Calculate the maximum number of asynchronous subcontexts by subtracting
+ *    the number of synchronous subcontexts from the total maximum subcontext count.
+ * -# Find the first zero bit in the asynchronous VEIDs bitmap using find_first_zero_bit(), which
+ *    represents an available VEID, and cast the found index to a 32-bit unsigned integer.
+ * -# Check if the found index is equal to the maximum number of asynchronous
+ *    subcontexts, which would mean that no asynchronous VEID is available.
+ * -# If no asynchronous VEID is available, attempt to create a synchronous
+ *    subcontext by calling the function nvgpu_tsg_create_sync_subcontext().
+ * -# If the attempt to create a synchronous subcontext fails, log an error
+ *    message and return the error code.
+ * -# If an asynchronous VEID is available, set the corresponding bit in the
+ *    asynchronous VEIDs bitmap to mark it as used.
+ * -# Since asynchronous VEIDs start from 1, increment the found index by the
+ *    number of maximum synchronous subcontexts to get the actual VEID.
+ * -# Update the VEID output parameter with the calculated VEID value.
+ * -# Return success.
+ *
+ * @param [in]  g                 The GPU driver struct.
+ * @param [in]  tsg               Pointer to TSG struct.
+ * @param [in]  max_subctx_count  Maximum number of subcontexts supported.
+ * @param [out] veid              Pointer to store the allocated VEID.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ */
 static int nvgpu_tsg_create_async_subcontext(struct gk20a *g,
 				struct nvgpu_tsg *tsg, u32 max_subctx_count,
 				u32 *veid)
@@ -517,7 +624,7 @@ int nvgpu_tsg_bind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch)
 	return err;
 }
 
-#ifdef CONFIG_NVS_PRESENT
+#if defined(CONFIG_NVS_PRESENT)
 int nvgpu_tsg_bind_domain(struct nvgpu_tsg *tsg, struct nvgpu_nvs_domain *nnvs_domain)
 {
 	struct nvgpu_runlist_domain *rl_domain;
@@ -547,18 +654,35 @@ int nvgpu_tsg_bind_domain(struct nvgpu_tsg *tsg, struct nvgpu_nvs_domain *nnvs_d
 	}
 
 	/* Release the default domain ref that was implicitly taken at open */
-	if (tsg->nvs_domain != NULL) {
-		nvgpu_nvs_domain_put(g, tsg->nvs_domain);
+	if (tsg->nvs_domain_ptr != NULL) {
+		nvgpu_nvs_domain_put(g, tsg->nvs_domain_ptr);
 	}
 
 	nvgpu_nvs_domain_get(g, nnvs_domain);
 	tsg->rl_domain = rl_domain;
-	tsg->nvs_domain = nnvs_domain;
+	tsg->nvs_domain_ptr = nnvs_domain;
 
 	return 0;
 }
 #endif
 
+/**
+ * @brief Determine if a TSG has multiple channels.
+ *
+ * -# Acquire a read lock on the TSG's channel list to ensure a consistent view
+ *    while checking the channel list.
+ * -# Retrieve the first entry in the TSG's channel list.
+ * -# Retrieve the last entry in the TSG's channel list.
+ * -# Compare the first and last entries of the channel list. If they are not
+ *    the same, it indicates that there are multiple channels in the TSG, so
+ *    set the return value to true.
+ * -# Release the read lock on the TSG's channel list.
+ * -# Return the boolean result indicating whether the TSG has multiple channels.
+ *
+ * @param [in]  tsg  Pointer to the TSG struct.
+ *
+ * @return True if the TSG has multiple channels, false otherwise.
+ */
 static bool nvgpu_tsg_is_multi_channel(struct nvgpu_tsg *tsg)
 {
 	bool ret = false;
@@ -575,6 +699,51 @@ static bool nvgpu_tsg_is_multi_channel(struct nvgpu_tsg *tsg)
 	return ret;
 }
 
+/**
+ * @brief Unbind a channel from the TSG it is bound to.
+ *
+ * This function unbinds a channel from its associated TSG. It handles the
+ * necessary state checks and cleanups required to safely remove a channel
+ * from a TSG. If the channel or TSG is in a state that prevents safe removal,
+ * the function will return an error code.
+ *
+ * The steps performed by the function are as follows:
+ * -# Acquire a write lock on the TSG's channel list by calling nvgpu_rwsem_down_write().
+ * -# Check if the channel is unserviceable by calling nvgpu_channel_check_unserviceable().
+ * -# Release the write lock on the TSG's channel list by calling nvgpu_rwsem_up_write().
+ * -# Disable the TSG by calling gops_tsg.disable() operation.
+ * -# Preempt the TSG by calling gops_fifo.preempt_tsg() operation.
+ * -# If there are multiple channels in the TSG and the TSG has not timed out,
+ *    validate the hardware state of the channel by calling
+ *    gops_tsg.unbind_channel_check_hw_state(). If the hardware state check returns -EAGAIN, release
+ *    the acquired resources and return.
+ * -# If the hardware state check fails with an error other than -EAGAIN, log the error,
+ *    re-enable the TSG if it has not timed out by calling gops_tsg.enable() operation, release the
+ *    acquired resources, and return the error.
+ * -# Clear the channel from the runlist if the clear() operation is supported by calling
+ *    gops_channel.clear().
+ * -# Update the runlist by removing the channel from it by calling nvgpu_channel_update_runlist().
+ *    If the update fails, log the error, re-enable the TSG if it has not timed out by calling
+ *    the enable() operation provided by g->ops.tsg, release the acquired resources, and return the error.
+ * -# Unbind the channel from the TSG by calling the gops_channel.unbind() operation.
+ * -# Acquire a write lock on the TSG's channel list by calling nvgpu_rwsem_down_write().
+ * -# Unbind the channel from any subcontexts by calling nvgpu_tsg_subctx_unbind_channel().
+ * -# Remove the channel from the TSG's channel list and decrement the channel count by calling
+ *    nvgpu_list_del().
+ * -# Set the channel's TSG ID to an invalid value.
+ * -# Disable the channel to ensure it is not scheduled by hardware by calling nvgpu_channel_disable().
+ * -# Release the write lock on the TSG's channel list by calling nvgpu_rwsem_up_write().
+ * -# If the TSG has not timed out, re-enable the TSG by calling the gops_tsg.enable() operation.
+ * -# If supported, perform any additional channel abort cleanup by calling
+ *    gops_channel.abort_clean_up()
+ *
+ * @param [in]  tsg        Pointer to the TSG structure.
+ * @param [in]  ch         Pointer to the channel structure.
+ * @param [in]  force      Flag indicating if the unbind should proceed even if the channel is busy.
+ *
+ * @return 0 if the channel was successfully unbound from the TSG.
+ * @return Non-zero error code if the unbind operation failed.
+ */
 static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 		struct nvgpu_channel *ch, bool force)
 {
@@ -588,7 +757,7 @@ static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 	nvgpu_rwsem_up_write(&tsg->ch_list_lock);
 
 	/* Disable TSG and examine status before unbinding channel */
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	err = nvgpu_tsg_preempt(g, tsg);
 	if (err != 0) {
@@ -625,7 +794,7 @@ static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 	}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-	while (ch->mmu_debug_mode_refcnt > 0U) {
+	while (nvgpu_atomic_read(&ch->mmu_debug_mode_refcnt) > 0) {
 		err = nvgpu_tsg_set_mmu_debug_mode(ch, false);
 		if (err != 0) {
 			nvgpu_err(g, "disable mmu debug mode failed ch:%u",
@@ -633,6 +802,15 @@ static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 			break;
 		}
 	}
+	while (nvgpu_atomic_read(&ch->mmu_debug_gcc_mode_refcnt) > 0) {
+		err = nvgpu_tsg_set_mmu_debug_gcc_mode(ch, false);
+		if (err != 0) {
+			nvgpu_err(g, "disable mmu debug gcc mode failed ch:%u",
+				ch->chid);
+			break;
+		}
+	}
+
 	while (nvgpu_atomic_read(&ch->sched_exit_wait_for_errbar_refcnt) > 0) {
 		err = nvgpu_tsg_set_sched_exit_wait_for_errbar(ch, false);
 		if (err != 0) {
@@ -666,7 +844,7 @@ static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 	 * time out, but we keep that to ensure TSG is kicked out
 	 */
 	if (!tsg_timedout) {
-		g->ops.tsg.enable(tsg);
+		nvgpu_tsg_enable(tsg);
 	}
 
 	if (g->ops.channel.abort_clean_up != NULL) {
@@ -677,9 +855,68 @@ static int nvgpu_tsg_unbind_channel_common(struct nvgpu_tsg *tsg,
 
 fail_enable_tsg:
 	if (!tsg_timedout) {
-		g->ops.tsg.enable(tsg);
+		nvgpu_tsg_enable(tsg);
 	}
 	return err;
+}
+
+static int wait_for_ch_idle(struct gk20a *g, struct nvgpu_tsg *tsg,
+			    struct nvgpu_channel *ch)
+{
+	struct nvgpu_channel_hw_state hw_state;
+	struct nvgpu_timeout timeout;
+	u32 delay = POLL_DELAY_MIN_US;
+	bool tsg_timedout;
+	int ret = 0;
+	int err;
+
+	nvgpu_log_fn(g, " ");
+
+	nvgpu_rwsem_down_write(&tsg->ch_list_lock);
+	tsg_timedout = nvgpu_channel_check_unserviceable(ch);
+	nvgpu_rwsem_up_write(&tsg->ch_list_lock);
+
+	/*
+	 * Need to wait for next bit to clear only if there are multiple
+	 * channels in the TSG.
+	 */
+	if (!nvgpu_tsg_is_multi_channel(tsg) || tsg_timedout ||
+	    g->ops.tsg.unbind_channel_check_hw_next == NULL) {
+		return 0;
+	}
+
+	nvgpu_timeout_init_cpu_timer(g, &timeout, nvgpu_get_poll_timeout(g));
+
+	ret = -ETIMEDOUT;
+
+	do {
+		nvgpu_rwsem_down_read(&tsg->ch_list_lock);
+		g->ops.channel.read_state(g, ch->runlist->id, ch->chid, &hw_state);
+		nvgpu_rwsem_up_read(&tsg->ch_list_lock);
+
+		err = g->ops.tsg.unbind_channel_check_hw_next(ch, &hw_state);
+		if ((err != -EAGAIN) || (!hw_state.busy)) {
+			ret = 0;
+			break;
+		}
+
+		nvgpu_usleep_range(delay, delay * 2U);
+		delay = min_t(u32,
+				delay << 1U, POLL_DELAY_MAX_US);
+	} while (nvgpu_timeout_expired(&timeout) == 0);
+
+	if (ret != 0) {
+		/*
+		 * possible causes:
+		 * channel has outstanding work pending.
+		 * esched has not gotten chance to update the chram for this channel.
+		 */
+		nvgpu_err(g, "cannot clear next bit");
+	}
+
+	nvgpu_log_fn(g, "done");
+
+	return ret;
 }
 
 /* The caller must ensure that channel belongs to a tsg */
@@ -687,7 +924,7 @@ int nvgpu_tsg_unbind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch,
 			     bool force)
 {
 	struct gk20a *g = ch->g;
-	int retries = 10;
+	bool unbind_ch = true;
 	int err;
 
 	nvgpu_log_fn(g, "unbind tsg:%u ch:%u\n", tsg->tsgid, ch->chid);
@@ -699,27 +936,30 @@ int nvgpu_tsg_unbind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch,
 	 */
 	nvgpu_mutex_acquire(&tsg->ctx_init_lock);
 
-	if (!force) {
+	/*
+	 * If the NEXT bit is set for the channel, then wait for the channel
+	 * to go idle and do the tsg unbind again.
+	 */
+	while (unbind_ch) {
 		err = nvgpu_tsg_unbind_channel_common(tsg, ch, force);
-
-		/* Let userspace retry the unbind if HW is busy. */
 		if (err == -EAGAIN) {
-			nvgpu_mutex_release(&tsg->ctx_init_lock);
-			return err;
-		}
-	} else {
-		do {
-			err = nvgpu_tsg_unbind_channel_common(tsg, ch, force);
-			/*
-			 * Retry for few iterations if the HW is busy before failing unbind
-			 * if the channel is getting killed, otherwise it can lead to faults.
-			 */
-			if (err == -EAGAIN) {
-				nvgpu_usleep_range(2000U, 4000U);
+			err = wait_for_ch_idle(g, tsg, ch);
+			if (err != 0) {
+				nvgpu_err(g, "failed to idle channel, err=%d",
+					  err);
+				unbind_ch = false;
 			} else {
-				break;
+				unbind_ch = true;
 			}
-		} while (retries-- != 0);
+		} else {
+			unbind_ch = false;
+		}
+	}
+
+	/* Let userspace retry the unbind if HW is busy. */
+	if (err == -EAGAIN && !force) {
+		nvgpu_mutex_release(&tsg->ctx_init_lock);
+		return -EAGAIN;
 	}
 
 	if (err != 0) {
@@ -769,7 +1009,7 @@ fail_common:
 	}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-	while (ch->mmu_debug_mode_refcnt > 0U) {
+	while (nvgpu_atomic_read(&ch->mmu_debug_mode_refcnt) > 0) {
 		err = nvgpu_tsg_set_mmu_debug_mode(ch, false);
 		if (err != 0) {
 			nvgpu_err(g, "disable mmu debug mode failed ch:%u",
@@ -777,6 +1017,16 @@ fail_common:
 			break;
 		}
 	}
+
+	while (nvgpu_atomic_read(&ch->mmu_debug_gcc_mode_refcnt) > 0) {
+		err = nvgpu_tsg_set_mmu_debug_gcc_mode(ch, false);
+		if (err != 0) {
+			nvgpu_err(g, "disable mmu debug gcc mode failed ch:%u",
+				ch->chid);
+			break;
+		}
+	}
+
 	while (nvgpu_atomic_read(&ch->sched_exit_wait_for_errbar_refcnt) > 0) {
 		err = nvgpu_tsg_set_sched_exit_wait_for_errbar(ch, false);
 		if (err != 0) {
@@ -790,7 +1040,10 @@ fail_common:
 	g->ops.channel.unbind(ch);
 
 	nvgpu_rwsem_down_write(&tsg->ch_list_lock);
-	nvgpu_tsg_subctx_unbind_channel(tsg, ch, force);
+	/* As subctx bind is not done for MM engines, skip unbind as well */
+	if (!nvgpu_engine_is_multimedia_runlist_id(g, ch->runlist->id)) {
+		nvgpu_tsg_subctx_unbind_channel(tsg, ch, force);
+	}
 	nvgpu_list_del(&ch->ch_entry);
 	ch->tsgid = NVGPU_INVALID_TSG_ID;
 	tsg->ch_count = nvgpu_safe_sub_u32(tsg->ch_count, 1U);
@@ -853,6 +1106,16 @@ void nvgpu_tsg_unbind_channel_ctx_reload_check(struct nvgpu_tsg *tsg,
 	}
 }
 
+/**
+ * @brief Destroy the TSG's mutexes.
+ *
+ * -# Destroy the mutex used for synchronizing context initialization by calling
+ *    the function nvgpu_mutex_destroy() with the 'ctx_init_lock' mutex of the TSG.
+ * -# Destroy the mutex used for VEID allocation synchronization by calling
+ *    the function nvgpu_mutex_destroy() with the 'veid_alloc_lock' mutex of the TSG.
+ *
+ * @param [in]  tsg  Pointer to the TSG struct.
+ */
 static void nvgpu_tsg_destroy(struct nvgpu_tsg *tsg)
 {
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
@@ -876,7 +1139,8 @@ int nvgpu_tsg_force_reset_ch(struct nvgpu_channel *ch,
 	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(ch);
 
 	if (tsg != NULL) {
-		nvgpu_tsg_set_error_notifier(g, tsg, err_code);
+		/* gfid uses 0 since it's not called on sr-iov gpu server */
+		nvgpu_tsg_set_error_notifier(g, 0U, tsg->tsgid, err_code);
 		nvgpu_rc_tsg_and_related_engines(g, tsg, verbose,
 			RC_TYPE_FORCE_RESET);
 	} else {
@@ -903,6 +1167,26 @@ void nvgpu_tsg_cleanup_sw(struct gk20a *g)
 	nvgpu_mutex_destroy(&f->tsg_inuse_mutex);
 }
 
+/**
+ * @brief Initialize TSG support structures and synchronization primitives.
+ *
+ * -# Assign the TSG structure from the global FIFO's TSG array using the provided TSG ID.
+ * -# Set the 'in_use' flag of the TSG to false, indicating that the TSG is not currently in use.
+ * -# Set the 'tsgid' of the TSG to the provided TSG ID.
+ * -# Set the 'abortable' flag of the TSG to true, indicating that the TSG can be aborted.
+ * -# Initialize the channel list head for the TSG by calling nvgpu_init_list_node().
+ * -# Initialize the subcontext list head for the TSG by calling nvgpu_init_list_node().
+ * -# Initialize the graphics context mappings list head for the TSG by calling
+ *    nvgpu_init_list_node().
+ * -# Initialize the read-write semaphore for the TSG's channel list by calling nvgpu_rwsem_init().
+ * -# Initialize the mutex for synchronizing context initialization by calling nvgpu_mutex_init()
+ *    with the 'ctx_init_lock' mutex of the TSG.
+ * -# Initialize the mutex for VEID allocation synchronization by calling nvgpu_mutex_init() with
+ *    the 'veid_alloc_lock' mutex of the TSG.
+ *
+ * @param [in]  g      Pointer to the GPU driver struct.
+ * @param [in]  tsgid  TSG identifier.
+ */
 static void nvgpu_tsg_init_support(struct gk20a *g, u32 tsgid)
 {
 	struct nvgpu_tsg *tsg = NULL;
@@ -957,12 +1241,21 @@ clean_up_mutex:
 	return err;
 }
 
-void nvgpu_tsg_set_unserviceable(struct gk20a *g,
-				struct nvgpu_tsg *tsg)
+void nvgpu_tsg_set_unserviceable(struct gk20a *g, u32 gfid, u32 tsgid)
 {
+	struct nvgpu_tsg *tsg = NULL;
 	struct nvgpu_channel *ch = NULL;
 
-	(void)g;
+	if (g->ops.tsg.set_unserviceable != NULL) {
+		g->ops.tsg.set_unserviceable(g, gfid, tsgid);
+		return;
+	}
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
+		return;
+	}
 
 	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
 	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
@@ -1045,12 +1338,24 @@ bool nvgpu_tsg_ctxsw_timeout_debug_dump_state(struct nvgpu_tsg *tsg)
 }
 #endif
 
-void nvgpu_tsg_set_error_notifier(struct gk20a *g, struct nvgpu_tsg *tsg,
+void nvgpu_tsg_set_error_notifier(struct gk20a *g, u32 gfid, u32 tsgid,
 		u32 error_notifier)
 {
+	struct nvgpu_tsg *tsg = NULL;
 	struct nvgpu_channel *ch = NULL;
 
+	if (g->ops.tsg.set_error_notifier != NULL) {
+		g->ops.tsg.set_error_notifier(g, gfid, tsgid, error_notifier);
+		return;
+	}
+
 	if (error_notifier >= NVGPU_ERR_NOTIFIER_INVAL) {
+		return;
+	}
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
 		return;
 	}
 
@@ -1064,22 +1369,28 @@ void nvgpu_tsg_set_error_notifier(struct gk20a *g, struct nvgpu_tsg *tsg,
 	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
 }
 
-void nvgpu_tsg_set_ctx_mmu_error(struct gk20a *g, struct nvgpu_tsg *tsg)
+void nvgpu_tsg_set_ctx_mmu_error(struct gk20a *g, u32 gfid, u32 tsgid)
 {
-	nvgpu_err(g, "TSG %d generated a mmu fault", tsg->tsgid);
+	nvgpu_err(g, "TSG %d generated a mmu fault", tsgid);
 
-	nvgpu_tsg_set_error_notifier(g, tsg,
+	nvgpu_tsg_set_error_notifier(g, gfid, tsgid, /* mmu fault on VF for SR-IOV */
 		NVGPU_ERR_NOTIFIER_FIFO_ERROR_MMU_ERR_FLT);
 }
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-bool nvgpu_tsg_check_ctxsw_timeout(struct nvgpu_tsg *tsg,
+bool nvgpu_tsg_check_ctxsw_timeout(struct gk20a *g, u32 tsgid,
 		bool *debug_dump, u32 *ms)
 {
+	struct nvgpu_tsg *tsg;
 	struct nvgpu_channel *ch;
 	bool recover = false;
 	bool progress = false;
-	struct gk20a *g = tsg->g;
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
+		return false;
+	}
 
 	*debug_dump = false;
 	*ms = g->ctxsw_timeout_period_ms;
@@ -1229,6 +1540,19 @@ u32 nvgpu_tsg_default_timeslice_us(struct gk20a *g)
 	return NVGPU_TSG_TIMESLICE_DEFAULT_US;
 }
 
+/**
+ * @brief Release a TSG back to the pool of available TSGs.
+ *
+ * -# Acquire the mutex lock for the TSG in-use array to ensure exclusive access
+ *    by calling 'nvgpu_mutex_acquire()'.
+ * -# Set the 'in_use' flag of the specified TSG to false, indicating that it is
+ *    no longer in use and available for allocation.
+ * -# Release the mutex lock for the TSG in-use array to allow other operations
+ *    by calling 'nvgpu_mutex_release()'.
+ *
+ * @param [in]  f    Pointer to the FIFO struct.
+ * @param [in]  tsg  Pointer to the TSG struct to be released.
+ */
 static void nvgpu_tsg_release_used_tsg(struct nvgpu_fifo *f,
 		struct nvgpu_tsg *tsg)
 {
@@ -1237,6 +1561,24 @@ static void nvgpu_tsg_release_used_tsg(struct nvgpu_fifo *f,
 	nvgpu_mutex_release(&f->tsg_inuse_mutex);
 }
 
+/**
+ * @brief Acquire an unused TSG from the pool of TSGs.
+ *
+ * -# Acquire the mutex lock for the TSG in-use array to ensure exclusive access
+ *    by calling nvgpu_mutex_acquire().
+ * -# Iterate over the array of TSGs to find an unused one:
+ *    -# For each TSG, check if the 'in_use' flag is false, indicating it is not in use.
+ *    -# If an unused TSG is found, set its 'in_use' flag to true, indicating it is now in use.
+ *    -# Assign the pointer of the newly acquired TSG to the variable 'tsg'.
+ *    -# Break the loop as we have found an available TSG.
+ * -# Release the mutex lock for the TSG in-use array to allow other operations
+ *    by calling nvgpu_mutex_release().
+ * -# Return the pointer to the acquired TSG if one was found, or NULL otherwise.
+ *
+ * @param [in]  f  Pointer to the FIFO struct.
+ *
+ * @return Pointer to the acquired TSG struct, or NULL if no unused TSG is available.
+ */
 static struct nvgpu_tsg *nvgpu_tsg_acquire_unused_tsg(struct nvgpu_fifo *f)
 {
 	struct nvgpu_tsg *tsg = NULL;
@@ -1255,6 +1597,38 @@ static struct nvgpu_tsg *nvgpu_tsg_acquire_unused_tsg(struct nvgpu_fifo *f)
 	return tsg;
 }
 
+/**
+ * @brief Allocate VEID state for a TSG.
+ *
+ * -# Check if TSG subcontexts are supported by the GPU. If not, return success
+ *    as there is no need to allocate VEID state.
+ * -# Set the 'sync_veid' flag of the TSG to false, indicating that synchronous
+ *    VEIDs are not yet allocated.
+ * -# Retrieve the maximum subcontext count supported by the GPU by calling
+ *    gops_gr_init.get_max_subctx_count.
+ * -# Calculate the maximum number of asynchronous subcontexts by subtracting the
+ *    number of maximum synchronous subcontexts from the total maximum subcontext count.
+ * -# Allocate memory for the asynchronous VEIDs bitmap by calling nvgpu_kzalloc().
+ *    The size of the allocation is determined by converting the number of bits
+ *    required for 'max_async_subcontexts' into the number of longs required.
+ * -# If the allocation for the asynchronous VEIDs bitmap fails, log an error and
+ *    return an error code indicating out of memory.
+ * -# Allocate memory for the array of pointers to subcontext VMs by calling
+ *    nvgpu_kzalloc(). The size of the allocation is the number of maximum
+ *    subcontexts multiplied by the size of a VM pointer.
+ * -# If the allocation for the subcontext VMs array fails, log an error, free the
+ *    previously allocated asynchronous VEIDs bitmap, set the pointer to NULL, and
+ *    return an error code indicating out of memory.
+ * -# If TSG sharing is enabled (indicated by the macro CONFIG_NVGPU_TSG_SHARING),
+ *    set the 'share_token_count' of the TSG to 1, indicating that the TSG has one
+ *    share token available for use.
+ * -# Return success.
+ *
+ * @param [in]  g    Pointer to the GPU driver struct.
+ * @param [in]  tsg  Pointer to the TSG struct.
+ *
+ * @return 0 in case of success, -ENOMEM in case of memory allocation failure.
+ */
 static int nvgpu_tsg_alloc_veid_state(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
 	u32 max_async_subcontexts;
@@ -1267,7 +1641,7 @@ static int nvgpu_tsg_alloc_veid_state(struct gk20a *g, struct nvgpu_tsg *tsg)
 	tsg->sync_veid = false;
 
 	max_subctx_count = g->ops.gr.init.get_max_subctx_count();
-	max_async_subcontexts = max_subctx_count - MAX_SYNC_SUBCONTEXTS;
+	max_async_subcontexts = nvgpu_safe_sub_u32(max_subctx_count, MAX_SYNC_SUBCONTEXTS);
 
 	tsg->async_veids = nvgpu_kzalloc(g,
 				BITS_TO_LONGS(max_async_subcontexts) *
@@ -1293,6 +1667,21 @@ static int nvgpu_tsg_alloc_veid_state(struct gk20a *g, struct nvgpu_tsg *tsg)
 	return 0;
 }
 
+/**
+ * @brief Free VEID state for a TSG.
+ *
+ * -# Check if TSG subcontexts are supported by the GPU. If not, return immediately
+ *    as there is no VEID state to free.
+ * -# Free the memory allocated for the subcontext VMs array by calling 'nvgpu_kfree()'.
+ * -# Set the 'subctx_vms' pointer in the TSG struct to NULL.
+ * -# Free the memory allocated for the asynchronous VEIDs bitmap by calling 'nvgpu_kfree()'.
+ * -# Set the 'async_veids' pointer in the TSG struct to NULL.
+ * -# Set the 'sync_veid' flag of the TSG to false, indicating that synchronous VEIDs
+ *    are no longer allocated.
+ *
+ * @param [in]  g    Pointer to the GPU driver struct.
+ * @param [in]  tsg  Pointer to the TSG struct.
+ */
 static void nvgpu_tsg_free_veid_state(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
 	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_TSG_SUBCONTEXTS)) {
@@ -1308,9 +1697,9 @@ static void nvgpu_tsg_free_veid_state(struct gk20a *g, struct nvgpu_tsg *tsg)
 	tsg->sync_veid = false;
 }
 
-int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid)
+int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid, u32 instance_id)
 {
-	u32 no_of_sm = g->ops.gr.init.get_no_of_sm(g);
+	u32 no_of_sm = g->ops.gr.init.get_no_of_sm(g, instance_id);
 	int err;
 
 	/* we need to allocate this after g->ops.gr.init_fs_state() since
@@ -1330,13 +1719,17 @@ int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid)
 	tsg->g = g;
 	tsg->num_active_channels = 0U;
 	tsg->ch_count = 0U;
+	tsg->disable_count = 0U;
+	nvgpu_atomic_set(&tsg->cilp_save_cmpl, 0);
+	tsg->gpu_instance_id = instance_id;
+	tsg->is_shadow_cleared = false;
 	nvgpu_ref_init(&tsg->refcount);
 
 	tsg->interleave_level = NVGPU_FIFO_RUNLIST_INTERLEAVE_LEVEL_LOW;
 	tsg->timeslice_us = g->ops.tsg.default_timeslice_us(g);
 	tsg->runlist = NULL;
 	tsg->rl_domain = NULL;
-	tsg->nvs_domain = NULL;
+	tsg->nvs_domain_ptr = NULL;
 #ifdef CONFIG_NVGPU_DEBUGGER
 	tsg->sm_exception_mask_type = NVGPU_SM_EXCEPTION_TYPE_MASK_NONE;
 #endif
@@ -1393,7 +1786,7 @@ clean_up:
 	return err;
 }
 
-struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid)
+struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid, u32 instance_id)
 {
 	struct nvgpu_tsg *tsg;
 	int err;
@@ -1403,7 +1796,7 @@ struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid)
 		return NULL;
 	}
 
-	err = nvgpu_tsg_open_common(g, tsg, pid);
+	err = nvgpu_tsg_open_common(g, tsg, pid, instance_id);
 	if (err != 0) {
 		nvgpu_tsg_release_used_tsg(&g->fifo, tsg);
 		nvgpu_err(g, "tsg %d open failed %d", tsg->tsgid, err);
@@ -1417,10 +1810,6 @@ struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid)
 
 void nvgpu_tsg_release_common(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
-#ifdef CONFIG_NVGPU_PROFILER
-	struct nvgpu_profiler_object *prof;
-#endif
-
 	if (g->ops.tsg.release != NULL) {
 		g->ops.tsg.release(tsg);
 	}
@@ -1438,19 +1827,9 @@ void nvgpu_tsg_release_common(struct gk20a *g, struct nvgpu_tsg *tsg)
 		g->ops.tsg.deinit_eng_method_buffers(g, tsg);
 	}
 
-#ifdef CONFIG_NVGPU_PROFILER
-	if (tsg->prof != NULL) {
-		/* save prof here as tsg pointer will be cleared in unbind */
-		prof = tsg->prof;
-		nvgpu_profiler_unbind_context(prof);
-		nvgpu_profiler_free_pma_stream(prof);
-		nvgpu_profiler_pm_resource_release_all(prof);
-	}
-#endif
-
-	if (tsg->nvs_domain != NULL) {
-		nvgpu_nvs_domain_put(g, tsg->nvs_domain);
-		tsg->nvs_domain = NULL;
+	if (tsg->nvs_domain_ptr != NULL) {
+		nvgpu_nvs_domain_put(g, tsg->nvs_domain_ptr);
+		tsg->nvs_domain_ptr = NULL;
 		tsg->rl_domain = NULL;
 	}
 
@@ -1461,8 +1840,27 @@ void nvgpu_tsg_release_common(struct gk20a *g, struct nvgpu_tsg *tsg)
 		nvgpu_mutex_destroy(&tsg->sm_exception_mask_lock);
 #endif
 	}
+
+	if (tsg->disable_count > 0U) {
+		nvgpu_log_info(tsg->g, "tsg: %u, disable count at release: %u",
+			       tsg->tsgid, tsg->disable_count);
+	}
 }
 
+/**
+ * @brief Retrieve the TSG struct from a reference count pointer.
+ *
+ * -# Calculate the address of the TSG struct by subtracting the offset of the
+ *    'refcount' member within the 'nvgpu_tsg' struct from the address of the
+ *    reference count. This is done using pointer arithmetic and the 'offsetof()'
+ *    macro which yields the offset of a member within a struct.
+ * -# Cast the calculated address to a pointer of type 'struct nvgpu_tsg'.
+ * -# Return the pointer to the TSG struct.
+ *
+ * @param [in]  ref  Pointer to the reference count struct.
+ *
+ * @return Pointer to the TSG struct containing the reference count.
+ */
 static struct nvgpu_tsg *tsg_gk20a_from_ref(struct nvgpu_ref *ref)
 {
 	return (struct nvgpu_tsg *)
@@ -1476,12 +1874,19 @@ void nvgpu_tsg_release(struct nvgpu_ref *ref)
 	struct gk20a *g = tsg->g;
 	int err;
 
+	nvgpu_log(g, gpu_dbg_fn, "releasing tsg %d", tsg->tsgid);
+
 	err = gk20a_busy(g);
 	if (err != 0) {
 		nvgpu_err(g, "cannot busy() err=%d!", err);
 		return;
 	}
 
+#ifdef CONFIG_NVGPU_PROFILER
+	if (tsg->prof != NULL) {
+		nvgpu_profiler_unbind_context(tsg->prof);
+	}
+#endif
 	if ((gr_ctx != NULL) && nvgpu_gr_ctx_get_ctx_initialized(gr_ctx)) {
 		g->ops.gr.setup.free_gr_ctx(g, gr_ctx);
 	}
@@ -1498,9 +1903,14 @@ void nvgpu_tsg_release(struct nvgpu_ref *ref)
 #endif
 
 	nvgpu_tsg_release_common(g, tsg);
-	nvgpu_tsg_release_used_tsg(&g->fifo, tsg);
+
+#ifdef CONFIG_NVGPU_CHECKER
+	nvgpu_checker_tsg_deinit(tsg->tsgid);
+#endif
 
 	nvgpu_log(g, gpu_dbg_fn, "tsg released %d", tsg->tsgid);
+
+	nvgpu_tsg_release_used_tsg(&g->fifo, tsg);
 
 	gk20a_idle(g);
 }
@@ -1544,16 +1954,30 @@ int nvgpu_tsg_alloc_sm_error_states_mem(struct gk20a *g,
 	return 0;
 }
 
-int nvgpu_tsg_store_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id,
-		u32 hww_global_esr, u32 hww_warp_esr, u64 hww_warp_esr_pc,
-		u32 hww_global_esr_report_mask, u32 hww_warp_esr_report_mask)
+int nvgpu_tsg_store_sm_error_state(struct gk20a *g, struct nvgpu_gr_isr_data *isr_data,
+		u32 sm_id, u32 hww_global_esr, u32 hww_warp_esr, u64 hww_warp_esr_pc,
+		u32 hww_global_esr_report_mask, u32 hww_warp_esr_report_mask,
+		u32 hww_cga_esr, u32 instance_id)
 {
-	struct gk20a *g = tsg->g;
-	u32 num_of_sm = g->ops.gr.init.get_no_of_sm(g);
+	struct nvgpu_tsg *tsg = NULL;
+	u32 tsgid = isr_data->tsgid;
+	u32 num_of_sm = g->ops.gr.init.get_no_of_sm(g, instance_id);
 	struct nvgpu_tsg_sm_error_state *sm_error_states = NULL;
 
 	if (sm_id >= num_of_sm) {
 		nvgpu_err(g, "Invalid number of SMs");
+		return -EINVAL;
+	}
+
+	if (g->ops.tsg.store_sm_error_state != NULL) {
+		return g->ops.tsg.store_sm_error_state(g, isr_data, sm_id,
+				hww_global_esr, hww_warp_esr, hww_warp_esr_pc,
+				hww_global_esr_report_mask, hww_warp_esr_report_mask);
+	}
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
 		return -EINVAL;
 	}
 
@@ -1563,20 +1987,21 @@ int nvgpu_tsg_store_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id,
 	}
 
 	sm_error_states = &tsg->sm_error_states[sm_id];
-
 	sm_error_states->hww_global_esr = hww_global_esr;
 	sm_error_states->hww_warp_esr = hww_warp_esr;
 	sm_error_states->hww_warp_esr_pc = hww_warp_esr_pc;
 	sm_error_states->hww_global_esr_report_mask = hww_global_esr_report_mask;
 	sm_error_states->hww_warp_esr_report_mask = hww_warp_esr_report_mask;
+	sm_error_states->hww_cga_esr = hww_cga_esr;
 
 	return 0;
 }
 
-const struct nvgpu_tsg_sm_error_state *nvgpu_tsg_get_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id)
+const struct nvgpu_tsg_sm_error_state *nvgpu_tsg_get_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id,
+		u32 instance_id)
 {
 	struct gk20a *g = tsg->g;
-	u32 num_of_sm = g->ops.gr.init.get_no_of_sm(g);
+	u32 num_of_sm = g->ops.gr.init.get_no_of_sm(g, instance_id);
 
 	if (sm_id >= num_of_sm) {
 		nvgpu_err(g, "Invalid number of SMs");
@@ -1618,7 +2043,7 @@ void nvgpu_tsg_abort(struct gk20a *g, struct nvgpu_tsg *tsg, bool preempt)
 
 	WARN_ON(tsg->abortable == false);
 
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	if (preempt) {
 		/*
@@ -1642,8 +2067,7 @@ void nvgpu_tsg_abort(struct gk20a *g, struct nvgpu_tsg *tsg, bool preempt)
 	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
 }
 
-void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg,
-		bool eng, bool pbdma)
+void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
 	struct nvgpu_channel *ch;
 
@@ -1659,7 +2083,7 @@ void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg,
 
 	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
 	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
-		g->ops.channel.reset_faulted(g, ch, eng, pbdma);
+		g->ops.channel.reset_faulted(g, ch->runlist->id, ch->chid);
 	}
 	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
 }
@@ -1667,12 +2091,9 @@ void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg,
 #ifdef CONFIG_NVGPU_DEBUGGER
 int nvgpu_tsg_set_mmu_debug_mode(struct nvgpu_channel *ch, bool enable)
 {
+	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(ch);
 	struct gk20a *g;
 	int err = 0;
-	u32 ch_refcnt;
-	u32 tsg_refcnt;
-	u32 fb_refcnt;
-	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(ch);
 
 	if (tsg == NULL) {
 		return -EINVAL;
@@ -1685,13 +2106,28 @@ int nvgpu_tsg_set_mmu_debug_mode(struct nvgpu_channel *ch, bool enable)
 	}
 
 	if (enable) {
-		ch_refcnt = ch->mmu_debug_mode_refcnt + 1U;
-		tsg_refcnt = tsg->mmu_debug_mode_refcnt + 1U;
-		fb_refcnt = g->mmu_debug_mode_refcnt + 1U;
+		/* Enable the feature only if it is not already enabled. */
+		if (nvgpu_atomic_read(&ch->mmu_debug_mode_refcnt) == 0) {
+			nvgpu_atomic_inc(&ch->mmu_debug_mode_refcnt);
+			nvgpu_atomic_inc(&tsg->mmu_debug_mode_refcnt);
+			nvgpu_atomic_inc(&g->mmu_debug_mode_refcnt);
+		} else {
+			return 0;
+		}
 	} else {
-		ch_refcnt = ch->mmu_debug_mode_refcnt - 1U;
-		tsg_refcnt = tsg->mmu_debug_mode_refcnt - 1U;
-		fb_refcnt = g->mmu_debug_mode_refcnt - 1U;
+		if (nvgpu_atomic_read(&ch->mmu_debug_mode_refcnt) != 0) {
+			/* Need to disable only if the channel has the feature enabled. */
+			nvgpu_atomic_dec(&ch->mmu_debug_mode_refcnt);
+
+			if (nvgpu_atomic_read(&tsg->mmu_debug_mode_refcnt) != 0) {
+				nvgpu_atomic_dec(&tsg->mmu_debug_mode_refcnt);
+			}
+			if (nvgpu_atomic_read(&g->mmu_debug_mode_refcnt) != 0) {
+				nvgpu_atomic_dec(&g->mmu_debug_mode_refcnt);
+			}
+		} else {
+			return 0;
+		}
 	}
 
 	if (g->ops.gr.set_mmu_debug_mode != NULL) {
@@ -1699,7 +2135,9 @@ int nvgpu_tsg_set_mmu_debug_mode(struct nvgpu_channel *ch, bool enable)
 		 * enable GPC MMU debug mode if it was requested for at
 		 * least one channel in the TSG
 		 */
-		err = g->ops.gr.set_mmu_debug_mode(g, ch, tsg_refcnt > 0U);
+		err = g->ops.gr.set_mmu_debug_mode(g, ch,
+					nvgpu_atomic_read(&tsg->mmu_debug_mode_refcnt) > 0,
+					nvgpu_atomic_read(&tsg->mmu_debug_gcc_mode_refcnt) > 0);
 		if (err != 0) {
 			nvgpu_err(g, "set mmu debug mode failed, err=%d", err);
 			return err;
@@ -1711,12 +2149,59 @@ int nvgpu_tsg_set_mmu_debug_mode(struct nvgpu_channel *ch, bool enable)
 		 * enable FB/HS MMU debug mode if it was requested for
 		 * at least one TSG
 		 */
-		g->ops.fb.set_mmu_debug_mode(g, fb_refcnt > 0U);
+		g->ops.fb.set_mmu_debug_mode(g,
+				nvgpu_atomic_read(&g->mmu_debug_mode_refcnt) > 0);
 	}
 
-	ch->mmu_debug_mode_refcnt = ch_refcnt;
-	tsg->mmu_debug_mode_refcnt = tsg_refcnt;
-	g->mmu_debug_mode_refcnt = fb_refcnt;
+	return err;
+}
+
+int nvgpu_tsg_set_mmu_debug_gcc_mode(struct nvgpu_channel *ch, bool enable)
+{
+	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(ch);
+	struct gk20a *g;
+	int err = 0;
+
+	if (tsg == NULL) {
+		return -EINVAL;
+	}
+	g = ch->g;
+
+	if (g->ops.gr.set_mmu_debug_mode == NULL) {
+		return -ENOSYS;
+	}
+
+	if (enable) {
+		/* Enable the feature only if it is not already enabled. */
+		if (nvgpu_atomic_read(&ch->mmu_debug_gcc_mode_refcnt) == 0) {
+			nvgpu_atomic_inc(&ch->mmu_debug_gcc_mode_refcnt);
+			nvgpu_atomic_inc(&tsg->mmu_debug_gcc_mode_refcnt);
+		} else {
+			return 0;
+		}
+	} else {
+		if (nvgpu_atomic_read(&ch->mmu_debug_gcc_mode_refcnt) != 0) {
+			/* Need to disable only if the channel has the feature enabled. */
+			nvgpu_atomic_dec(&ch->mmu_debug_gcc_mode_refcnt);
+
+			if (nvgpu_atomic_read(&tsg->mmu_debug_gcc_mode_refcnt) != 0) {
+				nvgpu_atomic_dec(&tsg->mmu_debug_gcc_mode_refcnt);
+			}
+		} else {
+			return 0;
+		}
+	}
+
+	/*
+	 * enable GPC MMU debug mode if it was requested for at
+	 * least one channel in the TSG
+	 */
+	err = g->ops.gr.set_mmu_debug_mode(g, ch,
+				nvgpu_atomic_read(&tsg->mmu_debug_mode_refcnt) > 0,
+				nvgpu_atomic_read(&tsg->mmu_debug_gcc_mode_refcnt) > 0);
+	if (err != 0) {
+		nvgpu_err(g, "set mmu debug gcc mode failed, err=%d", err);
+	}
 
 	return err;
 }
@@ -1768,5 +2253,5 @@ int nvgpu_tsg_preempt(struct gk20a *g, struct nvgpu_tsg *tsg)
 {
 	u32 runlist_id = tsg->runlist == NULL ? INVAL_ID : tsg->runlist->id;
 
-	return g->ops.fifo.preempt_tsg(g, runlist_id, tsg->tsgid);
+	return g->ops.fifo.preempt_tsg(g, runlist_id, tsg->tsgid, 0);
 }

@@ -1,16 +1,5 @@
-/*
- * GK20A Platform (SoC) Interface
- *
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef _GK20A_PLATFORM_H_
@@ -37,6 +26,7 @@ struct secure_page_buffer {
 	size_t size;
 	dma_addr_t phys;
 	size_t used;
+	dma_addr_t mapped_iova;
 };
 
 enum {
@@ -66,6 +56,14 @@ enum tegra_chip_id {
 	TEGRA_194,
 	TEGRA_194_VGPU,
 	TEGRA_234,
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	TEGRA_264,
+	TEGRA_264_VF,
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	TEGRA_256,
+	TEGRA_256_VF,
+#endif
 #ifdef CONFIG_NVGPU_NEXT
 	NVGPU_NEXT_TEGRA_CHIPS
 #endif
@@ -93,6 +91,9 @@ struct gk20a_platform {
 #endif
 	/* Should be populated at probe. */
 	bool can_elpg_init;
+
+	/* Should be populated at probe. */
+	bool can_elpg_ms_init;
 
 	/* Should be populated at probe. */
 	bool has_syncpoints;
@@ -147,6 +148,20 @@ struct gk20a_platform {
 
 	/* Engine Level Clock Gating: true = enable flase = disable */
 	bool enable_elcg;
+
+	/* GPCCLK First Level Clock Gating: true = enable flase = disable */
+	bool enable_gpcclk_flcg;
+
+	/* NVDCLK First Level Clock Gating: true = enable flase = disable */
+	bool enable_nvdclk_flcg;
+
+	/* Sysclk Slowdown: true = enable flase = disable */
+	bool enable_sysclk_slowdown;
+
+	/* Fine-Grain Ram Periphery Power Gating:
+	 * true = enable flase = disable
+	 */
+	bool enable_fgpg;
 
 	/* Should be populated at probe. */
 	bool can_flcg;
@@ -249,6 +264,9 @@ struct gk20a_platform {
 	/* platform specific scale init quirks */
 	void (*initscale)(struct device *dev);
 
+	/* platform specific scale exit quirks */
+	void (*exitscale)(struct device *dev);
+
 	/* Postscale callback is called after frequency change */
 	void (*postscale)(struct device *dev,
 			  unsigned long freq);
@@ -265,6 +283,21 @@ struct gk20a_platform {
 
 	/* Set FBP_PG_MASK during probe */
 	int (*set_fbp_pg_mask)(struct device *dev, u32 dt_fbp_pg_mask);
+
+	/* Set GPU_PG_MASK */
+	int (*set_gpu_pg_mask)(struct device *dev, u32 gpu_pg_mask);
+
+	/* Set NVDEC_PG_MASK */
+	int (*set_nvdec_pg_mask)(struct device *dev, u32 nvdec_pg_mask);
+
+	/* Set NVENC_PG_MASK */
+	int (*set_nvenc_pg_mask)(struct device *dev, u32 nvenc_pg_mask);
+
+	/* Set OFA_PG_MASK */
+	int (*set_ofa_pg_mask)(struct device *dev, u32 ofa_pg_mask);
+
+	/* Set NVJPG_PG_MASK */
+	int (*set_nvjpg_pg_mask)(struct device *dev, u32 nvjpg_pg_mask);
 #endif
 	/* Devfreq governor name. If scaling is enabled, we request
 	 * this governor to be used in scaling */
@@ -359,6 +392,9 @@ struct gk20a_platform {
 	/* Check if igpu is available as pci device. */
 	bool is_pci_igpu;
 
+	/* Check runtime auto status before suspended */
+	bool runtime_auto_before_suspend;
+
 #ifdef CONFIG_NVGPU_SIM
 	u32 fake_rpc_base;
 	u32 fake_rpc_size;
@@ -372,7 +408,6 @@ static inline struct gk20a_platform *gk20a_get_platform(
 }
 
 #ifdef CONFIG_TEGRA_GK20A
-extern struct gk20a_platform gm20b_tegra_platform;
 extern struct gk20a_platform gv11b_tegra_platform;
 #ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
 extern struct gk20a_platform gv11b_vgpu_tegra_platform;

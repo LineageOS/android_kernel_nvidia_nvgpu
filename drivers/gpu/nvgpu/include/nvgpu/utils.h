@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2018-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_UTILS_H
@@ -44,6 +26,130 @@
  * @file
  *
  * SW utilities
+ *
+ * @page utils utils
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| utils unit provides a number of general software utility
+ * functions.  These fall into these different components:
+ *
+ * - bit-utils: These are general bit manipulation functions.
+ * - enabled: This is a general framework used by the driver to store flags for
+ * enabling and disabling features and functions in the driver. These functions
+ * may be software or hardware features. These flags are intended to be set
+ * during driver initialization, but can be queried during initialization or
+ * execution.
+ * - rbtree: This is a generic implementation of a red-black tree data structure
+ * for maintaining a balanced binary search tree. This component defines a
+ * struct nvgpu_rbtree_node that can be included within another struct
+ * definition so the parent struct can be manipulated as a red-black tree.
+ * - worker:  This is a fifo based producer-consumer worker for the |nvgpu-rm|
+ * driver. It provides a generic implementation with hooks to allow each
+ * application to implement specific use cases for producing and consuming
+ * the work. The user of this API enqueues new work and awakens the worker
+ * thread. On being awakened, the worker thread checks for pending work or a
+ * user provided terminating condition. The generic poll implementation also
+ * provides for early terminating conditions as well as pre and post processing
+ * hooks.
+ * - string: This includes support functions for managing strings and memory.
+ * - kref: This includes support functions for managing the reference count
+ * of objects.
+ * - list: This includes support functions for creating and managing a list of
+ * - messages.
+ *
+ * Data Structures
+ * ===============
+ *
+ * bit-utils
+ * ---------
+ * N/A.
+ * This component does not expose any data structures.
+ *
+ * enabled
+ * -------
+ * N/A.
+ * This component does not expose any data structures.
+ *
+ * rbtree
+ * ------
+ *  + struct nvgpu_rbtree_node
+ *
+ * string
+ * ------
+ * N/A.
+ * This component does not expose any data structures.
+ *
+ * worker
+ * ------
+ *  + struct nvgpu_worker
+ *  + struct nvgpu_worker_ops
+ *
+ * kref
+ * ----
+ *  + struct nvgpu_ref
+ *
+ * list
+ * ----
+ *  + struct nvgpu_list_node
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *
+ * Bit-utils exposes following APIs
+ *   + u64_hi32()
+ *   + u64_lo32()
+ *   + hi32_lo32_to_u64()
+ *   + set_field()
+ *   + get_field()
+ *
+ * Enabled exposes following APIs
+ *   + nvgpu_init_enabled_flags()
+ *   + nvgpu_set_enabled()
+ *   + nvgpu_is_enabled()
+ *   + nvgpu_free_enabled_flags()
+ *
+ * Rbtree exposes following APIs
+ *   + nvgpu_rbtree_insert()
+ *   + nvgpu_rbtree_unlink()
+ *   + nvgpu_rbtree_search()
+ *   + nvgpu_rbtree_range_search()
+ *   + nvgpu_rbtree_less_than_search()
+ *   + nvgpu_rbtree_enum_start()
+ *   + nvgpu_rbtree_enum_next()
+ *
+ * String exposes following APIs
+ *   + nvgpu_memcpy()
+ *   + nvgpu_memcmp()
+ *   + nvgpu_strnadd_u32()
+ *   + nvgpu_mem_is_word_aligned()
+ *
+ * Worker exposes following APIs
+ *   + nvgpu_worker_init()
+ *   + nvgpu_worker_init_name()
+ *   + nvgpu_worker_should_stop()
+ *   + nvgpu_worker_enqueue()
+ *   + nvgpu_worker_deinit()
+ *
+ * Kref exposes following APIs
+ *   + nvgpu_ref_init()
+ *   + nvgpu_ref_get()
+ *   + nvgpu_ref_put()
+ *   + nvgpu_ref_put_return()
+ *   + nvgpu_ref_get_unless_zero()
+ *
+ * List exposes following APIs
+ *   + nvgpu_init_list_node()
+ *   + nvgpu_list_add()
+ *   + nvgpu_list_add_tail()
+ *   + nvgpu_list_del()
+ *   + nvgpu_list_empty()
+ *   + nvgpu_list_move()
+ *   + nvgpu_list_replace_init()
  *
  * @defgroup unit-common-utils
  */

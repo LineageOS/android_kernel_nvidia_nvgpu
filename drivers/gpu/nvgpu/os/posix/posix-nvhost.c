@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/bug.h>
@@ -35,6 +16,48 @@ void nvgpu_free_nvhost_dev(struct gk20a *g) {
 bool nvgpu_has_syncpoints(struct gk20a *g)
 {
 	return nvgpu_is_enabled(g, NVGPU_HAS_SYNCPOINTS);
+}
+
+u64 nvgpu_nvhost_compute_os_specific_syncpt_addr(struct gk20a *g,
+			u32 syncpt_id)
+{
+	// u64 syncpt_addr = 0U;
+
+	// if (nvgpu_iommuable(g)) {
+	// 	syncpt_addr = g->nvhost->iova_syncp[syncpt_id];
+	// } else {
+	// 	syncpt_addr = nvgpu_safe_add_u64(g->syncpt_unit_base[0],
+	// 			nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g,
+	// 			syncpt_id));
+	// }
+
+	// return syncpt_addr;
+
+	(void)g;
+	(void)syncpt_id;
+
+	return 0;
+}
+
+int nvgpu_tegra_fuse_read_per_device_identifier(struct gk20a *g, u64 *pdi)
+{
+	// u32 lo = 0U;
+	// u32 hi = 0U;
+	// int err;
+
+	// err = nvgpu_rmos_fuse_read(g, &lo, FUSE_BEGIN + FUSE_PDI0);
+	// if (err != 0) {
+	// 	return err;
+	// }
+	// err = nvgpu_rmos_fuse_read(g, &hi, FUSE_BEGIN + FUSE_PDI1);
+	// if (err != 0) {
+	// 	return err;
+	// }
+	// *pdi = ((u64)lo) | (((u64)hi) << 32);
+
+	(void)g;
+	(void)pdi;
+	return 0;
 }
 
 static void allocate_new_syncpt(struct nvgpu_nvhost_dev *nvgpu_syncpt_dev)
@@ -64,7 +87,7 @@ int nvgpu_get_nvhost_dev(struct gk20a *g)
 	g->nvhost->host1x_sp_size = 0x4000;
 	g->nvhost->nb_hw_pts = 704U;
 	ret = nvgpu_nvhost_get_syncpt_aperture(
-				g->nvhost, &g->syncpt_unit_base,
+				g->nvhost, &g->syncpt_unit_base[0],
 				&g->syncpt_unit_size);
 	if (ret != 0) {
 		nvgpu_err(g, "Failed to get syncpt interface");

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #include <nvgpu/types.h>
 #include <nvgpu/firmware.h>
 #include <nvgpu/enabled.h>
@@ -75,8 +56,7 @@ static int ga10b_bootstrap_hs_acr(struct gk20a *g, struct nvgpu_acr *acr)
 	return err;
 }
 
-#ifndef CONFIG_NVGPU_NON_FUSA
-static int ga10b_safety_acr_patch_wpr_info_to_ucode(struct gk20a *g,
+int nvgpu_ga10b_safety_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 	struct nvgpu_acr *acr, struct hs_acr *acr_desc, bool is_recovery)
 {
 	int err = 0;
@@ -152,7 +132,8 @@ static int ga10b_safety_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 		/*
 		 * Generic header info for ACR descriptor.
 		 */
-		acr_sysmem_desc->genericHdr.size = RM_RISCV_ACR_DESC_V1_WRAPPER_SIZE_BYTE;
+		acr_sysmem_desc->genericHdr.size =
+			nvgpu_safe_cast_u64_to_u32(RM_RISCV_ACR_DESC_V1_WRAPPER_SIZE_BYTE);
 		acr_sysmem_desc->genericHdr.version = ACR_DESC_GENERIC_HEADER_VERSION_1;
 		acr_sysmem_desc->genericHdr.identifier = WPR_GENERIC_HEADER_ID_ACR_DESC_HEADER;
 
@@ -168,6 +149,11 @@ static int ga10b_safety_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 		acr_sysmem_desc->acrDesc.riscvAcrDescV1.regionDesc[0].nonWprBlobSize =
 			(u32)g->acr->ucode_blob.size;
 
+		/*
+		 * Set the WPR1 region id.
+		 */
+		acr_sysmem_desc->acrDesc.riscvAcrDescV1.regionDesc[0].regionID = 0x1U;
+
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_EMULATE_MODE) &&
 				(g->emulate_mode < EMULATE_MODE_MAX_CONFIG)) {
 			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode &= (~EMULATE_MODE_MASK);
@@ -179,13 +165,13 @@ static int ga10b_safety_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
 			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode |= MIG_MODE;
 		} else {
-			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode &= (u32)(~MIG_MODE);
+			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode &= ~MIG_MODE;
 		}
 
 		if (nvgpu_platform_is_simulation(g)) {
 			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode |= ACR_SIMULATION_MODE;
 		} else {
-			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode &= (u32)(~ACR_SIMULATION_MODE);
+			acr_sysmem_desc->acrDesc.riscvAcrDescV1.mode &= ~ACR_SIMULATION_MODE;
 		}
 	}
 
@@ -201,7 +187,7 @@ end:
 	return err;
 }
 
-#else
+#ifdef CONFIG_NVGPU_NON_FUSA
 static int ga10b_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 	struct nvgpu_acr *acr, struct hs_acr *acr_desc, bool is_recovery)
 {
@@ -332,13 +318,13 @@ static int ga10b_acr_patch_wpr_info_to_ucode(struct gk20a *g,
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
 			acr_sysmem_desc->gpu_mode |= MIG_MODE;
 		} else {
-			acr_sysmem_desc->gpu_mode &= (u32)(~MIG_MODE);
+			acr_sysmem_desc->gpu_mode &= ~MIG_MODE;
 		}
 
 		if (nvgpu_platform_is_simulation(g)) {
 			acr_sysmem_desc->gpu_mode |= ACR_SIMULATION_MODE;
 		} else {
-			acr_sysmem_desc->gpu_mode &= (u32)(~ACR_SIMULATION_MODE);
+			acr_sysmem_desc->gpu_mode &= ~ACR_SIMULATION_MODE;
 		}
 	}
 
@@ -353,7 +339,7 @@ load:
 end:
 	return err;
 }
-#endif
+#endif //ifdef CONFIG_NVGPU_NON_FUSA
 
 /* LSF static config functions */
 #ifdef CONFIG_NVGPU_LS_PMU
@@ -399,7 +385,7 @@ static u32 ga10b_acr_lsf_pmu_next_core(struct gk20a *g,
 #endif
 
 /* LSF init */
-static u32 ga10b_acr_lsf_fecs(struct gk20a *g,
+u32 nvgpu_ga10b_acr_lsf_fecs(struct gk20a *g,
 		struct acr_lsf_config *lsf)
 {
 	/* FECS LS falcon info */
@@ -426,7 +412,7 @@ static u32 ga10b_acr_lsf_fecs(struct gk20a *g,
 	return BIT32(lsf->falcon_id);
 }
 
-static u32 ga10b_acr_lsf_gpccs(struct gk20a *g,
+u32 nvgpu_ga10b_acr_lsf_gpccs(struct gk20a *g,
 		struct acr_lsf_config *lsf)
 {
 	/* GPCCS LS falcon info */
@@ -460,8 +446,8 @@ static u32 ga10b_acr_lsf_config(struct gk20a *g,
 		lsf_enable_mask |= ga10b_acr_lsf_pmu(g, &acr->lsf[FALCON_ID_PMU]);
 	}
 #endif
-	lsf_enable_mask |= ga10b_acr_lsf_fecs(g, &acr->lsf[FALCON_ID_FECS]);
-	lsf_enable_mask |= ga10b_acr_lsf_gpccs(g, &acr->lsf[FALCON_ID_GPCCS]);
+	lsf_enable_mask |= nvgpu_ga10b_acr_lsf_fecs(g, &acr->lsf[FALCON_ID_FECS]);
+	lsf_enable_mask |= nvgpu_ga10b_acr_lsf_gpccs(g, &acr->lsf[FALCON_ID_GPCCS]);
 
 	return lsf_enable_mask;
 }
@@ -539,7 +525,7 @@ static void ga10b_acr_sw_init(struct gk20a *g, struct nvgpu_acr *acr)
 	acr->alloc_blob_space = nvgpu_acr_alloc_blob_space_sys;
 	acr->bootstrap_hs_acr = ga10b_bootstrap_hs_acr;
 #ifndef CONFIG_NVGPU_NON_FUSA
-	acr->patch_wpr_info_to_ucode = ga10b_safety_acr_patch_wpr_info_to_ucode;
+	acr->patch_wpr_info_to_ucode = nvgpu_ga10b_safety_acr_patch_wpr_info_to_ucode;
 #else
 	acr->patch_wpr_info_to_ucode = ga10b_acr_patch_wpr_info_to_ucode;
 #endif
@@ -561,9 +547,12 @@ void nvgpu_ga10b_acr_sw_init(struct gk20a *g, struct nvgpu_acr *acr)
 	if (nvgpu_is_enabled(g, NVGPU_ACR_NEXT_CORE_ENABLED)) {
 		nvgpu_acr_dbg(g, "Booting RISCV core in Peregrine");
 		ga10b_acr_sw_init(g, acr);
-	} else {
+	}
+#if defined(CONFIG_NVGPU_NON_FUSA)
+	else {
 		nvgpu_acr_dbg(g, "Booting Falcon core in Peregrine");
 		nvgpu_gv11b_acr_sw_init(g, g->acr);
 		acr->lsf_enable_mask = ga10b_acr_lsf_config(g, acr);
 	}
+#endif
 }

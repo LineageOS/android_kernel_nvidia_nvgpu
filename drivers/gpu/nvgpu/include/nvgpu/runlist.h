@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_RUNLIST_H
@@ -45,7 +27,6 @@ struct nvgpu_gsp_domain_info;
 #ifdef CONFIG_NVS_PRESENT
 struct nvgpu_nvs_domain;
 #endif
-/** @cond DOXYGEN_SHOULD_SKIP_THIS */
 struct nvgpu_pbdma_info;
 
 #define RLENG_PER_RUNLIST_SIZE			3
@@ -70,6 +51,11 @@ struct nvgpu_pbdma_info;
  * low interleave level.
  */
 #define NVGPU_FIFO_RUNLIST_INTERLEAVE_NUM_LEVELS    3U
+
+/**
+ * Invalid interleave level for runlist entry.
+ */
+#define NVGPU_FIFO_RUNLIST_INTERLEAVE_LEVEL_INVALID 4U
 
 /** Not enough entries in runlist buffer to accommodate all channels/TSGs. */
 #define RUNLIST_APPEND_FAILURE U32_MAX
@@ -130,7 +116,7 @@ struct nvgpu_runlist_domain {
 	 */
 	u64 domain_id;
 	/* Set to true if any channel belongs this domain get removed. */
-	bool remove;
+	bool removed;
 	/**
 	 * All created domains are tracked in a list.
 	 *
@@ -148,7 +134,7 @@ struct nvgpu_runlist_domain {
 	 * thread is available. This can be removed once KMD has completely
 	 * switched to GSP.
 	 */
-	struct nvgpu_spinlock lock;
+	struct nvgpu_mutex lock;
 
 	/** Runlist buffer free to use in sw. Swapped with another mem on next load. */
 	struct nvgpu_runlist_mem *mem;
@@ -206,7 +192,6 @@ struct nvgpu_runlist {
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };
 int nvgpu_runlist_wait_pending_legacy(struct gk20a *g, struct nvgpu_runlist *rl);
-bool nvgpu_rl_domain_exists(struct gk20a *g, const char *name);
 struct nvgpu_runlist_domain *nvgpu_runlist_domain_alloc(struct gk20a *g,
 		u64 domain_id);
 void nvgpu_runlist_domain_free(struct gk20a *g,
@@ -227,15 +212,30 @@ nvgpu_runlist_domain_from_domains_list(struct nvgpu_list_node *node)
 }
 
 /**
- * @brief Schedule runlist domain
+ * @brief Submit next_domain if there is a pending update.
  *
- * @param g			Global gk20a struct
- * @param runlist	Runlist context
- * @param next_domain	-> Actual domain data thats meant to be scheduled
- * @param wait_for_finish	-> Wait for finish
- * @return int	0 in case of success, less than 0 otherwise,
+ * This function submits a runlist domain to the hardware and optionally waits
+ * for the submission to complete. It handles the case where NVS is not present
+ * by falling back to the shadow runlist domain.
  *
- * Submit next_domain if there is a pending update.
+ * The steps performed by the function are as follows:
+ * -# Initialize the error variable to success.
+ * -# If NVS is not present, proceed with the following steps:
+ *    -# If the next domain is NULL, use the shadow runlist domain.
+ *    -# Call 'runlist_submit_powered()' to submit the runlist with the next
+ *       domain to the hardware.
+ *    -# If 'wait_for_finish' is true, wait for the runlist update to complete
+ *       by calling 'nvgpu_runlist_wait_pending_legacy()'.
+ *       -# If waiting fails, log the timeout error and return the error code.
+ * -# Return the result of the submission, which is success unless waiting for
+ *    the update to complete failed.
+ *
+ * @param [in]  g                Global gk20a struct
+ * @param [in]  runlist          Runlist context
+ * @param [in]  next_domain      Actual domain data thats meant to be scheduled
+ * @param [in]  wait_for_finish  Wait for finish
+ *
+ * @return int	0 in case of success, less than 0 otherwise.
  */
 int nvgpu_rl_domain_sync_submit(struct gk20a *g, struct nvgpu_runlist *runlist,
 		struct nvgpu_runlist_domain *next_domain, bool wait_for_finish);
@@ -295,6 +295,32 @@ u32 nvgpu_runlist_construct_locked(struct nvgpu_fifo *f,
  *
  * The only difference with #nvgpu_runlist_reload is that the caller already
  * holds the runlist_lock before calling this function.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the return value to success and a flag indicating whether TSG state
+ *    can be updated to false.
+ * -# If the domain is NULL, fall back to using the shadow runlist domain.
+ * -# If the domain is not the shadow domain, perform additional checks and updates
+ *    specific to configurations with the round-robin scheduler disabled.
+ *    -# Set the flag to allow updating TSG state if the round-robin scheduler is disabled.
+ *    -# Update the shadow runlist domain memory by calling 'nvgpu_runlist_update_mem_locked()'.
+ *    -# If the update fails, return the error code.
+ *    -# Swap the current and hardware runlist memories for the shadow domain using
+ *       'nvgpu_runlist_swap_mem()'.
+ *    -# If GSP scheduler and NVS are present and enabled, update the GSP scheduler
+ *       with the new runlist information using 'nvgpu_gps_sched_update_runlist()'.
+ * -# Update the domain memory by calling 'nvgpu_runlist_update_mem_locked()' with the
+ *    negated value of the TSG state update flag.
+ *    -# If the update fails, return the error code.
+ * -# Swap the current and hardware runlist memories for the domain using
+ *    'nvgpu_runlist_swap_mem()'.
+ * -# If GSP scheduler and NVS are present and enabled, update the GSP scheduler
+ *    with the new runlist information using 'nvgpu_gps_sched_update_runlist()'.
+ * -# If the checker feature is enabled, store the runlist memory count for both
+ *    current and hardware memories using 'nvgpu_checker_nvs_domains_store_rlmem_count()'.
+ *    -# If storing the data fails, log the error and return the error code.
+ * -# Return the result of the operation, which is success unless any of the updates
+ *    or storage operations failed.
  *
  * @return 0 in case of success, < 0 in case of failure.
  * @retval -E2BIG in case there are not enough entries in runlist buffer to
@@ -484,6 +510,7 @@ void nvgpu_runlist_unlock_active_runlists(struct gk20a *g);
  */
 void nvgpu_runlist_unlock_runlists(struct gk20a *g, u32 runlists_mask);
 
+#ifdef CONFIG_NVGPU_RECOVERY
 /**
  * @brief Get list of runlists per engine/PBDMA/TSG
  *
@@ -511,6 +538,7 @@ void nvgpu_runlist_unlock_runlists(struct gk20a *g, u32 runlists_mask);
  */
 u32 nvgpu_runlist_get_runlists_mask(struct gk20a *g, u32 id,
 	unsigned int id_type, u32 act_eng_bitmask, u32 pbdma_bitmask);
+#endif
 
 /** @cond DOXYGEN_SHOULD_SKIP_THIS */
 /**

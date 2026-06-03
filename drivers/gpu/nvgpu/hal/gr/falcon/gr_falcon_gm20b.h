@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_FALCON_GM20B_H
@@ -30,16 +12,20 @@ struct nvgpu_fecs_method_op;
 struct nvgpu_fecs_host_intr_status;
 struct nvgpu_gr_falcon_query_sizes;
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_falcon_get_fw_name(struct gk20a *g, const char **ucode_name, u32 falcon_id);
 void gm20b_gr_falcon_fecs_ctxsw_clear_mailbox(struct gk20a *g,
 					u32 reg_index, u32 clear_val);
+#endif
 u32 gm20b_gr_falcon_read_mailbox_fecs_ctxsw(struct gk20a *g, u32 reg_index);
 void gm20b_gr_falcon_fecs_host_clear_intr(struct gk20a *g, u32 fecs_intr);
 u32 gm20b_gr_falcon_fecs_host_intr_status(struct gk20a *g,
 			struct nvgpu_fecs_host_intr_status *fecs_host_intr);
 u32 gm20b_gr_falcon_fecs_base_addr(void);
 u32 gm20b_gr_falcon_gpccs_base_addr(void);
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gm20b_gr_falcon_dump_stats(struct gk20a *g);
+#endif
 u32 gm20b_gr_falcon_get_fecs_ctx_state_store_major_rev_id(struct gk20a *g);
 u32 gm20b_gr_falcon_get_fecs_ctxsw_mailbox_size(void);
 void gm20b_gr_falcon_start_gpccs(struct gk20a *g);
@@ -62,15 +48,17 @@ u32 gm20b_gr_falcon_get_fecs_current_ctx_data(struct gk20a *g,
 						struct nvgpu_mem *inst_block);
 int gm20b_gr_falcon_init_ctx_state(struct gk20a *g,
 		struct nvgpu_gr_falcon_query_sizes *sizes);
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 int gm20b_gr_falcon_get_zcull_image_size(struct gk20a *g,
                 struct nvgpu_gr_falcon_query_sizes *sizes);
 #endif
 u32 gm20b_gr_falcon_read_status0_fecs_ctxsw(struct gk20a *g);
 u32 gm20b_gr_falcon_read_status1_fecs_ctxsw(struct gk20a *g);
 #ifdef CONFIG_NVGPU_GRAPHICS
+#ifdef CONFIG_NVGPU_CILP
 int gm20b_gr_falcon_submit_fecs_sideband_method_op(struct gk20a *g,
 				struct nvgpu_fecs_method_op op);
+#endif
 #endif
 #ifdef CONFIG_NVGPU_GR_FALCON_NON_SECURE_BOOT
 void gm20b_gr_falcon_load_ctxsw_ucode_header(struct gk20a *g,

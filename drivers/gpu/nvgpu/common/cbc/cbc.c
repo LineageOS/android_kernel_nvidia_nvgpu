@@ -1,35 +1,16 @@
-/*
- * CBC
- *
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
-
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/cbc.h>
+#include <nvgpu/ce_app.h>
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
 #include <nvgpu/string.h>
 #include <nvgpu/nvgpu_mem.h>
+#include <nvgpu/nvgpu_sgt.h>
 #include <nvgpu/comptags.h>
+#include <nvgpu/fence.h>
 #include <nvgpu/soc.h>
 
 void nvgpu_cbc_remove_support(struct gk20a *g)
@@ -104,6 +85,146 @@ int nvgpu_cbc_init_support(struct gk20a *g)
 	return err;
 }
 
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+static int nvgpu_cbc_scrub_fence_wait(struct gk20a *g,
+		struct nvgpu_fence_type *fence_out)
+{
+	struct nvgpu_timeout timeout;
+	bool done;
+	int err;
+
+	nvgpu_timeout_init_cpu_timer(g, &timeout, nvgpu_get_poll_timeout(g));
+
+	do {
+		err = nvgpu_fence_wait(g, fence_out,
+				       nvgpu_get_poll_timeout(g));
+		if (err != -ERESTARTSYS) {
+			done = true;
+		} else if (nvgpu_timeout_expired(&timeout) != 0) {
+			done = true;
+		} else {
+			done = false;
+		}
+	} while (!done);
+
+	nvgpu_fence_put(fence_out);
+	if (err != 0) {
+		nvgpu_err(g,
+			"fence wait failed for CE execute ops");
+		return err;
+	}
+
+	return 0;
+}
+
+static int nvgpu_scrub_cbc_mem_no_iommu(struct gk20a *g, struct nvgpu_sgt *nvgpu_sgt, u32 ce_ctx_id)
+{
+	struct nvgpu_fence_type *last_fence = NULL;
+	struct nvgpu_fence_type *fence_out = NULL;
+	const u32 buffer_scrub_value = 0U;
+	void *sgl = NULL;
+	u64 size;
+	u64 spa;
+	int err;
+
+
+	nvgpu_sgt_for_each_sgl(sgl, nvgpu_sgt) {
+		if (last_fence != NULL) {
+			nvgpu_fence_put(last_fence);
+		}
+		spa = nvgpu_sgt_get_phys(g, nvgpu_sgt, sgl);
+		size = nvgpu_sgt_get_length(nvgpu_sgt, sgl);
+
+		nvgpu_log(g, gpu_dbg_ce, "SCRUB memory start (spa) 0x%16llx size 0x%16llx",
+			  spa, size);
+
+		err = nvgpu_ce_execute_ops(g,
+					   ce_ctx_id,
+					   spa,
+					   size,
+					   buffer_scrub_value,
+					   &fence_out);
+		if (err != 0) {
+			return err;
+		}
+		last_fence = fence_out;
+	}
+
+	if (last_fence != NULL)
+		err = nvgpu_cbc_scrub_fence_wait(g, last_fence);
+
+	return err;
+}
+#endif
+
+/*
+ * Submit a CE Fill command with scrub enabled to zero out both the physical
+ * pages and corresponding cbc backing storage.
+ */
+int nvgpu_scrub_cbc_mem(struct gk20a *g, struct sg_table *sgt)
+{
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+	struct nvgpu_fence_type *fence_out = NULL;
+	struct nvgpu_sgt *nvgpu_sgt = NULL;
+	const u32 buffer_scrub_value = 0U;
+	void *sgl = NULL;
+	u32 ce_ctx_id;
+	u64 size = 0;
+	int err = 0;
+	u64 iova;
+
+	ce_ctx_id = g->mm.cbc.ce_ctx_id;
+	if (ce_ctx_id == NVGPU_CE_INVAL_CTX_ID) {
+		return -EINVAL;
+	}
+
+	nvgpu_sgt = nvgpu_linux_sgt_create(g, sgt);
+	if (!nvgpu_sgt) {
+		return -ENOMEM;
+	}
+
+	if (!nvgpu_iommuable(g)) {
+		err = nvgpu_scrub_cbc_mem_no_iommu(g, nvgpu_sgt, ce_ctx_id);
+		nvgpu_sgt_free(g, nvgpu_sgt);
+		if (err != 0)
+			nvgpu_err(g,
+				  "Failed nvgpu_ce_execute_ops[%d]", err);
+		return err;
+	}
+
+	iova = nvgpu_sgt_get_gpu_addr(g, nvgpu_sgt, nvgpu_sgt->sgl, NULL);
+	/* Find the total buffer size */
+	nvgpu_sgt_for_each_sgl(sgl, nvgpu_sgt) {
+		size += nvgpu_sgt_get_length(nvgpu_sgt, sgl);
+	}
+
+	nvgpu_log(g, gpu_dbg_ce, "SCRUB memory start (iova) 0x%16llx size 0x%16llx",
+		   iova, size);
+	err = nvgpu_ce_execute_ops(g,
+				   ce_ctx_id,
+				   iova,
+				   size,
+				   buffer_scrub_value,
+				   &fence_out);
+	nvgpu_sgt_free(g, nvgpu_sgt);
+	if (err != 0) {
+		nvgpu_err(g,
+			  "Failed nvgpu_ce_execute_ops[%d]", err);
+		return err;
+	}
+
+	if (fence_out != NULL)
+		err = nvgpu_cbc_scrub_fence_wait(g, fence_out);
+
+	return err;
+#else
+	(void)sgt;
+	(void)g;
+	/* scrub is not supported */
+	return -ENOSYS;
+#endif
+}
+
 #ifdef CONFIG_NVGPU_IVM_BUILD
 static int nvgpu_init_cbc_mem(struct gk20a *g, u64 pa, u64 size)
 {
@@ -143,12 +264,10 @@ int nvgpu_cbc_alloc(struct gk20a *g, size_t compbit_backing_size,
 			bool vidmem_alloc)
 {
 	struct nvgpu_cbc *cbc = g->cbc;
-#ifdef CONFIG_NVGPU_IVM_BUILD
 	int err = 0;
-#endif
 	(void)vidmem_alloc;
 
-	if (nvgpu_mem_is_valid(&cbc->compbit_store.mem) != 0) {
+	if (nvgpu_mem_is_valid(&cbc->compbit_store.mem) != false) {
 		return 0;
 	}
 
@@ -178,14 +297,21 @@ int nvgpu_cbc_alloc(struct gk20a *g, size_t compbit_backing_size,
 			}
 		}
 
-		return nvgpu_get_mem_from_contigpool(g,
+		err = nvgpu_get_mem_from_contigpool(g,
 				compbit_backing_size);
+		if (err != 0) {
+			nvgpu_err(g, "Failed to create mem");
+		}
 	} else
 #endif
 	{
-		return nvgpu_dma_alloc_flags_sys(g,
+		err = nvgpu_dma_alloc_flags_sys(g,
 				NVGPU_DMA_PHYSICALLY_ADDRESSED,
 				compbit_backing_size,
 				&cbc->compbit_store.mem);
+		if (err != 0) {
+			nvgpu_err(g, "alloc for sysmem desc failed");
+		}
 	}
+	return err;
 }

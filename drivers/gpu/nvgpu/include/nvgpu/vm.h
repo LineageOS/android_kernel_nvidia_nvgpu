@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 /**
@@ -188,6 +170,8 @@ struct nvgpu_mapped_buf {
 	 * Offset into compression tags pool if compression enabled.
 	 */
 	u32 ctag_offset;
+	/* pte kind is compression kind */
+	bool compr_kind_selected;
 	/**
 	 * GMMU read/write flags specified when mapping was created.
 	 */
@@ -253,6 +237,11 @@ struct vm_gk20a {
 	 * To enable large page support (64KB).
 	 */
 	bool big_pages;
+
+	/**
+	 * To enable huge page support (2MB).
+	 */
+	bool huge_pages;
 	/**
 	 * Enable Compression tags.
 	 * It is not enabled for safety build.
@@ -261,6 +250,9 @@ struct vm_gk20a {
 
 	/** Page size used for mappings with this address space. */
 	u32 big_page_size;
+
+	/** Huge size used for mappings with this address space. */
+	u32 huge_page_size;
 
 	/** GPU and CPU using same address space or not. */
 	bool unified_va;
@@ -333,7 +325,7 @@ struct vm_gk20a {
 	 * Create sync point read only map for sync point range.
 	 * Channels sharing same vm will also share same sync point ro map.
 	 */
-	u64 syncpt_ro_map_gpu_va;
+	u64 syncpt_ro_map_gpu_va[2];
 	/**
 	 * Protect allocation of sync point map.
 	 */
@@ -440,6 +432,23 @@ int nvgpu_vm_bind_channel(struct vm_gk20a *vm, struct nvgpu_channel *ch);
  *			FALSE, if it is not supported.
  */
 bool nvgpu_big_pages_possible(struct vm_gk20a *vm, u64 base, u64 size);
+
+/**
+ * @brief Check huge page translation is possible with the given address
+ *  and size.
+ *
+ * @param vm [in]	Pointer to virtual memory context.
+ * @param base [in]	The virtual address.
+ * @param size [in]	The size.
+ *
+ * - Get the huge page size mask.
+ * - Compute the base and size by ANDing with huge page size mask.
+ * - If the computed base or size is non zero, returns FALSE.
+ *
+ * @return              TRUE, if it supports.
+ *			FALSE, if it is not supported.
+ */
+bool nvgpu_huge_pages_possible(struct vm_gk20a *vm, u64 base, u64 size);
 
 /**
  * @brief Determine how many bits of the address space is covered by
@@ -621,7 +630,7 @@ int nvgpu_vm_map(struct vm_gk20a *vm,
 		 u64 map_addr,
 		 u64 map_size,
 		 u64 phys_offset,
-		 enum gk20a_mem_rw_flag rw,
+		 enum gk20a_mem_rw_flag buffer_rw_mode,
 		 u32 map_access_requested,
 		 u32 flags,
 		 s16 compr_kind,
@@ -651,7 +660,7 @@ int nvgpu_vm_map(struct vm_gk20a *vm,
  *
  * @return				None.
  */
-void nvgpu_vm_unmap(struct vm_gk20a *vm, u64 offset,
+int nvgpu_vm_unmap(struct vm_gk20a *vm, u64 offset,
 		    struct vm_gk20a_mapping_batch *batch);
 
 /**
@@ -674,13 +683,13 @@ void nvgpu_vm_unmap_system(struct nvgpu_mapped_buf *mapped_buffer);
  * - Get the mapped buffer by calling #nvgpu_mapped_buf_from_ref().
  * - Call #nvgpu_vm_do_unmap() to unmap and free the mapped buffer.
  *   - #nvgpu_vm_do_unmap() will do the following
- *      - Call HAL specific g.ops.mm.gmmu.unmap() to unmap the buffer.
+ *      - Call HAL specific gops_mm_gmmu.unmap() to unmap the buffer.
  *      - Remove the mapped buffer from mapped buffer list.
  *      - Free the memory allocated for mapped buffer.
  *
  * @return			None.
  */
-void nvgpu_vm_unmap_ref_internal(struct nvgpu_ref *ref);
+int nvgpu_vm_unmap_ref_internal(struct nvgpu_ref *ref);
 
 /**
  * @brief Os specific function to get the size of allocated dma buffer.
@@ -791,12 +800,12 @@ void nvgpu_insert_mapped_buf(struct vm_gk20a *vm,
  * - Initialise some basic properties like supported page sizes, name, whether
  *   the address space is unified, address ranges and whether the address space
  *   is managed by user/kernel of the virtual memory context by calling
- *   #nvgpu_vm_init_attributes().
- * - Call HAL specific #vm_as_alloc_share() to allocate share id for the
- *   virtual memory context, if ops.mm.vm_as_alloc_share is not null.
- * - Initialise the page table by calling #nvgpu_gmmu_init_page_table().
+ *   nvgpu_vm_init_attributes().
+ * - Call HAL specific callback to allocate share id for the
+ *   virtual memory context, if gops_mm.vm_as_alloc_share() is not null.
+ * - Initialise the page table by calling nvgpu_gmmu_init_page_table().
  * - Initialise the address ranges and corresponding allocators by calling
- *   #nvgpu_vm_init_vma_allocators().
+ *   nvgpu_vm_init_vma().
  * - Initialise synchronisation primitives.
  *
  * @return			Zero, for success.
@@ -890,13 +899,17 @@ struct vm_gk20a *nvgpu_vm_init(struct gk20a *g,
  * @param pgsz_idx [in]	Page size index.
  *			- Min: GMMU_PAGE_SIZE_SMALL
  *			- Max: GMMU_PAGE_SIZE_KERNEL
+ * @param align_required [in] aligned required or not for the
+ *                            address to be allocated.
+ * @param align_size [in]     Size to be aligned.
  *
  * - Get the #nvgpu_allocator struct for the given @pgsz_idx.
  * - Call #nvgpu_alloc_pte() to allocate virtual address from the allocator.
  *
  * @return		Virtual address allocated.
  */
-u64 nvgpu_vm_alloc_va(struct vm_gk20a *vm, u64 size, u32 pgsz_idx);
+u64 nvgpu_vm_alloc_va(struct vm_gk20a *vm, u64 size, u32 pgsz_idx,
+		bool align_required, u64 align_size);
 
 /**
  * @brief Free the virtual address from the VM context.

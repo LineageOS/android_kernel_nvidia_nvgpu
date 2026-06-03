@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_INTR_PRIV_H
@@ -113,6 +95,11 @@ struct nvgpu_gr_intr_info {
  */
 struct nvgpu_gr_tpc_exception {
 	/**
+	 * This flag is set in case of TPCCS exception is pending.
+	 */
+	bool tpccs_exception;
+
+	/**
 	 * This flag is set in case TEX exception is pending.
 	 */
 	bool tex_exception;
@@ -158,6 +145,14 @@ struct nvgpu_gr_isr_data {
 	 * Pointer to faulted GPU channel.
 	 */
 	struct nvgpu_channel *ch;
+	/**
+	 * GFID of the tsg.
+	 */
+	u32 gfid;
+	/**
+	 * TSG ID of the faulted GPU context.
+	 */
+	u32 tsgid;
 	/**
 	 * Address of the trapped method.
 	 */
@@ -217,9 +212,9 @@ struct nvgpu_gr_intr {
 	 */
 	u32 channel_tlb_flush_index;
 	/**
-	 * Spinlock for all lookup buffer accesses.
+	 * Mutex for all lookup buffer accesses.
 	 */
-	struct nvgpu_spinlock ch_tlb_lock;
+	struct nvgpu_mutex ch_tlb_lock;
 };
 
 #endif /* NVGPU_GR_INTR_PRIV_H */

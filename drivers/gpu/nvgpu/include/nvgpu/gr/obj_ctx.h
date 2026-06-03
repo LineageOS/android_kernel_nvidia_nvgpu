@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_OBJ_CTX_H
@@ -43,12 +25,16 @@ struct nvgpu_gr_global_ctx_buffer_desc;
 struct nvgpu_mem;
 struct nvgpu_channel;
 struct nvgpu_gr_obj_ctx_golden_image;
+struct nvgpu_priv_addr_map;
 
 #ifdef CONFIG_NVGPU_GRAPHICS
 #define NVGPU_OBJ_CTX_FLAGS_SUPPORT_GFXP		BIT32(1)
 #endif
 #ifdef CONFIG_NVGPU_CILP
 #define NVGPU_OBJ_CTX_FLAGS_SUPPORT_CILP		BIT32(2)
+#endif
+#ifdef CONFIG_NVGPU_VPR
+#define NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR			BIT32(3)
 #endif
 
 /**
@@ -373,6 +359,10 @@ void nvgpu_gr_obj_ctx_deinit(struct gk20a *g,
 	struct nvgpu_gr_obj_ctx_golden_image *golden_image);
 
 #ifdef CONFIG_NVGPU_DEBUGGER
+int nvgpu_gr_init_pri_address_buffer(struct gk20a *g,
+		struct nvgpu_priv_addr_map **pri_addr_map);
+void nvgpu_gr_pri_address_buffer_deinit(struct gk20a *g,
+		struct nvgpu_priv_addr_map *pri_addr_map);
 u32 *nvgpu_gr_obj_ctx_get_local_golden_image_ptr(
 	struct nvgpu_gr_obj_ctx_golden_image *golden_image);
 #endif

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_OPS_H
 #define NVGPU_GOPS_OPS_H
@@ -68,6 +50,7 @@
 #include <nvgpu/gops/priv_ring.h>
 #include <nvgpu/gops/therm.h>
 #include <nvgpu/gops/fb.h>
+#include <nvgpu/gops/sysctrl.h>
 #include <nvgpu/gops/mc.h>
 #include <nvgpu/gops/cg.h>
 #include <nvgpu/gops/pmu.h>
@@ -75,6 +58,10 @@
 #include <nvgpu/gops/grmgr.h>
 #include <nvgpu/gops/cic_mon.h>
 #include <nvgpu/gops/gin.h>
+#include <nvgpu/gops/xtl.h>
+#include <nvgpu/gops/lrc.h>
+#include <nvgpu/gops/ctc_chi.h>
+#include <nvgpu/gops/xbar.h>
 #ifdef CONFIG_NVGPU_NON_FUSA
 #include <nvgpu/gops/mssnvlink.h>
 #endif
@@ -111,6 +98,8 @@ struct gpu_ops {
 	struct gops_ecc ecc;
 	/** Ltc hal ops. */
 	struct gops_ltc ltc;
+	/** Lrc hal ops. */
+	struct gops_lrc lrc;
 #ifdef CONFIG_NVGPU_COMPRESSION
 	struct gops_cbc cbc;
 #endif
@@ -222,13 +211,19 @@ struct gpu_ops {
 
 	/** Bus hal ops. */
 	struct gops_bus bus;
+	/** XTL hal ops. */
+	struct gops_xtl xtl;
+	/** CTC CHI hal ops. */
+	struct gops_ctc_chi ctc_chi;
 	/** Ptimer hal ops. */
 	struct gops_ptimer ptimer;
 #ifdef CONFIG_NVGPU_CYCLESTATS
 	struct gops_css css;
 #endif
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
 	struct gops_bios bios;
+#endif
+#ifdef CONFIG_NVGPU_DGPU
 	struct gops_xve xve;
 #endif
 	/** Falcon hal ops. */
@@ -237,6 +232,8 @@ struct gpu_ops {
 	struct gops_priv_ring priv_ring;
 	/** Top hal ops. */
 	struct gops_top top;
+	/** Sysctrl hal ops. */
+	struct gops_sysctrl sysctrl;
 /** @cond DOXYGEN_SHOULD_SKIP_THIS */
 	struct gops_sbr sbr;
 	struct gops_func func;
@@ -250,6 +247,10 @@ struct gpu_ops {
 	struct gops_engine engine;
 	struct gops_pbdma pbdma;
 	struct gops_pbdma_status pbdma_status;
+
+	/** XBAR hal ops. */
+	struct gops_xbar xbar;
+
 	/*
 	 * This function is called to allocate secure memory (memory
 	 * that the CPU cannot see). The function should fill the

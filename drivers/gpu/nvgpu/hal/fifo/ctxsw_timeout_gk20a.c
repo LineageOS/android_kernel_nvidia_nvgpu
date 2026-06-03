@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -66,7 +47,9 @@ bool gk20a_fifo_handle_ctxsw_timeout(struct gk20a *g)
 	/* read the scheduler error register */
 	sched_error = nvgpu_readl(g, fifo_intr_sched_error_r());
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	engine_id = nvgpu_engine_find_busy_doing_ctxsw(g, &id, &is_tsg);
+#endif
 	/*
 	 * Could not find the engine
 	 * Possible Causes:
@@ -117,14 +100,14 @@ bool gk20a_fifo_handle_ctxsw_timeout(struct gk20a *g)
 	}
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
 	if (tsg != NULL) {
-		recover = g->ops.tsg.check_ctxsw_timeout(tsg, &debug_dump, &ms);
+		recover = g->ops.tsg.check_ctxsw_timeout(g, tsg->tsgid, &debug_dump, &ms);
 		if (recover) {
 			nvgpu_err(g,
 				"fifo ctxsw timeout error: "
 				"engine=%u, %s=%d, ms=%u",
 				engine_id, is_tsg ? "tsg" : "ch", id, ms);
 
-			nvgpu_rc_ctxsw_timeout(g, BIT32(engine_id), tsg, debug_dump);
+			nvgpu_rc_ctxsw_timeout(g, BIT32(engine_id), 0U, tsg->tsgid, debug_dump);
 			return recover;
 		}
 	}

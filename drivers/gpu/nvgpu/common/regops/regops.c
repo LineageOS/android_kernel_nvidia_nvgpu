@@ -1,26 +1,5 @@
-/*
- * Tegra GK20A GPU Debugger Driver Register Ops
- *
- * Copyright (c) 2013-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2013-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/bsearch.h>
@@ -88,28 +67,13 @@ static bool validate_reg_ops(struct gk20a *g,
 			    bool valid_ctx,
 			    u32 *flags);
 
-int exec_regops_gk20a(struct gk20a *g,
-		      struct nvgpu_tsg *tsg,
-		      struct nvgpu_dbg_reg_op *ops,
-		      u32 num_ops,
-		      u32 ctx_wr_count,
-		      u32 ctx_rd_count,
-		      u32 *flags)
+int exec_global_regops(struct gk20a *g,
+		struct nvgpu_dbg_reg_op *ops, u32 num_ops)
 {
 	int err = 0;
 	unsigned int i;
 	u32 data32_lo = 0, data32_hi = 0;
 	bool skip_read_lo, skip_read_hi;
-
-	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
-
-	/* be sure that ctx info is in place if there are ctx ops */
-	if ((ctx_wr_count | ctx_rd_count) != 0U) {
-		if (!gr_context_info_available(g)) {
-			nvgpu_err(g, "gr context data not available");
-			return -ENODEV;
-		}
-	}
 
 	for (i = 0; i < num_ops; i++) {
 		/* if it isn't global then it is done in the ctx ops... */
@@ -197,9 +161,36 @@ int exec_regops_gk20a(struct gk20a *g,
 		default:
 			BUG();
 			err = -EINVAL;
-			goto clean_up;
 			break;
 		}
+	}
+
+	return err;
+}
+
+int exec_regops_gk20a(struct gk20a *g,
+		      struct nvgpu_tsg *tsg,
+		      struct nvgpu_dbg_reg_op *ops,
+		      u32 num_ops,
+		      u32 ctx_wr_count,
+		      u32 ctx_rd_count,
+		      u32 *flags)
+{
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
+
+	/* be sure that ctx info is in place if there are ctx ops */
+	if ((ctx_wr_count | ctx_rd_count) != 0U) {
+		if (!gr_context_info_available(g)) {
+			nvgpu_err(g, "gr context data not available");
+			return -ENODEV;
+		}
+	}
+
+	err = exec_global_regops(g, ops, num_ops);
+	if (err != 0) {
+		goto clean_up;
 	}
 
 	if ((ctx_wr_count | ctx_rd_count) != 0U) {
@@ -220,16 +211,14 @@ int exec_regops_gk20a(struct gk20a *g,
 
 #ifdef CONFIG_NVGPU_MIG
 static int calculate_new_offsets_for_perf_fbp_chiplets(struct gk20a *g,
-	struct nvgpu_dbg_reg_op *op, u32 reg_chiplet_base, u32 chiplet_offset)
+	struct nvgpu_dbg_reg_op *op, u32 reg_chiplet_base, u32 chiplet_offset,
+	u32 gr_instance_id)
 {
 	int ret = 0;
 	u32 fbp_local_index, fbp_logical_index;
-	u32 gr_instance_id;
 	u32 new_offset;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
-
-	gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
 
 	if (chiplet_offset == 0U) {
 		nvgpu_err(g, "Invalid chiplet offsets");
@@ -271,16 +260,14 @@ static int calculate_new_offsets_for_perf_fbp_chiplets(struct gk20a *g,
 }
 
 static int calculate_new_offsets_for_perf_gpc_chiplets(struct gk20a *g,
-	struct nvgpu_dbg_reg_op *op, u32 reg_chiplet_base, u32 chiplet_offset)
+	struct nvgpu_dbg_reg_op *op, u32 reg_chiplet_base, u32 chiplet_offset,
+	u32 gr_instance_id)
 {
 	int ret = 0;
-	u32 gr_instance_id;
 	u32 gpc_local_index;
 	u32 gpc_logical_index, new_offset;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
-
-	gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
 
 	if (chiplet_offset == 0U) {
 		nvgpu_err(g, "Invalid chiplet offsets");
@@ -326,9 +313,12 @@ static int translate_regops_for_profiler(struct gk20a *g,
 	struct nvgpu_pm_resource_register_range_map *entry)
 {
 	int ret = 0;
+	u32 gr_instance_id;
 	u32 chiplet_offset;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, " ");
+
+	gr_instance_id = nvgpu_grmgr_get_gr_instance_id(g, prof->gpu_instance_id);
 
 	if ((entry->type != NVGPU_HWPM_REGISTER_TYPE_HWPM_PERFMON) &&
 			(entry->type != NVGPU_HWPM_REGISTER_TYPE_HWPM_ROUTER)) {
@@ -338,19 +328,19 @@ static int translate_regops_for_profiler(struct gk20a *g,
 	if (entry->start == g->ops.perf.get_hwpm_gpc_perfmon_regs_base(g)) {
 		chiplet_offset = g->ops.perf.get_pmmgpc_per_chiplet_offset();
 		ret = calculate_new_offsets_for_perf_gpc_chiplets(g,
-			op, entry->start, chiplet_offset);
+			op, entry->start, chiplet_offset, gr_instance_id);
 	} else if (entry->start == g->ops.perf.get_hwpm_gpcrouter_perfmon_regs_base(g)) {
 		chiplet_offset = g->ops.perf.get_pmmgpcrouter_per_chiplet_offset();
 		ret = calculate_new_offsets_for_perf_gpc_chiplets(g,
-			op, entry->start, chiplet_offset);
+			op, entry->start, chiplet_offset ,gr_instance_id);
 	} else if (entry->start == g->ops.perf.get_hwpm_fbp_perfmon_regs_base(g)) {
 		chiplet_offset = g->ops.perf.get_pmmfbp_per_chiplet_offset();
 		ret = calculate_new_offsets_for_perf_fbp_chiplets(g, op,
-			entry->start, chiplet_offset);
+			entry->start, chiplet_offset ,gr_instance_id);
 	} else if (entry->start == g->ops.perf.get_hwpm_fbprouter_perfmon_regs_base(g)) {
 		chiplet_offset = g->ops.perf.get_pmmfbprouter_per_chiplet_offset();
 		ret = calculate_new_offsets_for_perf_fbp_chiplets(g, op,
-			entry->start, chiplet_offset);
+			entry->start, chiplet_offset ,gr_instance_id);
 	}
 
 	return ret;

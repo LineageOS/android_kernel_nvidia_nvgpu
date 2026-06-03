@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/ce_app.h>
@@ -130,26 +111,8 @@ static int nvgpu_vidmem_do_clear_all(struct gk20a *g)
 
 	vidmem_dbg(g, "Clearing all VIDMEM:");
 
-#ifdef CONFIG_NVGPU_DGPU
-	err = nvgpu_ce_execute_ops(g,
-			mm->vidmem.ce_ctx_id,
-			0,
-			mm->vidmem.base,
-			mm->vidmem.bootstrap_base - mm->vidmem.base,
-			0x00000000,
-			NVGPU_CE_DST_LOCATION_LOCAL_FB,
-			NVGPU_CE_MEMSET,
-			0,
-			&fence_out);
-	if (err != 0) {
-		nvgpu_err(g,
-			"Failed to clear vidmem : %d", err);
-		return err;
-	}
-#else
 	/* fail due to lack of ce app support */
 	return -ENOSYS;
-#endif
 
 	if (fence_out != NULL) {
 		err = nvgpu_vidmem_clear_fence_wait(g, fence_out);
@@ -476,27 +439,10 @@ int nvgpu_vidmem_clear(struct gk20a *g, struct nvgpu_mem *mem)
 			nvgpu_fence_put(last_fence);
 		}
 
-#ifdef CONFIG_NVGPU_DGPU
-		err = nvgpu_ce_execute_ops(g,
-			g->mm.vidmem.ce_ctx_id,
-			0,
-			nvgpu_sgt_get_phys(g, &alloc->sgt, sgl),
-			nvgpu_sgt_get_length(&alloc->sgt, sgl),
-			0x00000000,
-			NVGPU_CE_DST_LOCATION_LOCAL_FB,
-			NVGPU_CE_MEMSET,
-			0,
-			&fence_out);
-#else
 		/* fail due to lack of ce app support */
 		err = -ENOSYS;
-#endif
 
 		if (err != 0) {
-#ifdef CONFIG_NVGPU_DGPU
-			nvgpu_err(g,
-				"Failed nvgpu_ce_execute_ops[%d]", err);
-#endif
 			return err;
 		}
 

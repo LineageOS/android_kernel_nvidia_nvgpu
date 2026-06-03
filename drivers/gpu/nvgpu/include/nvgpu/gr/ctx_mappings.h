@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_CTX_MAPPINGS_H
@@ -88,11 +70,12 @@ int nvgpu_gr_ctx_mappings_map_ctx_buffer(struct gk20a *g,
  *
  * @return 0 in case of success, < 0 in case of failure.
  */
+#ifdef CONFIG_NVGPU_GFXP
 int nvgpu_gr_ctx_mappings_map_ctx_preemption_buffers(struct gk20a *g,
 	struct nvgpu_gr_ctx *ctx,
 	struct nvgpu_tsg_subctx *subctx,
 	struct nvgpu_gr_ctx_mappings *mappings);
-
+#endif /* CONFIG_NVGPU_GFXP */
 /**
  * @brief Map GR and global context buffers and store in mappings struct.
  *
@@ -237,7 +220,9 @@ void nvgpu_gr_ctx_mappings_free_subctx_mappings(struct nvgpu_tsg_subctx *subctx,
  *
  * @return 0 in case of success, < 0 in case of failure.
  */
+#if defined(CONFIG_NVGPU_GFXP) || defined(CONFIG_NVGPU_DEBUGGER)
 int nvgpu_gr_ctx_mappings_map_buffer_all_subctx(
 		struct nvgpu_tsg *tsg, u32 index);
+#endif
 
 #endif /* NVGPU_GR_CTX_MAPPINGS_H */

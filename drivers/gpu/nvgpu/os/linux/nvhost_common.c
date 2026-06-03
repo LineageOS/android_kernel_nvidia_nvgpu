@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
@@ -8,6 +8,7 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/nvhost.h>
 #include <nvgpu/dma.h>
+#include <nvgpu/nvgpu_mem.h>
 
 #include "nvhost_priv.h"
 
@@ -16,14 +17,31 @@
 
 void nvgpu_free_nvhost_dev(struct gk20a *g)
 {
+	int i;
+	struct nvgpu_mem *mem = NULL;
+
+	if (!nvgpu_has_syncpoints(g)) {
+		return;
+	}
+
 	if (nvgpu_iommuable(g) && !nvgpu_is_enabled(g, NVGPU_SUPPORT_NVLINK)) {
 		struct device *dev = dev_from_gk20a(g);
-		struct nvgpu_mem *mem = &g->syncpt_mem;
+		for (i = 0; i < g->num_nvhost; i++) {
+			mem = &g->syncpt_mem[i];
+			if (mem->priv.sgt != NULL) {
+				dma_unmap_sg_attrs(dev, mem->priv.sgt->sgl, 1,
+					DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+				sg_free_table(mem->priv.sgt);
+				nvgpu_kfree(g, mem->priv.sgt);
+				mem->priv.sgt = NULL;
+			}
+		}
+	}
 
-		dma_unmap_sg_attrs(dev, mem->priv.sgt->sgl, 1,
-				DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-		sg_free_table(mem->priv.sgt);
-		nvgpu_kfree(g, mem->priv.sgt);
+	for (i = 0; i < g->num_nvhost; i++) {
+		if (nvgpu_mem_is_valid(&g->syncpt_mem[i])) {
+			nvgpu_dma_free(g, &g->syncpt_mem[i]);
+		}
 	}
 	nvgpu_kfree(g, g->nvhost);
 }
@@ -57,8 +75,8 @@ void nvgpu_nvhost_remove_symlink(struct gk20a *g)
 int nvgpu_nvhost_syncpt_init(struct gk20a *g)
 {
 	int err = 0;
-	struct nvgpu_mem *mem = &g->syncpt_mem;
-
+	struct nvgpu_mem *mem;
+	int i;
 	if (!nvgpu_has_syncpoints(g))
 		return -ENOSYS;
 
@@ -71,8 +89,18 @@ int nvgpu_nvhost_syncpt_init(struct gk20a *g)
 
 	err = nvgpu_nvhost_get_syncpt_aperture(
 			g->nvhost,
-			&g->syncpt_unit_base,
-			&g->syncpt_unit_size);
+			&g->syncpt_unit_base[0],
+			&g->syncpt_unit_size, false);
+
+	if (!err) {
+		if (g->num_nvhost > 1) {
+			err = nvgpu_nvhost_get_syncpt_aperture(
+				g->nvhost,
+				&g->syncpt_unit_base[1],
+				&g->syncpt_unit_size, true);
+		}
+	}
+
 	if (err) {
 		nvgpu_err(g, "Failed to get syncpt interface");
 		err = -ENOSYS;
@@ -91,36 +119,39 @@ int nvgpu_nvhost_syncpt_init(struct gk20a *g)
 	if (nvgpu_iommuable(g) && !nvgpu_is_enabled(g, NVGPU_SUPPORT_NVLINK)) {
 		struct device *dev = dev_from_gk20a(g);
 		struct scatterlist *sg;
+		for (i = 0; i < g->num_nvhost; i++) {
+			mem = &g->syncpt_mem[i];
+			mem->priv.sgt = nvgpu_kzalloc(g, sizeof(struct sg_table));
+			if (!mem->priv.sgt) {
+				err = -ENOMEM;
+				goto fail_sync;
+			}
 
-		mem->priv.sgt = nvgpu_kzalloc(g, sizeof(struct sg_table));
-		if (!mem->priv.sgt) {
-			err = -ENOMEM;
-			goto fail_sync;
-		}
-
-		err = sg_alloc_table(mem->priv.sgt, 1, GFP_KERNEL);
-		if (err) {
-			err = -ENOMEM;
-			goto fail_kfree;
-		}
-		sg = mem->priv.sgt->sgl;
-		sg_set_page(sg, phys_to_page(g->syncpt_unit_base),
+			err = sg_alloc_table(mem->priv.sgt, 1, GFP_KERNEL);
+			if (err) {
+				err = -ENOMEM;
+				goto fail_kfree;
+			}
+			sg = mem->priv.sgt->sgl;
+			sg_set_page(sg, phys_to_page(g->syncpt_unit_base[i]),
 				g->syncpt_unit_size, 0);
-		err = dma_map_sg_attrs(dev, sg, 1,
+			err = dma_map_sg_attrs(dev, sg, 1,
 				DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
-		/* dma_map_sg_attrs returns 0 on errors */
-		if (err == 0) {
-			nvgpu_err(g, "iova creation for syncpoint failed");
-			err = -ENOMEM;
-			goto fail_sgt;
+			g->syncpt_unit_base_spa[i] = g->syncpt_unit_base[i];
+			g->syncpt_unit_base[i] = sg_dma_address(sg);
+			/* dma_map_sg_attrs returns 0 on errors */
+			if (err == 0) {
+				nvgpu_err(g, "iova creation for syncpoint failed");
+				err = -ENOMEM;
+				goto fail_sgt;
+			}
 		}
-		g->syncpt_unit_base = sg_dma_address(sg);
 	}
 
 	g->syncpt_size =
 		nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, 1);
 	nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
-			g->syncpt_unit_base, g->syncpt_unit_size,
+			g->syncpt_unit_base[0], g->syncpt_unit_size,
 			g->syncpt_size);
 	return 0;
 fail_sgt:
@@ -130,4 +161,18 @@ fail_kfree:
 fail_sync:
 	nvgpu_set_enabled(g, NVGPU_HAS_SYNCPOINTS, false);
 	return err;
+}
+
+u64 nvgpu_nvhost_compute_os_specific_syncpt_addr(struct gk20a *g,
+	u32 syncpt_id)
+{
+	u64 syncpt_addr = 0U;
+	u64 syncpt_unit_base = 0U;
+
+	syncpt_unit_base = g->syncpt_unit_base[g->numa_node_id];
+
+	syncpt_addr = nvgpu_safe_add_u64(syncpt_unit_base,
+			nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, syncpt_id));
+
+	return syncpt_addr;
 }

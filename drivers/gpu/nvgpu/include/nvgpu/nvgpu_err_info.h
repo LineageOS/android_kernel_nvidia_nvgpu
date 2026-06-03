@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ERR_INFO_H
@@ -232,11 +214,13 @@ struct nvgpu_err_msg {
 /**
  * This macro is used to initialize the members of nvgpu_err_desc struct.
  */
-#define GPU_ERR(err, critical, id, inject_support, hw_inject_fn, sw_inject_fn,\
+#define GPU_ERR(err, critical, rc_triggered, quiesce_triggered, id, inject_support, hw_inject_fn, sw_inject_fn,\
 		addr, val, threshold, ecount)				\
 {									\
 		.name = (err),						\
 		.is_critical = (critical),				\
+		.is_rc_triggered = (rc_triggered),			\
+		.is_quiesce_triggered = (quiesce_triggered),		\
 		.error_id = (id),					\
 		.err_inject_info.type = (inject_support),		\
 		.err_threshold = (threshold),				\
@@ -253,16 +237,34 @@ struct nvgpu_err_msg {
 #define GPU_CRITERR(err, id, inject_support, hw_inject_fn, sw_inject_fn, addr,\
 		val, threshold, ecount) \
 NVGPU_COV_WHITELIST(false_positive, NVGPU_MISRA(Rule, 10_3), "Bug 2623654") \
-	GPU_ERR(err, true, id, inject_support, hw_inject_fn, sw_inject_fn, \
+	GPU_ERR(err, true, false, false, id, inject_support, hw_inject_fn, sw_inject_fn, \
+		addr, val, threshold, ecount)
+
+/**
+ * This macro is used to initialize critical errors.
+ */
+#define GPU_CRITERR_RC(err, id, inject_support, hw_inject_fn, sw_inject_fn, addr,\
+		val, threshold, ecount) \
+	GPU_ERR(err, true, true, false, id, inject_support, hw_inject_fn, sw_inject_fn, \
+		addr, val, threshold, ecount)
+
+/**
+ * This macro is used to initialize critical errors.
+ */
+#define GPU_CRITERR_QUIESCE(err, id, inject_support, hw_inject_fn, sw_inject_fn, addr,\
+		val, threshold, ecount) \
+	GPU_ERR(err, true, false, true, id, inject_support, hw_inject_fn, sw_inject_fn, \
 		addr, val, threshold, ecount)
 
 /**
  * This macro is used to initialize non-critical errors.
+ * Initialize is_rc_triggered and is_quiesce_triggered to false for
+ * noncritical error as these errors are corrected in HW itself.
  */
 #define GPU_NONCRITERR(err, id, inject_support, hw_inject_fn, sw_inject_fn,\
 		addr, val, threshold, ecount) \
 NVGPU_COV_WHITELIST(false_positive, NVGPU_MISRA(Rule, 10_3), "Bug 2623654") \
-	GPU_ERR(err, false, id, inject_support, hw_inject_fn, sw_inject_fn,\
+	GPU_ERR(err, false, false, false, id, inject_support, hw_inject_fn, sw_inject_fn,\
 		addr, val, threshold, ecount)
 
 /**
@@ -284,6 +286,12 @@ struct nvgpu_err_desc {
 
 	/** Flag to classify an error as critical or non-critical. */
 	bool is_critical;
+
+	/** Flag if RC recovery is triggered by the driver for given error */
+	bool is_rc_triggered;
+
+	/** Flag if quiesce is triggered by the driver for given error */
+	bool is_quiesce_triggered;
 
 	/**
 	 * Error Threshold: once this threshold value is reached, then the
@@ -309,10 +317,10 @@ struct nvgpu_err_desc {
 	u8 error_id;
 
 	/**
-	 * err_inject_info structure describes the type of error injection and
+	 * hw_err_inject_info structure describes the type of error injection and
 	 * the required register address and a write value.
 	 */
-	struct err_inject_info {
+	struct hw_err_inject_info {
 		/** Type of error injection: HW / SW / None. */
 		u32 type;
 		/** Function to get register address for error injection. */

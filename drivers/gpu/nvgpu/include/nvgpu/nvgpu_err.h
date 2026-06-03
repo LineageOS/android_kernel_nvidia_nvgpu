@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_NVGPU_ERR_H
@@ -41,23 +23,101 @@ struct mmu_fault_info;
  * Macros used to assign unique index to GPU HW units.
  * @{
  */
-#define NVGPU_ERR_MODULE_HOST		(0U)
-#define NVGPU_ERR_MODULE_SM		(1U)
-#define NVGPU_ERR_MODULE_FECS		(2U)
-#define NVGPU_ERR_MODULE_GPCCS		(3U)
-#define NVGPU_ERR_MODULE_MMU		(4U)
-#define NVGPU_ERR_MODULE_GCC		(5U)
-#define NVGPU_ERR_MODULE_PMU		(6U)
-#define NVGPU_ERR_MODULE_PGRAPH		(7U)
-#define NVGPU_ERR_MODULE_LTC		(8U)
-#define NVGPU_ERR_MODULE_HUBMMU		(9U)
-#define NVGPU_ERR_MODULE_PRI		(10U)
-#define NVGPU_ERR_MODULE_CE		(11U)
-#define NVGPU_ERR_MODULE_GSP_ACR	(12U)
-#define NVGPU_ERR_MODULE_GSP_SCHED	(13U)
+#define NVGPU_ERR_MODULE_HOST		(0x0)
+#define NVGPU_ERR_MODULE_SM		(0x1)
+#define NVGPU_ERR_MODULE_FECS		(0x2)
+#define NVGPU_ERR_MODULE_GPCCS		(0x3)
+#define NVGPU_ERR_MODULE_MMU		(0x4)
+#define NVGPU_ERR_MODULE_GCC		(0x5)
+#define NVGPU_ERR_MODULE_PMU		(0x6)
+#define NVGPU_ERR_MODULE_PGRAPH		(0x7)
+#define NVGPU_ERR_MODULE_LTC		(0x8)
+#define NVGPU_ERR_MODULE_HUBMMU		(0x9)
+#define NVGPU_ERR_MODULE_PRI		(0xA)
+#define NVGPU_ERR_MODULE_CE		(0xB)
+#define NVGPU_ERR_MODULE_GSP_ACR	(0xC)
+#define NVGPU_ERR_MODULE_GSP_SCHED	(0xD)
+#define NVGPU_ERR_MODULE_FUSE		(0xE)
+#define NVGPU_ERR_MODULE_OFA		(0xF)
+#define NVGPU_ERR_MODULE_NVENC		(0x100000)
+#define NVGPU_ERR_MODULE_NVDEC		(0x200000)
+#define NVGPU_ERR_MODULE_NVJPG		(0x300000)
+#define NVGPU_ERR_MODULE_SYSCTRL	(0x400000)
+#define NVGPU_ERR_MODULE_CTCCHI		(0x500000)
+#define NVGPU_ERR_MODULE_LRC		(0x600000)
+#define NVGPU_ERR_MODULE_XAL		(0x700000)
+#define NVGPU_ERR_MODULE_XTL		(0x800000)
 /**
  * @}
  */
+
+/*
+ * List of errors reported from LRC.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_LRC_SRAM_ECC_UNCORRECTED	(0U)
+#define GPU_LRC_SRAM_ECC_UNSUPPORTED	(1U)
+
+/*
+ * List of errors reported from CTCCHI.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_CTC_CHI_UNCORRECTED_ERR	(0U)
+
+/*
+ * List of errors reported from SYSCTRL.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_SYSCTRL_UNCORRECTED_ERR	(0U)
+
+/*
+ * List of errors reported from OFA.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_OFA_UNCORRECTED_ERR		(0U)
+#define GPU_OFA_CORRECTED_ERR		(1U)
+
+/*
+ * List of errors reported from NVENC.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_NVENC_UNCORRECTED_ERR	(0U)
+#define GPU_NVENC_CORRECTED_ERR		(1U)
+
+/*
+ * List of errors reported from NVDEC.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_NVDEC_UNCORRECTED_ERR	(0U)
+
+/*
+ * List of errors reported from NVJPG.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_NVJPG_UNCORRECTED_ERR	(0U)
+
+/** These error codes are not applicable to Orin.
+ *  Macros used to assign unique index to errors reported from the FUSE unit.
+ */
+#define GPU_FUSE_REG_PARITY		(0U)
+
+/*
+ * List of errors reported from XAL.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_XAL_EP_ECC_CORRECTED	(0U)
+#define GPU_XAL_EP_ECC_UNCORRECTED	(1U)
+#define GPU_XAL_EP_PARITY_ERROR		(2U)
+#define GPU_XAL_EP_UNCORRECTED_ERROR	(3U)
+#define GPU_XAL_EP_INGRESS_POISON_ERROR	(4U)
+#define GPU_XAL_EP_EGRESS_POISON_ERROR	(5U)
+#define GPU_XAL_EP_DECOUPLER_ERROR	(6U)
+
+/*
+ * List of errors reported from XTL.
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_XTL_EP_EC_UNCORRECTED_ERR	(0U)
 
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_HOST
@@ -106,7 +166,12 @@ struct mmu_fault_info;
 /**
  * @}
  */
-
+/* Below SM error codes are not applicable for Orin */
+#define GPU_SM_L1_TAG_PQ_ECC_UNCORRECTED		(0xCU)
+#define GPU_SM_L1_DATA_TBM_ECC_UNCORRECTED		(0xDU)
+#define GPU_SM_RAMS_DECC_ECC_UNCORRECTED		(0xEU)
+#define GPU_SM_POISON_ERROR					(0xFU)
+#define GPU_SM_CGA_ERROR					(0x10U)
 
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_FECS
@@ -123,15 +188,25 @@ struct mmu_fault_info;
 /**
  * @}
  */
+/* Below FECS error code is not applicable for Orin */
+#define GPU_FECS_CTXSW_POISON_ERROR		(7U)
+#define GPU_FECS_CTX_LOAD_AFTER_HALT	(8U)
 
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_GPCCS
  * Macros used to assign unique index to errors reported from the GPCCS unit.
  * @{
  */
-#define GPU_GPCCS_FALCON_IMEM_ECC_CORRECTED	(0U)
+#define GPU_GPCCS_FALCON_IMEM_ECC_CORRECTED		(0U)
 #define GPU_GPCCS_FALCON_IMEM_ECC_UNCORRECTED	(1U)
 #define GPU_GPCCS_FALCON_DMEM_ECC_UNCORRECTED	(2U)
+#define GPU_GPCCS_POISON_ERROR					(3U)
+#define GPU_GPCCS_FAULT_DURING_CTXSW			(4U)
+#define GPU_GPCCS_WATCHDOG_EXPIRED				(5U)
+#define GPU_GPCCS_BSI_CMD_PARITY_ERROR			(6U)
+#define GPU_GPCCS_BSI_CMD_PKT_DROPPED_ERROR		(7U)
+#define GPU_GPCCS_BSI_CMD_ADDR_OOB				(8U)
+
 /**
  * @}
  */
@@ -156,7 +231,8 @@ struct mmu_fault_info;
 /**
  * @}
  */
-
+/* Below GCC error code is not applicable for Orin. */
+#define GPU_GCC_POISON_ERROR			(1U)
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_PMU
  * Macros used to assign unique index to errors reported from the PMU unit.
@@ -181,18 +257,23 @@ struct mmu_fault_info;
  * Macros used to assign unique index to errors reported from the GSP ACR unit.
  * @{
  */
-#define GPU_GSP_ACR_NVRISCV_BROM_FAILURE		(0U)
-#define GPU_GSP_ACR_EMEM_ECC_UNCORRECTED		(1U)
-#define GPU_GSP_ACR_REG_ACCESS_TIMEOUT_UNCORRECTED	(2U)
-#define GPU_GSP_ACR_ILLEGAL_ACCESS_UNCORRECTED		(3U)
-#define GPU_GSP_ACR_IMEM_ECC_UNCORRECTED		(4U)
-#define GPU_GSP_ACR_DCLS_UNCORRECTED			(5U)
-#define GPU_GSP_ACR_DMEM_ECC_UNCORRECTED		(6U)
-#define GPU_GSP_ACR_WDT_UNCORRECTED			(7U)
-#define GPU_GSP_ACR_REG_ECC_UNCORRECTED			(8U)
-#define GPU_GSP_ACR_FECS_PKC_LSSIG_FAILURE		(9U)
-#define GPU_GSP_ACR_GPCCS_PKC_LSSIG_FAILURE		(10U)
-#define GPU_GSP_ACR_LSPMU_PKC_LSSIG_FAILURE		(11U)
+#define GPU_GSP_ACR_NVRISCV_BROM_FAILURE            (0U)
+#define GPU_GSP_ACR_EMEM_ECC_UNCORRECTED            (1U)
+#define GPU_GSP_ACR_REG_ACCESS_TIMEOUT_UNCORRECTED  (2U)
+#define GPU_GSP_ACR_ILLEGAL_ACCESS_UNCORRECTED	    (3U)
+#define GPU_GSP_ACR_IMEM_ECC_UNCORRECTED            (4U)
+#define GPU_GSP_ACR_DCLS_UNCORRECTED                (5U)
+#define GPU_GSP_ACR_DMEM_ECC_UNCORRECTED            (6U)
+#define GPU_GSP_ACR_WDT_UNCORRECTED                 (7U)
+#define GPU_GSP_ACR_REG_ECC_UNCORRECTED             (8U)
+#define GPU_GSP_ACR_FECS_PKC_LSSIG_FAILURE          (9U)
+#define GPU_GSP_ACR_GPCCS_PKC_LSSIG_FAILURE         (10U)
+#define GPU_GSP_ACR_LSPMU_PKC_LSSIG_FAILURE         (11U)
+#define GPU_GSP_ACR_NVDEC_PKC_LSSIG_FAILURE         (12U)
+#define GPU_GSP_ACR_NVJPG_PKC_LSSIG_FAILURE         (13U)
+#define GPU_GSP_ACR_OFA_PKC_LSSIG_FAILURE           (14U)
+#define GPU_GSP_ACR_NVENC_PKC_LSSIG_FAILURE         (15U)
+#define GPU_GSP_ACR_CMD_TIMEOUT_UNCORRECTED         (16U)
 /**
  * @}
  */
@@ -214,7 +295,11 @@ struct mmu_fault_info;
 /**
  * @}
  */
-
+/*
+ * These error codes are not applicable for Orin.
+ */
+#define GPU_GSP_SCHED_UNCORRECTED_ERR			(9U)
+#define GPU_GSP_SCHED_CORRECTED_ERR			(10U)
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_PGRAPH
  * Macros used to assign unique index to errors reported from the PGRAPH unit.
@@ -244,6 +329,11 @@ struct mmu_fault_info;
 /**
  * @}
  */
+/* Below PGRAPH error codes are not applicable for Orin. */
+#define GPU_PGRAPH_TPCCS_POISON_ERROR		(21U)
+#define GPU_PGRAPH_TPCCS_FAULT_DURING_CTXSW	(22U)
+#define GPU_PGRAPH_RASTWOD_EXCEPTION		(23U)
+#define GPU_PGRAPH_GPC_WDXPS_EXCEPTION		(24U)
 
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_LTC
@@ -257,6 +347,10 @@ struct mmu_fault_info;
 /**
  * @}
  */
+/* These error codes are not applicable for Orin */
+#define GPU_LTC_CACHE_XBAR_INTFC_ECC_UNCORRECTED	(4U)
+#define GPU_LTC_CACHE_UNCORRECTED_ERROR			(5U)
+#define GPU_LTC_CACHE_UNSUPPORTED_ECC_ERROR			(6U)
 
 /**
  * @defgroup LIST_OF_ERRORS_REPORTED_FROM_HUBMMU
@@ -299,6 +393,9 @@ struct mmu_fault_info;
 #define GPU_CE_FBUF_MAGIC_CHK_FAIL		(0x3)
 #define GPU_CE_INVALID_CONFIG			(0x4)
 #endif
+/* These error codes are not applicable for Orin */
+#define GPU_CE_CTX_LOAD_AFTER_HALT		(0x5)
+#define GPU_CE_CC_NO_RESOURCES			(0x6)
 /**
  * @}
  */

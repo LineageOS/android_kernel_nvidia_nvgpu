@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/fs.h>
 #include <linux/file.h>
@@ -31,6 +18,7 @@
 #include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/channel.h>
+#include <nvgpu/runlist.h>
 #include <nvgpu/tsg.h>
 #include <nvgpu/fifo.h>
 #include <nvgpu/nvgpu_init.h>
@@ -48,6 +36,8 @@
 #include "os_linux.h"
 
 struct tsg_private {
+	pid_t pid;
+	bool is_disabled;
 	struct gk20a *g;
 	struct nvgpu_tsg *tsg;
 	struct nvgpu_cdev *cdev;
@@ -273,12 +263,20 @@ static u32 nvgpu_event_id_to_ioctl_channel_event_id(
 	return NVGPU_IOCTL_CHANNEL_EVENT_ID_MAX;
 }
 
-void nvgpu_tsg_post_event_id(struct nvgpu_tsg *tsg,
+void nvgpu_tsg_post_event_id(struct gk20a *g, u32 gfid, u32 tsgid,
 			     enum nvgpu_event_id_type event_id)
 {
 	struct gk20a_event_id_data *channel_event_id_data;
 	u32 channel_event_id;
-	struct gk20a *g = tsg->g;
+	struct nvgpu_tsg *tsg = NULL;
+
+	(void)gfid;
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
+		return;
+	}
 
 	channel_event_id = nvgpu_event_id_to_ioctl_channel_event_id(event_id);
 	if (event_id >= NVGPU_IOCTL_CHANNEL_EVENT_ID_MAX)
@@ -534,16 +532,16 @@ static int nvgpu_tsg_ioctl_get_share_token(struct gk20a *g,
 		struct tsg_private *priv,
 		struct nvgpu_tsg_get_share_token_args *args)
 {
-	u64 source_device_instance_id = args->source_device_instance_id;
+	u64 source_device_instance_id =
+		nvgpu_gpu_get_device_instance_id(priv->ctrl_priv);
 	u64 target_device_instance_id = args->target_device_instance_id;
 	struct nvgpu_tsg *tsg = priv->tsg;
 	u32 max_subctx_count;
 	u32 gpu_instance_id;
-	u64 share_token = 0;
+	u64 token = 0;
 	int err;
 
-	if ((source_device_instance_id == 0UL) ||
-	    (target_device_instance_id == 0UL)) {
+	if (target_device_instance_id == 0UL) {
 		nvgpu_err(g, "Invalid source/target device instance id");
 		return -EINVAL;
 	}
@@ -570,14 +568,16 @@ static int nvgpu_tsg_ioctl_get_share_token(struct gk20a *g,
 	err = nvgpu_gpu_get_share_token(g,
 					source_device_instance_id,
 					target_device_instance_id,
-					tsg, &share_token);
+					tsg, &token);
 	if (err != 0) {
 		nvgpu_err(g, "Share token allocation failed %d", err);
 		nvgpu_mutex_release(&tsg->tsg_share_lock);
 		return err;
 	}
 
-	args->share_token = share_token;
+	nvgpu_gpu_encode_share_token(g, source_device_instance_id,
+				     token, sizeof(args->share_token),
+				     args->share_token);
 	tsg->share_token_count++;
 
 	nvgpu_mutex_release(&tsg->tsg_share_lock);
@@ -589,14 +589,18 @@ static int nvgpu_tsg_ioctl_revoke_share_token(struct gk20a *g,
 		struct nvgpu_tsg *tsg,
 		struct nvgpu_tsg_revoke_share_token_args *args)
 {
-	u64 source_device_instance_id = args->source_device_instance_id;
+	u64 source_device_instance_id = 0UL;
 	u64 target_device_instance_id = args->target_device_instance_id;
-	u64 share_token = args->share_token;
+	u64 token = 0UL;
 	int err;
+
+	nvgpu_gpu_decode_share_token(g, args->share_token,
+				     sizeof(args->share_token),
+				     &source_device_instance_id, &token);
 
 	if ((source_device_instance_id == 0UL) ||
 	    (target_device_instance_id == 0UL) ||
-	    (share_token == 0UL)) {
+	    (token == 0UL)) {
 		nvgpu_err(g, "Invalid source/target device instance id or"
 			     " share token");
 		return -EINVAL;
@@ -613,7 +617,7 @@ static int nvgpu_tsg_ioctl_revoke_share_token(struct gk20a *g,
 	err = nvgpu_gpu_revoke_share_token(g,
 					source_device_instance_id,
 					target_device_instance_id,
-					share_token, tsg);
+					token, tsg);
 	if (err != 0) {
 		nvgpu_err(g, "Share token revocation failed %d", err);
 		nvgpu_mutex_release(&tsg->tsg_share_lock);
@@ -631,12 +635,13 @@ static int nvgpu_tsg_ioctl_revoke_share_token(struct gk20a *g,
 int nvgpu_ioctl_tsg_open(struct gk20a *g, struct gk20a_ctrl_priv *ctrl_priv,
 			 struct nvgpu_cdev *cdev, struct file *filp,
 			 bool open_share, u64 source_device_instance_id,
-			 u64 target_device_instance_id, u64 share_token)
+			 u64 target_device_instance_id, u64 token)
 {
 	struct tsg_private *priv;
 	struct nvgpu_tsg *tsg;
 	struct device *dev;
 	int err;
+	u32 instance_id = 0;
 
 	g = nvgpu_get(g);
 	if (!g)
@@ -651,7 +656,10 @@ int nvgpu_ioctl_tsg_open(struct gk20a *g, struct gk20a_ctrl_priv *ctrl_priv,
 		err = -ENOMEM;
 		goto free_ref;
 	}
+	priv->is_disabled = false;
+	priv->pid = nvgpu_current_pid(g);
 
+	instance_id = nvgpu_get_gpu_instance_id_from_cdev(g, cdev);
 	if (!open_share) {
 		err = gk20a_busy(g);
 		if (err) {
@@ -659,7 +667,7 @@ int nvgpu_ioctl_tsg_open(struct gk20a *g, struct gk20a_ctrl_priv *ctrl_priv,
 			goto free_mem;
 		}
 
-		tsg = nvgpu_tsg_open(g, nvgpu_current_pid(g));
+		tsg = nvgpu_tsg_open(g, priv->pid, instance_id);
 		gk20a_idle(g);
 		if (tsg == NULL) {
 			err = -ENOMEM;
@@ -675,7 +683,7 @@ int nvgpu_ioctl_tsg_open(struct gk20a *g, struct gk20a_ctrl_priv *ctrl_priv,
 		tsg = nvgpu_gpu_open_tsg_with_share_token(g,
 				 source_device_instance_id,
 				 target_device_instance_id,
-				 share_token);
+				 token);
 		if (tsg == NULL) {
 			nvgpu_err(g, "TSG open with token failed");
 			err = -EINVAL;
@@ -790,6 +798,17 @@ int nvgpu_ioctl_tsg_dev_release(struct inode *inode, struct file *filp)
 		nvgpu_tsg_remove_ctrl_dev_inst_id(tsg, priv->ctrl_priv);
 	}
 #endif
+	/*
+	 * With TSG sharing, if process terminates abruptly or closes the TSG
+	 * while it had kept the GPU TSG disabled, then other processes sharing
+	 * the same GPU TSG will stall, therefore enable the GPU TSG if it was
+	 * disabled before closing the fd.
+	 */
+	if (priv->is_disabled == true) {
+		nvgpu_log_info(g, "pid: (%d) had tsg: %u disabled, enabling it",
+			       priv->pid, tsg->tsgid);
+		nvgpu_tsg_enable(tsg);
+	}
 
 	nvgpu_ref_put(&tsg->refcount, nvgpu_ioctl_tsg_release);
 	if (priv->ctrl_priv) {
@@ -823,6 +842,11 @@ static int gk20a_tsg_ioctl_set_runlist_interleave(struct gk20a *g,
 	}
 
 	level = nvgpu_get_common_runlist_level(level);
+	if (level == NVGPU_FIFO_RUNLIST_INTERLEAVE_LEVEL_INVALID) {
+		err = -EINVAL;
+		goto done;
+	}
+
 	err = nvgpu_tsg_set_interleave(tsg, level);
 
 	gk20a_idle(g);
@@ -877,7 +901,7 @@ static int gk20a_tsg_ioctl_read_single_sm_error_state(struct gk20a *g,
 
 	nvgpu_speculation_barrier();
 
-	sm_error_state = nvgpu_tsg_get_sm_error_state(tsg, sm_id);
+	sm_error_state = nvgpu_tsg_get_sm_error_state(tsg, sm_id, gpu_instance_id);
 	if (sm_error_state == NULL) {
 		return -EINVAL;
 	}
@@ -892,9 +916,11 @@ static int gk20a_tsg_ioctl_read_single_sm_error_state(struct gk20a *g,
 		sm_error_state->hww_global_esr_report_mask;
 	sm_error_state_record.warp_esr_report_mask =
 		sm_error_state->hww_warp_esr_report_mask;
+	sm_error_state_record.cga_esr =
+		sm_error_state->hww_cga_esr;
 
 	if (args->record_size > 0) {
-		size_t write_size = sizeof(*sm_error_state);
+		size_t write_size = sizeof(sm_error_state_record);
 
 		nvgpu_speculation_barrier();
 		if (write_size > args->record_size)
@@ -1094,7 +1120,7 @@ long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp, unsigned int cmd,
 	struct tsg_private *priv = filp->private_data;
 	struct nvgpu_tsg *tsg = priv->tsg;
 	struct gk20a *g = tsg->g;
-	u8 __maybe_unused buf[NVGPU_TSG_IOCTL_MAX_ARG_SIZE];
+	u8 __maybe_unused *buf;
 	int err = 0;
 	u32 gpu_instance_id, gr_instance_id;
 
@@ -1106,16 +1132,23 @@ long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp, unsigned int cmd,
 	    (_IOC_SIZE(cmd) > NVGPU_TSG_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_TSG_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	if (!g->sw_ready) {
 		err = gk20a_busy(g);
-		if (err)
-			return err;
+		if (err) {
+			goto exit;
+		}
 
 		gk20a_idle(g);
 	}
@@ -1185,9 +1218,21 @@ long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp, unsigned int cmd,
 		if (err) {
 			nvgpu_err(g,
 			   "failed to host gk20a for ioctl cmd: 0x%x", cmd);
-			return err;
+			break;
 		}
-		g->ops.tsg.enable(tsg);
+		/*
+		 * user can either disable tsg + enable tsg and/or
+		 * on seeing CILP completion event, user-space can
+		 *   - disable tsg + enable tsg OR
+		 *   - just enable tsg.
+		 *
+		 * Check if cilp save is completed and enable the tsg.
+		 */
+		if (priv->is_disabled == true) {
+			nvgpu_tsg_enable(tsg);
+		}
+		nvgpu_tsg_enable_for_cilp_cmpl(tsg);
+		priv->is_disabled = false;
 		gk20a_idle(g);
 		break;
 		}
@@ -1198,23 +1243,35 @@ long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp, unsigned int cmd,
 		if (err) {
 			nvgpu_err(g,
 			   "failed to host gk20a for ioctl cmd: 0x%x", cmd);
-			return err;
+			break;
 		}
-		g->ops.tsg.disable(tsg);
+		if (priv->is_disabled == false) {
+			nvgpu_tsg_disable(tsg);
+		}
+		priv->is_disabled = true;
 		gk20a_idle(g);
 		break;
 		}
 
 	case NVGPU_IOCTL_TSG_PREEMPT:
+		/*
+		 * Sequence is:
+		 *   1. Disable TSG.
+		 *   2. Preempt TSG.
+		 *   3. Enable TSG.
+		 */
 		{
 		err = gk20a_busy(g);
 		if (err) {
 			nvgpu_err(g,
 			   "failed to host gk20a for ioctl cmd: 0x%x", cmd);
-			return err;
+			break;
 		}
-		/* preempt TSG */
+		nvgpu_mutex_acquire(&tsg->ctx_init_lock);
+		nvgpu_tsg_disable(tsg);
 		err = nvgpu_tsg_preempt(g, tsg);
+		nvgpu_tsg_enable(tsg);
+		nvgpu_mutex_release(&tsg->ctx_init_lock);
 		gk20a_idle(g);
 		break;
 		}
@@ -1327,6 +1384,9 @@ long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp, unsigned int cmd,
 	if ((err == 0) && (_IOC_DIR(cmd) & _IOC_READ))
 		err = copy_to_user((void __user *)arg,
 				   buf, _IOC_SIZE(cmd));
+
+exit:
+	nvgpu_kfree(g, buf);
 
 	return err;
 }

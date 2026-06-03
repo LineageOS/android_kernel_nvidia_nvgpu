@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/dma.h>
@@ -38,6 +19,20 @@
 #endif
 
 /* PMU UCODE IMG */
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#define NVGPU_PMU_GB20Y_EB_UCODE_NEXT_IMAGE "g_c85b6_gb20y_riscv_image_debug_encrypted.bin"
+#define NVGPU_PMU_GB20Y_EB_UCODE_NEXT_PROD_IMAGE "g_c85b6_gb20y_riscv_image_prod_encrypted.bin"
+#define NVGPU_PMU_GB20Y_EB_UCODE_NEXT_DESC "g_c85b6_gb20y_riscv_desc.bin"
+#define NVGPU_PMU_GB20Y_EB_UCODE_NEXT_SIG "g_c85b6_gb20y_riscv_pkc_ls_lsb_header.bin"
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+#define NVGPU_PMU_EB_UCODE_NEXT_IMAGE "g_c85b6_gb10b_riscv_image_debug_encrypted.bin"
+#define NVGPU_PMU_EB_UCODE_NEXT_PROD_IMAGE "g_c85b6_gb10b_riscv_image_prod_encrypted.bin"
+#define NVGPU_PMU_EB_UCODE_NEXT_DESC "g_c85b6_gb10b_riscv_desc.bin"
+#define NVGPU_PMU_EB_UCODE_NEXT_SIG "g_c85b6_gb10b_riscv_pkc_ls_sig.bin"
+#endif
+
 #define NVGPU_PMU_UCODE_IMAGE "gpmu_ucode_image.bin"
 #define NVGPU_PMU_UCODE_DESC "gpmu_ucode_desc.bin"
 #define NVGPU_PMU_UCODE_SIG "pmu_sig.bin"
@@ -118,6 +113,7 @@ bool nvgpu_pmu_get_fw_ready(struct gk20a *g, struct nvgpu_pmu *pmu)
 int nvgpu_pmu_wait_fw_ack_status(struct gk20a *g, struct nvgpu_pmu *pmu,
 	u32 timeout_ms, void *var, u8 val)
 {
+	u32 vector = 0U;
 	struct nvgpu_timeout timeout;
 	unsigned int delay = POLL_DELAY_MIN_US;
 
@@ -126,6 +122,7 @@ int nvgpu_pmu_wait_fw_ack_status(struct gk20a *g, struct nvgpu_pmu *pmu,
 	do {
 		nvgpu_rmb();
 
+		nvgpu_usleep_range(delay, delay * 2U);
 		if (nvgpu_pmu_get_fw_state(g, pmu) == PMU_FW_STATE_OFF) {
 			/*
 			 * Fix "GPU has disappeared from bus" failure.
@@ -155,10 +152,14 @@ int nvgpu_pmu_wait_fw_ack_status(struct gk20a *g, struct nvgpu_pmu *pmu,
 		}
 
 		if (g->ops.pmu.pmu_is_interrupted(pmu)) {
+			if (nvgpu_gin_is_present(g)) {
+				/* clear PMU gin interrupt subtree leaf bit before calling handler */
+				vector = nvgpu_gin_get_unit_stall_vector(g, NVGPU_GIN_INTR_UNIT_PMU, 0);
+				nvgpu_gin_clear_pending_intr(g, vector);
+			}
 			g->ops.pmu.pmu_isr(g);
 		}
 
-		nvgpu_usleep_range(delay, delay * 2U);
 		delay = min_t(u32, delay << 1, POLL_DELAY_MAX_US);
 
 		/* Confirm ACK from PMU before timeout check */
@@ -180,6 +181,20 @@ int nvgpu_pmu_wait_fw_ready(struct gk20a *g, struct nvgpu_pmu *pmu)
 				&pmu->fw->ready, (u8)true);
 	if (status != 0) {
 		nvgpu_err(g, "PMU is not ready yet");
+	}
+
+	return status;
+}
+
+int nvgpu_pmu_wait_pg_ready(struct gk20a *g, struct nvgpu_pmu *pmu)
+{
+	int status = 0;
+
+	status = nvgpu_pmu_wait_fw_ack_status(g, pmu,
+				nvgpu_get_poll_timeout(g),
+				&pmu->fw->state, PMU_FW_STATE_STARTED);
+	if (status != 0) {
+		nvgpu_err(g, "ELPG not booted yet");
 	}
 
 	return status;
@@ -314,6 +329,74 @@ static int pmu_fw_init_ops(struct gk20a *g, struct nvgpu_pmu *pmu)
 	return err;
 }
 
+static int nvgpu_riscv_pmu_load_fw(struct gk20a *g)
+{
+	int err = 0;
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
+
+	switch (ver) {
+	case NVGPU_GPUID_GA10B:
+		if (g->ops.pmu.is_debug_mode_enabled(g)) {
+			nvgpu_pmu_dbg(g, "FW read for DBG RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_UCODE_NEXT_IMAGE,
+					NVGPU_PMU_UCODE_NEXT_DESC,
+					NVGPU_PMU_UCODE_NEXT_SIG);
+		} else {
+			nvgpu_pmu_dbg(g, "FW read for PROD RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_UCODE_NEXT_PROD_IMAGE,
+					NVGPU_PMU_UCODE_NEXT_PROD_DESC,
+					NVGPU_PMU_UCODE_NEXT_PROD_SIG);
+		}
+		break;
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		if (g->ops.pmu.is_debug_mode_enabled(g)) {
+			nvgpu_pmu_dbg(g, "FW read for DBG RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_EB_UCODE_NEXT_IMAGE,
+					NVGPU_PMU_EB_UCODE_NEXT_DESC,
+					NVGPU_PMU_EB_UCODE_NEXT_SIG);
+		} else {
+			nvgpu_pmu_dbg(g, "FW read for PROD RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_EB_UCODE_NEXT_PROD_IMAGE,
+					NVGPU_PMU_EB_UCODE_NEXT_DESC,
+					NVGPU_PMU_EB_UCODE_NEXT_SIG);
+		}
+		break;
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+		if (g->ops.pmu.is_debug_mode_enabled(g)) {
+			nvgpu_pmu_dbg(g, "FW read for DBG RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_IMAGE,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_DESC,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_SIG);
+		} else {
+			nvgpu_pmu_dbg(g, "FW read for PROD RISCV/PKC");
+			err = pmu_fw_read(g,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_PROD_IMAGE,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_DESC,
+					NVGPU_PMU_GB20Y_EB_UCODE_NEXT_SIG);
+		}
+		break;
+#endif
+	default:
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+		err = nvgpu_next_pmu_load_fw(g);
+#else
+		err = -ENODEV;
+#endif
+		break;
+	}
+
+	return err;
+}
+
 int nvgpu_pmu_init_pmu_fw(struct gk20a *g, struct nvgpu_pmu *pmu,
 	struct pmu_rtos_fw **rtos_fw_p)
 {
@@ -336,23 +419,7 @@ int nvgpu_pmu_init_pmu_fw(struct gk20a *g, struct nvgpu_pmu *pmu,
 	*rtos_fw_p = rtos_fw;
 
 	if (nvgpu_is_enabled(g, NVGPU_PMU_NEXT_CORE_ENABLED)) {
-		if (g->ops.pmu.is_debug_mode_enabled(g)) {
-			nvgpu_pmu_dbg(g, "FW read for DBG RISCV/PKC");
-			err = pmu_fw_read(g,
-					NVGPU_PMU_UCODE_NEXT_IMAGE,
-					NVGPU_PMU_UCODE_NEXT_DESC,
-					NVGPU_PMU_UCODE_NEXT_SIG);
-		} else {
-			nvgpu_pmu_dbg(g, "FW read for PROD RISCV/PKC");
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
-			err = nvgpu_next_pmu_load_fw(g);
-#else
-			err = pmu_fw_read(g,
-					NVGPU_PMU_UCODE_NEXT_PROD_IMAGE,
-					NVGPU_PMU_UCODE_NEXT_PROD_DESC,
-					NVGPU_PMU_UCODE_NEXT_PROD_SIG);
-#endif
-		}
+		err = nvgpu_riscv_pmu_load_fw(g);
 	} else {
 		nvgpu_pmu_dbg(g, "FW read for Falcon/AES\n");
 		err = pmu_fw_read(g, NVGPU_PMU_UCODE_IMAGE,

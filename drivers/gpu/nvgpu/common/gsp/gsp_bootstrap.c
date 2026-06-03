@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/falcon.h>
@@ -89,9 +70,9 @@ static int gsp_ucode_load_and_bootstrap(struct gk20a *g,
 		struct nvgpu_falcon *flcn, struct gsp_fw *gsp_ucode)
 {
 	u32 dmem_size = 0U;
-	u32 code_size = (u32)gsp_ucode->code->size;
-	u32 data_size = (u32)gsp_ucode->data->size;
-	u32 manifest_size = (u32)gsp_ucode->manifest->size;
+	u32 code_size = nvgpu_safe_cast_u64_to_u32(gsp_ucode->code->size);
+	u32 data_size = nvgpu_safe_cast_u64_to_u32(gsp_ucode->data->size);
+	u32 manifest_size = nvgpu_safe_cast_u64_to_u32(gsp_ucode->manifest->size);
 	int err = 0;
 
 	nvgpu_log_fn(g, " ");
@@ -103,7 +84,7 @@ static int gsp_ucode_load_and_bootstrap(struct gk20a *g,
 		goto exit;
 	}
 
-	if ((data_size + manifest_size) > dmem_size) {
+	if (nvgpu_safe_add_u32(data_size, manifest_size) > dmem_size) {
 		nvgpu_err(g, "gsp DMEM might overflow");
 		err = -ENOMEM;
 		goto exit;
@@ -227,7 +208,7 @@ int nvgpu_gsp_bootstrap_ns(struct gk20a *g, struct nvgpu_gsp *gsp)
 	}
 
 	/* Enable required interrupts support and isr */
-	nvgpu_gsp_isr_support(g, gsp, true);
+	nvgpu_gsp_isr_support(g, true);
 
 	err = gsp_ucode_load_and_bootstrap(g, flcn, gsp_ucode);
 	if (err != 0) {

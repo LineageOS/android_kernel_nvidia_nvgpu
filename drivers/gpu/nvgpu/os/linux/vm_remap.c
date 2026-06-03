@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-buf.h>
 
@@ -127,21 +114,18 @@ void nvgpu_vm_remap_os_buf_put(struct vm_gk20a *vm,
 		remap_os_buf->os_priv.attachment, remap_os_buf->os_priv.sgt);
 
 #ifdef CONFIG_NVGPU_COMPRESSION
-	if (!g->cbc_use_raw_mode) {
-		gk20a_get_comptags(&remap_os_buf->os_buf, &comptags);
+	gk20a_get_comptags(&remap_os_buf->os_buf, &comptags);
 
-		/*
-		 * Flush compression bit cache before releasing the physical
-		 * memory buffer reference.
-		 */
-		if (comptags.offset != 0) {
-			g->ops.cbc.ctrl(g, nvgpu_cbc_op_clean, 0, 0);
-			err = nvgpu_pg_elpg_ms_protected_call(g,
-							      g->ops.mm.cache.l2_flush(g, true));
-			if (err != 0) {
-				nvgpu_err(g, "l2 flush failed");
-				return;
-			}
+	/*
+	 * Flush compression bit cache before releasing the physical
+	 * memory buffer reference.
+	 */
+	if (comptags.offset != 0) {
+		g->ops.cbc.ctrl(g, nvgpu_cbc_op_clean, 0, 0);
+		err = g->ops.mm.cache.l2_flush(g, true);
+		if (err != 0) {
+			nvgpu_err(g, "l2 flush failed");
+			return;
 		}
 	}
 #endif
@@ -156,7 +140,8 @@ static int nvgpu_vm_remap_validate_map_op(struct nvgpu_as_remap_op *op)
 	int err = 0;
 	const u32 pagesize_flags = (NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K |
 			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K |
-			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K);
+			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K |
+			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K);
 	const u32 valid_flags = (pagesize_flags |
 			NVGPU_AS_REMAP_OP_FLAGS_CACHEABLE |
 			NVGPU_AS_REMAP_OP_FLAGS_ACCESS_NO_WRITE);
@@ -169,7 +154,8 @@ static int nvgpu_vm_remap_validate_map_op(struct nvgpu_as_remap_op *op)
 	/* must be set and to a single pagesize */
 	if ((pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K) &&
 		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K) &&
-		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K)) {
+		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K) &&
+		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K)) {
 		err = -EINVAL;
 	}
 
@@ -181,7 +167,8 @@ static int nvgpu_vm_remap_validate_unmap_op(struct nvgpu_as_remap_op *op)
 	int err = 0;
 	const u32 pagesize_flags = (NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K |
 			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K |
-			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K);
+			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K |
+			NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K);
 	const u32 valid_flags = pagesize_flags;
 	const u32 pagesize = op->flags & pagesize_flags;
 
@@ -192,7 +179,8 @@ static int nvgpu_vm_remap_validate_unmap_op(struct nvgpu_as_remap_op *op)
 	/* must be set and to a single pagesize */
 	if ((pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K) &&
 		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K) &&
-		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K)) {
+		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K) &&
+		(pagesize != NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K)) {
 		err = -EINVAL;
 	}
 
@@ -223,6 +211,9 @@ static u32 nvgpu_vm_remap_translate_as_flags(u32 flags)
 	}
 	if ((flags & NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K) != 0) {
 		core_flags |= NVGPU_VM_REMAP_OP_FLAGS_PAGESIZE_128K;
+	}
+	if ((flags & NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K) != 0) {
+		core_flags |= NVGPU_VM_REMAP_OP_FLAGS_PAGESIZE_2048K;
 	}
 	return core_flags;
 }

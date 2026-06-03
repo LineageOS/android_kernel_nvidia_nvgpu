@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/log.h>
@@ -42,7 +23,7 @@ int vgpu_read_ptimer(struct gk20a *g, u64 *value)
 	msg.cmd = TEGRA_VGPU_CMD_READ_PTIMER;
 	msg.handle = vgpu_get_handle(g);
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err == 0) {
 		*value = p->time;
@@ -75,7 +56,7 @@ int vgpu_get_timestamps_zipper(struct gk20a *g,
 	p->source_id = TEGRA_VGPU_GET_TIMESTAMPS_ZIPPER_SRC_ID_TSC;
 	p->count = count;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err != 0) {
 		nvgpu_err(g, "vgpu get timestamps zipper failed, err=%d", err);

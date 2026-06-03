@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_FALCON_H
@@ -25,7 +7,7 @@
 
 /**
  * @file
- * @page unit-falcon Unit Falcon
+ * @page common.falcon common.falcon
  *
  * Overview
  * ========
@@ -133,11 +115,23 @@
 /** Falcon ID for MINION engine */
 #define FALCON_ID_MINION    (10U)
 #define FALCON_ID_PMU_NEXT_CORE (13U)
-/** Falcon ID for OFA engine */
-#define FALCON_ID_OFA       (15U)
-/** Falcon ID for NVJPG engine */
-#define FALCON_ID_NVJPG     (16U)
-#define FALCON_ID_END	    (17U)
+
+/** Falcon ID for NVDEC RISCV engine */
+#define FALCON_ID_NVDEC_RISCV     (18U)
+/** Falcon ID for FECS engine RISCV EB*/
+#define FALCON_ID_FECS_RISCV_EB   (21U)
+/** Falcon ID for GPCCS engine RISCV EB*/
+#define FALCON_ID_GPCCS_RISCV_EB  (22U)
+/** Falcon ID for NVJPG1 RISCV EB engine */
+#define FALCON_ID_NVJPG_RISCV_EB  (23U)
+/** Falcon ID for OFA RISCV EB engine */
+#define FALCON_ID_OFA_RISCV_EB    (24U)
+/** Falcon ID for NVENC RISCV EB engine */
+#define FALCON_ID_NVENC_RISCV_EB  (25U)
+/** Falcon ID for PMU RISCV EB engine */
+#define FALCON_ID_PMU_RISCV_EB    (26U)
+/** Falcon ID End */
+#define FALCON_ID_END	    (27U)
 #define FALCON_ID_INVALID   0xFFFFFFFFU
 
 #define FALCON_MAILBOX_0	0x0U
@@ -151,6 +145,7 @@
 #define NVRISCV_BR_COMPLETION_TIMEOUT_NON_SILICON_MS   10000U
 #define NVRISCV_BR_COMPLETION_TIMEOUT_SILICON_MS       100U
 #define NVRISCV_BR_COMPLETION_POLLING_TIME_INTERVAL_MS 5U
+#define NVRISCV_BR_COMPLETION_POLLING_TIME_SILICON_MS 1U
 
 #define GET_IMEM_TAG(IMEM_ADDR) ((IMEM_ADDR) >> 8U)
 
@@ -254,14 +249,21 @@ struct nvgpu_falcon_dbg_buf {
  */
 struct nvgpu_falcon_engine_dependency_ops {
 	/** reset function specific to engine */
-	int (*reset_eng)(struct gk20a *g);
+	int (*reset_eng)(struct gk20a *g, u32 inst_id);
 	/** Falcon bootstrap config function specific to engine */
 	void (*setup_bootstrap_config)(struct gk20a *g);
+	/** RISCV bootstrap config function specific to engine */
+	void (*riscv_bootstrap_config)(struct gk20a *g, u32 inst_id);
 	/** copy functions for SEC2 falcon engines on dGPU that supports EMEM */
 	int (*copy_from_emem)(struct gk20a *g, u32 src, u8 *dst,
 		u32 size, u8 port);
 	int (*copy_to_emem)(struct gk20a *g, u32 dst, u8 *src,
 		u32 size, u8 port);
+	/** Enable interrupt for the engine */
+	void (*enable_irq)(struct gk20a *g, u32 inst_id, bool enable);
+	/** Enable SLCG and BLCG prod settings */
+	void (*slcg_load_enable)(struct gk20a *g, u32 inst_id, bool enable);
+	void (*blcg_load_enable)(struct gk20a *g, u32 inst_id, bool enable);
 };
 
 /**
@@ -285,6 +287,10 @@ struct nvgpu_falcon {
 	bool is_falcon2_enabled;
 	/** Indicates if the falcon interrupts are enabled. */
 	bool is_interrupt_enabled;
+	/** Instance ID of the engine */
+	u32 inst_id;
+	/** Indicates the boot using BROM */
+	bool is_brom_boot;
 	/** Fuse settings */
 	unsigned long fuse_settings;
 	/** Lock to access the falcon's IMEM. */
@@ -297,6 +303,10 @@ struct nvgpu_falcon {
 	struct nvgpu_mutex emem_lock;
 	/** Functions for engine specific reset and memory access. */
 	struct nvgpu_falcon_engine_dependency_ops flcn_engine_dep_ops;
+	/** Indicates whether isr is enabled. */
+	bool isr_enabled;
+	/** Lock to access the falcon's ISR. */
+	struct nvgpu_mutex isr_mutex;
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
 	struct nvgpu_falcon_dbg_buf debug_buffer;
 #endif
@@ -611,6 +621,7 @@ u32 nvgpu_falcon_get_id(struct nvgpu_falcon *flcn);
  *		         - #FALCON_ID_NVDEC
  *		         - #FALCON_ID_SEC2
  *		         - #FALCON_ID_MINION
+ * @param instance [in] instance number.
  *
  * This function is called to get the falcon struct for validation during
  * init/free.
@@ -623,7 +634,7 @@ u32 nvgpu_falcon_get_id(struct nvgpu_falcon *flcn);
  * @return the falcon struct of \a g corresponding to \a flcn_id.
  * @retval falcon struct of \a g corresponding to \a flcn_id.
  */
-struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id);
+struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id, u32 instance);
 
 /**
  * @brief Initialize the falcon software state.
@@ -724,6 +735,7 @@ bool nvgpu_falcon_is_feature_supported(struct nvgpu_falcon *flcn,
 		u32 feature);
 
 int nvgpu_falcon_wait_for_nvriscv_brom_completion(struct nvgpu_falcon *flcn);
+int nvgpu_falcon_wait_for_nvriscv_brom_init(struct nvgpu_falcon *flcn);
 
 int nvgpu_falcon_copy_from_emem(struct nvgpu_falcon *flcn,
 	u32 src, u8 *dst, u32 size, u8 port);
@@ -731,6 +743,47 @@ int nvgpu_falcon_copy_to_emem(struct nvgpu_falcon *flcn,
 	u32 dst, u8 *src, u32 size, u8 port);
 s32 nvgpu_falcon_load_ucode(struct nvgpu_falcon *flcn,
 		struct nvgpu_mem *ucode_mem_desc, u32 *ucode_header);
+
+/**
+ * @brief Write the debuginfo register with the given value.
+ *
+ * @param flcn [in] The falcon.
+ * @param data [in] Data to be written to debuginfo register.
+ *
+ * This function is called to update the debuginfo register.
+ *
+ * Steps:
+ * - Validate that, the passed falcon struct is not NULL and is for supported
+ *   falcon. If not valid, return -EINVAL.
+ * - Validate that the debuginfo offset is available.
+ *   If not, return -EINVAL.
+ * - Write \a data to debuginfo register of the falcon \a flcn.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ */
+s32 nvgpu_falcon_debuginfo_write(struct nvgpu_falcon *flcn, u32 data);
+
+/**
+ * @brief Wait till debuginfo register is cleared by the engine or timeout.
+ *
+ * @param flcn [in] The falcon.
+ *
+ * This function is called to know if debuginfo is cleared within timeout.
+ *
+ * Steps:
+ * - Validate that the passed in falcon struct is not NULL and is for supported
+ *   falcon. If not valid, return -EINVAL.
+ * - Initialize the timer using function #nvgpu_timeout_init with the duration
+ *   of minimum of 200ms in the form of #NVGPU_TIMER_RETRY_TIMER. Verify the
+ *   timeout initialization and return error if failed.
+ * - While the timeout is not expired, check the falcon units' debuginfo register
+ *   for every 100-200us.
+ * - Return value based on timeout expiry.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ * @retval -ETIMEDOUT in case the timeout expired waiting for debuginfo to be cleared.
+ */
+s32 nvgpu_falcon_wait_init_completion(struct nvgpu_falcon *flcn);
 
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
 void nvgpu_falcon_dump_stats(struct nvgpu_falcon *flcn);

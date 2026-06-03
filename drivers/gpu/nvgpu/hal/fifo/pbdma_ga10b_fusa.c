@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/log2.h>
@@ -104,6 +85,31 @@ u32 ga10b_pbdma_intr_1_en_clear_tree_mask(void)
 
 	return mask;
 }
+
+u32 ga10b_intr_0_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_intr_0_r(pbdma_id);
+}
+
+u32 ga10b_intr_1_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_intr_1_r(pbdma_id);
+}
+
+u32 ga10b_hce_dbg0_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_hce_dbg0_r(pbdma_id);
+}
+
+u32 ga10b_hce_dbg1_reg_addr(struct gk20a *g, u32 pbdma_id)
+{
+	(void)g;
+	return pbdma_hce_dbg1_r(pbdma_id);
+}
+
 /**
  * nvgpu will route all pbdma intr to tree_0
  * The interrupt registers NV_PPBDMA_INTR_* contain and control the interrupt
@@ -364,8 +370,8 @@ int ga10b_pbdma_handle_intr(struct gk20a *g, u32 pbdma_id, bool recover)
 	u32 intr_error_notifier = NVGPU_ERR_NOTIFIER_PBDMA_ERROR;
 	int err = 0;
 
-	u32 pbdma_intr_0 = nvgpu_readl(g, pbdma_intr_0_r(pbdma_id));
-	u32 pbdma_intr_1 = nvgpu_readl(g, pbdma_intr_1_r(pbdma_id));
+	u32 pbdma_intr_0 = nvgpu_readl(g, g->ops.pbdma.intr_0_reg_addr(g, pbdma_id));
+	u32 pbdma_intr_1 = nvgpu_readl(g, g->ops.pbdma.intr_1_reg_addr(g, pbdma_id));
 
 	if (pbdma_intr_0 != 0U) {
 		nvgpu_log(g, gpu_dbg_info | gpu_dbg_intr,
@@ -385,7 +391,7 @@ int ga10b_pbdma_handle_intr(struct gk20a *g, u32 pbdma_id, bool recover)
 				}
 			}
 		}
-		nvgpu_writel(g, pbdma_intr_0_r(pbdma_id), pbdma_intr_0);
+		nvgpu_writel(g, g->ops.pbdma.intr_0_reg_addr(g, pbdma_id), pbdma_intr_0);
 	}
 
 	if (pbdma_intr_1 != 0U) {
@@ -406,7 +412,7 @@ int ga10b_pbdma_handle_intr(struct gk20a *g, u32 pbdma_id, bool recover)
 				}
 			}
 		}
-		nvgpu_writel(g, pbdma_intr_1_r(pbdma_id), pbdma_intr_1);
+		nvgpu_writel(g, g->ops.pbdma.intr_1_reg_addr(g, pbdma_id), pbdma_intr_1);
 	}
 
 	return err;
@@ -523,7 +529,9 @@ bool ga10b_pbdma_handle_intr_1(struct gk20a *g, u32 pbdma_id, u32 pbdma_intr_1,
 {
 	bool recover = false;
 
-	u32 pbdma_intr_1_current = nvgpu_readl(g, pbdma_intr_1_r(pbdma_id));
+	u32 pbdma_intr_1_current = nvgpu_readl(g, g->ops.pbdma.intr_1_reg_addr(g, pbdma_id));
+	u32 hce_dbg0 = nvgpu_readl(g, g->ops.pbdma.hce_dbg0_reg_addr(g, pbdma_id));
+	u32 hce_dbg1 = nvgpu_readl(g, g->ops.pbdma.hce_dbg1_reg_addr(g, pbdma_id));
 
 	(void)error_notifier;
 
@@ -553,8 +561,9 @@ bool ga10b_pbdma_handle_intr_1(struct gk20a *g, u32 pbdma_id, u32 pbdma_intr_1,
 		 * related, which is not supported. For now just make them
 		 * channel fatal.
 		 */
-		nvgpu_err(g, "hce err: pbdma_intr_1(%d):0x%08x",
-			pbdma_id, pbdma_intr_1);
+		nvgpu_err(g, "hce err on pbdma_id %d, pbdma_intr_1: 0x%08x "
+			"hce_dbg0: 0x%08x, hce_dbg1: 0x%08x", pbdma_id, pbdma_intr_1,
+			hce_dbg0, hce_dbg1);
 	}
 
 	return recover;
@@ -638,6 +647,8 @@ bool ga10b_pbdma_handle_intr_0_acquire(struct gk20a *g, u32 pbdma_id,
 
 	if ((pbdma_intr_0 & pbdma_intr_0_acquire_pending_f()) != 0U) {
 		u32 val = nvgpu_readl(g, pbdma_acquire_r(pbdma_id));
+
+		nvgpu_err(g, "pbdma_acquire_r: 0x%08x", val);
 
 		val &= ~pbdma_acquire_timeout_en_enable_f();
 		nvgpu_writel(g, pbdma_acquire_r(pbdma_id), val);

@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if defined(CONFIG_NVIDIA_CONFTEST)
 #include <nvidia/conftest.h>
@@ -36,6 +23,7 @@
 #endif
 
 #include <nvgpu/comptags.h>
+#include <nvgpu/dma.h>
 #include <nvgpu/enabled.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/linux/vm.h>
@@ -94,13 +82,30 @@ static void nvgpu_dma_buf_release(struct dma_buf *dmabuf)
 {
 	struct gk20a_dmabuf_priv *priv = NULL;
 	struct nvgpu_os_linux *l = NULL;
+	struct gk20a *g;
 
 	priv = dma_buf_ops_to_gk20a_priv((struct dma_buf_ops *)dmabuf->ops);
 	if (priv != NULL) {
-		l = nvgpu_os_linux_from_gk20a(priv->g);
+		g = priv->g;
+		l = nvgpu_os_linux_from_gk20a(g);
 	} else {
 		BUG();
 		return;
+	}
+	/*
+	 * In raw mode compression, the cbc backing storage of a buffer should
+	 * be scrubbed before the buffer is freed.  The scrub dma operation use
+	 * the gpa of the buffer that is being released. When on raw mode, for
+	 * the compressible buffers that is mapped to gpu, the priv->st will
+	 * have an independent dma mapping for the buffer.
+	 */
+	if (priv->st != NULL) {
+		int err;
+
+		nvgpu_assert(g->cbc_use_raw_mode == true);
+		err = nvgpu_scrub_cbc_mem(g, priv->st);
+		if (err)
+			nvgpu_err(g, "Failed to scrub cbc backing storage[%d]", err);
 	}
 
 	/* remove this entry from the global tracking list */
@@ -250,6 +255,18 @@ void gk20a_mm_delete_priv(struct gk20a_dmabuf_priv *priv)
 		nvgpu_kfree(g, priv->metadata_blob);
 	}
 
+	if (priv->st) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+		dma_unmap_sgtable(dev_from_gk20a(g), priv->st,
+				  DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+#else
+		dma_unmap_sg_attrs(dev_from_gk20a(g), priv->st->sgl, priv->st->orig_nents,
+				   DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+#endif
+		sg_free_table(priv->st);
+		nvgpu_kfree(g, priv->st);
+	}
+
 	nvgpu_kfree(g, priv);
 }
 
@@ -356,6 +373,70 @@ out:
 	if (!err)
 		*state = s;
 	return err;
+}
+
+/*
+ * Copy sgl and create independent mapping for the backing pages to use with cbc
+ * scrub when dma buffer is released.
+ */
+int gk20a_dmabuf_map_private(struct dma_buf *dmabuf, struct gk20a *g, struct sg_table *pages)
+{
+	struct sg_table *st;
+	struct gk20a_dmabuf_priv *priv;
+	struct device *dev = dev_from_gk20a(g);
+	struct scatterlist *src, *dst;
+	unsigned int i;
+	int ret;
+
+	priv = gk20a_dma_buf_get_drvdata(dmabuf, dev);
+	if (!priv) {
+		nvgpu_do_assert();
+		return -ENOSYS;
+	}
+
+	if (priv->st != NULL)
+		return 0;
+
+	st = nvgpu_kzalloc(g, sizeof(struct sg_table));
+	if (st == NULL)
+		return -ENOMEM;
+
+	ret = sg_alloc_table(st, pages->orig_nents, GFP_KERNEL);
+	if (ret) {
+		goto err_free;
+	}
+
+	src = pages->sgl;
+	dst = st->sgl;
+
+	for (i = 0; i < pages->orig_nents; i++) {
+		sg_set_page(dst, sg_page(src), src->length, 0);
+		dst = sg_next(dst);
+		src = sg_next(src);
+	}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	ret = dma_map_sgtable(dev, st,
+			      DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+#else
+	ret =  dma_map_sg_attrs(dev, st->sgl, st->orig_nents,
+				DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+#endif
+	if (nvgpu_iommuable(g) &&
+			nvgpu_is_enabled(g, NVGPU_MM_SUPPORT_NONPASID_ATS)) {
+		ret = g->ops.fb.tlb_flush(g);
+	}
+	if (ret)
+		goto err_free_sg;
+
+	priv->st = st;
+
+	return 0;
+
+err_free_sg:
+	sg_free_table(st);
+err_free:
+	nvgpu_kfree(g, st);
+	return ret;
 }
 #endif
 

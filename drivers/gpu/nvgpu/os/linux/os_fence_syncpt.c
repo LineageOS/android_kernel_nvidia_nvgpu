@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if !defined(CONFIG_TEGRA_GK20A_NVHOST_HOST1X)
 #include <uapi/linux/nvhost_ioctl.h>
 #endif
 
+#include <linux/sync_file.h>
 #include <linux/err.h>
 #include <nvgpu/errno.h>
 
@@ -52,7 +53,7 @@ int nvgpu_os_fence_syncpt_create(struct nvgpu_os_fence *fence_out,
 		.id = id,
 		.thresh = thresh,
 	};
-	struct nvhost_fence *fence;
+	struct dma_fence *fence;
 
 	fence = nvgpu_nvhost_fence_create(nvhost_device->host1x_pdev, &pt, 1,
 					  "fence");
@@ -70,7 +71,7 @@ int nvgpu_os_fence_syncpt_create(struct nvgpu_os_fence *fence_out,
 int nvgpu_os_fence_syncpt_fdget(struct nvgpu_os_fence *fence_out,
 	struct nvgpu_channel *c, int fd)
 {
-	struct nvhost_fence *fence = nvgpu_nvhost_fence_get(fd);
+	struct dma_fence *fence = sync_file_get_fence(fd);
 
 	if (fence == NULL) {
 		return -ENOMEM;
@@ -105,4 +106,9 @@ int nvgpu_os_fence_syncpt_foreach_pt(struct nvgpu_os_fence_syncpt *fence,
         void *data)
 {
 	return nvgpu_nvhost_fence_foreach_pt(fence->fence->priv, iter, data);
+}
+
+bool nvgpu_os_fence_is_signaled(struct nvgpu_os_fence_syncpt *fence)
+{
+	return nvgpu_nvhost_fence_is_signaled(fence->fence->priv);
 }

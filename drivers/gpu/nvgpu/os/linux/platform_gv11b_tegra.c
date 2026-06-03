@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * GV11B Tegra Platform Interface
@@ -11,11 +11,9 @@
 #include <linux/reset.h>
 #include <linux/hashtable.h>
 #include <linux/clk.h>
+#include <linux/devfreq.h>
 #include <linux/iommu.h>
 #include <linux/pm_runtime.h>
-#ifdef CONFIG_TEGRA_BWMGR
-#include <linux/platform/tegra/emc_bwmgr.h>
-#endif
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/nvhost.h>
@@ -35,29 +33,12 @@
 
 static void gv11b_tegra_scale_init(struct device *dev)
 {
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-
-	if (!profile)
-		return;
-
-	platform->g->emc3d_ratio = EMC3D_GV11B_RATIO;
-
-	gp10b_tegra_scale_init(dev);
-#endif
+	return;
 }
 
 static void gv11b_tegra_scale_exit(struct device *dev)
 {
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-
-	if (profile)
-		tegra_bwmgr_unregister(
-			(struct tegra_bwmgr_client *)profile->private_data);
-#endif
+	return;
 }
 
 static int gv11b_tegra_probe(struct device *dev)
@@ -156,17 +137,6 @@ static int gv11b_tegra_railgate(struct device *dev)
 	struct gk20a *g = get_gk20a(dev);
 #endif
 
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-
-	/* remove emc frequency floor */
-	if (profile)
-		tegra_bwmgr_set_emc(
-			(struct tegra_bwmgr_client *)profile->private_data,
-			0, TEGRA_BWMGR_SET_EMC_FLOOR);
-#endif /* CONFIG_TEGRA_BWMGR */
-
 	gp10b_tegra_clks_control(dev, false);
 
 	return 0;
@@ -175,21 +145,8 @@ static int gv11b_tegra_railgate(struct device *dev)
 static int gv11b_tegra_unrailgate(struct device *dev)
 {
 	int ret = 0;
-#ifdef CONFIG_TEGRA_BWMGR
-	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
-#endif
 
 	gp10b_tegra_clks_control(dev, true);
-
-#ifdef CONFIG_TEGRA_BWMGR
-	/* to start with set emc frequency floor to max rate*/
-	if (profile)
-		tegra_bwmgr_set_emc(
-			(struct tegra_bwmgr_client *)profile->private_data,
-			tegra_bwmgr_get_max_emc_rate(),
-			TEGRA_BWMGR_SET_EMC_FLOOR);
-#endif
 
 	return ret;
 }
@@ -264,7 +221,7 @@ struct gk20a_platform gv11b_tegra_platform = {
 	.enable_slcg            = true,
 	.enable_blcg            = true,
 	.enable_elcg            = true,
-	.enable_perfmon         = true,
+	.enable_perfmon         = false,
 
 	/* power management configuration */
 	.enable_elpg		= true,
@@ -286,9 +243,16 @@ struct gk20a_platform gv11b_tegra_platform = {
 
 	/* frequency scaling configuration */
 	.initscale = gv11b_tegra_scale_init,
+	.exitscale = gk20a_scale_exit,
 	.prescale = gp10b_tegra_prescale,
 	.postscale = gp10b_tegra_postscale,
-	.devfreq_governor = "nvhost_podgov",
+#if defined(CONFIG_DEVFREQ_GOV_PERFORMANCE)
+	.devfreq_governor = DEVFREQ_GOV_PERFORMANCE,
+#elif defined(CONFIG_DEVFREQ_GOV_USERSPACE)
+	.devfreq_governor = DEVFREQ_GOV_USERSPACE,
+#else
+	.devfreq_governor = NULL,
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	.qos_min_notify = gk20a_scale_qos_min_notify,

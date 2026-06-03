@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/platform_device.h>
 
@@ -48,8 +48,9 @@ int gv11b_vgpu_probe(struct device *dev)
 	}
 
 	ret = nvgpu_nvhost_get_syncpt_aperture(g->nvhost,
-							&g->syncpt_unit_base,
-							&g->syncpt_unit_size);
+							&g->syncpt_unit_base[0],
+							&g->syncpt_unit_size,
+							false);
 	if (ret) {
 		nvgpu_err(g, "Failed to get syncpt interface");
 		return -ENOSYS;
@@ -57,7 +58,7 @@ int gv11b_vgpu_probe(struct device *dev)
 	g->syncpt_size =
 		nvgpu_nvhost_syncpt_unit_interface_get_byte_offset(g, 1);
 	nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
-		g->syncpt_unit_base, g->syncpt_unit_size, g->syncpt_size);
+		g->syncpt_unit_base[0], g->syncpt_unit_size, g->syncpt_size);
 #endif
 	vgpu_init_clk_support(platform->g);
 

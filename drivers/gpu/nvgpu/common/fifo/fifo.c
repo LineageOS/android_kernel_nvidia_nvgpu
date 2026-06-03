@@ -1,26 +1,5 @@
-/*
- * FIFO
- *
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/dma.h>
@@ -39,6 +18,7 @@
 #include <nvgpu/swprofile.h>
 #include <nvgpu/fifo/swprofile.h>
 
+#ifdef CONFIG_NVGPU_RECOVERY
 static const char *nvgpu_fifo_kickoff_profile_events[] = {
 	NVGPU_FIFO_KICKOFF_PROFILE_EVENTS,
 };
@@ -50,6 +30,7 @@ static const char *nvgpu_fifo_recovery_profile_events[] = {
 static const char *nvgpu_fifo_engine_reset_events[] = {
 	NVGPU_FIFO_ENGINE_RESET_EVENTS,
 };
+#endif
 
 void nvgpu_fifo_cleanup_sw_common(struct gk20a *g)
 {
@@ -86,11 +67,60 @@ void nvgpu_fifo_cleanup_sw(struct gk20a *g)
 	nvgpu_fifo_cleanup_sw_common(g);
 }
 
+/**
+ * @brief Clean up FIFO support.
+ *
+ * This function is responsible for cleaning up the FIFO software context by
+ * invoking the appropriate cleanup routine from the GPU operations structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GPU driver structure from the FIFO context.
+ * -# Call the cleanup software routine for the FIFO unit from the GPU operations
+ *    structure gops_fifo.cleanup_sw().
+ *
+ * @param [in] f  Pointer to the FIFO context.
+ *
+ * There are no return values for this function as it returns void.
+ */
 static void nvgpu_fifo_remove_support(struct nvgpu_fifo *f)
 {
 	struct gk20a *g = f->g;
 
 	g->ops.fifo.cleanup_sw(g);
+}
+
+static void nvgpu_setup_pbdma_id_to_base(struct gk20a *g)
+{
+	u32 i, j;
+	u32 pbdma_pri_base;
+	u32 pbdma_id;
+	const struct nvgpu_device *dev = NULL;
+
+	for (i = 0U; i < NVGPU_MAX_DEVTYPE; i++) {
+		if (g->devs->dev_counts[i] == 0U) {
+			continue;
+		}
+
+		nvgpu_device_for_each(g, dev, i) {
+			for (j = 0U; j < PBDMA_PER_RUNLIST_SIZE; j++) {
+				if ((dev->pbdma_info.pbdma_id[j] == NVGPU_INVALID_PBDMA_ID) ||
+					(dev->pbdma_info.pbdma_pri_base[j] == NVGPU_INVALID_PBDMA_PRI_BASE) ||
+					(dev->pbdma_info.pbdma_pri_base[j] == 0U)) {
+					continue;
+				}
+
+				pbdma_pri_base = dev->pbdma_info.pbdma_pri_base[j];
+				pbdma_id = dev->pbdma_info.pbdma_id[j];
+				nvgpu_assert(pbdma_id < NVGPU_MAX_NUM_PBDMA);
+				g->pbdma_id_to_base[pbdma_id] = pbdma_pri_base;
+			}
+		}
+	}
+
+	nvgpu_log(g, gpu_dbg_device, "PBDMA ID to Base mapping:");
+	for (i = 0U; i < NVGPU_MAX_NUM_PBDMA; i++) {
+		nvgpu_log(g, gpu_dbg_device, "PBDMA ID %u: Base = %u", i, g->pbdma_id_to_base[i]);
+	}
 }
 
 int nvgpu_fifo_setup_sw_common(struct gk20a *g)
@@ -108,13 +138,14 @@ int nvgpu_fifo_setup_sw_common(struct gk20a *g)
 	nvgpu_mutex_init(&f->deferred_reset_mutex);
 #endif
 
+#ifdef CONFIG_NVGPU_RECOVERY
 	nvgpu_swprofile_initialize(g, &f->kickoff_profiler,
 				 nvgpu_fifo_kickoff_profile_events);
 	nvgpu_swprofile_initialize(g, &f->recovery_profiler,
 				 nvgpu_fifo_recovery_profile_events);
 	nvgpu_swprofile_initialize(g, &f->eng_reset_profiler,
 				 nvgpu_fifo_engine_reset_events);
-
+#endif
 
 	err = nvgpu_channel_setup_sw(g);
 	if (err != 0) {
@@ -157,6 +188,8 @@ int nvgpu_fifo_setup_sw_common(struct gk20a *g)
 #endif
 
 	f->remove_support = nvgpu_fifo_remove_support;
+
+	nvgpu_setup_pbdma_id_to_base(g);
 
 	nvgpu_log_fn(g, "done");
 	return 0;
@@ -274,6 +307,30 @@ const char *nvgpu_fifo_decode_pbdma_ch_eng_status(u32 index)
 	}
 }
 
+/**
+ * @brief Disables FIFO interrupts.
+ *
+ * This function is responsible for disabling FIFO interrupts. It first disables
+ * the FIFO interrupt 0 and FIFO interrupt 1. Then, it checks if the top-level
+ * FIFO interrupt disable operation is defined. If it is not defined, it uses
+ * the common interrupt controller monitor to disable the stall interrupts for
+ * the FIFO unit. Otherwise, it calls the top-level FIFO interrupt disable
+ * operation.
+ *
+ * The steps performed by the function are as follows:
+ * -# Disable FIFO interrupt 0 by calling gops_fifo.intr_0_enable() with the parameter
+ *    set to false.
+ * -# Disable FIFO interrupt 1 by calling gops_fifo.intr_1_enable() with the parameter
+ *    set to false.
+ * -# Check if the gops_fifo.intr_top_enable operation is defined (not NULL).
+ *    - If it is not defined, disable the stall interrupts for the FIFO unit by
+ *      calling 'nvgpu_cic_mon_intr_stall_unit_config()' with the parameters
+ *      for the FIFO unit and disable operation.
+ *    - If it is defined, call the gops_fifo.intr_top_enable() operation with the
+ *      parameter for the disable operation.
+ *
+ * @param [in] g  Pointer to the GPU driver structure.
+ */
 static void disable_fifo_interrupts(struct gk20a *g)
 {
 	/** Disable fifo intr */

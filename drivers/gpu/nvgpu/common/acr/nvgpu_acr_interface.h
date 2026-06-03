@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ACR_INTERFACE_H
@@ -329,7 +311,7 @@ struct lsf_ucode_desc_wrapper {
 	struct acr_generic_header generic_hdr;
 
 	union {
-		struct lsf_ucode_desc_v2 lsf_ucode_desc_v2;
+		struct lsf_ucode_desc_v2 nvlsf_ucode_desc_v2;
 	};
 };
 
@@ -354,7 +336,7 @@ struct lsf_ucode_desc_wrapper {
 #define NV_FLCN_ACR_LSF_FLAG_DMACTL_REQ_CTX_TRUE        BIT32(2)
 /** Use priv loading method instead of bootloader/DMAs */
 #define NV_FLCN_ACR_LSF_FLAG_FORCE_PRIV_LOAD_TRUE       BIT32(3)
-#define NV_FLCN_ACR_LSF_FLAG_FORCE_PRIV_LOAD_FALSE      (0U)
+#define NV_FLCN_ACR_LSF_FLAG_FORCE_PRIV_LOAD_FALSE      U32(0)
 struct lsf_lsb_header {
 	/** Code/data signature details of each LS falcon */
 	struct lsf_ucode_desc signature;
@@ -744,10 +726,10 @@ struct flcn_acr_desc {
 };
 
 /* MIG mode selection*/
-#define MIG_MODE                      BIT(8U)
+#define MIG_MODE                      U32(BIT(8U))
 
 /* Let ACR know when in simulation*/
-#define ACR_SIMULATION_MODE           BIT(16U)
+#define ACR_SIMULATION_MODE           U32(BIT(16U))
 
 struct flcn2_acr_desc {
 	/**

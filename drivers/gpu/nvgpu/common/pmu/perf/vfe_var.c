@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bios.h>
 #include <nvgpu/gk20a.h>
@@ -31,35 +12,51 @@
 
 #include "ucode_perf_vfe_inf.h"
 #include "vfe_var.h"
+#include "vfe_equ.h"
 #include "perf.h"
+
+/*
+ * This is defined here to getrid of stack size
+ * issue.
+ */
+union vfe_var_data{
+	struct pmu_board_obj obj;
+	struct vfe_var super;
+	struct vfe_var_derived_product derived_product;
+	struct vfe_var_derived_sum derived_sum;
+	struct vfe_var_single_sensed_fuse single_sensed_fuse;
+	struct vfe_var_single_sensed_fuse_20 single_sensed_fuse_20;
+	//struct vfe_var_single_sensed_fuse_multi_die single_sensed_fuse_multi_die;
+	struct vfe_var_single_sensed_temp single_sensed_temp;
+	//struct vfe_var_single_sensed_temp_multi_die single_sensed_temp_multi_die;
+	struct vfe_var_single_frequency single_freq;
+	struct vfe_var_single_caller_specified single_caller_specified;
+	//struct vfe_var_single_globally_specified single_globally_specified;
+	//struct vfe_var_single_sensed_power_channel single_sensed_power_channel;
+};
 
 static int vfe_vars_pmudatainit(struct gk20a *g,
 				 struct boardobjgrp *pboardobjgrp,
 				 struct nv_pmu_boardobjgrp_super *pboardobjgrppmu)
 {
-	struct nv_pmu_perf_vfe_var_boardobjgrp_set_header *pset =
-		(struct nv_pmu_perf_vfe_var_boardobjgrp_set_header *)(void *)
-		pboardobjgrppmu;
-	struct vfe_vars *pvars = (struct vfe_vars *)(void *)pboardobjgrp;
 	int status = 0;
 
-	status = boardobjgrp_pmudatainit_e32(g, pboardobjgrp, pboardobjgrppmu);
+	status = boardobjgrp_pmudatainit_e2048(g, pboardobjgrp, pboardobjgrppmu);
 	if (status != 0) {
 		nvgpu_err(g,
 			"error updating pmu boardobjgrp for vfe var 0x%x",
 			 status);
 		goto done;
 	}
-	pset->polling_periodms = pvars->polling_periodms;
 
 done:
 	return status;
 }
 
 static int vfe_vars_pmudata_instget(struct gk20a *g,
-				     struct nv_pmu_boardobjgrp *pmuboardobjgrp,
-				     struct nv_pmu_boardobj **pmu_obj,
-				     u8 idx)
+				struct nv_pmu_boardobjgrp *pmuboardobjgrp,
+				struct nv_pmu_boardobj **pmu_obj,
+				u8 idx)
 {
 	struct nv_pmu_perf_vfe_var_boardobj_grp_set  *pgrp_set =
 		(struct nv_pmu_perf_vfe_var_boardobj_grp_set *)(void *)
@@ -167,6 +164,353 @@ static int vfe_var_dependency_mask_build(struct gk20a *g,
 		}
 	}
 	return status;
+}
+static int dev_init_vfe_var_fuse20_id_convert_localid(struct gk20a *g,
+		u16 vbios_fuse_id, u16 *ctrl_fuse_id)
+{
+    switch (vbios_fuse_id)
+    {
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SPEEDO;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SPEEDO_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_IDDQ;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_IDDQ_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ_1:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_IDDQ_1;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOARD_BINNING:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_BOARD_BINNING;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOARD_BINNING_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_BOARD_BINNING_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOOT_VMIN_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_BOOT_VMIN_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_VCM_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_VCM_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFF_GAIN:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_DIFF_GAIN;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFF_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_DIFF_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_CALIBRATION_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_CALIBRATION_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_1:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SPEEDO_1;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_CPM_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_0:
+		*ctrl_fuse_id = CTRL_FUSE_ID_CPM_0;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_1:
+		*ctrl_fuse_id = CTRL_FUSE_ID_CPM_1;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_2:
+		*ctrl_fuse_id = CTRL_FUSE_ID_CPM_2;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_VCM_COARSE_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_VCM_COARSE_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOOT_VMIN_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_BOOT_VMIN_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_VALID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA_VALID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_IDDQ_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_IDDQ_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_IDDQ_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_IDDQ_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_2:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SPEEDO_2;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_OC_BIN:
+		*ctrl_fuse_id = CTRL_FUSE_ID_OC_BIN;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_LV_FMAX_KNOB:
+		*ctrl_fuse_id = CTRL_FUSE_ID_LV_FMAX_KNOB;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_MV_FMAX_KNOB:
+		*ctrl_fuse_id = CTRL_FUSE_ID_MV_FMAX_KNOB;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_HV_FMAX_KNOB:
+		*ctrl_fuse_id = CTRL_FUSE_ID_HV_FMAX_KNOB;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PSTATE_VMIN_KNOB:
+		*ctrl_fuse_id = CTRL_FUSE_ID_PSTATE_VMIN_KNOB;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFFERENTIAL_COARSE_GAIN:
+		*ctrl_fuse_id = CTRL_FUSE_ID_ISENSE_DIFFERENTIAL_COARSE_GAIN;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_FMAX_KNOB_REV:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_FMAX_KNOB_REV;
+		 break;
+       case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA0:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_ATEKAPPA0;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA1:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_ATEKAPPA1;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA2:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_ATEKAPPA2;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA_VALID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_ATEKAPPA_VALID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA_REV:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VB_ATEKAPPA_REV;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_BI_DONE:
+		*ctrl_fuse_id = CTRL_FUSE_ID_BI_DONE;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP1_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP1_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP2_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP2_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP1_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP1_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP2_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP2_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_STRAP_SRAM_VMAX_HVA_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_STRAP_SRAM_VMAX_HVA_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_NATURAL_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMAX_NATURAL_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_LVA_NVVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMAX_LVA_NVVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP1_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP1_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP2_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP2_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP1_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP1_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP2_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP2_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_HVA_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMAX_HVA_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_NATURAL_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMAX_NATURAL_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_LVA_MSVDD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_STRAP_SRAM_VMAX_LVA_MSVDD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_HI_SLOPE:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_HI_SLOPE;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_HI_INTERCEPT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_HI_INTERCEPT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_MID_SLOPE:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_MID_SLOPE;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_MID_INTERCEPT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_MID_INTERCEPT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_LO_SLOPE:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_LO_SLOPE;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_LO_INTERCEPT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_LO_INTERCEPT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_FUSE_REV:
+		*ctrl_fuse_id = CTRL_FUSE_ID_UVD_CAL_FUSE_REV;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_RC_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMIN_RC_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_RC_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMAX_RC_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_POWER_RATIO:
+		*ctrl_fuse_id = CTRL_FUSE_ID_POWER_RATIO;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_POWER_RATIO_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_POWER_RATIO_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMIN_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMAX_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_XBAR_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_XBAR_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_NVD_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_NVD_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_SYS_BLT_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_SYS_BLT_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_SLT_MAX_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMIN_SLT_MAX_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_SLT_MIN_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMIN_SLT_MIN_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_SLT_MAX_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMAX_SLT_MAX_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_SLT_MIN_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_VMAX_SLT_MIN_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_SLT_MAX_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA_SLT_MAX_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_SLT_MIN_OFFSET:
+		*ctrl_fuse_id = CTRL_FUSE_ID_KAPPA_SLT_MIN_OFFSET;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PER_PART_POWER_LIMITS_VERSION:
+		*ctrl_fuse_id = CTRL_FUSE_ID_PER_PART_POWER_LIMITS_VERSION;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP:
+		*ctrl_fuse_id = CTRL_FUSE_ID_PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_SRAM_VMAX_BIN_REV:
+		*ctrl_fuse_id = CTRL_FUSE_ID_SRAM_VMAX_BIN_REV;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_MID:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_MID;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_WA_VMAX_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_WA_VMAX_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_WA_VMAX_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_WA_VMAX_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_WA_VMAX_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_WA_VMAX_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_WA_VMAX_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_WA_VMAX_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMAX_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_HVA_VMAX_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMAX_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_NA_VMAX_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMAX_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_HVA_VMAX_HOT;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMAX_COLD:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPM_SRAM_NA_VMAX_COLD;
+		break;
+	case VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMAX_HOT:
+		*ctrl_fuse_id = CTRL_FUSE_ID_GPC_SRAM_HVA_VMAX_HOT;
+		break;
+	default:
+		nvgpu_err(NULL,"Invalid Bios fused_id_20");
+		break;
+    }
+	return 0;
 }
 
 static int dev_init_get_vfield_info(struct gk20a *g,
@@ -299,8 +643,8 @@ done:
 }
 
 static int vfe_var_pmudatainit_super(struct gk20a *g,
-				      struct pmu_board_obj *obj,
-				      struct nv_pmu_boardobj *pmu_obj)
+				  struct pmu_board_obj *obj,
+				  struct nv_pmu_boardobj *pmu_obj)
 {
 	int status = 0;
 	struct vfe_var *pvfe_var;
@@ -395,8 +739,8 @@ static int vfe_var_pmudatainit_derived(struct gk20a *g,
 }
 
 static int vfe_var_construct_derived(struct gk20a *g,
-				     struct pmu_board_obj **obj,
-				     size_t size, void *pargs)
+				 struct pmu_board_obj **obj,
+				 size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	int status = 0;
@@ -477,8 +821,8 @@ static int vfe_var_build_depending_mask_derived_product(struct gk20a *g,
 }
 
 static int vfe_var_construct_derived_product(struct gk20a *g,
-					     struct pmu_board_obj **obj,
-					     size_t size, void *pargs)
+					 struct pmu_board_obj **obj,
+					 size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct vfe_var_derived_product *pvfevar;
@@ -510,8 +854,8 @@ static int vfe_var_construct_derived_product(struct gk20a *g,
 }
 
 static int vfe_var_pmudatainit_derived_sum(struct gk20a *g,
-					    struct pmu_board_obj *obj,
-					    struct nv_pmu_boardobj *pmu_obj)
+					struct pmu_board_obj *obj,
+					struct nv_pmu_boardobj *pmu_obj)
 {
 	int status = 0;
 	struct vfe_var_derived_sum *pvfe_var_derived_sum;
@@ -600,8 +944,8 @@ static int vfe_var_construct_derived_sum(struct gk20a *g,
 }
 
 static int vfe_var_pmudatainit_single(struct gk20a *g,
-				       struct pmu_board_obj *obj,
-				       struct nv_pmu_boardobj *pmu_obj)
+				   struct pmu_board_obj *obj,
+				   struct nv_pmu_boardobj *pmu_obj)
 {
 	int status = 0;
 	struct vfe_var_single *pvfe_var_single;
@@ -617,7 +961,7 @@ static int vfe_var_pmudatainit_single(struct gk20a *g,
 		pmu_obj;
 
 	pset->override_type = pvfe_var_single->override_type;
-	pset->override_value = pvfe_var_single->override_value;
+	pset->override_value[0] = pvfe_var_single->override_value[0];
 
 	return status;
 }
@@ -673,15 +1017,15 @@ static int vfe_var_construct_single(struct gk20a *g,
 
 	pvfevar->override_type =
 			(u8)CTRL_PERF_VFE_VAR_SINGLE_OVERRIDE_TYPE_NONE;
-	pvfevar->override_value = 0;
+	pvfevar->b_override_die_aware = false;
 
 	nvgpu_log_info(g, "Done");
 	return status;
 }
 
 static int vfe_var_construct_single_frequency(struct gk20a *g,
-					      struct pmu_board_obj **obj,
-					      size_t size, void *pargs)
+					struct pmu_board_obj **obj,
+					size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct vfe_var_single_frequency *pvfevar;
@@ -735,8 +1079,8 @@ static int vfe_var_pmudatainit_single_caller_specified(struct gk20a *g,
 }
 
 static int vfe_var_construct_single_caller_specified(struct gk20a *g,
-					      struct pmu_board_obj **obj,
-					      size_t size, void *pargs)
+					struct pmu_board_obj **obj,
+					size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct vfe_var_single_caller_specified *pvfevar;
@@ -768,8 +1112,8 @@ static int vfe_var_construct_single_caller_specified(struct gk20a *g,
 }
 
 static int vfe_var_pmudatainit_single_sensed(struct gk20a *g,
-					      struct pmu_board_obj *obj,
-					      struct nv_pmu_boardobj *pmu_obj)
+					struct pmu_board_obj *obj,
+					struct nv_pmu_boardobj *pmu_obj)
 {
 	return vfe_var_pmudatainit_single(g, obj, pmu_obj);
 }
@@ -806,6 +1150,56 @@ static int vfe_var_pmudatainit_single_sensed_fuse(struct gk20a *g,
 		sizeof(struct ctrl_perf_vfe_var_single_sensed_fuse_override_info));
 
 	pset->b_fuse_value_signed = pvfe_var_single_sensed_fuse->b_fuse_value_signed;
+	return status;
+}
+
+
+static int vfe_var_pmudatainit_single_sensed_fuse_base(struct gk20a *g,
+						   struct pmu_board_obj *obj,
+						   struct nv_pmu_boardobj *pmu_obj)
+{
+	int status = 0;
+	struct vfe_var_single_sensed_fuse_base *pvfe_var_fuse_base;
+	struct nv_pmu_vfe_var_single_sensed_fuse_base *pmu_var_fuse_base;
+
+	status = vfe_var_pmudatainit_single_sensed(g, obj, pmu_obj);
+	if (status != 0) {
+		return status;
+	}
+
+	pmu_var_fuse_base = (struct nv_pmu_vfe_var_single_sensed_fuse_base *)pmu_obj;
+	pvfe_var_fuse_base = (struct vfe_var_single_sensed_fuse_base *)obj;
+
+	pmu_var_fuse_base->override_info       = pvfe_var_fuse_base->override_info;
+	pmu_var_fuse_base->fuse_val_default     = pvfe_var_fuse_base->fuse_val_default;
+	pmu_var_fuse_base->b_fuse_value_signed   = pvfe_var_fuse_base->b_fuse_value_signed;
+	pmu_var_fuse_base->fuse_version            = pvfe_var_fuse_base->fuse_version;
+	pmu_var_fuse_base->hw_correction_scale  = pvfe_var_fuse_base->hw_correction_scale;
+	pmu_var_fuse_base->hw_correction_offset = pvfe_var_fuse_base->hw_correction_offset;
+	return status;
+}
+
+static int vfe_var_pmudatainit_single_sensed_fuse_20(struct gk20a *g,
+						   struct pmu_board_obj *obj,
+						   struct nv_pmu_boardobj *pmu_obj)
+{
+	int status = 0;
+	struct vfe_var_single_sensed_fuse_20 *pvfe_var_single_sensed_fuse_20;
+	struct nv_pmu_vfe_var_single_sensed_fuse_20 *pset;
+
+	status = vfe_var_pmudatainit_single_sensed_fuse_base(g, obj, pmu_obj);
+	if (status != 0) {
+		return status;
+	}
+
+	pvfe_var_single_sensed_fuse_20 =
+		(struct vfe_var_single_sensed_fuse_20 *)(void *)obj;
+
+	pset = (struct nv_pmu_vfe_var_single_sensed_fuse_20 *)(void *)
+		pmu_obj;
+	pset->fuse_id = pvfe_var_single_sensed_fuse_20->fuse_id ;
+	pset->fuse_id_ver = pvfe_var_single_sensed_fuse_20->fuse_id_ver;
+
 	return status;
 }
 
@@ -905,6 +1299,64 @@ exit:
 	return status;
 }
 
+
+static int vfe_var_construct_single_sensed_fuse_base(struct gk20a *g, struct pmu_board_obj **obj,
+		size_t size, void *pargs)
+{
+	/*TODO: Fix the info*/
+	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
+	int status = 0;
+	struct vfe_var_single_sensed_fuse_base *p_vfe_var_base;
+	struct vfe_var_single_sensed_fuse_base *p_temp_vfe_var_base_fuse;
+
+	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20) {
+		return -EINVAL;
+	}
+
+	obj_tmp->type_mask |= (u32)BIT(CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_BASE);
+	status = vfe_var_construct_single_sensed(g, obj, size, pargs);
+	if (status != 0) {
+		return -EINVAL;
+	}
+	p_vfe_var_base = (struct vfe_var_single_sensed_fuse_base *)(*obj);
+	p_temp_vfe_var_base_fuse = (struct vfe_var_single_sensed_fuse_base *)obj_tmp;
+	p_vfe_var_base->fuse_val_default     = p_temp_vfe_var_base_fuse->fuse_val_default;
+	p_vfe_var_base->b_fuse_value_signed   = p_temp_vfe_var_base_fuse->b_fuse_value_signed;
+	p_vfe_var_base->fuse_version            = p_temp_vfe_var_base_fuse->fuse_version;
+	p_vfe_var_base->hw_correction_scale  = p_temp_vfe_var_base_fuse->hw_correction_scale;
+	p_vfe_var_base->hw_correction_offset = p_temp_vfe_var_base_fuse->hw_correction_offset;
+	p_vfe_var_base->b_version_check_done  = 0;
+
+	return status;
+
+}
+
+static int vfe_var_construct_single_sensed_fuse_20(struct gk20a *g, struct pmu_board_obj **obj,
+		size_t size, void *pargs)
+{
+	/*TODO: Fix the info*/
+	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
+	int status = 0;
+	struct vfe_var_single_sensed_fuse_20 *pvfevar;
+
+	if (pmu_board_obj_get_type(pargs) != CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20) {
+		return -EINVAL;
+	}
+
+	obj_tmp->type_mask |= (u32)BIT(CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20);
+	status = vfe_var_construct_single_sensed_fuse_base(g, obj, size, pargs);
+	if (status != 0) {
+		return -EINVAL;
+	}
+
+	pvfevar = (struct vfe_var_single_sensed_fuse_20 *)(void *)(*obj);
+	pvfevar->super.super.super.super.super.pmudatainit =
+		vfe_var_pmudatainit_single_sensed_fuse_20;
+
+	return status;
+
+}
+
 static int vfe_var_pmudatainit_single_sensed_temp(struct gk20a *g,
 						   struct pmu_board_obj *obj,
 						   struct nv_pmu_boardobj *pmu_obj)
@@ -974,15 +1426,15 @@ static int vfe_var_construct_single_sensed_temp(struct gk20a *g,
 }
 
 static int vfe_var_pmudatainit_single_voltage(struct gk20a *g,
-					       struct pmu_board_obj *obj,
-					       struct nv_pmu_boardobj *pmu_obj)
+					struct pmu_board_obj *obj,
+					struct nv_pmu_boardobj *pmu_obj)
 {
 	return vfe_var_pmudatainit_single(g, obj, pmu_obj);
 }
 
 static int vfe_var_construct_single_voltage(struct gk20a *g,
-					    struct pmu_board_obj **obj,
-					    size_t size, void *pargs)
+					struct pmu_board_obj **obj,
+					size_t size, void *pargs)
 {
 	struct pmu_board_obj *obj_tmp = (struct pmu_board_obj *)pargs;
 	struct vfe_var_single_voltage *pvfevar;
@@ -1035,7 +1487,11 @@ static struct vfe_var *construct_vfe_var(struct gk20a *g, void *pargs)
 		status = vfe_var_construct_single_sensed_fuse(g, &obj,
 			sizeof(struct vfe_var_single_sensed_fuse), pargs);
 		break;
-
+	case CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20:
+		status = vfe_var_construct_single_sensed_fuse_20(g, &obj,
+				sizeof(struct vfe_var_single_sensed_fuse_20),
+				pargs);
+		break;
 	case CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_TEMP:
 		status = vfe_var_construct_single_sensed_temp(g, &obj,
 			sizeof(struct vfe_var_single_sensed_temp), pargs);
@@ -1068,17 +1524,107 @@ static struct vfe_var *construct_vfe_var(struct gk20a *g, void *pargs)
 	return (struct vfe_var *)(void *)obj;
 }
 
+static int dev_init_vfe_param_type_convert(u8 vbios_param_type, u8 *local_param_type)
+{
+	int ret = 0;
+
+	switch (vbios_param_type) {
+		case VBIOS_VFE_3X_PARAM_ENTRY_TYPE_DISABLED:
+			*local_param_type = CTRL_PERF_VFE_PARAMS_TYPE_INVALID;
+			break;
+		case VBIOS_VFE_3X_PARAM_ENTRY_TYPE_LITERAL_CONSTANT:
+			*local_param_type = CTRL_PERF_VFE_PARAMS_TYPE_LITERAL_CONSTANT;
+			break;
+		case VBIOS_VFE_3X_PARAM_ENTRY_TYPE_VAR_IDX:
+			*local_param_type = CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX;
+			break;
+		case VBIOS_VFE_3X_PARAM_ENTRY_TYPE_EQU_IDX:
+			*local_param_type = CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX;
+			break;
+		default:
+			ret =  -1;
+			break;
+	}
+	return ret;
+}
+
+static int dev_init_copy_param_entries(struct gk20a *g, u8 *base,
+	struct vbios_vfe_3x_header_struct *vfevars_tbl_header)
+{
+
+	struct nvgpu_pmu *pmu = g->pmu;
+	struct nvgpu_pmu_perf *pmu_perf = pmu->perf_pmu;
+
+	u32 szFmt;
+	u8 *offset;
+    	u32 i;
+	int ret = 0;
+    	struct vbios_vfe_param_3x param = {0};
+
+	if (vfevars_tbl_header->vfe_param_entry_size >= VBIOS_VFE_3X_PARAM_ENTRY_SIZE_05) {
+            szFmt = VBIOS_VFE_3X_PARAM_ENTRY_SIZE_05;
+	} else {
+		return -1;
+	}
+
+	pmu_perf->param_count = vfevars_tbl_header->vfe_param_entry_count;
+	if (pmu_perf->param_count > 0) {
+		pmu_perf->vfe_paramsobjs = nvgpu_kzalloc(g,
+				((pmu_perf->param_count) * sizeof(struct ctrl_perf_vfe_param)));
+		if (pmu_perf->vfe_paramsobjs == NULL) {
+			return -ENOMEM;
+		}
+
+		for (i = 0, offset = base; i < pmu_perf->param_count; i++,
+				offset += vfevars_tbl_header->vfe_param_entry_size) {
+                	nvgpu_memcpy((u8 *)&param, offset, szFmt);
+
+			ret = dev_init_vfe_param_type_convert(param.type,
+					&pmu_perf->vfe_paramsobjs[i].param_type);
+                	if (ret != 0) {
+				goto _devinitCopyParamEntries_exit;
+			}
+
+			switch (pmu_perf->vfe_paramsobjs[i].param_type) {
+				case CTRL_PERF_VFE_PARAMS_TYPE_INVALID:
+                        		break;
+                    		case CTRL_PERF_VFE_PARAMS_TYPE_LITERAL_CONSTANT:
+                        		pmu_perf->vfe_paramsobjs[i].param.literal_value = param.value;
+                        		break;
+                    		case CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX:
+                        		pmu_perf->vfe_paramsobjs[i].param.var_idx = (u8)BIOS_GET_FIELD(u8,
+						param.value,
+                            			VBIOS_VFE_3X_PARAM_ENTRY_VALUE_VAR_IDX);
+                        		break;
+                    		case CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX:
+                        		pmu_perf->vfe_paramsobjs[i].param.equ_idx = BIOS_GET_FIELD(u16,
+                            			param.value,
+						VBIOS_VFE_3X_PARAM_ENTRY_VALUE_EQU_IDX);
+                        		break;
+                    		default:
+                        		break;
+                    	}
+		}
+	}
+	return 0;
+_devinitCopyParamEntries_exit:
+	return -1;
+}
+
 static int devinit_get_vfe_var_table(struct gk20a *g,
-				     struct vfe_vars *pvfevarobjs)
+				struct vfe_vars *pvfevarobjs)
 {
 	int status = 0;
 	u8 *vfevars_tbl_ptr = NULL;
+	u8 *vfevars_tbl_params_entry_ptr = NULL;
 	struct vbios_vfe_3x_header_struct vfevars_tbl_header = { 0 };
 	struct vbios_vfe_3x_var_entry_struct var = { 0 };
 	u8 *vfevars_tbl_entry_ptr = NULL;
 	u8 *rd_offset_ptr = NULL;
 	u32 index = 0;
 	struct vfe_var *pvar;
+	union vfe_var_data *pvar_data;
+	u8 vbios_fuse_id;
 	u8 var_type;
 	u32 szfmt, val;
 	bool done = false;
@@ -1086,16 +1632,11 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	u8 clk_domain_idx_available =
 		VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE_NO;
 
-	union {
-		struct pmu_board_obj obj;
-		struct vfe_var super;
-		struct vfe_var_derived_product derived_product;
-		struct vfe_var_derived_sum derived_sum;
-		struct vfe_var_single_sensed_fuse single_sensed_fuse;
-		struct vfe_var_single_sensed_temp single_sensed_temp;
-		struct vfe_var_single_frequency single_freq;
-		struct vfe_var_single_caller_specified single_caller_specified;
-	} var_data;
+	pvar_data = nvgpu_kzalloc(g, sizeof(union vfe_var_data));
+	if (pvar_data == NULL) {
+		status = -ENOMEM;
+		goto done;
+	}
 
 	vfevars_tbl_ptr = (u8 *)nvgpu_bios_get_perf_table_ptrs(g,
 			nvgpu_bios_get_bit_token(g, NVGPU_BIOS_PERF_TOKEN),
@@ -1106,10 +1647,10 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	}
 
 	nvgpu_memcpy((u8 *)&vfevars_tbl_header, vfevars_tbl_ptr,
-			VBIOS_VFE_3X_HEADER_SIZE_09);
-	if (vfevars_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_09) {
-		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_09;
-		nvgpu_memcpy((u8 *)&vfevars_tbl_header, vfevars_tbl_ptr, hdrszfmt);
+			VBIOS_VFE_3X_HEADER_SIZE_0E);
+	if (vfevars_tbl_header.header_size == VBIOS_VFE_3X_HEADER_SIZE_0E) {
+		hdrszfmt = VBIOS_VFE_3X_HEADER_SIZE_0E;
+		nvgpu_memcpy((u8 *)&vfevars_tbl_header, (u8 *)vfevars_tbl_ptr, hdrszfmt);
 	} else {
 		nvgpu_err(g, "Invalid VFE Table Header size\n");
 		status = -EINVAL;
@@ -1117,10 +1658,20 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	}
 
 	if (vfevars_tbl_header.vfe_var_entry_size ==
-			VBIOS_VFE_3X_VAR_ENTRY_SIZE_19) {
-		szfmt = VBIOS_VFE_3X_VAR_ENTRY_SIZE_19;
+			VBIOS_VFE_3X_VAR_ENTRY_SIZE_1D) {
+		szfmt = VBIOS_VFE_3X_VAR_ENTRY_SIZE_1D;
 	} else {
 		nvgpu_err(g, "Invalid VFE VAR Entry size\n");
+		status = -EINVAL;
+		goto done;
+	}
+	vfevars_tbl_params_entry_ptr = vfevars_tbl_ptr + hdrszfmt +
+		(vfevars_tbl_header.vfe_var_entry_size * vfevars_tbl_header.vfe_var_entry_count) +
+			(vfevars_tbl_header.vfe_equ_entry_size * ((vfevars_tbl_header.vfe_equ_entry_count) |
+				  (vfevars_tbl_header.vfe_equ_entry_count_hi8bytes << 8U)));
+	status = dev_init_copy_param_entries(g, (u8 *)vfevars_tbl_params_entry_ptr,
+						&vfevars_tbl_header);
+	if (status != 0) {
 		status = -EINVAL;
 		goto done;
 	}
@@ -1128,14 +1679,14 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 	/* Read table entries*/
 	vfevars_tbl_entry_ptr = vfevars_tbl_ptr + hdrszfmt;
 	for (index = 0;
-	     index < vfevars_tbl_header.vfe_var_entry_count;
-	     index++) {
+		 index < vfevars_tbl_header.vfe_var_entry_count;
+		 index++) {
 		rd_offset_ptr = vfevars_tbl_entry_ptr +
 				(index * vfevars_tbl_header.vfe_var_entry_size);
 		nvgpu_memcpy((u8 *)&var, rd_offset_ptr, szfmt);
 
-		var_data.super.out_range_min = var.out_range_min;
-		var_data.super.out_range_max = var.out_range_max;
+		pvar_data->super.out_range_min = var.out_range_min;
+		pvar_data->super.out_range_max = var.out_range_max;
 
 		switch ((u8)var.type) {
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_DISABLED:
@@ -1149,7 +1700,7 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE);
 			if (clk_domain_idx_available ==
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE_YES) {
-				var_data.single_freq.clk_domain_idx =
+				pvar_data->single_freq.clk_domain_idx =
 					BIOS_GET_FIELD(u8, var.param0,
 						VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IDX);
 			};
@@ -1161,72 +1712,113 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_CALLER_SPECIFIED:
 			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_SINGLE_CALLER_SPECIFIED;
-			var_data.single_caller_specified.uid =
+			pvar_data->single_caller_specified.uid =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SINGLE_CALLER_SPECIFIED_UID);
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_TEMP:
 			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_TEMP;
-			var_data.single_sensed_temp.temp_default = 0x9600;
-			var_data.single_sensed_temp.therm_channel_index =
+			pvar_data->single_sensed_temp.temp_default = 0x9600;
+			pvar_data->single_sensed_temp.therm_channel_index =
 				BIOS_GET_FIELD(u8, var.param0,
 				VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_TH_CH_IDX);
 			val = BIOS_GET_FIELD(u32, var.param0,
-			      VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_POS) << 5U;
-			var_data.single_sensed_temp.temp_hysteresis_positive =
+				  VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_POS) << 5U;
+			pvar_data->single_sensed_temp.temp_hysteresis_positive =
 				(int)val;
 			val = BIOS_GET_FIELD(u32, var.param0,
-			      VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_NEG) << 5U;
-			var_data.single_sensed_temp.temp_hysteresis_negative =
+				  VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSTEMP_HYS_NEG) << 5U;
+			pvar_data->single_sensed_temp.temp_hysteresis_negative =
 				(int)val;
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE:
 			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE;
-			var_data.single_sensed_fuse.vfield_info.v_field_id =
+			pvar_data->single_sensed_fuse.vfield_info.v_field_id =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_VFIELD_ID);
-			var_data.single_sensed_fuse.vfield_ver_info.v_field_id_ver =
+			pvar_data->single_sensed_fuse.vfield_ver_info.v_field_id_ver =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_VFIELD_ID_VER);
-			var_data.single_sensed_fuse.vfield_ver_info.ver_expected =
+			pvar_data->single_sensed_fuse.vfield_ver_info.ver_expected =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_EXPECTED_VER);
-			var_data.single_sensed_fuse.vfield_ver_info.b_ver_expected_is_mask =
+			pvar_data->single_sensed_fuse.vfield_ver_info.b_ver_expected_is_mask =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_EXPECTED_VER_MODE);
-			var_data.single_sensed_fuse.vfield_ver_info.b_use_default_on_ver_check_fail =
+			pvar_data->single_sensed_fuse.vfield_ver_info.b_use_default_on_ver_check_fail =
 				(BIOS_GET_FIELD(bool, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_USE_DEFAULT_ON_VER_CHECK_FAIL) &&
 					(VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_USE_DEFAULT_ON_VER_CHECK_FAIL_YES != 0U));
-			var_data.single_sensed_fuse.b_fuse_value_signed =
+			pvar_data->single_sensed_fuse.b_fuse_value_signed =
 				BIOS_GET_FIELD(bool, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE_VALUE_SIGNED_INTEGER);
-			var_data.single_sensed_fuse.vfield_info.fuse_val_default =
+			pvar_data->single_sensed_fuse.vfield_info.fuse_val_default =
 				var.param1;
-			var_data.single_sensed_fuse.vfield_info.hw_correction_scale  =
+			pvar_data->single_sensed_fuse.vfield_info.hw_correction_scale  =
 				var.param2;
-			var_data.single_sensed_fuse.vfield_info.hw_correction_offset =
+			pvar_data->single_sensed_fuse.vfield_info.hw_correction_offset =
 				(int)var.param3;
+			break;
+
+		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE_20:
+			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20;
+
+			vbios_fuse_id = var.param0 & 0xFF;
+
+			dev_init_vfe_var_fuse20_id_convert_localid(g, vbios_fuse_id,
+					&pvar_data->single_sensed_fuse_20.fuse_id);
+			vbios_fuse_id = var.param0 & 0xFF00;
+			dev_init_vfe_var_fuse20_id_convert_localid(g, vbios_fuse_id,
+					&pvar_data->single_sensed_fuse_20.fuse_id_ver);
+
+			pvar_data->single_sensed_fuse_20.fuse_id =
+				var.param0 & 0xFF;
+
+			pvar_data->single_sensed_fuse_20.super.fuse_ver_info.b_ver_expected_is_mask =
+				BIOS_GET_FIELD(bool, var.param0,
+						VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_MODE);
+			if (pvar_data->single_sensed_fuse_20.super.fuse_ver_info.b_ver_expected_is_mask) {
+				pvar_data->single_sensed_fuse_20.super.fuse_ver_info.ver_expected =
+					~(BIOS_GET_FIELD(u16, var.param0,
+						VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER));
+			} else {
+				pvar_data->single_sensed_fuse_20.super.fuse_ver_info.ver_expected =
+					BIOS_GET_FIELD(u16, var.param0,
+							VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER);
+			}
+
+			pvar_data->single_sensed_fuse_20.super.fuse_ver_info.b_use_default_on_ver_checkfail =
+				BIOS_GET_FIELD(bool, var.param0,
+						VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_USE_DEFAULT_ON_VER_CHECK_FAIL);
+
+			pvar_data->single_sensed_fuse_20.super.b_fuse_value_signed =
+				 BIOS_GET_FIELD(bool, var.param0,
+						 VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_FUSE_VALUE_SIGNED_INTEGER);
+			CTRL_PERF_VFE_VAR_SINGLE_SENSED_FUSE_VALUE_INIT(
+					&(pvar_data->single_sensed_fuse_20.super.fuse_val_default),
+					var.param1, pvar_data->single_sensed_fuse_20.super.b_fuse_value_signed);
+			pvar_data->single_sensed_fuse_20.super.hw_correction_scale  = (u32)var.param2;
+			pvar_data->single_sensed_fuse_20.super.hw_correction_offset = var.param3;
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_PRODUCT:
 			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_DERIVED_PRODUCT;
-			var_data.derived_product.var_idx0 =
+			pvar_data->derived_product.var_idx0 =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_DPROD_VFE_VAR_IDX_0);
-			var_data.derived_product.var_idx1 =
+			pvar_data->derived_product.var_idx1 =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_DPROD_VFE_VAR_IDX_1);
 			break;
 
 		case VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_SUM:
 			var_type = (u8)CTRL_PERF_VFE_VAR_TYPE_DERIVED_SUM;
-			var_data.derived_sum.var_idx0 =
+			pvar_data->derived_sum.var_idx0 =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_DSUM_VFE_VAR_IDX_0);
-			var_data.derived_sum.var_idx1 =
+			pvar_data->derived_sum.var_idx1 =
 				BIOS_GET_FIELD(u8, var.param0,
 					VBIOS_VFE_3X_VAR_ENTRY_PAR0_DSUM_VFE_VAR_IDX_1);
 			break;
@@ -1245,11 +1837,10 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 		if(done) {
 			goto done;
 		}
+		pvar_data->obj.type = var_type;
+		pvar_data->obj.type_mask = 0;
 
-		var_data.obj.type = var_type;
-		var_data.obj.type_mask = 0;
-
-		pvar = construct_vfe_var(g, &var_data);
+		pvar = construct_vfe_var(g, pvar_data);
 		if (pvar == NULL) {
 			nvgpu_err(g,
 				  "error constructing vfe_var boardobj %d",
@@ -1259,16 +1850,19 @@ static int devinit_get_vfe_var_table(struct gk20a *g,
 		}
 
 		status = boardobjgrp_objinsert(&pvfevarobjs->super.super,
-					       (struct pmu_board_obj *)pvar, (u8)index);
+						   (struct pmu_board_obj *)pvar, (u8)index);
 		if (status != 0) {
 			nvgpu_err(g, "error adding vfe_var boardobj %d", index);
 			status = -EINVAL;
 			goto done;
 		}
 	}
-	pvfevarobjs->polling_periodms = vfevars_tbl_header.polling_periodms;
+
 done:
 	nvgpu_log_info(g, "done status %x", status);
+	if (pvar_data) {
+		nvgpu_kfree(g, pvar_data);
+	}
 	return status;
 }
 
@@ -1330,7 +1924,7 @@ int perf_vfe_var_sw_setup(struct gk20a *g)
 	struct boardobjgrp *pboardobjgrp = NULL;
 	struct vfe_vars *pvfevarobjs;
 
-	status = nvgpu_boardobjgrp_construct_e32(g,
+	status = nvgpu_boardobjgrp_construct_e255(g,
 			&g->pmu->perf_pmu->vfe_varobjs.super);
 	if (status != 0) {
 		nvgpu_err(g,

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/vm.h>
 #include <nvgpu/vm_area.h>
@@ -72,12 +53,9 @@ int nvgpu_vm_area_validate_buffer(struct vm_gk20a *vm,
 
 	/* Find the space reservation */
 	vm_area = nvgpu_vm_area_find(vm, map_addr);
-	if (vm_area == NULL) {
-		nvgpu_warn(g, "fixed offset mapping without space allocation");
-		return -EINVAL;
-	}
 
 	/* Mapped area should fit inside va, if there's one */
+	NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 14_3), "SWE-NVGPU-052-SWSADR.docx")
 	if (vm_area != NULL) {
 		if (map_end > nvgpu_safe_add_u64(vm_area->addr,
 							    vm_area->size)) {
@@ -85,6 +63,9 @@ int nvgpu_vm_area_validate_buffer(struct vm_gk20a *vm,
 				"fixed offset mapping size overflows va node");
 			return -EINVAL;
 		}
+	} else {
+		nvgpu_warn(g, "fixed offset mapping without space allocation");
+		return -EINVAL;
 	}
 
 	/* check that this mapping does not collide with existing
@@ -104,6 +85,32 @@ int nvgpu_vm_area_validate_buffer(struct vm_gk20a *vm,
 	return 0;
 }
 
+/**
+ * @brief Determines the index of the given page size in the VM's page size array.
+ *
+ * This function iterates over the VM's supported page sizes to find the index
+ * that matches the given page size. It validates the index against the maximum
+ * allowed page size index and whether big pages are enabled in the VM.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the page size index with the value pointed by the input page size index pointer.
+ * -# Iterate over the VM's supported page sizes until the given page size is found or all
+ *    page sizes have been checked.
+ * -# Update the input page size index pointer with the found or last checked index.
+ * -# Check if the found index exceeds the maximum allowed page size index and return
+ *    an error if it does.
+ * -# Call nvgpu_speculation_barrier() to ensure that there is a valid page size before proceeding.
+ * -# If big pages are not enabled in the VM and the found index corresponds to a big page size,
+ *    return an error.
+ * -# If all checks pass, return 0 indicating success.
+ *
+ * @param [in]  vm            Pointer to the VM structure.
+ * @param [out] pgsz_idx_ptr  Pointer to the variable where the page size index will be stored.
+ * @param [in]  page_size     The page size to find the index for.
+ *
+ * @return 0 if the page size index is found and valid.
+ * @return -EINVAL if the page size index is invalid or if big pages are not enabled when required.
+ */
 static int nvgpu_vm_area_alloc_get_pagesize_index(struct vm_gk20a *vm,
 					u32 *pgsz_idx_ptr, u32 page_size)
 {
@@ -117,7 +124,7 @@ static int nvgpu_vm_area_alloc_get_pagesize_index(struct vm_gk20a *vm,
 
 	*pgsz_idx_ptr = pgsz_idx;
 
-	if (pgsz_idx > GMMU_PAGE_SIZE_BIG) {
+	if (pgsz_idx >= GMMU_NR_PAGE_SIZES) {
 		return -EINVAL;
 	}
 
@@ -132,25 +139,61 @@ static int nvgpu_vm_area_alloc_get_pagesize_index(struct vm_gk20a *vm,
 		return -EINVAL;
 	}
 
+	if (!vm->huge_pages && (pgsz_idx == GMMU_PAGE_SIZE_HUGE)) {
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
+/**
+ * @brief Allocates virtual memory for a VM area and returns the start address.
+ *
+ * This function allocates virtual memory for a VM area either with a fixed start address or
+ * by finding a suitable address. The allocation is done based on the provided flags, number
+ * of pages, and page size. The start address of the allocated memory is returned through a
+ * pointer.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the variable to store the starting virtual address of the allocated memory to zero.
+ * -# Check if the #NVGPU_VM_AREA_ALLOC_FIXED_OFFSET flag is set in the input flags.
+ *    - If the flag is set, call nvgpu_alloc_fixed() to allocate memory at the specified fixed address.
+ *    - If the flag is not set, call nvgpu_alloc_pte() to allocate memory at an address determined by the allocator.
+ * -# In both cases, the total size to allocate is calculated by multiplying the number of pages by the page size.
+ * -# If the allocation fails (indicated by a return value of 0), return -ENOMEM to indicate out of memory error.
+ * -# If the allocation is successful, store the starting virtual address in the output pointer provided.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  vma              Pointer to the allocator to be used for memory allocation.
+ * @param [in]  our_addr         The fixed address to allocate memory at, if the fixed offset flag is set.
+ * @param [in]  pages            The number of pages to allocate.
+ * @param [in]  page_size        The size of each page to be allocated.
+ * @param [in]  flags            Flags indicating the type of allocation (fixed or not).
+ * @param [out] vaddr_start_ptr  Pointer to store the starting virtual address of the allocated memory.
+ *
+ * @return 0 on successful allocation.
+ * @return -ENOMEM if the allocation fails.
+ * @return -EINVAL if pages out of range.
+ */
 static int nvgpu_vm_area_alloc_memory(struct nvgpu_allocator *vma, u64 our_addr,
 			u64 pages, u32 page_size, u32 flags,
 			u64 *vaddr_start_ptr)
 {
 	u64 vaddr_start = 0;
+	u64 va_size;
+
+	if (nvgpu_safe_mult_u64_return(pages, (u64)page_size, &va_size) == false) {
+		return -EINVAL;
+	}
 
 	if ((flags & NVGPU_VM_AREA_ALLOC_FIXED_OFFSET) != 0U) {
 		vaddr_start = nvgpu_alloc_fixed(vma, our_addr,
-						pages *
-						(u64)page_size,
+						va_size,
 						page_size);
 	} else {
 		vaddr_start = nvgpu_alloc_pte(vma,
-					      pages *
-					      (u64)page_size,
-					      page_size);
+					      va_size,
+					      page_size, false, 0U);
 	}
 
 	if (vaddr_start == 0ULL) {
@@ -161,6 +204,32 @@ static int nvgpu_vm_area_alloc_memory(struct nvgpu_allocator *vma, u64 our_addr,
 	return 0;
 }
 
+/**
+ * @brief Maps a VM area in the GPU's Memory Management Unit (GMMU).
+ *
+ * This function performs a GMMU mapping for the specified VM area. If the
+ * #NVGPU_VM_AREA_ALLOC_SPARSE flag is set, it maps the area as sparse. The VM area
+ * is then added to the VM's list of VM areas.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the #NVGPU_VM_AREA_ALLOC_SPARSE flag is set in the input flags.
+ *    - If the flag is set, perform a sparse GMMU mapping using gops_mm_gmmu.map().
+ *      The parameters for the mapping include the starting virtual address, size,
+ *      page size index, and flags. The mapping is marked as sparse and not privileged.
+ *    - If the mapping fails (indicated by a return value of 0), return -ENOMEM.
+ *    - If the mapping is successful, mark the VM area as sparse.
+ * -# Add the VM area to the VM's list of VM areas using nvgpu_list_add_tail().
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  vm          Pointer to the VM structure.
+ * @param [in]  vm_area     Pointer to the VM area structure to be mapped.
+ * @param [in]  vaddr_start The starting virtual address for the mapping.
+ * @param [in]  pgsz_idx    The page size index for the mapping.
+ * @param [in]  flags       Flags indicating the type of mapping (sparse or not).
+ *
+ * @return 0 on successful mapping.
+ * @return -ENOMEM if the mapping fails.
+ */
 static int nvgpu_vm_area_alloc_gmmu_map(struct vm_gk20a *vm,
 			struct nvgpu_vm_area *vm_area, u64 vaddr_start,
 			u32 pgsz_idx, u32 flags)
@@ -238,7 +307,7 @@ int nvgpu_vm_area_alloc(struct vm_gk20a *vm, u64 pages, u32 page_size,
 
 	vm_area->flags = flags;
 	vm_area->addr = vaddr_start;
-	vm_area->size = (u64)page_size * pages;
+	vm_area->size = nvgpu_safe_mult_u64((u64)page_size, pages);
 	vm_area->pgsz_idx = pgsz_idx;
 	nvgpu_init_list_node(&vm_area->buffer_list_head);
 	nvgpu_init_list_node(&vm_area->vm_area_list);
@@ -284,6 +353,7 @@ int nvgpu_vm_area_free(struct vm_gk20a *vm, u64 addr)
 	struct gk20a *g = gk20a_from_vm(vm);
 	struct nvgpu_mapped_buf *buffer;
 	struct nvgpu_vm_area *vm_area;
+	int err = 0;
 
 	nvgpu_mutex_acquire(&vm->update_gmmu_lock);
 	vm_area = nvgpu_vm_area_find(vm, addr);
@@ -308,12 +378,17 @@ int nvgpu_vm_area_free(struct vm_gk20a *vm, u64 addr)
 		buffer = nvgpu_list_first_entry(&vm_area->buffer_list_head,
 					nvgpu_mapped_buf, buffer_list);
 		nvgpu_list_del(&buffer->buffer_list);
-		nvgpu_ref_put(&buffer->ref, nvgpu_vm_unmap_ref_internal);
+		err = nvgpu_ref_put_int_ptr(&buffer->ref, nvgpu_vm_unmap_ref_internal);
+
+		if (err != 0) {
+			nvgpu_err(g, "Unmap a buffer from the GPU virtual \
+					memory space is failed [%d]", err);
+		}
 	}
 
 	/* if this was a sparse mapping, free the va */
 	if (vm_area->sparse) {
-		g->ops.mm.gmmu.unmap(vm,
+		err = g->ops.mm.gmmu.unmap(vm,
 				     vm_area->addr,
 				     vm_area->size,
 				     vm_area->pgsz_idx,
@@ -321,6 +396,10 @@ int nvgpu_vm_area_free(struct vm_gk20a *vm, u64 addr)
 				     gk20a_mem_flag_none,
 				     true,
 				     NULL);
+		if (err != 0) {
+			nvgpu_err(g, "Unmap a buffer from the GPU virtual \
+					memory space is failed [%d]", err);
+		}
 	}
 
 #ifdef CONFIG_NVGPU_REMAP

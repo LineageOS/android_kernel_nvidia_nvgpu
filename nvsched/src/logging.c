@@ -1,35 +1,16 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 #include <nvs/nvs_sched.h>
 #include <nvs/impl-internal.h>
 
-#define LOG_INC(value, max)			\
-	do {					\
-		(value) += 1U;			\
-		if ((value) >= (max)) {		\
-			(value) = 0U;		\
-		}				\
+#define LOG_INC(value, max)					\
+	do {							\
+		(value) = nvgpu_safe_add_u32((value), 1U);	\
+		if ((value) >= (max)) {				\
+			(value) = 0U;				\
+		}						\
 	} while (false)
 
 static bool nvs_log_full(struct nvs_log_buffer *logger)
@@ -54,7 +35,7 @@ int nvs_log_init(struct nvs_sched *sched)
 		return -ENOMEM;
 	}
 
-	nvs_memset(logger, 0, sizeof(*logger));
+	(void)nvs_memset(logger, 0, sizeof(*logger));
 
 	logger->ts_offset = nvs_timestamp();
 	logger->entries = NVS_LOG_ENTRIES;
@@ -65,24 +46,24 @@ int nvs_log_init(struct nvs_sched *sched)
 		return -ENOMEM;
 	}
 
-	nvs_memset(logger->events, 0,
+	(void)nvs_memset(logger->events, 0,
 		   NVS_LOG_ENTRIES * sizeof(*logger->events));
 
-	sched->log = logger;
+	sched->logger = logger;
 
 	return 0;
 }
 
 void nvs_log_destroy(struct nvs_sched *sched)
 {
-	nvs_free(sched, sched->log->events);
-	nvs_free(sched, sched->log);
-	sched->log = NULL;
+	nvs_free(sched, sched->logger->events);
+	nvs_free(sched, sched->logger);
+	sched->logger = NULL;
 }
 
-void nvs_log_event(struct nvs_sched *sched, enum nvs_event event, u32 data)
+void nvs_log_event_func(struct nvs_sched *sched, enum nvs_event event, u32 data)
 {
-	struct nvs_log_buffer *logger = sched->log;
+	struct nvs_log_buffer *logger = sched->logger;
 	struct nvs_log_event *ev;
 
 	nvs_log(sched, "ev: %d", event);
@@ -109,7 +90,7 @@ void nvs_log_event(struct nvs_sched *sched, enum nvs_event event, u32 data)
 
 void nvs_log_get(struct nvs_sched *sched, struct nvs_log_event *ev)
 {
-	struct nvs_log_buffer *logger = sched->log;
+	struct nvs_log_buffer *logger = sched->logger;
 
 	nvs_log(sched, "Getting log event.");
 	nvs_log(sched, "  Starting: G=%05u P=%05u", logger->get, logger->put);
@@ -131,14 +112,31 @@ void nvs_log_get(struct nvs_sched *sched, struct nvs_log_event *ev)
 
 const char *nvs_log_event_string(enum nvs_event ev)
 {
+	const char *log_event_string = NULL;
+
 	switch (ev) {
-	case NVS_EV_NO_EVENT:      return "No event";
-	case NVS_EV_CREATE_SCHED:  return "Create scheduler";
-	case NVS_EV_CREATE_DOMAIN: return "Create domain";
-	case NVS_EV_REMOVE_DOMAIN: return "Remove domain";
-	case NVS_EV_CTRL_QUEUE:    return "Control Queue";
-	case NVS_EV_MAX:           return "Invalid MAX event";
+	case NVS_EV_NO_EVENT:
+		log_event_string = "No event";
+		break;
+	case NVS_EV_CREATE_SCHED:
+		log_event_string = "Create scheduler";
+		break;
+	case NVS_EV_CREATE_DOMAIN:
+		log_event_string = "Create domain";
+		break;
+	case NVS_EV_REMOVE_DOMAIN:
+		log_event_string = "Remove domain";
+		break;
+	case NVS_EV_CTRL_QUEUE:
+		log_event_string = "Control Queue";
+		break;
+	case NVS_EV_MAX:
+		log_event_string = "Invalid MAX event";
+		break;
+	default:
+		log_event_string = "Undefined event";
+		break;
 	}
 
-	return "Undefined event";
+	return log_event_string;
 }

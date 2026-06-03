@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -60,9 +60,12 @@ endif
 NVGPU_COMMON_CFLAGS		+=		\
 	-DCONFIG_TEGRA_GK20A_PMU=1		\
 	-DCONFIG_TEGRA_ACR=1			\
-	-DCONFIG_NVGPU_GR_VIRTUALIZATION \
 	-DCONFIG_NVS_ROUND_ROBIN_SCHEDULER_DISABLE
 
+ifneq ($(NVGPU_HVRTOS),1)
+CONFIG_NVGPU_GR_VIRTUALIZATION	:= 1
+NVGPU_COMMON_CFLAGS		+= -DCONFIG_NVGPU_GR_VIRTUALIZATION
+endif
 
 # Enable the PCI probe functionality for all builds
 CONFIG_NVGPU_PCI_IGPU		:= 1
@@ -106,6 +109,22 @@ NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_GRAPHICS
 CONFIG_NVGPU_SUPPORT_GV11B           := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_SUPPORT_GV11B
 
+# Enable gsp scheduler for normal build
+ifneq ($(NVGPU_HVRTOS),1)
+CONFIG_NVGPU_GSP_SCHEDULER      := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_GSP_SCHEDULER
+endif
+ifeq ($(NVGPU_HVRTOS),1)
+CONFIG_NVGPU_GSP_SCHEDULER_VM   := 1
+ifeq ($(CONFIG_NVGPU_GSP_SCHEDULER_VM),1)
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_GSP_SCHEDULER_VM
+endif
+endif
+
+# Enable mulit-process TSG sharing support.
+CONFIG_NVGPU_TSG_SHARING        := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_TSG_SHARING
+
 # Error reporting needs to be supported in qnx-safety, qnx-standard, linux.
 # In qnx-standard, nvgpu makefile is used for RM SERVER. Since iGPU is in
 # pass through mode in all three platforms, EPL libraries should not be
@@ -128,8 +147,15 @@ CONFIG_NVGPU_MON_PRESENT        := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_MON_PRESENT
 
 # Enable ASIL-D checkers
-CONFIG_NVGPU_CHECKER              := 1
-NVGPU_COMMON_CFLAGS               += -DCONFIG_NVGPU_CHECKER=1
+#CONFIG_NVGPU_CHECKER              := 1
+#NVGPU_COMMON_CFLAGS               += -DCONFIG_NVGPU_CHECKER=1
+
+ifeq ($(CONFIG_NVGPU_CHECKER),1)
+ifeq ($(profile),$(filter $(profile),safety_debug))
+CONFIG_NVGPU_CHECKER_FAULT_INJECTION := 1
+NV_COMPONENT_CFLAGS                  += -DCONFIG_NVGPU_CHECKER_FAULT_INJECTION
+endif
+endif
 
 ## For tesing of CTXSW FW error codes manually, enable below configs in safety build.
 ## Enable only one config at a time, because only one error can be tested at a time.
@@ -141,12 +167,6 @@ NVGPU_COMMON_CFLAGS               += -DCONFIG_NVGPU_CHECKER=1
 #
 # NVGPU_COMMON_CFLAGS             +=      \
 # 	-DCONFIG_NVGPU_CTXSW_FW_ERROR_HEADER_TESTING
-
-# Enable gsp scheduler for safety build
-ifneq ($(NVGPU_HVRTOS),1)
-CONFIG_NVGPU_GSP_SCHEDULER	:= 1
-NVGPU_COMMON_CFLAGS		+= -DCONFIG_NVGPU_GSP_SCHEDULER
-endif
 
 # used by sec2/gsp code
 CONFIG_NVGPU_ENGINE_QUEUE       := 1
@@ -318,9 +338,21 @@ NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_POWER_PG
 CONFIG_NVGPU_SIM                := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_SIM
 
+# Enable next for normal build
+CONFIG_NVGPU_NEXT               := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_NEXT
+
 # Enable non FUSA HALs for normal build
 CONFIG_NVGPU_HAL_NON_FUSA       := 1
 NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_HAL_NON_FUSA
+
+# Enable ZCULL for normal build
+CONFIG_NVGPU_ZCULL              := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_ZCULL
+
+# Enable ZBC user support for normal build
+CONFIG_NVGPU_ZBC_USER           := 1
+NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_ZBC_USER
 
 # Enable non FUSA common code for normal build
 CONFIG_NVGPU_NON_FUSA           := 1
@@ -383,17 +415,9 @@ NVGPU_COMMON_CFLAGS             += -DCONFIG_TEGRA_GR_VIRTUALIZATION_SERVER
 CONFIG_NVGPU_SM_DIVERSITY            := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_SM_DIVERSITY
 
-ifndef NVGPU_HVRTOS
 # Enable Multi Instance GPU support for normal build
 CONFIG_NVGPU_MIG                     := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_MIG
-endif
-
-# Enable gsp scheduler for normal build
-ifneq ($(NVGPU_HVRTOS),1)
-CONFIG_NVGPU_GSP_SCHEDULER	:= 1
-NVGPU_COMMON_CFLAGS		+= -DCONFIG_NVGPU_GSP_SCHEDULER
-endif
 
 # used by sec2/gsp code
 CONFIG_NVGPU_ENGINE_QUEUE       := 1
@@ -406,11 +430,6 @@ NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_ENGINE_QUEUE
 CONFIG_NVGPU_INTR_DEBUG	:= 1
 NVGPU_COMMON_CFLAGS	+= -DCONFIG_NVGPU_INTR_DEBUG
 
-# Enable GSP stress test
-ifeq ($(CONFIG_NVGPU_GSP_SCHEDULER),1)
-CONFIG_NVGPU_GSP_STRESS_TEST    := 1
-NVGPU_COMMON_CFLAGS             += -DCONFIG_NVGPU_GSP_STRESS_TEST
-endif
 # Enable Nonstall interrupt support for normal build
 CONFIG_NVGPU_NONSTALL_INTR           := 1
 NVGPU_COMMON_CFLAGS                  += -DCONFIG_NVGPU_NONSTALL_INTR

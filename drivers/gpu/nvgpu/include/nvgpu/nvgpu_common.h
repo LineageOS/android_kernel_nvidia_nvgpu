@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_COMMON_H
@@ -25,6 +7,88 @@
 
 /**
  * @file
+ *
+ * @page nvgpu nvgpu
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| unit nvgpu provides basic global APIs and data types that
+ * are used throughout the |nvgpu-rm| driver. There are three components of the
+ * nvgpu unit that each provides a distinct functionality:
+ *
+ * - gk20a.h
+ * - static_analysis.h
+ * - nvgpu_common.h
+ *
+ * gk20a.h
+ * -------
+ *
+ * This component provides the gk20a struct that is used throughout the driver
+ * to represent the GPU state. Along with state information, the gk20a struct also
+ * contains the HAL interface function pointers for the driver units. The HAL
+ * interfaces are initialized during |nvgpu-rm-init|.
+ *
+ * In addition to the gk20a struct, this component contains a number of accessor
+ * functions for some specific members of the gk20a struct.
+ *
+ * static_analysis.h
+ * -----------------
+ *
+ * This component provides APIs for satisfying MISRA and CERT-C compliance, such
+ * as functions to prevent arithmetic overflow/underflow.
+ *
+ * nvgpu_common.h
+ * --------------
+ *
+ * This component provides interfaces to environment-specific actions such as
+ * restarting the driver.
+ *
+ * Data Structures
+ * ===============
+ *
+ *   + struct gk20a
+ *   + struct gpu_ops
+ *   + struct nvgpu_gpu_params
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_get_poll_timeout()
+ *   + nvgpu_has_syncpoints()
+ *   + nvgpu_is_timeouts_enabled()
+ *   + nvgpu_kernel_restart()
+ *   + nvgpu_safe_add_u32()
+ *   + nvgpu_safe_add_s32()
+ *   + nvgpu_safe_add_u64()
+ *   + nvgpu_safe_add_s64()
+ *   + nvgpu_safe_sub_u8()
+ *   + nvgpu_safe_sub_u32()
+ *   + nvgpu_safe_sub_s32()
+ *   + nvgpu_safe_sub_u64()
+ *   + nvgpu_safe_sub_s64()
+ *   + nvgpu_safe_mult_u32()
+ *   + nvgpu_safe_mult_u64()
+ *   + nvgpu_safe_mult_s64()
+ *   + nvgpu_safe_cast_u64_to_u16()
+ *   + nvgpu_safe_cast_u64_to_u32()
+ *   + nvgpu_safe_cast_u64_to_u8()
+ *   + nvgpu_safe_cast_s64_to_u32()
+ *   + nvgpu_safe_cast_s64_to_u64()
+ *   + nvgpu_safe_cast_bool_to_u32()
+ *   + nvgpu_safe_cast_s8_to_u8()
+ *   + nvgpu_safe_cast_s32_to_u32()
+ *   + nvgpu_safe_cast_s32_to_u64()
+ *   + nvgpu_safe_cast_u32_to_u16()
+ *   + nvgpu_safe_cast_u32_to_u8()
+ *   + nvgpu_safe_cast_u32_to_s8()
+ *   + nvgpu_safe_cast_u32_to_s32()
+ *   + nvgpu_safe_cast_u64_to_s32()
+ *   + nvgpu_safe_cast_u64_to_s64()
+ *   + nvgpu_safe_cast_s64_to_s32()
+ *   + nvgpu_safety_checks()
  *
  * @addtogroup unit-common-nvgpu
  * @{

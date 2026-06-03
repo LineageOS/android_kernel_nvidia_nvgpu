@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2015-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/tegra_vgpu.h>
@@ -45,17 +26,15 @@ int vgpu_exec_regops(struct gk20a *g,
 	struct tegra_vgpu_reg_ops_params *p = &msg.params.reg_ops;
 	void *oob;
 	size_t oob_size, ops_size;
-	void *handle = NULL;
+	int ivc;
 	int err = 0;
 
 	nvgpu_log_fn(g, " ");
 	BUG_ON(sizeof(*ops) != sizeof(struct tegra_vgpu_reg_op));
 
-	handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-					TEGRA_VGPU_QUEUE_CMD,
-					&oob, &oob_size);
-	if (!handle) {
-		return -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, &oob, &oob_size);
+	if (ivc < 0) {
+		return ivc;
 	}
 
 	ops_size = sizeof(*ops) * num_ops;
@@ -71,7 +50,7 @@ int vgpu_exec_regops(struct gk20a *g,
 	p->tsg_id = tsg ? tsg->tsgid : U32_MAX;
 	p->num_ops = num_ops;
 	p->flags = *flags;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	err = err ? err : msg.ret;
 	if (err == 0) {
 		nvgpu_memcpy((u8 *)ops, (u8 *)oob, ops_size);
@@ -79,7 +58,7 @@ int vgpu_exec_regops(struct gk20a *g,
 	*flags = p->flags;
 
 fail:
-	vgpu_ivc_oob_put_ptr(handle);
+	vgpu_comm_free_ivc(g, ivc);
 	return err;
 }
 
@@ -112,7 +91,7 @@ int vgpu_dbg_set_powergate(struct dbg_session_gk20a *dbg_s,
 	msg.cmd = TEGRA_VGPU_CMD_SET_POWERGATE;
 	msg.handle = vgpu_get_handle(dbg_s->g);
 	p->mode = mode;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	return err;
 }
@@ -131,7 +110,7 @@ int vgpu_tsg_set_long_timeslice(struct nvgpu_tsg *tsg, u32 timeslice_us)
 	msg.handle = vgpu_get_handle(g);
 	p->tsg_id = tsg->tsgid;
 	p->timeslice_us = timeslice_us;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	WARN_ON(err);
 	if (!err) {

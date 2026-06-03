@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/channel.h>
@@ -48,7 +29,7 @@ int vgpu_tsg_open(struct nvgpu_tsg *tsg)
 	msg.handle = vgpu_get_handle(tsg->g);
 	p->tsg_id = tsg->tsgid;
 	p->pid = tsg->tgid;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(tsg->g,
@@ -71,7 +52,7 @@ void vgpu_tsg_release(struct nvgpu_tsg *tsg)
 	msg.cmd = TEGRA_VGPU_CMD_TSG_RELEASE;
 	msg.handle = vgpu_get_handle(tsg->g);
 	p->tsg_id = tsg->tsgid;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(tsg->g,
@@ -79,15 +60,54 @@ void vgpu_tsg_release(struct nvgpu_tsg *tsg)
 	}
 }
 
+/*
+ * Must always be called with tsg->ch_list_lock held.
+ */
 void vgpu_tsg_enable(struct nvgpu_tsg *tsg)
 {
-	struct nvgpu_channel *ch;
+	struct tegra_vgpu_cmd_msg msg = {};
+	struct tegra_vgpu_tsg_enable_disable *p =
+				&msg.params.tsg_enable;
+	int err;
+	struct gk20a *g = tsg->g;
 
-	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
-	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
-		nvgpu_channel_enable(ch);
+	nvgpu_log_fn(g, " ");
+
+	msg.cmd = TEGRA_VGPU_CMD_TSG_ENABLE;
+	msg.handle = vgpu_get_handle(tsg->g);
+	p->tsg_id = tsg->tsgid;
+	err = vgpu_comm_sendrecv(g, &msg);
+	err = (err != 0) ? (err) : (msg.ret);
+	if (err != 0) {
+		nvgpu_err(tsg->g,
+			"vgpu_tsg_enable failed, tsgid %d", tsg->tsgid);
 	}
-	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
+	nvgpu_log_fn(tsg->g, "done");
+}
+
+/*
+ * Must always be called with tsg->ch_list_lock held.
+ */
+void vgpu_tsg_disable(struct nvgpu_tsg *tsg)
+{
+	struct tegra_vgpu_cmd_msg msg = {};
+	struct tegra_vgpu_tsg_enable_disable *p =
+				&msg.params.tsg_disable;
+	int err;
+	struct gk20a *g = tsg->g;
+
+	nvgpu_log_fn(g, " ");
+
+	msg.cmd = TEGRA_VGPU_CMD_TSG_DISABLE;
+	msg.handle = vgpu_get_handle(tsg->g);
+	p->tsg_id = tsg->tsgid;
+	err = vgpu_comm_sendrecv(g, &msg);
+	err = (err != 0) ? (err) : (msg.ret);
+	if (err != 0) {
+		nvgpu_err(tsg->g,
+			"vgpu_tsg_disable failed, tsgid %d", tsg->tsgid);
+	}
+	nvgpu_log_fn(tsg->g, "done");
 }
 
 int vgpu_tsg_bind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch)
@@ -120,7 +140,7 @@ int vgpu_tsg_bind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch)
 
 	msg.handle = vgpu_get_handle(g);
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g, "vgpu_tsg_bind_channel failed, ch %d tsgid %d",
@@ -143,7 +163,7 @@ int vgpu_tsg_unbind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch)
 	msg.cmd = TEGRA_VGPU_CMD_TSG_UNBIND_CHANNEL;
 	msg.handle = vgpu_get_handle(g);
 	p->ch_handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	WARN_ON(err);
 
@@ -164,7 +184,7 @@ int vgpu_tsg_set_timeslice(struct nvgpu_tsg *tsg, u32 timeslice)
 	msg.handle = vgpu_get_handle(g);
 	p->tsg_id = tsg->tsgid;
 	p->timeslice_us = timeslice;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	WARN_ON(err);
 	if (!err) {
@@ -189,7 +209,7 @@ int vgpu_set_sm_exception_type_mask(struct nvgpu_channel *ch,
 	msg.handle = vgpu_get_handle(g);
 	p->handle = ch->virt_ctx;
 	p->mask = exception_mask;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	WARN_ON(err);
 
@@ -210,7 +230,7 @@ int vgpu_tsg_set_interleave(struct nvgpu_tsg *tsg, u32 new_level)
 	msg.handle = vgpu_get_handle(g);
 	p->tsg_id = tsg->tsgid;
 	p->level = new_level;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 	return err ? err : msg.ret;
 }
@@ -222,8 +242,7 @@ int vgpu_tsg_force_reset_ch(struct nvgpu_channel *ch,
 	struct nvgpu_channel *ch_tsg = NULL;
 	struct gk20a *g = ch->g;
 	struct tegra_vgpu_cmd_msg msg = {0};
-	struct tegra_vgpu_channel_config_params *p =
-			&msg.params.channel_config;
+	struct tegra_vgpu_tsg_params *p = &msg.params.tsg;
 	int err;
 
 	nvgpu_log_fn(g, " ");
@@ -247,10 +266,11 @@ int vgpu_tsg_force_reset_ch(struct nvgpu_channel *ch,
 		nvgpu_err(g, "chid: %d is not bound to tsg", ch->chid);
 	}
 
-	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_FORCE_RESET;
+	msg.cmd = TEGRA_VGPU_CMD_TSG_FORCE_RESET;
 	msg.handle = vgpu_get_handle(ch->g);
-	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	p->runlist_id = tsg->runlist->id;
+	p->tsg_id = tsg->tsgid;
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 	if (!err) {
 		nvgpu_channel_abort(ch, false);
@@ -297,19 +317,22 @@ void vgpu_tsg_set_ctx_mmu_error(struct gk20a *g, u32 chid)
 void vgpu_tsg_handle_event(struct gk20a *g,
 			struct tegra_vgpu_channel_event_info *info)
 {
-	struct nvgpu_tsg *tsg;
-
-	if (!info->is_tsg) {
-		nvgpu_err(g, "channel event posted");
-		return;
-	}
-
-	if (info->id >= g->fifo.num_channels ||
+	if (info->tsgid >= g->fifo.num_channels ||
 		info->event_id >= TEGRA_VGPU_CHANNEL_EVENT_ID_MAX) {
-		nvgpu_err(g, "invalid channel event");
+		nvgpu_err(g, "invalid tsg event");
 		return;
 	}
 
-	tsg = &g->fifo.tsg[info->id];
-	g->ops.tsg.post_event_id(tsg, info->event_id);
+	g->ops.tsg.post_event_id(g, 0U, info->tsgid, info->event_id);
+}
+
+void vgpu_tsg_set_error_notifier(struct gk20a *g,
+				struct tegra_vgpu_tsg_set_error_notifier *p)
+{
+	if (p->tsgid >= g->fifo.num_channels) {
+		nvgpu_err(g, "invalid tsgid %u", p->tsgid);
+		return;
+	}
+
+	nvgpu_tsg_set_error_notifier(g, 0U, p->tsgid, p->error);
 }

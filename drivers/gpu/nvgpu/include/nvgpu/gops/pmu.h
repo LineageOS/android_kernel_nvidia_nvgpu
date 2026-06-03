@@ -1,29 +1,12 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GOPS_PMU_H
 #define NVGPU_GOPS_PMU_H
 
 #include <nvgpu/types.h>
+#include <nvgpu/power_features/cg.h>
 
 struct gk20a;
 struct nvgpu_pmu;
@@ -106,6 +89,18 @@ struct gops_pmu {
 	 *  + Release \a &g->pmu->isr_mutex by calling \ref nvgpu_mutex_release().
 	 */
 	void (*pmu_isr)(struct gk20a *g);
+
+	/**
+	 * @brief Get interrupt ctrl msg for PMU.
+	 *
+	 * @param g [in]               Pointer to GPU driver struct.
+	 * @param enable [in]          Parameter to enable/disable interrupt.
+	 * @param intr_ctrl_msg [in]   Stall interrupt
+	 *
+	 * This function gets the interrupt ctrl message for PMU as requested.
+	 */
+	void (*get_intr_ctrl_msg)(struct gk20a *g, bool enable,
+			u32 *intr_ctrl_msg);
 
 	/**
 	 * @brief PMU early initialization to allocate memory for PMU unit & set PMU
@@ -338,6 +333,7 @@ struct gops_pmu {
 	 * @brief Reset the PMU Engine.
 	 *
 	 * @param g   [in] The GPU driver struct.
+	 * @param inst_id [in] Instance id.
 	 *
 	 * Does the PMU Engine reset to bring into good known state.
 	 * The reset sequence also configures PMU Engine clock gating
@@ -346,7 +342,7 @@ struct gops_pmu {
 	 * @return 0 in case of success, < 0 in case of failure.
 	 * @retval -ETIMEDOUT if PMU engine reset times out.
 	 */
-	int (*pmu_reset)(struct gk20a *g);
+	int (*pmu_reset)(struct gk20a *g, u32 inst_id);
 
 	/**
 	 * @brief Clears the PMU BAR0 error status.
@@ -501,7 +497,18 @@ struct gops_pmu {
 	u32 (*get_pmu_msgq_head)(struct gk20a *g);
 	void (*set_pmu_msgq_head)(struct gk20a *g, u32 data);
 	void (*set_pmu_new_instblk)(struct gk20a *g, u32 data);
-
+	/* Clock Gating control */
+	bool (*is_cg_supported_by_pmu)(struct gk20a *g);
+	int (*pmu_elcg_init_idle_filters)(struct gk20a *g);
+	void (*pmu_init_elcg_mode)(struct gk20a *g, u32 mode, u32 engine);
+	void (*pmu_init_blcg_mode)(struct gk20a *g, u32 mode, u32 engine);
+	/* perfmon */
+	void (*pmu_init_perfmon_counter)(struct gk20a *g);
+	void (*pmu_pg_idle_counter_config)(struct gk20a *g, u32 pg_engine_id);
+	u32  (*pmu_read_idle_counter)(struct gk20a *g, u32 counter_id);
+	u32  (*pmu_read_idle_intr_status)(struct gk20a *g);
+	void (*pmu_clear_idle_intr_status)(struct gk20a *g);
+	void (*pmu_reset_idle_counter)(struct gk20a *g, u32 counter_id);
 #ifdef CONFIG_NVGPU_LS_PMU
 	u32 (*get_inst_block_config)(struct gk20a *g);
 	/* ISR */
@@ -521,6 +528,7 @@ struct gops_pmu {
 		u32 queue_index, u32 *tail, bool set);
 	void (*pmu_msgq_tail)(struct nvgpu_pmu *pmu,
 		u32 *tail, bool set);
+	u32 (*pmu_get_msgq_tail) (void);
 	/* mutex */
 	u32 (*pmu_mutex_size)(void);
 	u32 (*pmu_mutex_owner)(struct gk20a *g,
@@ -531,13 +539,6 @@ struct gops_pmu {
 	void (*pmu_mutex_release)(struct gk20a *g,
 		struct pmu_mutexes *mutexes, u32 id,
 		u32 *token);
-	/* perfmon */
-	void (*pmu_init_perfmon_counter)(struct gk20a *g);
-	void (*pmu_pg_idle_counter_config)(struct gk20a *g, u32 pg_engine_id);
-	u32  (*pmu_read_idle_counter)(struct gk20a *g, u32 counter_id);
-	u32  (*pmu_read_idle_intr_status)(struct gk20a *g);
-	void (*pmu_clear_idle_intr_status)(struct gk20a *g);
-	void (*pmu_reset_idle_counter)(struct gk20a *g, u32 counter_id);
 	/* PG */
 	void (*pmu_setup_elpg)(struct gk20a *g);
 	/* debug */
@@ -562,6 +563,7 @@ struct gops_pmu {
 	 */
 	void (*write_dmatrfbase)(struct gk20a *g, u32 addr);
 #endif
+	unsigned long long (*get_amap_extmem2_start)(void);
 	/** @endcond */
 };
 

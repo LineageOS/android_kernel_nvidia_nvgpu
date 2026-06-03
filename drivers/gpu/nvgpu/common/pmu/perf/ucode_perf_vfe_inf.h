@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_PMUIF_PERFVFE_H
 #define NVGPU_PMUIF_PERFVFE_H
@@ -36,6 +18,132 @@
 #define CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_TEMP                    0x08U
 #define CTRL_PERF_VFE_VAR_TYPE_SINGLE_VOLTAGE                        0x09U
 #define CTRL_PERF_VFE_VAR_TYPE_SINGLE_CALLER_SPECIFIED               0x0AU
+#define CTRL_PERF_VFE_VAR_TYPE_SINGLE_GLOBALLY_SPECIFIED             0x0BU
+#define CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_BASE               0x0CU
+#define CTRL_PERF_VFE_VAR_TYPE_SINGLE_SENSED_FUSE_20                 0x0DU
+#define CTRL_PERF_VFE_VAR_TYPE_MODEL_10                              0x0EU
+
+#define CTRL_PERF_VFE_PARAMS_TYPE_INVALID          0x00U
+#define CTRL_PERF_VFE_PARAMS_TYPE_LITERAL_CONSTANT 0x01U
+#define CTRL_PERF_VFE_PARAMS_TYPE_VAR_IDX          0x02U
+#define CTRL_PERF_VFE_PARAMS_TYPE_EQU_IDX          0x03U
+
+#define CTRL_FUSE_ID_STRAP_SPEEDO                                     0x00  // SPEEDO value
+#define CTRL_FUSE_ID_STRAP_SPEEDO_VERSION                             0x01  // SPEEDO_VERSION
+#define CTRL_FUSE_ID_STRAP_IDDQ                                       0x02  // IDDQ value for voltage rail 0
+#define CTRL_FUSE_ID_STRAP_IDDQ_VERSION                               0x03  // IDDQ_VERSION
+#define CTRL_FUSE_ID_STRAP_IDDQ_1                                     0x04  // IDDQ value for voltage rail 1
+#define CTRL_FUSE_ID_STRAP_BOARD_BINNING                              0x05  // Speedo value for BOARD_BINNING
+#define CTRL_FUSE_ID_STRAP_BOARD_BINNING_VERSION                      0x06  // BOARD_BINNING_VERSION
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN                                  0x07  // SRAM_VMIN
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_VERSION                          0x08  // SRAM_VMIN_VERSION
+#define CTRL_FUSE_ID_STRAP_BOOT_VMIN_NVVDD                            0x09  // NVVDD Boot Vmin
+#define CTRL_FUSE_ID_ISENSE_VCM_OFFSET                                0x0A  // ISENSE_VCM_OFFSET
+#define CTRL_FUSE_ID_ISENSE_DIFF_GAIN                                 0x0B  // ISENSE_DIFFERENTIAL_GAIN
+#define CTRL_FUSE_ID_ISENSE_DIFF_OFFSET                               0x0C  // ISENSE_DIFFERENTIAL_OFFSET
+#define CTRL_FUSE_ID_ISENSE_CALIBRATION_VERSION                       0x0D  // ISENSE_CALIBRATION_VERSION This is a common vers
+#define CTRL_FUSE_ID_KAPPA                                            0x0E  // KAPPA - Will link to fuse opt_kappa_info
+#define CTRL_FUSE_ID_KAPPA_VERSION                                    0x0F  // KAPPA_VERSION
+#define CTRL_FUSE_ID_STRAP_SPEEDO_1                                   0x10  // SPEEDO_1
+#define CTRL_FUSE_ID_CPM_VERSION                                      0x11  // Fuse OPT_CPM_REV
+#define CTRL_FUSE_ID_CPM_0                                            0x12  // Fuse OPT_CPM0
+#define CTRL_FUSE_ID_CPM_1                                            0x13  // Fuse OPT_CPM1
+#define CTRL_FUSE_ID_CPM_2                                            0x14  // Fuse OPT_CPM2
+#define CTRL_FUSE_ID_ISENSE_VCM_COARSE_OFFSET                         0x15  // ISENSE_VCM_COARSE_OFFSET
+#define CTRL_FUSE_ID_STRAP_BOOT_VMIN_MSVDD                            0x16  // MSVDD Boot Vmin
+#define CTRL_FUSE_ID_KAPPA_VALID                                      0x17  // KAPPA fuse
+#define CTRL_FUSE_ID_IDDQ_NVVDD                                       0x18  // NVVDD IDDQ
+#define CTRL_FUSE_ID_IDDQ_MSVDD                                       0x19  // MSVDD IDDQ
+#define CTRL_FUSE_ID_STRAP_SPEEDO_2                                   0x1A  // SPEEDO_2
+#define CTRL_FUSE_ID_OC_BIN                                           0x1B  // OC_BIN
+#define CTRL_FUSE_ID_LV_FMAX_KNOB                                     0x1C  // LV_FMAX_KNOB
+#define CTRL_FUSE_ID_MV_FMAX_KNOB                                     0x1D  // MV_FMAX_KNOB
+#define CTRL_FUSE_ID_HV_FMAX_KNOB                                     0x1E  // HV_FMAX_KNOB
+#define CTRL_FUSE_ID_PSTATE_VMIN_KNOB                                 0x1F  // PSTATE_VMIN_KNOB
+#define CTRL_FUSE_ID_ISENSE_DIFFERENTIAL_COARSE_GAIN                  0x20  // ISENSE_DIFFERENTIAL_COARSE_GRAIN
+#define CTRL_FUSE_ID_VB_FMAX_KNOB_REV                                 0x21  // VB_FMAX_KNOB_REV
+#define CTRL_FUSE_ID_VB_ATEKAPPA0                                     0x22  // VB_ATEKAPPA0
+#define CTRL_FUSE_ID_VB_ATEKAPPA1                                     0x23  // VB_ATEKAPPA1
+#define CTRL_FUSE_ID_VB_ATEKAPPA2                                     0x24  // VB_ATEKAPPA2
+#define CTRL_FUSE_ID_VB_ATEKAPPA_VALID                                0x25  // VB_ATEKAPPA_VALID
+#define CTRL_FUSE_ID_VB_ATEKAPPA_REV                                  0x26  // VB_ATEKAPPA_REV
+#define CTRL_FUSE_ID_BI_DONE                                          0x27  // BI_DONE
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP1_NVVDD                    0x28  // STRAP_SRAM_VMIN_HVA_CP1_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP2_NVVDD                    0x29  // STRAP_SRAM_VMIN_HVA_CP2_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD                0x2A  // STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD                0x2B  // STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP1_NVVDD                    0x2C  // STRAP_SRAM_VMIN_LVA_CP1_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP2_NVVDD                    0x2D  // STRAP_SRAM_VMIN_LVA_CP2_NVVDD
+#define CTRL_FUSE_ID_STRAP_STRAP_SRAM_VMAX_HVA_NVVDD                  0x2E  // STRAP_STRAP_SRAM_VMAX_HVA_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMAX_NATURAL_NVVDD                    0x2F  // STRAP_SRAM_VMAX_NATURAL_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMAX_LVA_NVVDD                        0x30  // STRAP_SRAM_VMAX_LVA_NVVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP1_MSVDD                    0x31  // STRAP_SRAM_VMIN_HVA_CP1_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_HVA_CP2_MSVDD                    0x32  // STRAP_SRAM_VMIN_HVA_CP2_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD                0x33  // STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD                0x34  // STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP1_MSVDD                    0x35  // STRAP_SRAM_VMIN_LVA_CP1_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMIN_LVA_CP2_MSVDD                    0x36  // STRAP_SRAM_VMIN_LVA_CP2_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMAX_HVA_MSVDD                        0x37  // STRAP_SRAM_VMAX_HVA_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMAX_NATURAL_MSVDD                    0x38  // STRAP_SRAM_VMAX_NATURAL_MSVDD
+#define CTRL_FUSE_ID_STRAP_SRAM_VMAX_LVA_MSVDD                        0x39  // STRAP_SRAM_VMAX_LVA_MSVDD
+#define CTRL_FUSE_ID_UVD_CAL_HI_SLOPE                                 0x3A  // UVD_CAL_HI_SLOPE
+#define CTRL_FUSE_ID_UVD_CAL_HI_INTERCEPT                             0x3B  // UVD_CAL_HI_INTERCEPT
+#define CTRL_FUSE_ID_UVD_CAL_MID_SLOPE                                0x3C  // UVD_CAL_MID_SLOPE
+#define CTRL_FUSE_ID_UVD_CAL_MID_INTERCEPT                            0x3D  // UVD_CAL_MID_INTERCEPT
+#define CTRL_FUSE_ID_UVD_CAL_LO_SLOPE                                 0x3E  // UVD_CAL_LO_SLOPE
+#define CTRL_FUSE_ID_UVD_CAL_LO_INTERCEPT                             0x3F  // UVD_CAL_LO_INTERCEPT
+#define CTRL_FUSE_ID_UVD_CAL_FUSE_REV                                 0x40  // UVD_CAL_FUSE_REV
+#define CTRL_FUSE_ID_VMIN_RC_OFFSET                                   0x41  // VMIN_RC_OFFSET
+#define CTRL_FUSE_ID_VMAX_RC_OFFSET                                   0x42  // VMAX_RC_OFFSET
+#define CTRL_FUSE_ID_POWER_RATIO                                      0x43  // POWER_RATIO
+#define CTRL_FUSE_ID_POWER_RATIO_VERSION                              0x44  // POWER_RATIO_VERSION
+#define CTRL_FUSE_ID_VMIN_BLT_OFFSET                                  0x45  // VMIN_BLT_OFFSET
+#define CTRL_FUSE_ID_VMAX_BLT_OFFSET                                  0x46  // VMAX_BLT_OFFSET
+#define CTRL_FUSE_ID_KAPPA_BLT_OFFSET                                 0x47  // KAPPA_BLT_OFFSET
+#define CTRL_FUSE_ID_GPC_BLT_OFFSET                                   0x48  // GPC_BLT_OFFSET
+#define CTRL_FUSE_ID_XBAR_BLT_OFFSET                                  0x49  // XBAR_BLT_OFFSET
+#define CTRL_FUSE_ID_NVD_BLT_OFFSET                                   0x4A  // NVD_BLT_OFFSET
+#define CTRL_FUSE_ID_SYS_BLT_OFFSET                                   0x4B  // SYS_BLT_OFFSET
+#define CTRL_FUSE_ID_VMIN_SLT_MAX_OFFSET                              0x4C  // VMIN_SLT_MAX_OFFSET
+#define CTRL_FUSE_ID_VMIN_SLT_MIN_OFFSET                              0x4D  // VMIN_SLT_MIN_OFFSET
+#define CTRL_FUSE_ID_VMAX_SLT_MAX_OFFSET                              0x4E  // VMAX_SLT_MAX_OFFSET
+#define CTRL_FUSE_ID_VMAX_SLT_MIN_OFFSET                              0x4F  // VMAX_SLT_MIN_OFFSET
+#define CTRL_FUSE_ID_KAPPA_SLT_MAX_OFFSET                             0x50  // KAPPA_SLT_MAX_OFFSET
+#define CTRL_FUSE_ID_KAPPA_SLT_MIN_OFFSET                             0x51  // KAPPA_SLT_MIN_OFFSET
+#define CTRL_FUSE_ID_PER_PART_POWER_LIMITS_VERSION                    0x52  // PER_PART_POWER_LIMITS_VERSION
+#define CTRL_FUSE_ID_PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP 0x53  // PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP
+#define CTRL_FUSE_ID_SRAM_VMAX_BIN_REV                                0x54  // SRAM_VMAX_BIN_REV
+#define CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_COLD                           0x55  // GPC_SRAM_HVA_VMIN_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_HOT                            0x56  // GPC_SRAM_HVA_VMIN_HOT
+#define CTRL_FUSE_ID_GPC_SRAM_HVA_VMIN_MID                            0x57  // GPC_SRAM_HVA_VMIN_MID
+#define CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_COLD                           0x58  // GPC_SRAM_LVA_VMIN_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_HOT                            0x59  // GPC_SRAM_LVA_VMIN_HOT
+#define CTRL_FUSE_ID_GPC_SRAM_LVA_VMIN_MID                            0x5A  // GPC_SRAM_LVA_VMIN_MID
+#define CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_COLD                            0x5B  // GPC_SRAM_NA_VMIN_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_HOT                             0x5C  // GPC_SRAM_NA_VMIN_HOT
+#define CTRL_FUSE_ID_GPC_SRAM_NA_VMIN_MID                             0x5D  // GPC_SRAM_NA_VMIN_MID
+#define CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_COLD                           0x5E  // GPM_SRAM_HVA_VMIN_COLD
+#define CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_HOT                            0x5F  // GPM_SRAM_HVA_VMIN_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_HVA_VMIN_MID                            0x60  // GPM_SRAM_HVA_VMIN_MID
+#define CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_COLD                           0x61  // GPM_SRAM_LVA_VMIN_COLD
+#define CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_HOT                            0x62  // GPM_SRAM_LVA_VMIN_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_LVA_VMIN_MID                            0x63  // GPM_SRAM_LVA_VMIN_MID
+#define CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_COLD                            0x64  // GPM_SRAM_NA_VMIN_COLD
+#define CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_HOT                             0x65  // GPM_SRAM_NA_VMIN_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_NA_VMIN_MID                             0x66  // GPM_SRAM_NA_VMIN_MID
+#define CTRL_FUSE_ID_GPC_SRAM_WA_VMAX_COLD                            0x67  // GPC_SRAM_WA_VMAX_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_WA_VMAX_HOT                             0x68  // GPC_SRAM_WA_VMAX_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_WA_VMAX_COLD                            0x69  // GPM_SRAM_WA_VMAX_COLD
+#define CTRL_FUSE_ID_GPM_SRAM_WA_VMAX_HOT                             0x6A  // GPM_SRAM_WA_VMAX_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_HVA_VMAX_COLD                           0x6B  // GPM_SRAM_HVA_VMAX_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_NA_VMAX_COLD                            0x6C  // GPC_SRAM_NA_VMAX_COLD
+#define CTRL_FUSE_ID_GPM_SRAM_NA_VMAX_HOT                             0x6D  // GPM_SRAM_NA_VMAX_HOT
+#define CTRL_FUSE_ID_GPC_SRAM_HVA_VMAX_COLD                           0x6E  // GPC_SRAM_HVA_VMAX_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_NA_VMAX_HOT                             0x6F  // GPC_SRAM_NA_VMAX_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_HVA_VMAX_HOT                            0x70  // GPM_SRAM_HVA_VMAX_HOT
+#define CTRL_FUSE_ID_GPM_SRAM_NA_VMAX_COLD                            0x71  // GPM_SRAM_NA_VMAX_COLD
+#define CTRL_FUSE_ID_GPC_SRAM_HVA_VMAX_HOT                            0x72  // GPC_SRAM_HVA_VMAX_HOT
+
 
 #define CTRL_PERF_VFE_VAR_SINGLE_OVERRIDE_TYPE_NONE                  0x00U
 #define CTRL_PERF_VFE_VAR_SINGLE_OVERRIDE_TYPE_VALUE                 0x01U
@@ -47,6 +155,8 @@
 #define CTRL_PERF_VFE_EQU_TYPE_MINMAX                                0x02U
 #define CTRL_PERF_VFE_EQU_TYPE_QUADRATIC                             0x03U
 #define CTRL_PERF_VFE_EQU_TYPE_SCALAR                                0x04U
+#define CTRL_PERF_VFE_EQU_TYPE_MODEL_10                              0x05U
+#define CTRL_PERF_VFE_EQU_TYPE_QUADRATIC_N                           0x06U
 
 #define CTRL_PERF_VFE_EQU_OUTPUT_TYPE_UNITLESS                       0x00U
 #define CTRL_PERF_VFE_EQU_OUTPUT_TYPE_FREQ_MHZ                       0x01U
@@ -177,7 +287,8 @@ struct nv_pmu_vfe_var_derived_sum {
 struct nv_pmu_vfe_var_single {
 	struct nv_pmu_vfe_var super;
 	u8 override_type;
-	u32 override_value;
+	bool b_override_die_aware;
+	u32 override_value[2];
 };
 
 struct nv_pmu_vfe_var_single_frequency {
@@ -240,6 +351,15 @@ struct ctrl_perf_vfe_var_single_sensed_fuse_vfield_info {
 	u8 v_field_id;
 };
 
+struct ctrl_perf_vfe_var_single_sensed_fuse_ver_info {
+	u8 ver_expected;
+	bool b_ver_expected_is_mask;
+	bool b_ver_check;
+	bool b_ver_check_ignore;
+	bool b_use_default_on_ver_checkfail;
+};
+
+
 struct ctrl_perf_vfe_var_single_sensed_fuse_ver_vfield_info {
 	struct ctrl_perf_vfe_var_single_sensed_fuse_info fuse;
 	u8 ver_expected;
@@ -258,6 +378,26 @@ struct nv_pmu_vfe_var_single_sensed_fuse {
 								vfield_ver_info;
 	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_default;
 	bool b_fuse_value_signed;
+};
+
+struct nv_pmu_vfe_var_single_sensed_fuse_base {
+	struct nv_pmu_vfe_var_single_sensed super;
+	struct ctrl_perf_vfe_var_single_sensed_fuse_override_info       override_info;
+	bool   b_fuse_value_signed;
+	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_integer;
+	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_hw_integer;
+	struct ctrl_perf_vfe_var_single_sensed_fuse_value fuse_val_default;
+	u8 fuse_version;
+	bool b_version_check_done;
+	struct ctrl_perf_vfe_var_single_sensed_fuse_ver_info fuse_ver_info;
+	u32 hw_correction_scale;
+	s32 hw_correction_offset;
+};
+
+struct nv_pmu_vfe_var_single_sensed_fuse_20 {
+	struct nv_pmu_vfe_var_single_sensed_fuse_base super;
+	u16 fuse_id;
+	u16 fuse_id_ver;
 };
 
 struct nv_pmu_vfe_var_single_sensed_temp {
@@ -293,7 +433,7 @@ union nv_pmu_perf_vfe_var_boardobj_set_union {
 					var_single_caller_specified;
 };
 
-NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(perf, vfe_var);
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(perf, vfe_var);
 
 struct nv_pmu_perf_vfe_var_boardobj_grp_set_pack {
 	struct nv_pmu_perf_vfe_var_boardobj_grp_set pri;
@@ -347,7 +487,7 @@ union nv_pmu_perf_vfe_equ_boardobj_set_union {
 	struct nv_pmu_vfe_equ_scalar equ_scalar;
 };
 
-NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(perf, vfe_equ);
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E2048(perf, vfe_equ);
 
 struct nv_pmu_perf_vfe_equ_boardobj_grp_set_pack {
 	struct nv_pmu_perf_vfe_equ_boardobj_grp_set pri;

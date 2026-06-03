@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -32,12 +13,36 @@
 #include <nvgpu/device.h>
 #include <nvgpu/runlist.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/gr/gr_utils.h>
 
 #include "fifo_utils_ga10b.h"
 #include "ctxsw_timeout_ga10b.h"
 
 #include <nvgpu/hw/ga10b/hw_runlist_ga10b.h>
 
+/**
+ * @brief Clears and enables context switch (ctxsw) timeout interrupts for all runlists.
+ *
+ * This function iterates over all active runlists and performs two main operations for each
+ * runlist engine (rleng): clearing any pending ctxsw timeout interrupts and enabling ctxsw
+ * timeout interrupts with a specified timeout value. The timeout configuration is written to
+ * the runlist engine ctxsw timeout configuration register.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over all active runlists in the GPU's FIFO structure.
+ * -# For each runlist, iterate over all possible runlist engines based on the maximum number
+ *    of runlist engines supported.
+ * -# Clear the ctxsw timeout interrupt for the current runlist engine by writing to the
+ *    runlist interrupt register using nvgpu_runlist_writel().
+ * -# Check if the device corresponding to the current runlist engine is valid (non-NULL).
+ *    If not, skip to the next runlist engine.
+ * -# Enable the ctxsw timeout interrupt for the current runlist engine by writing the
+ *    provided timeout value to the runlist engine ctxsw timeout configuration register
+ *    using nvgpu_runlist_writel().
+ *
+ * @param [in] g        Pointer to the GPU structure.
+ * @param [in] timeout  Timeout value to be configured for ctxsw timeout interrupts.
+ */
 static void ga10b_fifo_ctxsw_timeout_clear_and_enable(struct gk20a *g,
 			u32 timeout)
 {
@@ -48,11 +53,11 @@ static void ga10b_fifo_ctxsw_timeout_clear_and_enable(struct gk20a *g,
 	for (i = 0U; i < g->fifo.num_runlists; i++) {
 		runlist = &g->fifo.active_runlists[i];
 		for (rleng = 0U;
-			rleng < runlist_engine_ctxsw_timeout_config__size_1_v();
+			rleng < g->ops.fifo.ctxsw_timeout_config_size_1();
 			rleng++) {
 			/* clear ctxsw timeout interrupt */
 			nvgpu_runlist_writel(g, runlist,
-				runlist_intr_0_r(),
+				g->ops.fifo.runlist_intr_0(),
 				runlist_intr_0_ctxsw_timeout_eng_reset_f(rleng));
 
 			dev = runlist->rl_dev_list[rleng];
@@ -61,8 +66,7 @@ static void ga10b_fifo_ctxsw_timeout_clear_and_enable(struct gk20a *g,
 			}
 			/* enable ctxsw timeout interrupt */
 			nvgpu_runlist_writel(g, runlist,
-				runlist_engine_ctxsw_timeout_config_r(
-				dev->rleng_id),
+				g->ops.fifo.ctxsw_timeout_config(dev->rleng_id),
 				timeout);
 			nvgpu_log_info(g, "ctxsw timeout enable "
 				       "rleng: %u timeout_config_val: 0x%08x",
@@ -71,6 +75,38 @@ static void ga10b_fifo_ctxsw_timeout_clear_and_enable(struct gk20a *g,
 	}
 }
 
+u32 ga10b_fifo_ctxsw_timeout_config(u32 rleng_id)
+{
+	return runlist_engine_ctxsw_timeout_config_r(rleng_id);
+}
+
+u32 ga10b_ctxsw_timeout_config_size_1(void)
+{
+	return runlist_engine_ctxsw_timeout_config__size_1_v();
+}
+
+/**
+ * @brief Disables and clears context switch (ctxsw) timeout interrupts for all runlists.
+ *
+ * This function iterates over all active runlists and performs two main operations for each
+ * runlist engine (rleng): disabling ctxsw timeout interrupts and clearing any pending ctxsw
+ * timeout interrupts. The timeout configuration is written to the runlist engine ctxsw
+ * timeout configuration register to disable the interrupts, and the runlist interrupt
+ * register is written to clear the interrupts.
+ *
+ * The steps performed by the function are as follows:
+ * -# Iterate over all active runlists in the GPU's FIFO structure.
+ * -# For each runlist, iterate over all possible runlist engines based on the maximum number
+ *    of runlist engines supported.
+ * -# Disable the ctxsw timeout interrupt for the current runlist engine by writing the
+ *    provided timeout value to the runlist engine ctxsw timeout configuration register
+ *    using nvgpu_runlist_writel().
+ * -# Clear the ctxsw timeout interrupt for the current runlist engine by writing to the
+ *    runlist interrupt register using nvgpu_runlist_writel().
+ *
+ * @param [in] g        Pointer to the GPU structure.
+ * @param [in] timeout  Timeout value used to disable ctxsw timeout interrupts.
+ */
 static void ga10b_fifo_ctxsw_timeout_disable_and_clear(struct gk20a *g,
 			u32 timeout)
 {
@@ -80,15 +116,15 @@ static void ga10b_fifo_ctxsw_timeout_disable_and_clear(struct gk20a *g,
 	for (i = 0U; i < g->fifo.num_runlists; i++) {
 		runlist = &g->fifo.active_runlists[i];
 		for (rleng = 0U;
-			rleng < runlist_engine_ctxsw_timeout_config__size_1_v();
+			rleng < g->ops.fifo.ctxsw_timeout_config_size_1();
 			rleng++) {
 			/* disable ctxsw timeout interrupt */
 			nvgpu_runlist_writel(g, runlist,
-				runlist_engine_ctxsw_timeout_config_r(rleng),
+				g->ops.fifo.ctxsw_timeout_config(rleng),
 				timeout);
 			/* clear ctxsw timeout interrupt */
 			nvgpu_runlist_writel(g, runlist,
-				runlist_intr_0_r(),
+				g->ops.fifo.runlist_intr_0(),
 				runlist_intr_0_ctxsw_timeout_eng_reset_f(rleng));
 		}
 	}
@@ -126,17 +162,56 @@ void ga10b_fifo_ctxsw_timeout_enable(struct gk20a *g, bool enable)
 	}
 }
 
+u32 ga10b_rleng_ctxsw_timeout_info_reg_off(u32 rleng_id)
+{
+	return runlist_engine_ctxsw_timeout_info_r(rleng_id);
+}
+
+/**
+ * @brief Retrieves information about a context switch (ctxsw) timeout event.
+ *
+ * This function reads the ctxsw timeout information register for a given runlist engine
+ * (rleng_id) and extracts the context switch state and the TSG ID associated with the timeout
+ * event. It also determines the status of the timeout event to decide if recovery is needed.
+ * The TSG ID and status are used by the caller to handle the timeout event appropriately.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the TSG ID to an invalid value indicating no valid TSG ID is identified yet.
+ * -# Read the ctxsw timeout information register for the given runlist engine using
+ *    nvgpu_runlist_readl().
+ * -# Extract the context switch state from the information read from the register.
+ * -# Based on the context switch state, determine the TSG ID associated with the timeout event.
+ *    The TSG ID could be the one that was next in line to be loaded, the one being switched
+ *    to, or the one being saved at the time of the timeout.
+ * -# Extract the status of the ctxsw timeout event from the information read from the register
+ *    and store it in the provided status pointer.
+ * -# Based on the extracted status, determine if recovery is needed. If the context request
+ *    acknowledgment was received or if the timeout was dropped, set the TSG ID to an invalid
+ *    value as no recovery is needed.
+ * -# Return the determined TSG ID, which may be valid or invalid based on whether recovery
+ *    is needed.
+ *
+ * @param [in]  g            Pointer to the GPU structure.
+ * @param [in]  runlist      Pointer to the runlist structure.
+ * @param [in]  rleng_id     Runlist engine identifier for which to retrieve timeout info.
+ * @param [out] info_status  Pointer to store the status of the ctxsw timeout event.
+ *
+ * @return The TSG ID associated with the ctxsw timeout event. If no recovery is needed,
+ *         an invalid TSG ID is returned.
+ */
 static u32 ga10b_fifo_ctxsw_timeout_info(struct gk20a *g,
 		struct nvgpu_runlist *runlist,
-		u32 rleng_id, u32 *info_status)
+		u32 rleng_id, u32 *gfid, u32 *info_status)
 {
 	u32 tsgid = NVGPU_INVALID_TSG_ID;
 	u32 info;
 	u32 ctx_status;
+	u32 eng_status1;
 
 	info = nvgpu_runlist_readl(g, runlist,
-			 runlist_engine_ctxsw_timeout_info_r(rleng_id));
-
+			g->ops.fifo.get_rleng_ctxsw_timeout_info_reg_off(rleng_id));
+	eng_status1 = nvgpu_runlist_readl(g, runlist,
+			g->ops.engine_status.get_rleng_status1_reg_off(rleng_id));
 	/*
 	 * ctxsw_state and tsgid are snapped at the point of the timeout and
 	 * will not change while the corresponding INTR_CTXSW_TIMEOUT_ENGINE bit
@@ -147,12 +222,14 @@ static u32 ga10b_fifo_ctxsw_timeout_info(struct gk20a *g,
 		runlist_engine_ctxsw_timeout_info_ctxsw_state_load_v()) {
 
 		tsgid = runlist_engine_ctxsw_timeout_info_next_tsgid_v(info);
+		*gfid = runlist_engine_status1_next_gfid_v(eng_status1);
 	} else if ((ctx_status ==
 			runlist_engine_ctxsw_timeout_info_ctxsw_state_switch_v()) ||
 		(ctx_status ==
 			runlist_engine_ctxsw_timeout_info_ctxsw_state_save_v())) {
 
 		tsgid = runlist_engine_ctxsw_timeout_info_prev_tsgid_v(info);
+		*gfid = runlist_engine_status1_gfid_v(eng_status1);
 	} else {
 		nvgpu_log_info(g, "ctxsw_timeout_info_ctxsw_state: 0x%08x",
 			ctx_status);
@@ -226,11 +303,11 @@ void ga10b_fifo_ctxsw_timeout_isr(struct gk20a *g,
 #endif
 	u32 info_status;
 	u32 tsgid = NVGPU_INVALID_TSG_ID;
+	u32 gfid = 0U;
 	const struct nvgpu_device *dev;
-	struct nvgpu_tsg *tsg = NULL;
+	bool debug_dump = false;
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-	bool debug_dump = false;
 	const char *const ctxsw_timeout_status_desc[] = {
 		"awaiting ack",
 		"eng was reset",
@@ -242,7 +319,8 @@ void ga10b_fifo_ctxsw_timeout_isr(struct gk20a *g,
 	for (rleng = 0U;
 		rleng < runlist_engine_ctxsw_timeout_info__size_1_v();
 		rleng++) {
-		reg_val = nvgpu_runlist_readl(g, runlist, runlist_intr_0_r());
+		reg_val = nvgpu_runlist_readl(g, runlist,
+				g->ops.fifo.runlist_intr_0());
 		if ((reg_val &
 			runlist_intr_0_ctxsw_timeout_eng_pending_f(rleng))
 				== 0U) {
@@ -258,26 +336,35 @@ void ga10b_fifo_ctxsw_timeout_isr(struct gk20a *g,
 		}
 		/* dump ctxsw timeout for rleng. useful for debugging */
 		reg_val = nvgpu_runlist_readl(g, runlist,
-			runlist_engine_ctxsw_timeout_config_r(
-			dev->rleng_id));
+			g->ops.fifo.ctxsw_timeout_config(dev->rleng_id));
 		timeout = runlist_engine_ctxsw_timeout_config_period_v(reg_val);
 		nvgpu_log_info(g, "rleng: %u ctxsw timeout period = 0x%x",
 			dev->rleng_id, timeout);
 
 		/* handle ctxsw timeout */
 		tsgid = ga10b_fifo_ctxsw_timeout_info(g, runlist, rleng,
-						&info_status);
-		tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
-		if (tsg == NULL) {
+						&gfid, &info_status);
+
+		if (info_status == runlist_engine_ctxsw_timeout_info_status_ack_received_v()) {
+			nvgpu_log_info(g, "Spurious ctxsw timeout");
 			continue;
+		} else {
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_HOST,
+					GPU_HOST_PFIFO_CTXSW_TIMEOUT_ERROR);
+			nvgpu_err(g, "Host pfifo ctxsw timeout error");
 		}
 
-		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_HOST,
-				GPU_HOST_PFIFO_CTXSW_TIMEOUT_ERROR);
-		nvgpu_err (g, "Host pfifo ctxsw timeout error");
+		if (nvgpu_gr_get_dump_gr_hw_state_on_ctxsw_timeout(g, &debug_dump) == 0) {
+			if (debug_dump) {
+				g->ops.gr.falcon.dump_stats(g);
+				gk20a_gr_debug_dump(g);
+				gk20a_debug_dump(g);
+				debug_dump = false;
+			}
+		}
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-		recover = g->ops.tsg.check_ctxsw_timeout(tsg, &debug_dump, &ms);
+		recover = g->ops.tsg.check_ctxsw_timeout(g, tsgid, &debug_dump, &ms);
 		if (recover) {
 			const char *info_status_str = "invalid";
 			if (info_status <
@@ -287,12 +374,12 @@ void ga10b_fifo_ctxsw_timeout_isr(struct gk20a *g,
 			}
 			active_eng_id = dev->engine_id;
 			nvgpu_err(g, "ctxsw timeout error: "
-				"active engine id =%u, %s=%d, info: %s ms=%u",
-				active_eng_id, "tsg", tsgid, info_status_str,
+				"active engine id =%u, %s=%d, gfid=%u info: %s ms=%u",
+				active_eng_id, "tsg", tsgid, gfid, info_status_str,
 				ms);
 			if (active_eng_id != NVGPU_INVALID_ENG_ID) {
 				nvgpu_rc_ctxsw_timeout(g, BIT32(active_eng_id),
-					tsg, debug_dump);
+					gfid, tsgid, debug_dump);
 			}
 			continue;
 		}

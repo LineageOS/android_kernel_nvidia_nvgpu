@@ -1,26 +1,42 @@
-/*
- * Copyright (c) 2011-2017, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_THERM_H
 #define NVGPU_THERM_H
+
+/**
+ * @page therm therm
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| therm unit provides a set of HAL interfaces to init and
+ * manage thermal, ELCG and BLCG settings. The therm unit is initialized
+ * during |nvgpu-rm| initialization.
+ *
+ * The therm initialization enables external thermal alert 0, 1 and 2
+ * events. The events are setup with slowdown factors of 0x2, 0x6 and 0xE for
+ * external thermal alert 0, 1 and 2 respectively.
+ *
+ * The gradual slowdown and stepping feature for clocks is enabled. This uses
+ * stepping tables NV_THERM_GRAD_STEPPING_TABLE(0) with steps of div_by_1,
+ * div_by_1p5, div_by_2, div_by_4 and div_by_8 and NV_THERM_GRAD_STEPPING_TABLE(1)
+ * with steps of div_by_16 and div_by_32. It also configures PDIV duration with 0xBF4.
+ * The idle clock slowdown feature is disabled.
+ *
+ * Once the therm unit is successfully initialized, it allows managing ELCG
+ * and BLCG mode settings though HAL APIs.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + gops_therm.elcg_init_idle_filters
+ *   + gops_therm.init_elcg_mode
+ *   + gops_therm.init_therm_setup_hw
+ *   + gops_therm.init_therm_support
+ */
 
 struct gk20a;
 

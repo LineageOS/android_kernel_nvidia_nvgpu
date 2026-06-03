@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/device.h>
 #include <nvgpu/vgpu/vgpu.h>
@@ -21,7 +21,7 @@ static ssize_t vgpu_load_show(struct device *dev,
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_GPU_LOAD;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	if (err)
 		return err;
 
@@ -45,7 +45,7 @@ static ssize_t vgpu_ecc_stat_show(struct device *dev,
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_ECC_COUNTER_VALUE;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (unlikely(err)) {
 		nvgpu_err(g, "ecc: cannot get ECC counter value: %d", err);

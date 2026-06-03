@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_INTR_H
@@ -85,7 +67,7 @@ int nvgpu_gr_intr_handle_fecs_error(struct gk20a *g, struct nvgpu_channel *ch,
  *         should be moved to quiesce state.
  */
 int nvgpu_gr_intr_handle_gpc_exception(struct gk20a *g, bool *post_event,
-	struct nvgpu_gr_config *gr_config, struct nvgpu_channel *fault_ch,
+	struct nvgpu_gr_config *gr_config, struct nvgpu_gr_isr_data *isr_data,
 	u32 *hww_global_esr);
 
 /**
@@ -170,7 +152,7 @@ void nvgpu_gr_intr_set_error_notifier(struct gk20a *g,
  *         should be moved to quiesce state.
  */
 int nvgpu_gr_intr_handle_sm_exception(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
-		bool *post_event, struct nvgpu_channel *fault_ch,
+		bool *post_event, struct nvgpu_gr_isr_data *isr_data,
 		u32 *hww_global_esr);
 
 /**
@@ -210,6 +192,8 @@ int nvgpu_gr_intr_handle_sm_exception(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
  */
 int nvgpu_gr_intr_stall_isr(struct gk20a *g);
 
+bool nvgpu_gr_is_illegal_method_intr_set(struct gk20a *g);
+
 /**
  * @brief Flush channel lookup TLB.
  *
@@ -245,5 +229,18 @@ struct nvgpu_gr_intr *nvgpu_gr_intr_init_support(struct gk20a *g);
  * This function will free memory allocated for #nvgpu_gr_intr structure.
  */
 void nvgpu_gr_intr_remove_support(struct gk20a *g, struct nvgpu_gr_intr *intr);
+
+/**
+ * @brief Determine the faulting context for the GR interrupt.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ * @param gr_intr [in]		GR interrupt pending interrupt value.
+ * @param isr_data [out]		Pointer to GR ISR data.
+ *
+ * This function determines the faulting context that triggered the stalling
+ * interrupt on the GR engine.
+ */
+void nvgpu_gr_intr_get_fault_context(struct gk20a *g,
+		u32 gr_intr, struct nvgpu_gr_isr_data *isr_data);
 
 #endif /* NVGPU_GR_INTR_H */

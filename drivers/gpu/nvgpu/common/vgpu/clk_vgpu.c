@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/vgpu/vgpu.h>
@@ -43,7 +24,7 @@ static unsigned long vgpu_clk_get_rate(struct gk20a *g, u32 api_domain)
 	case CTRL_CLK_DOMAIN_GPCCLK:
 		msg.cmd = TEGRA_VGPU_CMD_GET_GPU_CLK_RATE;
 		msg.handle = vgpu_get_handle(g);
-		err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+		err = vgpu_comm_sendrecv(g, &msg);
 		err = err ? err : msg.ret;
 		if (err) {
 			nvgpu_err(g, "%s failed - %d", __func__, err);
@@ -78,7 +59,7 @@ static int vgpu_clk_set_rate(struct gk20a *g,
 		msg.handle = vgpu_get_handle(g);
 
 		p->rate = rate;
-		err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+		err = vgpu_comm_sendrecv(g, &msg);
 		err = err ? err : msg.ret;
 		if (err) {
 			nvgpu_err(g, "%s failed - %d", __func__, err);
@@ -229,8 +210,8 @@ int vgpu_clk_get_freqs(struct gk20a *g, unsigned long **freqs_out,
 					&msg.params.get_gpu_freq_table;
 	struct vgpu_priv_data *priv = vgpu_get_priv_data(g);
 	u64 *freqs;
+	int ivc = -1;
 	int err = 0;
-	void *handle = NULL;
 	size_t oob_size;
 	unsigned int i;
 
@@ -245,25 +226,21 @@ int vgpu_clk_get_freqs(struct gk20a *g, unsigned long **freqs_out,
 	msg.cmd = TEGRA_VGPU_CMD_GET_GPU_FREQ_TABLE;
 	msg.handle = vgpu_get_handle(g);
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&freqs, &oob_size);
+	if (ivc < 0) {
+		err = ivc;
+		goto done;
+	}
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g, "%s failed - %d", __func__, err);
 		goto done;
 	}
 
-	handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD, (void **)&freqs, &oob_size);
-	if (!handle) {
-		nvgpu_err(g, "failed to get ivm handle");
-		err = -EINVAL;
-		goto done;
-	}
-
 	priv->freqs = nvgpu_kzalloc(g, sizeof(*priv->freqs) * (p->num_freqs));
 	if (!priv->freqs) {
 		nvgpu_err(g, "failed to allocate memory");
-		vgpu_ivc_oob_put_ptr(handle);
 		err = -ENOMEM;
 		goto done;
 	}
@@ -274,9 +251,10 @@ int vgpu_clk_get_freqs(struct gk20a *g, unsigned long **freqs_out,
 		priv->freqs[i] = (unsigned long)(freqs[i]);
 	}
 
-	vgpu_ivc_oob_put_ptr(handle);
-
 done:
+	if (ivc >= 0) {
+		vgpu_comm_free_ivc(g, ivc);
+	}
 	if (err == 0) {
 		*num_freqs = priv->num_freqs;
 		*freqs_out = priv->freqs;
@@ -298,7 +276,7 @@ int vgpu_clk_cap_rate(struct gk20a *g, unsigned long rate)
 	msg.cmd = TEGRA_VGPU_CMD_CAP_GPU_CLK_RATE;
 	msg.handle = vgpu_get_handle(g);
 	p->rate = rate;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g, "%s failed - %d", __func__, err);

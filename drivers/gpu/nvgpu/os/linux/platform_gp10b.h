@@ -1,19 +1,5 @@
-/*
- * GP10B Platform (SoC) Interface
- *
- * Copyright (c) 2014-2022, NVIDIA Corporation.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef _GP10B_PLATFORM_H_
@@ -29,7 +15,7 @@ struct gk20a_platform_clk {
 #define GP10B_FREQ_SELECT_STEP  8
 
 /* Max number of freq supported in h/w */
-#define GP10B_MAX_SUPPORTED_FREQS 120
+#define GP10B_MAX_SUPPORTED_FREQS 200
 
 /* Allow limited set of frequencies to be available */
 #define GP10B_NUM_SUPPORTED_FREQS ((GP10B_MAX_SUPPORTED_FREQS) / (GP10B_FREQ_SELECT_STEP))

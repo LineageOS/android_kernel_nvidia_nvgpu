@@ -1,26 +1,5 @@
-/*
- * Virtualized GPU Graphics
- *
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/bug.h>
@@ -34,6 +13,7 @@
 #include <nvgpu/channel.h>
 #include <nvgpu/tsg.h>
 #include <nvgpu/string.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/gr/global_ctx.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/ctx.h>
@@ -49,6 +29,7 @@
 #include <nvgpu/gr/obj_ctx.h>
 #include <nvgpu/cyclestats_snapshot.h>
 #include <nvgpu/power_features/pg.h>
+#include <nvgpu/gr/gr_instances.h>
 
 #include <nvgpu/tsg_subctx.h>
 
@@ -92,7 +73,7 @@ int vgpu_gr_init_ctx_state(struct gk20a *g,
 	sizes->golden_image_size = priv->constants.golden_ctx_size;
 	sizes->pm_ctxsw_image_size = priv->constants.hwpm_ctx_size;
 	if (!sizes->golden_image_size ||
-		!sizes->pm_ctxsw_image_size) {
+		(g->support_gpu_tools && !sizes->pm_ctxsw_image_size)) {
 		return -ENXIO;
 	}
 
@@ -250,7 +231,7 @@ int vgpu_gr_alloc_obj_ctx(struct nvgpu_channel  *c, u32 class_num, u32 flags)
 	p->sm_diversity_config = NVGPU_DEFAULT_SM_DIVERSITY_CONFIG;
 #endif
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err == 0) {
 		gr_ctx->tsgid = tsg->tsgid;
@@ -261,6 +242,14 @@ int vgpu_gr_alloc_obj_ctx(struct nvgpu_channel  *c, u32 class_num, u32 flags)
 	return err;
 }
 
+u32 vgpu_gr_config_get_gpc_rop_mask(struct gk20a *g,
+	struct nvgpu_gr_config *config, u32 gpc_index)
+{
+	struct vgpu_priv_data *priv = vgpu_get_priv_data(g);
+
+	return priv->constants.phy_gpc_rop_mask[gpc_index];
+}
+
 static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 {
 	struct vgpu_priv_data *priv = vgpu_get_priv_data(g);
@@ -268,6 +257,7 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 	u32 gpc_index;
 	u32 sm_per_tpc;
 	u32 pes_index;
+	u32 gpc_phys_id;
 	int err = -ENOMEM;
 
 	nvgpu_log_fn(g, " ");
@@ -287,7 +277,7 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 	config->max_tpc_per_gpc_count = priv->constants.max_tpc_per_gpc_count;
 
 	config->max_tpc_count = config->max_gpc_count * config->max_tpc_per_gpc_count;
-
+	config->sm_count_per_tpc = priv->constants.sm_per_tpc;
 	config->gpc_tpc_count = nvgpu_kzalloc(g, config->gpc_count * sizeof(u32));
 	if (!config->gpc_tpc_count) {
 		goto cleanup;
@@ -297,7 +287,15 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 			config->max_gpc_count * sizeof(u32));
 	config->gpc_tpc_mask_physical = nvgpu_kzalloc(g,
 			config->max_gpc_count * sizeof(u32));
-	if (!config->gpc_tpc_mask || !config->gpc_tpc_mask_physical) {
+
+	config->gpc_pes_mask_physical = nvgpu_kzalloc(g,
+			nvgpu_safe_mult_u64((size_t)config->max_gpc_count,
+				sizeof(u32)));
+	config->gpc_rop_mask_physical = nvgpu_kzalloc(g,
+			nvgpu_safe_mult_u64((size_t)config->max_gpc_count,
+				sizeof(u32)));
+	if (!config->gpc_tpc_mask || !config->gpc_tpc_mask_physical ||
+		!config->gpc_pes_mask_physical || !config->gpc_rop_mask_physical) {
 		goto cleanup;
 	}
 
@@ -325,7 +323,7 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 #endif
 
 	config->tpc_count = 0;
-	for (gpc_index = 0; gpc_index < config->max_gpc_count; gpc_index++) {
+	for (gpc_index = 0; gpc_index < config->gpc_count; gpc_index++) {
 		config->gpc_tpc_count[gpc_index] =
 			priv->constants.gpc_tpc_count[gpc_index];
 
@@ -335,8 +333,11 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 			gr->config->gpc_tpc_mask[gpc_index] =
 				g->ops.gr.config.get_gpc_tpc_mask(g,
 					g->gr->config, gpc_index);
-			gr->config->gpc_tpc_mask_physical[gpc_index] =
-				priv->constants.gpc_tpc_mask_physical[gpc_index];
+
+			gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g,
+				0, gpc_index);
+			gr->config->gpc_tpc_mask_physical[gpc_phys_id] =
+				priv->constants.gpc_tpc_mask_physical[gpc_phys_id];
 		}
 	}
 
@@ -389,12 +390,26 @@ static int vgpu_gr_init_gr_config(struct gk20a *g, struct nvgpu_gr *gr)
 			config->pes_tpc_count[pes_index][gpc_index] = pes_tpc_count;
 			config->pes_tpc_mask[pes_index][gpc_index] = pes_tpc_mask;
 		}
+		config->gpc_pes_mask_physical[gpc_index] =
+			priv->constants.gpc_pes_mask_physical[gpc_index];
+		g->mig.gpu_instance[0].gr_syspipe.gpcs[gpc_index].logical_id =
+			priv->constants.gpc[gpc_index].logical_id;
+		g->mig.gpu_instance[0].gr_syspipe.gpcs[gpc_index].physical_id =
+			priv->constants.gpc[gpc_index].physical_id;
+		g->mig.gpu_instance[0].gr_syspipe.gpcs[gpc_index].gpcgrp_id =
+			priv->constants.gpc[gpc_index].gpcgrp_id;
 	}
 
 	err = g->ops.gr.config.init_sm_id_table(g, g->gr->config);
 	if (err) {
 		goto cleanup;
 	}
+
+	err = nvgpu_gr_config_init_gpc_rop_config(config);
+	if (err) {
+		goto cleanup;
+	}
+
 	return 0;
 cleanup:
 	nvgpu_err(g, "out of memory");
@@ -411,6 +426,15 @@ cleanup:
 
 	nvgpu_kfree(g, config->gpc_tpc_count);
 	config->gpc_tpc_count = NULL;
+
+	nvgpu_kfree(g, config->gpc_pes_mask_physical);
+	config->gpc_pes_mask_physical = NULL;
+
+	nvgpu_kfree(g, config->gpc_rop_mask_physical);
+	config->gpc_rop_mask_physical = NULL;
+
+	nvgpu_kfree(g, config->gpc_tpc_mask_physical);
+	config->gpc_tpc_mask_physical = NULL;
 
 	nvgpu_kfree(g, config->gpc_tpc_mask);
 	config->gpc_tpc_mask = NULL;
@@ -459,7 +483,7 @@ int vgpu_gr_bind_ctxsw_zcull(struct gk20a *g, struct nvgpu_channel *c,
 	p->handle = c->virt_ctx;
 	p->zcull_va = zcull_va;
 	p->mode = mode;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	return (err || msg.ret) ? -ENOMEM : 0;
 }
@@ -477,7 +501,7 @@ int vgpu_gr_get_zcull_info(struct gk20a *g,
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_ZCULL_INFO;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	if (err || msg.ret) {
 		return -ENOMEM;
 	}
@@ -566,7 +590,7 @@ int vgpu_gr_add_zbc(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 		return -EINVAL;
 	}
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	return (err || msg.ret) ? -ENOMEM : 0;
 }
@@ -587,7 +611,7 @@ int vgpu_gr_query_zbc(struct gk20a *g, struct nvgpu_gr_zbc *zbc,
 	p->type = query_params->type;
 	p->index_size = query_params->index_size;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	if (err || msg.ret) {
 		return -ENOMEM;
 	}
@@ -658,11 +682,13 @@ static int vgpu_gr_init_gr_setup_sw(struct gk20a *g)
 	}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-	err = nvgpu_gr_hwpm_map_init(g, &g->gr->hwpm_map,
-			nvgpu_gr_falcon_get_pm_ctxsw_image_size(g->gr->falcon));
-	if (err != 0) {
-		nvgpu_err(g, "hwpm_map init failed");
-		goto clean_up;
+	if (g->support_gpu_tools) {
+		err = nvgpu_gr_hwpm_map_init(g, &g->gr->hwpm_map,
+				nvgpu_gr_falcon_get_pm_ctxsw_image_size(g->gr->falcon));
+		if (err != 0) {
+			nvgpu_err(g, "hwpm_map init failed");
+			goto clean_up;
+		}
 	}
 #endif
 
@@ -692,14 +718,15 @@ static int vgpu_gr_init_gr_setup_sw(struct gk20a *g)
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_gr_ctx_set_size(gr->gr_ctx_desc,
 			NVGPU_GR_CTX_PREEMPT_CTXSW,
 			nvgpu_gr_falcon_get_preempt_image_size(g->gr->falcon));
 	}
 #endif
 
-	nvgpu_spinlock_init(&g->gr->intr->ch_tlb_lock);
+	nvgpu_mutex_init(&g->gr->intr->ch_tlb_lock);
 
 	gr->remove_support = vgpu_remove_gr_support;
 	gr->sw_ready = true;
@@ -720,58 +747,61 @@ int vgpu_init_gr_support(struct gk20a *g)
 	return vgpu_gr_init_gr_setup_sw(g);
 }
 
+static void vgpu_gr_isr_handle_notify_pending(struct gk20a *g, struct nvgpu_tsg *tsg)
+{
+	struct nvgpu_channel *ch = NULL;
+
+	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
+	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
+		if (nvgpu_channel_get(ch) != NULL) {
+			nvgpu_cond_broadcast_interruptible(&ch->notifier_wq);
+			nvgpu_channel_put(ch);
+		}
+	}
+	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
+}
+
+static void vgpu_gr_isr_handle_semaphore_pending(struct gk20a *g, struct nvgpu_tsg *tsg)
+{
+	struct nvgpu_channel *ch = NULL;
+
+	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
+	nvgpu_list_for_each_entry(ch, &tsg->ch_list, nvgpu_channel, ch_entry) {
+		if (nvgpu_channel_get(ch) != NULL) {
+			nvgpu_cond_broadcast_interruptible(&ch->semaphore_wq);
+			nvgpu_channel_put(ch);
+		}
+	}
+	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
+}
+
 int vgpu_gr_isr(struct gk20a *g, struct tegra_vgpu_gr_intr_info *info)
 {
-	struct nvgpu_channel *ch = nvgpu_channel_from_id(g, info->chid);
+	struct nvgpu_tsg *tsg = NULL;
 
 	nvgpu_log_fn(g, " ");
 
-	if (!ch) {
+	tsg = nvgpu_tsg_check_and_get_from_id(g, info->tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", info->tsgid);
 		return 0;
 	}
 
 	if (info->type != TEGRA_VGPU_GR_INTR_NOTIFY &&
-		info->type != TEGRA_VGPU_GR_INTR_SEMAPHORE) {
-		nvgpu_err(g, "gr intr (%d) on ch %u", info->type, info->chid);
+			info->type != TEGRA_VGPU_GR_INTR_SEMAPHORE) {
+		nvgpu_err(g, "gr intr (%d) on tsg %u", info->type, info->tsgid);
 	}
 
 	switch (info->type) {
 	case TEGRA_VGPU_GR_INTR_NOTIFY:
-		nvgpu_cond_broadcast_interruptible(&ch->notifier_wq);
+		vgpu_gr_isr_handle_notify_pending(g, tsg);
 		break;
 	case TEGRA_VGPU_GR_INTR_SEMAPHORE:
-		nvgpu_cond_broadcast_interruptible(&ch->semaphore_wq);
-		break;
-	case TEGRA_VGPU_GR_INTR_SEMAPHORE_TIMEOUT:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_SEMAPHORE_TIMEOUT);
-		break;
-	case TEGRA_VGPU_GR_INTR_ILLEGAL_NOTIFY:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_ILLEGAL_NOTIFY);
-	case TEGRA_VGPU_GR_INTR_ILLEGAL_METHOD:
-		break;
-	case TEGRA_VGPU_GR_INTR_ILLEGAL_CLASS:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_ERROR_SW_NOTIFY);
-		break;
-	case TEGRA_VGPU_GR_INTR_FECS_ERROR:
-		break;
-	case TEGRA_VGPU_GR_INTR_CLASS_ERROR:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_ERROR_SW_NOTIFY);
-		break;
-	case TEGRA_VGPU_GR_INTR_FIRMWARE_METHOD:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_ERROR_SW_NOTIFY);
-		break;
-	case TEGRA_VGPU_GR_INTR_EXCEPTION:
-		g->ops.channel.set_error_notifier(ch,
-			NVGPU_ERR_NOTIFIER_GR_ERROR_SW_NOTIFY);
+		vgpu_gr_isr_handle_semaphore_pending(g, tsg);
 		break;
 #ifdef CONFIG_NVGPU_DEBUGGER
 	case TEGRA_VGPU_GR_INTR_SM_EXCEPTION:
-		g->ops.debugger.post_events(ch);
+		g->ops.debugger.post_events(g, 0U, tsg->tsgid);
 		break;
 #endif
 	default:
@@ -779,7 +809,6 @@ int vgpu_gr_isr(struct gk20a *g, struct tegra_vgpu_gr_intr_info *info)
 		break;
 	}
 
-	nvgpu_channel_put(ch);
 	return 0;
 }
 
@@ -797,7 +826,7 @@ int vgpu_gr_set_sm_debug_mode(struct gk20a *g,
 	p->handle = ch->virt_ctx;
 	p->sms = sms;
 	p->enable = (u32)enable;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 
 	return err ? err : msg.ret;
@@ -822,7 +851,7 @@ int vgpu_gr_update_smpc_ctxsw_mode(struct gk20a *g,
 		p->mode = TEGRA_VGPU_CTXSW_MODE_NO_CTXSW;
 	}
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 
 	return err ? err : msg.ret;
@@ -873,7 +902,7 @@ int vgpu_gr_update_hwpm_ctxsw_mode(struct gk20a *g,
 	msg.handle = vgpu_get_handle(g);
 	p->tsg_id = tsg->tsgid;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 	err = err ? err : msg.ret;
 	if (!err) {
@@ -912,7 +941,7 @@ int vgpu_gr_clear_sm_error_state(struct gk20a *g,
 	p->handle = ch->virt_ctx;
 	p->sm_id = sm_id;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 
 	(void) memset(&tsg->sm_error_states[sm_id], 0,
@@ -935,18 +964,16 @@ static int vgpu_gr_suspend_resume_contexts(struct gk20a *g,
 	size_t n;
 	int channel_fd = -1;
 	int err = 0;
-	void *handle = NULL;
 	u16 *oob;
 	size_t oob_size;
+	int ivc;
 
 	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
 	nvgpu_mutex_acquire(&dbg_s->ch_list_lock);
 
-	handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD,
-			(void **)&oob, &oob_size);
-	if (!handle) {
-		err = -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&oob, &oob_size);
+	if (ivc < 0) {
+		err = ivc;
 		goto done;
 	}
 
@@ -971,7 +998,7 @@ static int vgpu_gr_suspend_resume_contexts(struct gk20a *g,
 		oob[n++] = (u16)ch_data->chid;
 	}
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	if (err || msg.ret) {
 		err = -ENOMEM;
 		goto done;
@@ -988,8 +1015,8 @@ static int vgpu_gr_suspend_resume_contexts(struct gk20a *g,
 	}
 
 done:
-	if (handle) {
-		vgpu_ivc_oob_put_ptr(handle);
+	if (ivc >= 0) {
+		vgpu_comm_free_ivc(g, ivc);
 	}
 	nvgpu_mutex_release(&dbg_s->ch_list_lock);
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
@@ -1016,8 +1043,16 @@ int vgpu_gr_resume_contexts(struct gk20a *g,
 void vgpu_gr_handle_sm_esr_event(struct gk20a *g,
 			struct tegra_vgpu_sm_esr_info *info)
 {
-	struct nvgpu_tsg *tsg;
-	u32 no_of_sm = g->ops.gr.init.get_no_of_sm(g);
+	u32 instance_id = 0U;
+	u32 no_of_sm;
+	u32 current_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
+	struct nvgpu_gr_isr_data isr_data = {
+		.gfid = 0U,
+		.tsgid = info->tsg_id,
+	};
+
+	instance_id = nvgpu_grmgr_get_gpu_instance_id(g, current_gr_instance_id);
+	no_of_sm = g->ops.gr.init.get_no_of_sm(g, instance_id);
 
 	if (info->sm_id >= no_of_sm) {
 		nvgpu_err(g, "invalid smd_id %d / %d", info->sm_id, no_of_sm);
@@ -1029,18 +1064,12 @@ void vgpu_gr_handle_sm_esr_event(struct gk20a *g,
 		return;
 	}
 
-	tsg = nvgpu_tsg_check_and_get_from_id(g, info->tsg_id);
-	if (tsg == NULL) {
-		nvgpu_err(g, "invalid tsg");
-		return;
-	}
-
 	nvgpu_mutex_acquire(&g->dbg_sessions_lock);
 
-	(void)nvgpu_tsg_store_sm_error_state(tsg, info->sm_id,
+	(void)nvgpu_tsg_store_sm_error_state(g, &isr_data, info->sm_id,
 		info->hww_global_esr, info->hww_warp_esr,
 		info->hww_warp_esr_pc, info->hww_global_esr_report_mask,
-		info->hww_warp_esr_report_mask);
+		info->hww_warp_esr_report_mask, info->hww_cga_esr, instance_id);
 
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
 }
@@ -1054,38 +1083,37 @@ int vgpu_gr_init_sm_id_table(struct gk20a *g, struct nvgpu_gr_config *gr_config)
 	struct nvgpu_sm_info *sm_info;
 	int err;
 	size_t oob_size;
-	void *handle = NULL;
 	u32 sm_id;
 	u32 max_sm;
 	u32 sm_config;
+	int ivc;
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_VSMS_MAPPING;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&entry, &oob_size);
+	if (ivc < 0) {
+		return ivc;
+	}
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g,
 			"get vsms mapping failed err %d", err);
-		return err;
-	}
-
-	handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-					   TEGRA_VGPU_QUEUE_CMD,
-					   (void **)&entry, &oob_size);
-	if (!handle) {
-		return -EINVAL;
+		goto fail;
 	}
 
 	max_sm = gr_config->gpc_count *
 			gr_config->max_tpc_per_gpc_count *
 			priv->constants.sm_per_tpc;
 	if (p->num_sm > max_sm) {
-		return -EINVAL;
+		err = -EINVAL;
+		goto fail;
 	}
 
 	if ((p->num_sm * sizeof(*entry) *
 		priv->constants.max_sm_diversity_config_count) > oob_size) {
-		return -EINVAL;
+		err = -EINVAL;
+		goto fail;
 	}
 
 	gr_config->no_of_sm = p->num_sm;
@@ -1106,11 +1134,13 @@ int vgpu_gr_init_sm_id_table(struct gk20a *g, struct nvgpu_gr_config *gr_config)
 			sm_info->gpc_index = entry->gpc_index;
 			sm_info->sm_index = entry->sm_index;
 			sm_info->global_tpc_index = entry->global_tpc_index;
+			sm_info->virtual_gpc_index = entry->virtual_gpc_index;
 		}
 	}
-	vgpu_ivc_oob_put_ptr(handle);
+fail:
+	vgpu_comm_free_ivc(g, ivc);
 
-	return 0;
+	return err;
 }
 
 int vgpu_gr_update_pc_sampling(struct nvgpu_channel *ch, bool enable)
@@ -1136,7 +1166,7 @@ int vgpu_gr_update_pc_sampling(struct nvgpu_channel *ch, bool enable)
 		p->mode = TEGRA_VGPU_DISABLE_SAMPLING;
 	}
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 
 	return err ? err : msg.ret;
@@ -1187,7 +1217,7 @@ int vgpu_gr_set_preemption_mode(struct nvgpu_channel *ch,
 	p->ch_handle = ch->virt_ctx;
 	p->graphics_preempt_mode = graphics_preempt_mode;
 	p->compute_preempt_mode = compute_preempt_mode;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 
 	if (!err) {
@@ -1233,7 +1263,7 @@ u64 vgpu_gr_gk20a_tpc_enabled_exceptions(struct gk20a *g)
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_TPC_EXCEPTION_EN_STATUS;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g,
@@ -1246,7 +1276,7 @@ u64 vgpu_gr_gk20a_tpc_enabled_exceptions(struct gk20a *g)
 }
 
 int vgpu_gr_set_mmu_debug_mode(struct gk20a *g,
-		struct nvgpu_channel *ch, bool enable)
+		struct nvgpu_channel *ch, bool enable, bool enable_gcc)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_gr_set_mmu_debug_mode_params *p =
@@ -1257,7 +1287,8 @@ int vgpu_gr_set_mmu_debug_mode(struct gk20a *g,
 	msg.handle = vgpu_get_handle(g);
 	p->ch_handle = ch->virt_ctx;
 	p->enable = enable ? 1U : 0U;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	p->enable_gcc = enable_gcc ? 1U : 0U;
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err != 0 ? err : msg.ret;
 	if (err != 0) {
 		nvgpu_err(g,

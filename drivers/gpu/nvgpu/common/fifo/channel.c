@@ -1,26 +1,5 @@
-/*
- * GK20A Graphics channel
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/mm.h>
@@ -80,7 +59,33 @@ static int channel_setup_ramfc(struct nvgpu_channel *c,
 		struct nvgpu_setup_bind_args *args,
 		u64 gpfifo_gpu_va, u32 gpfifo_size);
 
-/* allocate GPU channel */
+/**
+ * @brief Allocates a channel from the pool of free channels.
+ *
+ * This function attempts to allocate a channel from the pool of free channels
+ * maintained by the FIFO subsystem. If a free channel is available, it is
+ * removed from the free list and marked as used. The function also handles
+ * synchronization and reference counting for the channel.
+ *
+ * @param [in]  f  Pointer to the FIFO subsystem structure.
+ *
+ * @return Pointer to the allocated channel, or NULL if no free channel is available.
+ *
+ * Steps:
+ * -# Initialize a pointer to a channel structure to NULL.
+ * -# Acquire the mutex that protects the list of free channels using nvgpu_mutex_acquire().
+ * -# Check if the list of free channels is not empty using nvgpu_list_empty().
+ *    -# If not empty, obtain the first entry from the list of free channels using
+ *       nvgpu_list_first_entry().
+ *    -# Remove the obtained channel from the list of free channels using nvgpu_list_del().
+ *    -# Issue a warning if the reference count of the channel is not zero using WARN_ON().
+ *    -# Issue a warning if the channel is marked as referenceable using WARN_ON().
+ *    -# Increment the count of used channels in the FIFO subsystem structure using
+ *       nvgpu_safe_add_u32().
+ * -# Release the mutex that protects the list of free channels using nvgpu_mutex_release().
+ * -# Return the pointer to the allocated channel, or NULL if no channel was allocated.
+ *
+ */
 static struct nvgpu_channel *allocate_channel(struct nvgpu_fifo *f)
 {
 	struct nvgpu_channel *ch = NULL;
@@ -110,6 +115,27 @@ static struct nvgpu_channel *allocate_channel(struct nvgpu_fifo *f)
 	return ch;
 }
 
+/**
+ * @brief Free a channel and add it to the list of free channels.
+ *
+ * This function releases a channel by adding it to the list of free channels
+ * and updating the count of used channels. It also handles synchronization
+ * for the operation and updates the aggressive sync destroy state based on
+ * the threshold.
+ *
+ * The steps performed by the function are as follows:
+ * -# Acquire the mutex free_chs_mutex to synchronize access to the list of
+ *    free channels.
+ * -# Add the channel to the head of the list of free channels using nvgpu_list_add() for increased
+ *    visibility of timing-related bugs.
+ * -# Decrement the count of used channels.
+ * -# Release the mutex free_chs_mutex.
+ *
+ * @param [in]  f   Pointer to the GPU FIFO struct.
+ * @param [in]  ch  Pointer to the channel to be freed.
+ *
+ * @return None.
+ */
 static void free_channel(struct nvgpu_fifo *f,
 		struct nvgpu_channel *ch)
 {
@@ -173,10 +199,10 @@ int nvgpu_channel_enable_tsg(struct gk20a *g, struct nvgpu_channel *ch)
 
 	tsg = nvgpu_tsg_from_ch(ch);
 	if (tsg != NULL) {
-		g->ops.tsg.enable(tsg);
+		nvgpu_tsg_enable(tsg);
 		return 0;
 	} else {
-		nvgpu_err(ch->g, "chid: %d is not bound to tsg", ch->chid);
+		nvgpu_err(g, "chid: %d is not bound to tsg", ch->chid);
 		return -EINVAL;
 	}
 }
@@ -187,10 +213,10 @@ int nvgpu_channel_disable_tsg(struct gk20a *g, struct nvgpu_channel *ch)
 
 	tsg = nvgpu_tsg_from_ch(ch);
 	if (tsg != NULL) {
-		g->ops.tsg.disable(tsg);
+		nvgpu_tsg_disable(tsg);
 		return 0;
 	} else {
-		nvgpu_err(ch->g, "chid: %d is not bound to tsg", ch->chid);
+		nvgpu_err(g, "chid: %d is not bound to tsg", ch->chid);
 		return -EINVAL;
 	}
 }
@@ -211,21 +237,12 @@ void nvgpu_channel_abort_clean_up(struct nvgpu_channel *ch)
 #endif
 	nvgpu_mutex_release(&ch->sync_lock);
 
-	/* The update to flush the job queue is only needed to process
-	 * nondeterministic resources and ch wdt timeouts. Any others are
-	 * either nonexistent or preallocated from pools that can be killed in
-	 * one go on deterministic channels; take a look at what would happen
-	 * in nvgpu_channel_clean_up_deterministic_job() and what
-	 * nvgpu_submit_deterministic() requires.
+	/*
+	 * When closing the channel, this scheduled update holds one
+	 * channel ref which is waited for before advancing with
+	 * freeing.
 	 */
-	if (!nvgpu_channel_is_deterministic(ch)) {
-		/*
-		 * When closing the channel, this scheduled update holds one
-		 * channel ref which is waited for before advancing with
-		 * freeing.
-		 */
-		nvgpu_channel_update(ch);
-	}
+	nvgpu_channel_update(ch);
 }
 
 static void channel_kernelmode_deinit(struct nvgpu_channel *ch)
@@ -536,6 +553,7 @@ static void nvgpu_channel_finalize_job(struct nvgpu_channel *c,
 	nvgpu_fence_put(&job->post_fence);
 	if (job->gpfifo_sema != NULL) {
 		nvgpu_semaphore_put(job->gpfifo_sema);
+		job->gpfifo_sema = NULL;
 	}
 
 	/*
@@ -543,10 +561,12 @@ static void nvgpu_channel_finalize_job(struct nvgpu_channel *c,
 	 */
 	if (job->wait_cmd != NULL) {
 		nvgpu_priv_cmdbuf_free(c->priv_cmd_q, job->wait_cmd);
+		job->wait_cmd = NULL;
 	}
 	nvgpu_priv_cmdbuf_free(c->priv_cmd_q, job->incr_cmd);
 	if (job->gpfifo_incr_cmd != NULL) {
 		nvgpu_priv_cmdbuf_free(c->priv_cmd_q, job->gpfifo_incr_cmd);
+		job->gpfifo_incr_cmd = NULL;
 	}
 
 	nvgpu_channel_free_job(c, job);
@@ -749,6 +769,23 @@ done:
 
 #else
 
+/**
+ * @brief Clean up channel resources during an abort operation.
+ *
+ * This function ensures that no fences are pending on the channel by setting
+ * the user syncpoint to a safe state. It acquires a lock to synchronize access
+ * to the sync state and then releases it after the operation.
+ *
+ * The steps performed by the function are as follows:
+ * -# Acquire the synchronization lock for the channel using nvgpu_mutex_acquire().
+ * -# If the channel has an associated user syncpoint, set it to a safe state
+ *    using nvgpu_channel_user_syncpt_set_safe_state().
+ * -# Release the synchronization lock for the channel using nvgpu_mutex_release().
+ *
+ * @param [in]  ch  Pointer to the channel structure.
+ *
+ * @return None.
+ */
 void nvgpu_channel_abort_clean_up(struct nvgpu_channel *ch)
 {
 	/* ensure no fences are pending */
@@ -813,6 +850,18 @@ void nvgpu_channel_wait_until_counter_is_N(
 	}
 }
 
+/**
+ * @brief Deinitialize usermode for a given channel.
+ *
+ * This function performs the necessary cleanup for a channel that has been
+ * operating in usermode. The steps involved are:
+ * -# Call nvgpu_channel_free_usermode_buffers() to release any usermode
+ *    buffers associated with the channel.
+ * -# Disable usermode submission for the channel by setting the flag
+ *    indicating usermode submission is enabled to false.
+ *
+ * @param [in] ch  Pointer to the channel structure.
+ */
 static void nvgpu_channel_usermode_deinit(struct nvgpu_channel *ch)
 {
 	nvgpu_channel_free_usermode_buffers(ch);
@@ -822,6 +871,26 @@ static void nvgpu_channel_usermode_deinit(struct nvgpu_channel *ch)
 	ch->usermode_submit_enabled = false;
 }
 
+/**
+ * @brief Invoke unbind operations for channel cleanup.
+ *
+ * This function is responsible for invoking the necessary unbind operations
+ * to clean up the channel state during the channel free process. It ensures
+ * that the channel is properly unbound from any resources or contexts it was
+ * associated with.
+ *
+ * The steps performed by the function are as follows:
+ * -# If the driver is dying, do nothing and return else follow below steps.
+ * -# Check if the channel is bound to a TSG (Timeslice Scheduling Group) by
+ *    calling nvgpu_tsg_from_ch().
+ * -# If the channel is bound to a TSG, unbind the channel from the TSG by
+ *    calling nvgpu_tsg_unbind_channel().
+ * -# If the channel is not bound to a TSG, do nothing.
+ *
+ * @param [in]  ch   The channel to be unbound and cleaned up.
+ *
+ * @return None.
+ */
 static void channel_free_invoke_unbind(struct nvgpu_channel *ch)
 {
 	int err = 0;
@@ -853,6 +922,9 @@ static void channel_free_invoke_unbind(struct nvgpu_channel *ch)
 	}
 }
 
+/**
+ * @brief This function does nothing on safety build.
+ */
 static void channel_free_invoke_deferred_engine_reset(struct nvgpu_channel *ch)
 {
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -879,6 +951,24 @@ static void channel_free_invoke_deferred_engine_reset(struct nvgpu_channel *ch)
 #endif
 }
 
+/**
+ * @brief Deinitialize and destroy user managed syncpoint for a channel.
+ *
+ * This function safely destroys the user managed syncpoint associated with a
+ * channel. The steps involved are:
+ * -# Acquire the mutex lock for synchronizing access to the channel's sync state.
+ * -# Check if the channel has an associated user managed syncpoint.
+ * -# If a user managed syncpoint exists and the channel is not marked as
+ *    unserviceable, set the syncpoint to a safe state by calling
+ *    nvgpu_channel_user_syncpt_set_safe_state().
+ * -# Destroy the user managed syncpoint by calling
+ *    nvgpu_channel_user_syncpt_destroy().
+ * -# Set the pointer to the user managed syncpoint to NULL, indicating that
+ *    it has been destroyed and is no longer valid.
+ * -# Release the mutex lock acquired earlier.
+ *
+ * @param [in] ch  Pointer to the channel structure.
+ */
 static void channel_free_invoke_sync_destroy(struct nvgpu_channel *ch)
 {
 #ifdef CONFIG_TEGRA_GK20A_NVHOST
@@ -900,6 +990,9 @@ static void channel_free_invoke_sync_destroy(struct nvgpu_channel *ch)
 #endif
 }
 
+/**
+ * @brief This function does nothing on safety build.
+ */
 static void channel_free_unlink_debug_session(struct nvgpu_channel *ch)
 {
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -935,6 +1028,24 @@ static void channel_free_unlink_debug_session(struct nvgpu_channel *ch)
 #endif
 }
 
+/**
+ * @brief Wait for channel reference count to reach a specified value.
+ *
+ * This function waits for the reference count of a channel to reach a
+ * specified value before proceeding. This ensures that all operations
+ * using the channel have completed before the channel is freed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call nvgpu_channel_wait_until_counter_is_N() to wait until the
+ *    reference count of the channel reaches the specified wait value.
+ * -# If the force parameter is true, skip the waiting process.
+ *
+ * @param [in]  ch          The channel whose reference count is being waited on.
+ * @param [in]  wait_value  The value of the reference count to wait for.
+ * @param [in]  force       Flag to indicate whether to force skip waiting.
+ *
+ * @return None.
+ */
 static void channel_free_wait_for_refs(struct nvgpu_channel *ch,
 		int wait_value, bool force)
 {
@@ -967,7 +1078,69 @@ static void channel_free_put_deterministic_ref_from_init(
 }
 #endif
 
-/* call ONLY when no references to the channel exist: after the last put */
+/**
+ * @brief Close channel
+ *
+ * @param ch [in]	Channel pointer.
+ *			- No validation is performed on this parameter.
+ * @param force [in]	Whether closure is forced or normal.
+ *
+ * Unbind channel from TSG, wait until there is no more refs to the channel, then release channel
+ * resources allocated in nvgpu_channel_open_new() and during its lifetime (such as address space
+ * refcount).
+ *
+ * In case the TSG that the channel was bound to contains deterministic or usermode submit channels,
+ * userspace must make sure that the whole TSG is idle before closing the channel. This can be
+ * performed by submitting a kickoff containing WFI method and waiting for its completion.
+ *
+ * @note must be inside gk20a_busy()..gk20a_idle()
+ *
+ * Detailed steps:
+ *
+ * - If ch->g is NULL: the channel has already been freed. Log a descriptive message with
+ *   nvgpu_do_assert_print() and return.
+ * - Unbind the channel from its TSG if any with channel_free_invoke_unbind().
+ * - If os_channel.close() is not NULL, call it to do OS-specific cleanup.
+ * - Call channel_free_wait_for_refs().
+ *   This blocks until other possible concurrent users have stopped using the channel.
+ * - Call nvgpu_cic_rm_wait_for_deferred_interrupts() to wait until all pending interrupts are done.
+ *   Interrupts may still need to use the channel at this time.
+ * - Prevent further uses on the channel by unsetting its referenceable flag:
+ *   - Call \ref nvgpu_spinlock_acquire(&ch->ref_obtain_lock)
+ *   - If ch->referenceable is not set, call \ref nvgpu_spinlock_release(&ch->ref_obtain_lock),
+ *     log a descriptive message with ch->chid using nvgpu_err() and return. This situation would
+ *     indicate a condition where multiple callers are attempting to free the channel at the same
+ *     time, which could occur if the channel is being closed normally and also killed when the
+ *     driver is dying.
+ *   - Set ch->referenceable to false.
+ *   - Call \ref nvgpu_spinlock_release(&ch->ref_obtain_lock).
+ *     Now attempts to acquire a refcount on the channel will fail.
+ * - Call \ref nvgpu_atomic_dec(&ch->ref_count) to release the ref that belongs to this thread,
+ *   so the refcount should go to zero now.
+ * - Call channel_free_wait_for_refs(). Force is false in this case. Any interrupts
+ *   or other asynchronous work might have acquired a reference before the referenceable flag was
+ *   cleared, so block until those are done.
+ * - Perform deferred engine reset if needed with channel_free_invoke_deferred_engine_reset().
+ * - Check if the channel has an address space with nvgpu_channel_as_bound(). If true:
+ *   - Call nvgpu_log_info() saying that a bound channel is being freed.
+ *   - Call gops_gr_intr.flush_channel_tlb().
+ *   - Call channel_free_invoke_sync_destroy() to destroy channel synchronization resources
+ *     (user syncpoint in safety mode).
+ *   - Release the VM reference by calling \ref nvgpu_vm_put(ch->vm).
+ *   - Make sure we don't have deferred interrupts pending that could still (try to) touch the
+ *     channel by calling nvgpu_cic_rm_wait_for_deferred_interrupts() again.
+ * - Call \ref #gops_channel.free_inst "g->ops.channel.free_inst(g, ch)".
+ * - Call nvgpu_channel_wdt_destroy() to destroy wdt and set ch->wdt to NULL.
+ * - Set ch->vpr to false.
+ * - Set ch->vm to NULL.
+ * - Call channel_free_unlink_debug_session().
+ * - Set ch->g to NULL to make sure we catch accesses of unopened channels in case there's
+ *   non-refcounted channel pointers hanging around.
+ * - Call nvgpu_cond_destroy() for ch->notifier_wq and ch->semaphore_wq.
+ * - Call nvgpu_smp_wmb() to commit the previous changes to memory before actually marking the
+     channel as freed.
+ * - Call \ref free_channel(ch->g->fifo, ch)
+ */
 static void channel_free(struct nvgpu_channel *ch, bool force)
 {
 	struct gk20a *g = ch->g;
@@ -1105,6 +1278,9 @@ unbind:
 	free_channel(f, ch);
 }
 
+/**
+ * @brief This function does nothing on safety build.
+ */
 static void channel_dump_ref_actions(struct nvgpu_channel *ch)
 {
 #if GK20A_CHANNEL_REFCOUNT_TRACKING
@@ -1343,8 +1519,7 @@ struct nvgpu_channel *nvgpu_channel_open_new(struct gk20a *g,
 	ch->obj_class = 0;
 	ch->subctx_id = 0;
 	ch->runqueue_sel = 0;
-
-	ch->mmu_nack_handled = false;
+	ch->vpr = false;
 
 	/* The channel is *not* runnable at this point. It still needs to have
 	 * an address space bound and allocate a gpfifo and grctx. */
@@ -1379,6 +1554,34 @@ clean_up:
 	return NULL;
 }
 
+/**
+ * @brief Sets up the RAMFC for a given channel.
+ *
+ * This function is responsible for configuring the RAMFC (Runlist Active Memory
+ * FIFO Control) for a channel. It determines the PBDMA (Push Buffer DMA) acquire
+ * timeout based on the channel's watchdog timer settings and then invokes the
+ * RAMFC setup operation with the given GPFIFO parameters and flags.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the error code to 0.
+ * -# Check if the watchdog timer is enabled for the channel and if timeouts are
+ *    enabled globally using functions nvgpu_channel_wdt_enabled() and nvgpu_is_timeouts_enabled()
+ *    respectively. If both conditions are true, retrieve the watchdog timer
+ *    limit for the PBDMA acquire timeout.
+ * -# Call the RAMFC setup function with the channel, GPFIFO GPU virtual address,
+ *    GPFIFO size, PBDMA acquire timeout, and setup bind flags using gops_ramfc.setup. Store the
+ *    result in the error code.
+ * -# Return the error code.
+ *
+ * @param [in]  c              Pointer to the channel structure.
+ * @param [in]  args           Pointer to the structure containing setup bind arguments.
+ * @param [in]  gpfifo_gpu_va  GPU virtual address of the GPFIFO.
+ * @param [in]  gpfifo_size    Size of the GPFIFO.
+ *
+ * @return Error code indicating the status of the operation.
+ * @retval 0 if the RAMFC was successfully configured.
+ * @retval Non-zero error code if the setup failed.
+ */
 static int channel_setup_ramfc(struct nvgpu_channel *c,
 		struct nvgpu_setup_bind_args *args,
 		u64 gpfifo_gpu_va, u32 gpfifo_size)
@@ -1398,6 +1601,36 @@ static int channel_setup_ramfc(struct nvgpu_channel *c,
 	return err;
 }
 
+/**
+ * @brief Set up usermode buffers for a channel and configure the channel's runlist.
+ *
+ * This function performs the following steps:
+ * -# Check if the OS-specific callback for allocating usermode buffers is available.
+ * -# If the callback is available (set to nvgpu_channel_alloc_usermode_buffers() for safety),
+ *    invoke it to allocate usermode buffers.
+ * -# Set the usermode memory pointer, offset, and IOVA for the channel.
+ * -# Enable usermode submission for the channel.
+ * -# If the callback is not available, log an error and set the return value to
+ *    indicate that usermode submission is not supported.
+ * -# Log the channel ID, GPU virtual address of the GPFIFO, and its size.
+ * -# Call channel_setup_ramfc() to set up the RAMFC for the channel with the
+ *    GPFIFO's GPU virtual address and size.
+ * -# If channel_setup_ramfc() fails, proceed to clean up.
+ * -# Call nvgpu_channel_update_runlist() to update the runlist with the new
+ *    channel configuration.
+ * -# If updating the runlist fails, proceed to clean up.
+ * -# If any errors occurred during the setup, free the usermode buffers and
+ *    reinitialize the channel for usermode submission.
+ * -# Disable usermode submission if clean up is required.
+ * -# Return the error code if any step failed, otherwise return 0 to indicate
+ *    success.
+ *
+ * @param [in]  c      Pointer to the channel structure.
+ * @param [in]  args   Pointer to the structure containing setup arguments.
+ *
+ * @return 0 if the setup is successful.
+ * @return Non-zero error code if the setup fails.
+ */
 static int nvgpu_channel_setup_usermode(struct nvgpu_channel *c,
 		struct nvgpu_setup_bind_args *args)
 {
@@ -1449,6 +1682,35 @@ clean_up:
 	return err;
 }
 
+/**
+ * @brief Perform pre-checks before setting up channel binding.
+ *
+ * This function performs various checks to ensure that the channel and its
+ * associated resources are in a valid state before proceeding with the bind
+ * operation. It checks for conditions that must be met for a successful
+ * channel setup bind operation.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the channel is bound to an address space using nvgpu_channel_as_bound().
+ *    If not, return -EINVAL.
+ * -# Check if the channel has been allocated a gpfifo. If not, return -EEXIST.
+ * -# Check if the channel is marked as TSG channel and return -EINVAL if true.
+ * -# Check if the channel is marked as usermode submit enabled and return -EINVAL if true.
+ * -# Check if the channel has a valid runlist ID and return -EINVAL if not.
+ * -# Check if the channel has a valid gpfifo entry number and return -EINVAL if not.
+ * -# Check if the channel has a valid number of gpfifo entries and return -EINVAL if not.
+ * -# Check if the channel is not marked for deterministic mode and return -EINVAL if true.
+ * -# Check if the channel is not marked for usermode support and return -EINVAL if true.
+ * -# Check if the channel is not marked for VPR support and return -EINVAL if true.
+ * -# Check if the channel is not marked for replayable faults and return -EINVAL if true.
+ *
+ * @param [in]  c       Channel pointer.
+ * @param [in]  args    Setup bind arguments.
+ *
+ * @return 0 upon success, or a negative error code on failure.
+ * @retval -EINVAL if any pre-check condition fails.
+ * @retval -EEXIST if gpfifo has already been allocated for this channel.
+ */
 static int channel_setup_bind_prechecks(struct nvgpu_channel *c,
 		struct nvgpu_setup_bind_args *args)
 {
@@ -1540,26 +1802,17 @@ fail:
 int nvgpu_channel_setup_bind(struct nvgpu_channel *c,
 		struct nvgpu_setup_bind_args *args)
 {
+	struct nvgpu_tsg *tsg = NULL;
 	struct gk20a *g = c->g;
 	int err = 0;
 
 	err = channel_setup_bind_prechecks(c, args);
 	if (err != 0) {
-		goto fail;
+		nvgpu_err(g, "fail");
+		return err;
 	}
 
-#ifdef CONFIG_NVGPU_VPR
-	if ((args->flags & NVGPU_SETUP_BIND_FLAGS_SUPPORT_VPR) != 0U) {
-		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_VPR)) {
-			err = -EINVAL;
-			goto fail;
-		}
-
-		c->vpr = true;
-	}
-#else
-	c->vpr = false;
-#endif
+	tsg = nvgpu_tsg_from_ch(c);
 
 #ifdef CONFIG_NVGPU_DETERMINISTIC_CHANNELS
 	if ((args->flags & NVGPU_SETUP_BIND_FLAGS_SUPPORT_DETERMINISTIC) != 0U) {
@@ -1609,7 +1862,20 @@ int nvgpu_channel_setup_bind(struct nvgpu_channel *c,
 		goto clean_up_idle;
 	}
 
+	/*
+	 * Enable channel explicitly which was done inside
+	 * bind() up until now but only when tsg was enabled.
+	 */
 	g->ops.channel.bind(c);
+	nvgpu_rwsem_down_read(&tsg->ch_list_lock);
+	if (tsg->disable_count == 0U) {
+		nvgpu_channel_enable(c);
+	} else {
+		nvgpu_log_info(g,
+			"skipped enabling channel: %u as tsg: %u is disabled, count: %u",
+			c->chid, tsg->tsgid, tsg->disable_count);
+	}
+	nvgpu_rwsem_up_read(&tsg->ch_list_lock);
 
 	nvgpu_log_fn(g, "done");
 	return 0;
@@ -1623,7 +1889,6 @@ clean_up_idle:
 		nvgpu_rwsem_up_read(&g->deterministic_busy);
 	}
 #endif
-fail:
 	nvgpu_err(g, "fail");
 	return err;
 }
@@ -1641,6 +1906,21 @@ void nvgpu_channel_free_usermode_buffers(struct nvgpu_channel *c)
 	}
 }
 
+/**
+ * @brief Determine if verbose debug dump should be performed on context switch timeout.
+ *
+ * This function performs the following steps:
+ * -# Initialize a flag to indicate whether verbose debug dump is required.
+ * -# Check if the error notifier for FIFO error due to idle timeout is set by calling
+ *    nvgpu_is_err_notifier_set().
+ * -# If the error notifier is set, check if verbose debug dump is enabled for the channel.
+ * -# Set the flag based on the channel's setting for verbose debug dump.
+ * -# Return the flag indicating whether verbose debug dump should be performed.
+ *
+ * @param [in]  ch  Pointer to the channel structure.
+ *
+ * @return True if verbose debug dump is enabled, false otherwise.
+ */
 static bool nvgpu_channel_ctxsw_timeout_debug_dump_state(
 				struct nvgpu_channel *ch)
 {
@@ -1788,6 +2068,21 @@ void nvgpu_channel_deterministic_unidle(struct gk20a *g)
 }
 #endif
 
+/**
+ * @brief Destroy a channel's mutex locks.
+ *
+ * This function destroys the ioctl and sync mutex locks associated with a
+ * channel. It is part of the channel cleanup process and is called when a
+ * channel is being destroyed.
+ *
+ * The steps performed by the function are as follows:
+ * -# Destroy the ioctl lock associated with the channel using nvgpu_mutex_destroy().
+ * -# Destroy the sync lock associated with the channel using nvgpu_mutex_destroy().
+ *
+ * @param [in]  c       Channel whose locks are to be destroyed.
+ *
+ * @return void
+ */
 static void nvgpu_channel_destroy(struct nvgpu_channel *c)
 {
 	nvgpu_mutex_destroy(&c->ioctl_lock);
@@ -2005,6 +2300,33 @@ int nvgpu_channel_resume_all_serviceable_ch(struct gk20a *g)
 		nvgpu_channel_put(ch);
 	}
 
+	/*
+	 * Suspend disables the TSG, Resume must enable the TSG.
+	 *
+	 * For N channels in one TSG, when channel:N-1 is getting
+	 * bound, nvgpu_channel_enable_tsg() will enable all N channels,
+	 * without Nth channel being bound, hence use two loops: one to
+	 * bind all channels(above), then match the tsg disable of suspend
+	 * with tsg enable in resume.
+	 */
+	for (chid = 0; chid < f->num_channels; chid++) {
+		struct nvgpu_channel *ch = nvgpu_channel_from_id(g, chid);
+
+		if (ch == NULL) {
+			continue;
+		}
+
+		if (nvgpu_channel_check_unserviceable(ch)) {
+			nvgpu_log_info(g, "do not resume recovered channel %d",
+				       chid);
+		} else {
+			if (nvgpu_channel_enable_tsg(g, ch) != 0) {
+				nvgpu_err(g, "failed to enable channel/TSG");
+			}
+		}
+		nvgpu_channel_put(ch);
+	}
+
 	if (channels_in_use) {
 		nvgpu_assert(nvgpu_runlist_reload_ids(g,
 				active_runlist_ids, true) == 0);
@@ -2015,6 +2337,25 @@ int nvgpu_channel_resume_all_serviceable_ch(struct gk20a *g)
 	return 0;
 }
 
+/**
+ * @brief Signals all threads waiting on the channel's semaphore queue.
+ *
+ * This function is used to wake up all threads that are waiting on the
+ * semaphore associated with a given channel. It broadcasts a signal to the
+ * semaphore wait queue which causes all waiting threads to be woken up.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GPU driver struct from the channel struct.
+ * -# Call nvgpu_cond_broadcast_interruptible() to broadcast a signal to all
+ *    threads waiting on the channel's semaphore wait queue. If the broadcast
+ *    fails, log a warning message.
+ *
+ * @param [in]  c           Channel structure.
+ * @param [in]  post_events Flag indicating whether to post events. This parameter
+ *                          is currently unused in the function.
+ *
+ * @return None.
+ */
 static void nvgpu_channel_semaphore_signal(struct nvgpu_channel *c,
 		bool post_events)
 {
@@ -2030,23 +2371,15 @@ static void nvgpu_channel_semaphore_signal(struct nvgpu_channel *c,
 	if (post_events) {
 		struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(c);
 		if (tsg != NULL) {
-			g->ops.tsg.post_event_id(tsg,
+			/* use gfid 0 since it runs on vf when it is sr-iov */
+			g->ops.tsg.post_event_id(g, 0U, tsg->tsgid,
 			    NVGPU_EVENT_ID_BLOCKING_SYNC);
 		}
 	}
 #endif
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-	/*
-	 * Only non-deterministic channels get the channel_update callback. We
-	 * don't allow semaphore-backed syncs for these channels anyways, since
-	 * they have a dependency on the sync framework. If deterministic
-	 * channels are receiving a semaphore wakeup, it must be for a
-	 * user-space managed semaphore.
-	 */
-	if (!nvgpu_channel_is_deterministic(c)) {
-		nvgpu_channel_update(c);
-	}
+	nvgpu_channel_update(c);
 #endif
 }
 
@@ -2170,10 +2503,12 @@ static void nvgpu_channel_info_debug_dump(struct gk20a *g,
 	 */
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 
-	gk20a_debug_output(o, "%d-%s, TSG: %u, pid %d, thread name %s, refs: %d, deterministic: %s, domain name: %s",
+	gk20a_debug_output(o, "%d-%s, TSG: %u, TSG disable count: %u, pid %d, thread name %s, "
+			"refs: %d, deterministic: %s, domain name: %s",
 			info->chid,
 			g->name,
 			info->tsgid,
+			info->tsg_disable_count,
 			info->pid,
 			info->thread_name,
 			info->refs,
@@ -2221,6 +2556,7 @@ void nvgpu_channel_debug_dump_all(struct gk20a *g,
 	struct nvgpu_fifo *f = &g->fifo;
 	u32 chid;
 	struct nvgpu_channel_dump_info **infos;
+	size_t temp = 0;
 
 	infos = nvgpu_kzalloc(g, sizeof(*infos) * f->num_channels);
 	if (infos == NULL) {
@@ -2280,17 +2616,21 @@ void nvgpu_channel_debug_dump_all(struct gk20a *g,
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
 		info->deterministic = nvgpu_channel_is_deterministic(ch);
 #endif
-		if (tsg) {
-			if (tsg->nvs_domain) {
-				domain_name = nvgpu_nvs_domain_get_name(tsg->nvs_domain);
+		if (tsg != NULL) {
+			if (tsg->nvs_domain_ptr != NULL) {
+				domain_name = nvgpu_nvs_domain_get_name(tsg->nvs_domain_ptr);
 			} else {
 				domain_name = "(no domain)";
 			}
+			nvgpu_rwsem_down_read(&tsg->ch_list_lock);
+			info->tsg_disable_count = tsg->disable_count;
+			nvgpu_rwsem_up_read(&tsg->ch_list_lock);
 		} else {
 			domain_name = "(no tsg)";
 		}
-		(void)strncpy(info->nvs_domain_name, domain_name,
-				sizeof(info->nvs_domain_name) - 1U);
+		temp = min((size_t)nvgpu_safe_add_u64(strlen(domain_name), 1UL),
+			      (size_t)(sizeof(info->nvs_domain_name) - 1UL));
+			(void)strncpy(info->nvs_domain_name, domain_name, temp);
 
 #ifdef CONFIG_NVGPU_SW_SEMAPHORE
 		if (hw_sema != NULL) {

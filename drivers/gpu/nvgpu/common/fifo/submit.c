@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/nvgpu_init.h>
@@ -80,6 +61,10 @@ static int nvgpu_submit_create_wait_cmd(struct nvgpu_channel *c,
 		}
 	}
 
+	if (err != 0 && err != -EAGAIN) {
+		nvgpu_err(c->g, "nvgpu_submit_create_wait_cmd err %d (flag_sync_fence %s)",
+			  err, flag_sync_fence ? "true" : "false");
+	}
 	return err;
 }
 
@@ -96,6 +81,11 @@ static int nvgpu_submit_create_incr_cmd(struct nvgpu_channel *c,
 	} else {
 		err = nvgpu_channel_sync_incr(c->sync, incr_cmd,
 				post_fence, need_sync_fence);
+	}
+
+	if (err != 0 && err != -EAGAIN) {
+		nvgpu_err(c->g, "nvgpu_submit_create_incr_cmd err %d (flag_fence_get %s)",
+			  err, flag_fence_get ? "true" : "false");
 	}
 
 	return err;
@@ -185,7 +175,7 @@ static int nvgpu_submit_prepare_syncs(struct nvgpu_channel *c,
 				c->gpfifo_sync, &job->gpfifo_sema,
 				&job->gpfifo_incr_cmd,
 				nvgpu_safe_add_u32(gpfifo_entries,
-					(flag_fence_wait ? 3U : 2U)));
+					(job->wait_cmd != NULL ? 3U : 2U)));
 		if (err != 0) {
 			goto clean_up_incr_cmd;
 		}
@@ -675,7 +665,12 @@ static int nvgpu_submit_deterministic(struct nvgpu_channel *c,
 	return 0;
 
 clean_up:
-	nvgpu_log_fn(g, "fail %d", err);
+	if (err == -EAGAIN) {
+		nvgpu_log_fn(g, "fail %d", err);
+	} else {
+		nvgpu_err(g, "fail %d", err);
+	}
+
 	nvgpu_rwsem_up_read(&g->deterministic_busy);
 
 	return err;
@@ -746,8 +741,15 @@ static int nvgpu_submit_nondeterministic(struct nvgpu_channel *c,
 	return 0;
 
 clean_up:
-	nvgpu_log_fn(g, "fail %d", err);
-	gk20a_idle(g);
+	if (err == -EAGAIN) {
+		nvgpu_log_fn(g, "fail %d", err);
+	} else {
+		nvgpu_err(g, "fail %d", err);
+	}
+
+	if (need_job_tracking) {
+		gk20a_idle(g);
+	}
 
 	return err;
 }

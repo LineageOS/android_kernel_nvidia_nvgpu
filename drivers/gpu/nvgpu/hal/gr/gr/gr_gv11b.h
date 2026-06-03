@@ -1,25 +1,5 @@
-/*
- * GV11B GPU GR
- *
- * Copyright (c) 2016-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_GV11B_H
@@ -41,11 +21,18 @@ void gr_gv11b_set_gpc_tpc_mask(struct gk20a *g, u32 gpc_index);
 #endif
 int gr_gv11b_pre_process_sm_exception(struct gk20a *g,
 		u32 gpc, u32 tpc, u32 sm, u32 global_esr, u32 warp_esr,
-		bool sm_debugger_attached, struct nvgpu_channel *fault_ch,
+		u32 cga_esr,
+		bool sm_debugger_attached, struct nvgpu_gr_isr_data *isr_data,
 		bool *early_exit, bool *ignore_debugger);
 void gv11b_gr_bpt_reg_info(struct gk20a *g, struct nvgpu_warpstate *w_state);
 int gv11b_gr_set_sm_debug_mode(struct gk20a *g,
 	struct nvgpu_channel *ch, u64 sms, bool enable);
+u32 gv11b_get_sm_dbgr_ctrl_base(void);
+u32 gv11b_get_sm_dbgr_status_base(void);
+u32 gv11b_get_sm_hww_global_esr_base(void);
+u32 gv11b_get_sm_hww_warp_esr_base(void);
+u32 gv11b_get_gpcs_tpcs_tex_in_dbg_reg(void);
+u32 gv11b_get_gpcs_tpcs_sm_l1tag_ctrl_reg(void);
 int gv11b_gr_clear_sm_error_state(struct gk20a *g,
 		struct nvgpu_channel *ch, u32 sm_id);
 bool gv11b_gr_sm_debugger_attached(struct gk20a *g);
@@ -87,6 +74,7 @@ void gv11b_gr_egpc_etpc_priv_addr_table(struct gk20a *g, u32 addr,
 				u32 gpc_num, u32 tpc_num, u32 broadcast_flags,
 				u32 *priv_addr_table, u32 *t);
 u32 gv11b_gr_get_egpc_base(struct gk20a *g);
+u32 gv11b_gr_get_egpc_shared_base(struct gk20a *g);
 int gr_gv11b_decode_priv_addr(struct gk20a *g, u32 addr,
 	enum ctxsw_addr_type *addr_type,
 	u32 *gpc_num, u32 *tpc_num, u32 *ppc_num, u32 *be_num,
@@ -104,11 +92,6 @@ bool gv11b_gr_esr_bpt_pending_events(u32 global_esr,
 				enum nvgpu_event_id_type bpt_event);
 int gv11b_gr_handle_warp_esr_error_mmu_nack(struct gk20a *g,
 	u32 gpc, u32 tpc, u32 sm,
-	u32 warp_esr_error,
-	struct nvgpu_channel *fault_ch);
-int gv11b_gr_handle_all_warp_esr_errors(struct gk20a *g,
-					u32 gpc, u32 tpc, u32 sm,
-					u32 warp_esr_error,
-					struct nvgpu_channel *fault_ch);
+	u32 warp_esr_error);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GR_GV11B_H */

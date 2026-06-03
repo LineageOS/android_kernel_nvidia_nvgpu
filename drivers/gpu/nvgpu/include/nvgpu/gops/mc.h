@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_MC_H
 #define NVGPU_GOPS_MC_H
@@ -286,6 +268,56 @@ struct gops_mc {
 	 */
 	int (*reset_engines_all)(struct gk20a *g, u32 devtype);
 	void (*elpg_enable)(struct gk20a *g);
+
+	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+
+	/**
+	 * @brief Retrieves the interrupt unit information for a given unit.
+	 *
+	 * This function looks up the vector ID and subtree mask for the specified interrupt
+	 * unit. It sets up the interrupt unit information structure with these values,
+	 * which are used to handle interrupts for the unit. The function handles different
+	 * types of interrupt units, including bus, priv ring, LTC, PMU, FBPA, MMU fault ECC error,
+	 * MMU non-replayable fault, MMU non-replayable fault error, MMU info fault, MMU replayable
+	 * fault, MMU replayable fault error, GR NONSTALL, CE NONSTALL, GR STALL, CE STALL,
+	 * RUNLIST TREE 0, RUNLIST TREE 1, and GSP. It also validates that the vector IDs for a unit
+	 * reside in the same subtree.
+	 *
+	 * The steps performed by the function are as follows:
+	 * -# Initialize the return variable to false to indicate failure by default.
+	 * -# Obtain a pointer to the interrupt unit information structure for the given unit.
+	 * -# Use a switch statement to handle different interrupt units.
+	 * -# For recognized interrupt units, retrieve the vector ID using the appropriate
+	 *    function and set the vector ID size to one.
+	 * -# For MMU interrupt units, note that vector IDs are set up in framebuffer
+	 *    initialization and skip further processing.
+	 * -# For GR and CE NONSTALL interrupt units, read the base vector ID from the control
+	 *    register, calculate the subtree and subtree mask, and mark the interrupt unit
+	 *    information as valid.
+	 * -# For GR STALL and CE STALL interrupt units, read the base vector ID from the control
+	 *    register, calculate the subtree and subtree mask, and mark the interrupt unit
+	 *    information as valid.
+	 * -# For RUNLIST TREE 0 and RUNLIST TREE 1 interrupt units, log the interrupt unit for
+	 *    debugging purposes.
+	 * -# For GSP interrupt units, retrieve the vector ID using the appropriate function and
+	 *    set the vector ID size to one.
+	 * -# If the interrupt unit is not supported, set the return variable to false and
+	 *    indicate completion.
+	 * -# If the processing for the interrupt unit is complete, skip the remaining steps.
+	 * -# For interrupt units with multiple vector IDs, iterate over each vector ID.
+	 * -# Validate that all vector IDs for the unit reside in the same subtree.
+	 * -# Calculate the subtree mask for each vector ID and combine it with the existing
+	 *    subtree mask.
+	 * -# Mark the interrupt unit information as valid.
+	 * -# Set the return variable to true to indicate success.
+	 *
+	 * @param [in] g     The GPU structure for which the interrupt unit information is
+	 *                   being retrieved.
+	 * @param [in] unit  The interrupt unit for which information is being retrieved.
+	 *
+	 * @return true if the interrupt unit information was successfully retrieved.
+	 * @return false if the interrupt unit is not supported or an error occurred.
+	 */
 	bool (*intr_get_unit_info)(struct gk20a *g, u32 unit);
 
 	/**
@@ -327,7 +359,6 @@ struct gops_mc {
 	 */
 	u32 (*get_eng_stall_base_vector)(struct gk20a *g);
 
-	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };
 
 #endif

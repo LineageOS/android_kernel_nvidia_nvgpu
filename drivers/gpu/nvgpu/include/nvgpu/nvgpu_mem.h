@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_MEM_H
@@ -119,6 +101,11 @@ struct nvgpu_mem {
 	 * outlives the nvgpu_mem.
 	 */
 #define NVGPU_MEM_FLAG_FOREIGN_SGT		 BIT64(4)
+	/**
+	 * Some nvgpu_mem objects act as facades to memory buffers owned by
+	 * sync_point shim and need to freed when dma_free_sys invokes.
+	 */
+#define NVGPU_MEM_FLAG_SYNCPT_IOVA               BIT64(5)
 
 	/**
 	 * Store flag bits indicating conditions for nvgpu_mem struct instance.
@@ -204,20 +191,38 @@ static inline const char *nvgpu_aperture_str(enum nvgpu_aperture aperture)
 }
 
 /**
- * @brief Check if given aperture is of type SYSMEM.
+ * @brief Determine if the aperture is system memory.
  *
- * @param[in] ap	Aperture type.
+ * This function checks if the given aperture type represents system memory,
+ * either coherent or non-coherent.
  *
- * @return True if aperture is SYSMEM type, false otherwise.
+ * The steps performed by the function are as follows:
+ * -# Check if the aperture type is either coherent system memory or
+ *    non-coherent system memory.
+ * -# Return true if the aperture type matches either of the system memory
+ *    types, otherwise return false.
+ *
+ * @param [in] ap  Aperture type to be checked.
+ *                 Range: #APERTURE_SYSMEM_COH, #APERTURE_SYSMEM
+ *
+ * @return True if the aperture is system memory, false otherwise.
  */
 bool nvgpu_aperture_is_sysmem(enum nvgpu_aperture ap);
 
 /**
- * @brief Check if given memory is of SYSMEM type.
+ * @brief Check if the memory is of SYSMEM type.
  *
- * @param[in] mem	Pointer to nvgpu_mem structure.
+ * This function determines if the memory represented by the given nvgpu_mem
+ * structure is system memory (SYSMEM) by checking the aperture type.
  *
- * @return True if memory is SYSMEM type, false otherwise.
+ * The steps performed by the function are as follows:
+ * -# Call the function nvgpu_aperture_is_sysmem() with the aperture type of the
+ *    memory to check if it is system memory.
+ *
+ * @param [in] mem  Pointer to the nvgpu_mem structure.
+ *                   Range: Valid pointer to nvgpu_mem structure.
+ *
+ * @return True if the memory is system memory, false otherwise.
  */
 bool nvgpu_mem_is_sysmem(struct nvgpu_mem *mem);
 
@@ -242,22 +247,14 @@ static inline bool nvgpu_mem_is_valid(struct nvgpu_mem *mem)
 	return mem->aperture != APERTURE_INVALID;
 
 }
-
 /**
- * @brief Create a new nvgpu_mem struct from an old one.
+ * @brief Create a new nvgpu_mem struct from an existing one.
  *
- * @param[in] g			Pointer to GPU structure
- * @param[out] dest		Pointer to destination nvgpu_mem to hold
- *				resulting memory description.
- * @param[in] src		Pointer to source memory.
- *				Cannot be NULL. Must be valid.
- * @param[in] start_page	Start page of created memory.
- * @param[in] nr_pages		Number of pages to place in the new nvgpu_mem.
- *
- * Create a new nvgpu_mem struct describing a subsection of the @src nvgpu_mem.
- * This will create an nvpgu_mem object starting at @start_page and is @nr_pages
- * long. This currently only works on SYSMEM nvgpu_mems. If this is called on a
- * VIDMEM nvgpu_mem then this will return an error.
+ * This function creates a new nvgpu_mem struct that describes a subsection of
+ * the source nvgpu_mem. It calculates the start and size of the new memory
+ * region based on the given page start and number of pages, validates the
+ * aperture type and size constraints, and then sets up the destination
+ * nvgpu_mem struct to share the mapping created by the source nvgpu_mem.
  *
  * There is a _major_ caveat to this API: if the source buffer is freed before
  * the copy is freed then the copy will become invalid. This is a result from
@@ -273,26 +270,56 @@ static inline bool nvgpu_mem_is_valid(struct nvgpu_mem *mem)
  * nvgpu_dma_unmap_free() function depending on whether or not the resulting
  * nvgpu_mem has been mapped.
  *
- * @return 0 in case of success, < 0 in case of failure.
- * @retval -EINVAl in case of incorrect input values.
- * @retval -ENOMEM in case there is not enough memory for scatter gather table
- * creation.
+ * The steps performed by the function are as follows:
+ * -# Calculate the start byte offset of the new memory region by multiplying
+ *    the start page number with the size of a CPU page using nvgpu_safe_mult_u64().
+ * -# Calculate the size in bytes of the new memory region by multiplying the
+ *    number of pages with the size of a CPU page using nvgpu_safe_mult_u64().
+ * -# Validate that the source memory's aperture is of type SYSMEM.
+ * -# Check if the calculated size is greater than the size of the source memory.
+ * -# Check if the sum of the start offset and size exceeds the size of the source
+ *    memory using nvgpu_safe_add_u64().
+ * -# Retrieve the memory descriptor from the source memory based on the calculated
+ *    offset and size using nvgpu_nvmap_mem_get_mdesc_from_offset_size().
+ * -# If the retrieval is successful, set the CPU virtual address of the destination
+ *    memory to the corresponding offset within the source memory's CPU virtual address.
+ * -# Initialize the destination memory's private handle to zero to indicate it is
+ *    sharing the source memory's mapping.
+ * -# Set the destination memory's private descriptor offset to the calculated offset.
+ * -# Copy the flags from the source memory to the destination memory.
+ * -# Set the destination memory's flags to indicate it is a shadow copy of the source
+ *    memory.
+ * -# Copy the aperture type and write memory barrier flag from the source memory to the
+ *    destination memory.
+ * -# Set the size of the destination memory to the calculated size.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  g            Pointer to the GPU structure.
+ * @param [out] dest         Pointer to the destination nvgpu_mem structure.
+ * @param [in]  src          Pointer to the source nvgpu_mem structure.
+ * @param [in]  start_page   Start page number of the memory to be created.
+ *                           Range: [0, src->size / NVGPU_CPU_PAGE_SIZE)
+ * @param [in]  nr_pages     Number of pages to be included in the new memory.
+ *                           Range: [1, src->size / NVGPU_CPU_PAGE_SIZE - start_page]
+ *
+ * @return 0 on success.
+ * @return -EINVAL if the input parameters are invalid or if the operation fails.
  */
 int nvgpu_mem_create_from_mem(struct gk20a *g,
 			      struct nvgpu_mem *dest, struct nvgpu_mem *src,
 			      u64 start_page, size_t nr_pages);
 
 /**
- * @brief Create an nvgpu_mem structure from given physical memory.
+ * @brief Creates a memory descriptor from a given physical memory address.
  *
- * @param[in] g			Pointer to GPU structure.
- * @param[out] dest		Memory pointer to be populated after mem create.
- * @param[in] src_phys		Start address of physical memory.
- * @param[in] nr_pages		Number of pages requested.
+ * This function initializes a memory descriptor for a contiguous block of
+ * physical memory. It allocates and sets up the scatter-gather table (SGT)
+ * and scatter-gather list (SGL) for the memory region, and populates the
+ * memory descriptor with the appropriate values including aperture type,
+ * size, aligned size, and memory flags.
  *
- * Create a new nvgpu_mem struct from a physical memory aperture. The physical
- * memory aperture needs to be contiguous for requested @nr_pages. This API
- * only works for SYSMEM. This also assumes a 4K page granule since the GMMU
+ * The physical memory aperture needs to be contiguous for requested @nr_pages.
+ * This API only works for SYSMEM. This also assumes a 4K page granule since the GMMU
  * always supports 4K pages. If _system_ pages are larger than 4K then the
  * resulting nvgpu_mem will represent less than 1 OS page worth of memory
  *
@@ -300,8 +327,26 @@ int nvgpu_mem_create_from_mem(struct gk20a *g,
  * nvgpu_dma_unmap_free() function depending on whether or not the resulting
  * nvgpu_mem has been mapped.
  *
- * @return 0 in case of success, < 0 in case of failure.
- * @retval -ENOMEM in case there is not enough memory to allocate agt and agl.
+ * The steps performed by the function are as follows:
+ * -# Set the aperture type of the memory descriptor to indicate system memory.
+ * -# Calculate the size of the memory region by multiplying the number of pages
+ *    by the size of a CPU page.
+ * -# Set the aligned size of the memory descriptor to the calculated size.
+ * -# Set the memory flags of the memory descriptor to indicate no IOVA is used.
+ * -# Set the SGT pointer in the memory descriptor to the allocated SGT.
+ * -# Initialize the SGL with the provided physical address, set the next pointer
+ *    to NULL, and set the length to the size of the memory region.
+ * -# Set the SGL pointer in the SGT to the allocated SGL.
+ * -# Set the operations for the SGT to the physical memory operations.
+ * -# Return the success code.
+ *
+ * @param [in]  g         Pointer to the GPU structure.
+ * @param [out] dest      Pointer to the memory descriptor to be populated.
+ * @param [in]  src_phys  Physical address of the memory region.
+ * @param [in]  nr_pages  Number of pages in the memory region.
+ *
+ * @return 0 on success, negative error code on failure.
+ * @retval -ENOMEM if memory allocation for SGT or SGL fails.
  */
 int nvgpu_mem_create_from_phys(struct gk20a *g, struct nvgpu_mem *dest,
 			       u64 src_phys, u64 nr_pages);
@@ -329,134 +374,353 @@ void nvgpu_mem_free_vidmem_alloc(struct gk20a *g, struct nvgpu_mem *vidmem);
  */
 
 /**
- * @brief Read data word from memory.
+ * @brief Reads a 32-bit word from the specified memory location.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] mem	Pointer to nvgpu_mem structure.
- * @param[in] w		Word index.
+ * The function reads a 32-bit word from a memory buffer described by the
+ * nvgpu_mem structure. The read operation is performed based on the aperture
+ * type of the memory buffer. If the aperture is SYSMEM, the function reads
+ * directly from the CPU virtual address. If the aperture is VIDMEM, the
+ * function uses the nvgpu_pramin_rd_n() function to read from video memory.
+ * The function asserts if the aperture type is neither SYSMEM nor VIDMEM,
+ * indicating an attempt to access unallocated memory.
  *
- * @return Data word read from memory.
- * @retval 0 in case of invalid #mem.
+ * The steps performed by the function are as follows:
+ * -# Check if the aperture type of the memory buffer is SYSMEM.
+ *    - If SYSMEM, read the data directly from the CPU virtual address.
+ *    - If the pointer to the CPU virtual address is NULL, trigger a bug.
+ * -# If the aperture type is VIDMEM (only for configurations with DGPU support),
+ *    call nvgpu_pramin_rd_n() to read the data from video memory.
+ * -# If the aperture type is neither SYSMEM nor VIDMEM, call nvgpu_do_assert_print()
+ *    to handle the assertion for accessing unallocated memory.
+ * -# Return the data read from the memory buffer.
+ *
+ * @param [in]  g         Pointer to the GPU structure.
+ * @param [in]  mem       Pointer to the memory buffer structure.
+ * @param [in]  w         Index of the word to read from the memory buffer.
+ *
+ * @return The 32-bit word read from the specified memory location.
+ * @retval 0 in case of invalid mem.
  */
 u32 nvgpu_mem_rd32(struct gk20a *g, struct nvgpu_mem *mem, u64 w);
 
 /**
- * @brief Read two data words from memory.
+ * @brief Read two 32-bit values from GPU memory and combine into a 64-bit value.
  *
- * @param[in] g         Pointer to GPU structure.
- * @param[in] mem       Pointer to nvgpu_mem structure.
- * @param[in] lo	Low word index.
- * @param[in] hi	High word index.
+ * This function reads two 32-bit values from the specified locations in GPU
+ * memory and combines them into a single 64-bit value. The lower 32 bits of the
+ * result come from the first memory location, and the upper 32 bits come from
+ * the second memory location.
  *
- * @return Double data word read from memory.
- * @retval 0 in case of invalid #mem.
+ * The steps performed by the function are as follows:
+ * -# Read the 32-bit value from the memory location specified by the lower offset.
+ * -# Convert the read 32-bit value to a 64-bit value.
+ * -# Read the 32-bit value from the memory location specified by the higher offset.
+ * -# Convert the read 32-bit value to a 64-bit value.
+ * -# Shift the second 64-bit value left by 32 bits to prepare for combination.
+ * -# Combine the two 64-bit values into one by performing a bitwise OR operation.
+ *
+ * @param [in] g        Pointer to the GPU structure.
+ * @param [in] mem      Pointer to the GPU memory descriptor.
+ * @param [in] lo       Lower offset within the GPU memory from where to read the
+ *                      first 32-bit value.
+ * @param [in] hi       Higher offset within the GPU memory from where to read the
+ *                      second 32-bit value.
+ *
+ * @return Combined 64-bit value read from the two memory locations.
+ * @retval 0 in case of invalid mem.
  */
 u64 nvgpu_mem_rd32_pair(struct gk20a *g, struct nvgpu_mem *mem,
 		u32 lo, u32 hi);
 
 /**
- * @brief Read data word from memory containing data at given byte offset.
+ * @brief Read a 32-bit word from the specified memory offset.
  *
- * @param[in] g         Pointer to GPU structure.
- * @param[in] mem       Pointer to nvgpu_mem structure.
- * @param[in] offset	Byte offset (32b-aligned).
+ * This function reads a 32-bit word from the memory region described by the
+ * nvgpu_mem structure at the specified byte offset. It ensures the offset is
+ * 32-bit aligned and then calls another function to perform the actual read.
  *
- * @return Data word read from memory.
- * @retval 0 in case of invalid #mem.
+ * The steps performed by the function are as follows:
+ * -# Check if the offset is 32-bit aligned by verifying the lower two bits are zero.
+ * -# Call 'nvgpu_mem_rd32()' to read a 32-bit word from the memory at the given
+ *    offset divided by the size of a 32-bit word, effectively converting the byte
+ *    offset to a word offset.
+ *
+ * @param [in]  g        Pointer to the GPU structure.
+ * @param [in]  mem      Pointer to the memory descriptor structure.
+ * @param [in]  offset   Byte offset within the memory from where to read.
+ *                       Must be a multiple of 4 (32-bit aligned).
+ *
+ * @return The 32-bit word read from the specified memory offset.
+ * @retval 0 in case of invalid mem.
  */
 u32 nvgpu_mem_rd(struct gk20a *g, struct nvgpu_mem *mem, u64 offset);
 
 /**
- * @brief Copy size amount bytes from memory to cpu.
+ * @brief Reads a block of data from GPU accessible memory into CPU memory.
  *
- * @param[in] g         Pointer to GPU structure.
- * @param[in] mem       Pointer to nvgpu_mem structure.
- * @param[in] offset    Byte offset (32b-aligned).
- * @param[out] dest	Pointer to destination cpu memory.
- * @param[in] size	Number of bytes to be read (32b-aligned).
+ * This function reads a specified number of bytes from a given offset within a
+ * GPU accessible memory region and copies it into a destination buffer in CPU
+ * memory. It supports reading from system memory (SYSMEM) and video memory
+ * (VIDMEM) depending on the aperture type of the memory region.
+ *
+ * The steps performed by the function are as follows:
+ * -# Validate that the offset and size are 32-bit aligned by checking if the
+ *    least significant 2 bits are zero.
+ * -# If the memory region's aperture is system memory (SYSMEM), perform the
+ *    following sub-steps:
+ *    -# Ensure that the CPU virtual address (cpu_va) is not NULL, and if it is,
+ *       trigger a bug indicating a critical error.
+ *    -# Calculate the source address by adding the offset to the CPU virtual
+ *       address.
+ *    -# Copy the data from the source address to the destination buffer using
+ *       nvgpu_memcpy().
+ * -# If the memory region's aperture is video memory (VIDMEM) and the build
+ *    configuration supports discrete GPUs (CONFIG_NVGPU_DGPU), perform the
+ *    following sub-steps:
+ *    -# Read the data from the video memory into the destination buffer using
+ *       nvgpu_pramin_rd_n().
+ * -# If the aperture type is neither SYSMEM nor VIDMEM, print an assertion
+ *    message indicating that an unallocated memory region is being accessed.
+ *
+ * @param [in]  g         Pointer to the GPU structure.
+ * @param [in]  mem       Pointer to the GPU accessible memory region.
+ *                        The aperture field of this structure determines the
+ *                        memory type (SYSMEM or VIDMEM).
+ * @param [in]  offset    Byte offset within the memory region from where to
+ *                        start reading data. Must be 32-bit aligned.
+ * @param [out] dest      Pointer to the destination buffer in CPU memory where
+ *                        the read data will be copied.
+ * @param [in]  size      Number of bytes to read from the memory region. Must
+ *                        be 32-bit aligned.
+ * @return None.
  */
 void nvgpu_mem_rd_n(struct gk20a *g, struct nvgpu_mem *mem, u64 offset,
 		void *dest, u64 size);
 
 /**
- * @brief Write data word to memory.
+ * @brief Writes a 32-bit word to the specified memory location.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] mem	Pointer to nvgpu_mem structure.
- * @param[in] w		Word index.
- * @param[in] data	Data word to be written.
+ * This function writes a 32-bit data word to a memory location within a given
+ * nvgpu_mem structure. The location to write to is determined by the word
+ * index within the memory region. The function handles different memory
+ * apertures (SYSMEM and VIDMEM) and performs the write accordingly.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the memory aperture is SYSMEM (system memory).
+ *    - If true, get the CPU virtual address of the memory and write the data
+ *      word to the location indexed by the word index.
+ *    - If the CPU virtual address is NULL, trigger a bug check with BUG_ON().
+ * -# If the memory aperture is not SYSMEM, check if it is VIDMEM (video memory).
+ *    - If true, calculate the byte offset by multiplying the word index with
+ *      the size of a 32-bit word and call nvgpu_pramin_wr_n() to write the
+ *      data word to the video memory.
+ *    - After writing, if the memory region is not marked to skip the write
+ *      memory barrier, call nvgpu_wmb() to ensure the write is completed before
+ *      continuing.
+ * -# If the memory aperture is neither SYSMEM nor VIDMEM, print an assertion
+ *    message indicating that an unallocated nvgpu_mem is being accessed.
+ *
+ * @param [in] g          Pointer to the GPU structure.
+ * @param [in] mem        Pointer to the nvgpu_mem structure representing the
+ *                        memory region to write to.
+ * @param [in] w          Word index within the memory region where the data
+ *                        word should be written.
+ * @param [in] data       The 32-bit data word to write.
+ *
+ * @return None.
  */
 void nvgpu_mem_wr32(struct gk20a *g, struct nvgpu_mem *mem, u64 w, u32 data);
 
 /**
- * @brief Write data word to memory.
+ * @brief Write a 32-bit word to the specified offset within the GPU memory.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] mem	Pointer to nvgpu_mem structure.
- * @param[in] w		Word index.
- * @param[in] data	Data word to be written.
+ * This function writes a 32-bit word to a given offset within a memory region
+ * represented by an nvgpu_mem structure. It ensures the offset is 32-bit
+ * aligned and then delegates the actual write operation to nvgpu_mem_wr32().
+ *
+ * The steps performed by the function are as follows:
+ * -# Divide the offset by the size of a 32-bit word to convert the byte offset
+ *    into a word offset.
+ * -# Call nvgpu_mem_wr32() to perform the actual write operation using the
+ *    calculated word offset and the data to be written.
+ *
+ * @param [in] g          Pointer to the GPU structure.
+ * @param [in] mem        Pointer to the memory descriptor structure where the
+ *                        data will be written.
+ * @param [in] offset     Byte offset within the memory region where the data
+ *                        will be written. Must be 32-bit aligned.
+ * @param [in] data       32-bit data word to be written at the specified offset.
+ *
+ * @return None.
  */
 void nvgpu_mem_wr(struct gk20a *g, struct nvgpu_mem *mem, u64 offset, u32 data);
 
 /**
- * @brief Copy size amount bytes from cpu to memory.
+ * @brief Writes a block of data to GPU memory.
  *
- * @param[in] g         Pointer to GPU structure.
- * @param[in] mem       Pointer to nvgpu_mem structure.
- * @param[in] offset    Byte offset (32b-aligned).
- * @param[in] src	Pointer to source cpu memory.
- * @param[in] size	Number of bytes to be written (32b-aligned).
+ * This function writes a block of data from a source buffer to a specified
+ * location in GPU memory, which can be either system memory (sysmem) or
+ * video memory (vidmem). The function ensures that the offset and size are
+ * 32-bit aligned and that the GPU memory is properly allocated before
+ * performing the write operation. For vidmem, it also ensures a write memory
+ * barrier if required.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if both offset and size are 32-bit aligned, warn if it is not.
+ * -# If the GPU memory is system memory, perform the following steps:
+ *    -# Calculate the destination address by adding the offset to the CPU
+ *       virtual address of the GPU memory.
+ *    -# Copy the data from the source buffer to the calculated destination
+ *       address using nvgpu_memcpy().
+ * -# If the GPU memory is video memory, perform the following steps:
+ *    -# Write the data from the source buffer to the GPU memory at the
+ *       specified offset using nvgpu_pramin_wr_n().
+ *    -# If a write memory barrier is not skipped, invoke nvgpu_wmb() to
+ *       ensure the write operation is completed before proceeding.
+ * -# If the GPU memory is neither system memory nor video memory, assert
+ *    an error indicating that an attempt is made to access unallocated GPU
+ *    memory.
+ *
+ * @param [in] g        Pointer to the GPU structure.
+ * @param [in] mem      Pointer to the GPU memory structure.
+ * @param [in] offset   Byte offset within the GPU memory where the data
+ *                      should be written.
+ * @param [in] src      Pointer to the source buffer containing the data
+ *                      to be written.
+ * @param [in] size     Number of bytes to be written to the GPU memory.
+ *
+ * @return None.
  */
 void nvgpu_mem_wr_n(struct gk20a *g, struct nvgpu_mem *mem, u64 offset,
 		void *src, u64 size);
 
 /**
- * @brief Fill size amount of memory bytes with constant byte value.
+ * @brief Set a block of GPU memory to a specified value.
  *
- * @param[in] g         Pointer to GPU structure.
- * @param[in] mem       Pointer to nvgpu_mem structure.
- * @param[in] offset    Byte offset (32b-aligned).
- * @param[in] c		Byte value to be written to memory.
- * @param[in] size	Number of bytes to be read (32b-aligned).
+ * This function fills a block of GPU memory with a specified value. It handles
+ * both system memory (sysmem) and video memory (vidmem) depending on the
+ * aperture type of the memory. It ensures the offset and size are 32-bit
+ * aligned and the fill value is a valid 8-bit value.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if both offset and size are 32-bit aligned, warn if it is not.
+ * -# Check if the fill value is not an 8-bit value and warn if it is not.
+ * -# If the aperture type is system memory, calculate the destination pointer
+ *    by adding the offset to the CPU virtual address of the memory. Then use
+ *    memset() to fill the memory with the specified value.
+ * -# If the aperture type is video memory and the platform supports it,
+ *    construct a 32-bit pattern from the 8-bit fill value and call
+ *    nvgpu_pramin_memset() to fill the memory. If a write memory barrier is
+ *    required, call nvgpu_wmb().
+ * -# If the aperture type is neither system memory nor video memory, assert
+ *    an error indicating an attempt to access unallocated memory.
+ *
+ * @param [in] g        Pointer to the GPU structure.
+ * @param [in] mem      Pointer to the memory descriptor.
+ * @param [in] offset   Byte offset within the memory where filling starts.
+ * @param [in] c        The value to set the memory to. Only the least
+ *                      significant 8 bits are used.
+ * @param [in] size     Number of bytes to fill.
+ *
+ * @return None.
  */
 void nvgpu_memset(struct gk20a *g, struct nvgpu_mem *mem, u64 offset,
 		u32 c, u64 size);
 
 /**
- * @brief Request memory address.
+ * @brief Retrieve the base address of a memory allocation.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] mem	Pointer to nvgpu_mem structure.
+ * This function returns the base address of a memory allocation described by
+ * the nvgpu_mem structure. It handles both video memory (VIDMEM) and system
+ * memory (SYSMEM) allocations. For VIDMEM, it asserts that the allocation
+ * consists of a single chunk and returns the base address of that chunk. For
+ * SYSMEM, it delegates to another function to retrieve the address.
  *
- * @return sysmem address.
+ * The steps performed by the function are as follows:
+ * -# If the system is configured for discrete GPUs (CONFIG_NVGPU_DGPU - disabled for QNX Safety),
+ *    check if the memory allocation is in the video memory aperture.
+ * -# If the memory allocation is in the video memory aperture:
+ *    -# Retrieve the video memory allocation structure from the nvgpu_mem
+ *       structure.
+ *    -# Assert that the number of chunks in the video memory allocation is one.
+ *    -# Return the base address of the video memory allocation.
+ * -# [For QNX Safety] If the memory allocation is not in the video memory aperture,
+ *    call the function to retrieve the system memory address 'nvgpu_nvmap_get_addr_sysmem()'.
+ *
+ * @param [in]  g    Pointer to the GPU structure.
+ * @param [in]  mem  Pointer to the memory allocation structure.
+ *
+ * @return The base address of the memory allocation.
  * @retval 0 in case of invalid #mem.
  */
 u64 nvgpu_mem_get_addr(struct gk20a *g, struct nvgpu_mem *mem);
 
 /**
- * @brief Request memory address.
+ * @brief Retrieve the physical address of a memory allocation.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] mem	Pointer to nvgpu_mem structure.
+ * This function is responsible for obtaining the physical address of a memory
+ * allocation represented by the nvgpu_mem structure. It differentiates between
+ * memory allocated in video memory (VIDMEM) and system memory (SYSMEM), and
+ * retrieves the physical address accordingly. For VIDMEM, it calls another
+ * function to get the address, and for SYSMEM, it retrieves the address
+ * directly.
  *
- * @return Sysmem address.
+ * This should only be used on contiguous buffers regardless of whether
+ * there's an IOMMU present/enabled. This applies to both SYSMEM and
+ * VIDMEM.
+ *
+ * The steps performed by the function are as follows:
+ * -# If the system is configured for discrete GPUs (CONFIG_NVGPU_DGPU - disabled for QNX Safety),
+ *    check if the memory allocation is in the video memory aperture.
+ * -# If the memory allocation is in the video memory aperture, call the
+ *    function 'nvgpu_mem_get_addr()' to retrieve the address of the memory
+ *    allocation.
+ * -# [For QNX Safety] If the memory allocation is not in the video memory aperture, call the
+ *    function 'nvgpu_nvmap_get_phys_addr()' to retrieve the physical address
+ *    of the system memory allocation.
+ *
+ * @param [in]  g    Pointer to the GPU structure.
+ * @param [in]  mem  Pointer to the memory allocation structure.
+ *
+ * @return The physical address of the memory allocation.
  * @retval 0 in case of invalid #mem.
  */
 u64 nvgpu_mem_get_phys_addr(struct gk20a *g, struct nvgpu_mem *mem);
 
 /**
- * @brief Get raw aperture mask value.
+ * @brief Determines the aperture mask based on the given aperture type.
  *
- * @param[in] g			Pointer to GPU structure.
- * @param[in] aperture		Aperture value.
- *                              - Min: APERTURE_SYSMEM
- *                              - Max: APERTURE_VIDMEM
- * @param[in] sysmem_mask	Mask for sysmem memory.
- * @param[in] sysmem_coh_mask	Mask for coherent sysmem memory.
- * @param[in] vidmem_mask	Mask for vidmem memory.
+ * This function selects the appropriate mask for the memory aperture type
+ * specified. It handles special cases where system memory is treated as video
+ * memory by certain integrated GPUs. The function also asserts if an invalid
+ * aperture type is provided.
  *
- * @return Raw aperture mask value in case of success.
- * @retval 0 in case of invalid #aperture.
+ * The steps performed by the function are as follows:
+ * -# Initialize the return mask to zero.
+ * -# Switch on the aperture type provided:
+ *    - If the aperture type is coherent system memory, set the return mask to
+ *      the coherent system memory mask.
+ *    - If the aperture type is non-coherent system memory, set the return mask
+ *      to the system memory mask.
+ *    - If the aperture type is video memory, set the return mask to the video
+ *      memory mask.
+ *    - If the aperture type is none of the above, assert with a message
+ *      indicating a bad aperture type.
+ * -# Check if the GPU honors the aperture setting:
+ *    - If the GPU does not honor the aperture and the return mask is non-zero,
+ *      override the return mask with the video memory mask.
+ * -# Return the determined mask.
+ *
+ * @param [in]  g               Pointer to the GPU superstructure.
+ * @param [in]  aperture        Aperture type to determine the mask for.
+ *                              Range: #APERTURE_SYSMEM_COH, #APERTURE_SYSMEM,
+ *                              #APERTURE_VIDMEM
+ * @param [in]  sysmem_mask     Mask for non-coherent system memory.
+ * @param [in]  sysmem_coh_mask Mask for coherent system memory.
+ * @param [in]  vidmem_mask     Mask for video memory.
+ *
+ * @return Mask corresponding to the aperture type.
+ * @retval 0 in case of invalid aperture.
  */
 u32 nvgpu_aperture_mask_raw(struct gk20a *g, enum nvgpu_aperture aperture,
 		u32 sysmem_mask, u32 sysmem_coh_mask, u32 vidmem_mask);
@@ -464,43 +728,83 @@ u32 nvgpu_aperture_mask_raw(struct gk20a *g, enum nvgpu_aperture aperture,
 /**
  * @brief Get aperture mask value.
  *
- * @param[in] g			Pointer to GPU structure.
- * @param[in] mem		Pointer to nvgpu_mem structure.
- * @param[in] sysmem_mask	Mask for sysmem memory.
- * @param[in] sysmem_coh_mask	Mask for coherent sysmem memory.
- * @param[in] vidmem_mask	Mask for vidmem memory.
+ * This function retrieves the aperture mask value based on the memory type
+ * (system memory, coherent system memory, or video memory) of the given memory
+ * object. It calls nvgpu_aperture_mask_raw() to get the raw aperture mask value.
  *
- * Right coherency aperture should be used.
- * This function doesn't add any checks.
+ * Correct coherency aperture type should be used. This function doesn't add any checks.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the aperture type from the memory object.
+ * -# Call nvgpu_aperture_mask_raw() to get the raw aperture mask value using the
+ *    retrieved aperture type and the provided system memory masks and video memory
+ *    mask.
+ *
+ * @param [in]  g               Pointer to the GPU structure.
+ * @param [in]  mem             Pointer to the memory structure.
+ * @param [in]  sysmem_mask     Mask for system memory.
+ * @param [in]  sysmem_coh_mask Mask for coherent system memory.
+ * @param [in]  vidmem_mask     Mask for video memory.
  *
  * @return Aperture mask value in case of success.
- * @retval 0 in case of invalid #mem.
+ * @retval 0 in case of invalid memory type.
  */
 u32 nvgpu_aperture_mask(struct gk20a *g, struct nvgpu_mem *mem,
 		u32 sysmem_mask, u32 sysmem_coh_mask, u32 vidmem_mask);
 
 /**
- * @brief Get iommu memory address.
+ * @brief Translate a physical memory address to an IOMMU address if applicable.
  *
- * @param[in] g		Pointer to GPU structure.
- * @param[in] phys	Physical memory address.
+ * This function checks if the GPU memory management unit is IOMMU capable and
+ * if so, it sets the appropriate IOMMU bit in the provided physical address.
+ * This is typically used to modify the physical address before programming it
+ * into GPU page tables. The function ensures that the provided physical address
+ * does not correspond to a vidmem allocation.
  *
- * @return IOMMU translated physical address if GPU MM is iommuable, physical
- * address otherwise.
+ * The steps performed by the function are as follows:
+ * -# Check if the build configuration supports discrete GPUs and if the provided
+ *    physical address corresponds to a vidmem page allocation. If so, issue a
+ *    warning.
+ * -# Check if the GPU is IOMMU capable and if the function pointer to retrieve
+ *    the IOMMU bit is not NULL.
+ * -# If the GPU is IOMMU capable, modify the physical address by setting the
+ *    IOMMU bit.
+ * -# Return the possibly modified physical address.
+ *
+ * @param [in] g            Pointer to the GPU structure.
+ * @param [in] phys         Physical memory address to be translated.
+ *                          Range: [0, ULONG_MAX]
+ *
+ * @return Translated IOMMU address if IOMMU is enabled, otherwise the original
+ *         physical address.
  */
 u64 nvgpu_mem_iommu_translate(struct gk20a *g, u64 phys);
 
 /**
- * @brief Get the physical address associated with the physical nvgpu_mem.
+ * @brief Retrieve the physical address from a physical nvgpu_mem structure.
  *
- * @param[in]  g	Pointer to GPU structure.
- * @param[in]  mem	Pointer to nvgpu_mem structure holds the physical
- * 			scatter gather table.
+ * This function returns the physical address associated with a physical
+ * nvgpu_mem structure. It assumes that the nvgpu_mem structure represents
+ * a physically contiguous memory region.
  *
  * This fuction should not be used for normal nvgpumem that holds
  * the sgt of intermediate or iova addresses.
  *
- * @return translated physical address.
+ * The steps performed by the function are as follows:
+ * -# Cast the scatter gather list from the physical scatter gather table
+ *    of the nvgpu_mem structure to a nvgpu_mem_sgl structure.
+ * -# Return the physical address from the nvgpu_mem_sgl structure.
+ *
+ * @param [in]  g    Pointer to the GPU driver structure. This parameter is not
+ *                    used in the function but is part of the function signature
+ *                    for consistency.
+ * @param [in]  mem  Pointer to the nvgpu_mem structure whose physical address
+ *                    is to be retrieved.
+ *                    - mem must not be NULL.
+ *                    - mem->phys_sgt must not be NULL.
+ *                    - mem->phys_sgt->sgl must not be NULL.
+ *
+ * @return The physical address associated with the nvgpu_mem structure.
  */
 u64 nvgpu_mem_phys_get_addr(struct gk20a *g, struct nvgpu_mem *mem);
 

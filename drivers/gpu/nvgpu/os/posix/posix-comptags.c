@@ -1,35 +1,78 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/comptags.h>
-
+#include "posix-comptags.h"
 #include <nvgpu/posix/vm.h>
+#ifdef NVGPU_UNITTEST_FAULT_INJECTION_ENABLEMENT
+#include <nvgpu/posix/posix-fault-injection.h>
+#endif
+
+
+#ifdef NVGPU_UNITTEST_FAULT_INJECTION_ENABLEMENT
+struct nvgpu_posix_fault_inj *gk20a_get_comptags_fault_injection(void)
+{
+	struct nvgpu_posix_fault_inj_container *c =
+		nvgpu_posix_fault_injection_get_container();
+
+	return &c->gk20a_get_comptags_fi;
+}
+
+struct nvgpu_posix_fault_inj *gk20a_get_comptags_2_fault_injection(void)
+{
+	struct nvgpu_posix_fault_inj_container *c =
+		nvgpu_posix_fault_injection_get_container();
+
+	return &c->gk20a_get_comptags_2_fi;
+}
+
+struct nvgpu_posix_fault_inj *gk20a_get_comptags_3_fault_injection(void)
+{
+	struct nvgpu_posix_fault_inj_container *c =
+		nvgpu_posix_fault_injection_get_container();
+
+	return &c->gk20a_get_comptags_3_fi;
+}
+
+struct nvgpu_posix_fault_inj *gk20a_comptags_start_clear_fault_injection(void)
+{
+	struct nvgpu_posix_fault_inj_container *c =
+		nvgpu_posix_fault_injection_get_container();
+
+	return &c->gk20a_comptags_start_clear_fi;
+}
+
+#endif
 
 void gk20a_get_comptags(struct nvgpu_os_buffer *buf,
 			struct gk20a_comptags *comptags)
 {
 	(void)buf;
 	(void)comptags;
+#ifdef NVGPU_UNITTEST_FAULT_INJECTION_ENABLEMENT
+	if (nvgpu_posix_fault_injection_handle_call(gk20a_get_comptags_fault_injection())) {
+		comptags->needs_clear = false;
+		comptags->enabled = false;
+		comptags->allocated = true;
+		comptags->offset = 0;
+		comptags->lines = 0;
+	}
+	if (nvgpu_posix_fault_injection_handle_call(gk20a_get_comptags_2_fault_injection())) {
+		comptags->needs_clear = false;
+		comptags->enabled = true;
+		comptags->allocated = true;
+		comptags->offset = 1;
+		comptags->lines = 0;
+	}
+	if (nvgpu_posix_fault_injection_handle_call(gk20a_get_comptags_3_fault_injection())) {
+		comptags->needs_clear = true;
+		comptags->enabled = true;
+		comptags->allocated = false;
+		comptags->offset = 0;
+		comptags->lines = 0;
+	}
+#endif
 }
 
 int gk20a_alloc_comptags(struct gk20a *g, struct nvgpu_os_buffer *buf,
@@ -55,6 +98,11 @@ void gk20a_alloc_or_get_comptags(struct gk20a *g,
 bool gk20a_comptags_start_clear(struct nvgpu_os_buffer *buf)
 {
 	(void)buf;
+#ifdef NVGPU_UNITTEST_FAULT_INJECTION_ENABLEMENT
+	if (nvgpu_posix_fault_injection_handle_call(gk20a_comptags_start_clear_fault_injection())) {
+		return true;
+	}
+#endif
 	return false;
 }
 

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/gk20a.h>
@@ -380,10 +361,10 @@ int gk20a_pmu_queue_tail(struct gk20a *g, u32 queue_id, u32 queue_index,
 	} else {
 		if (!set) {
 			*tail = pwr_pmu_msgq_tail_val_v(
-				gk20a_readl(g, pwr_pmu_msgq_tail_r()));
+				gk20a_readl(g, g->ops.pmu.pmu_get_msgq_tail()));
 		} else {
 			gk20a_writel(g,
-				pwr_pmu_msgq_tail_r(),
+				g->ops.pmu.pmu_get_msgq_tail(),
 				pwr_pmu_msgq_tail_val_f(*tail));
 		}
 	}
@@ -404,10 +385,10 @@ void gk20a_pmu_msgq_tail(struct nvgpu_pmu *pmu, u32 *tail, bool set)
 
 	if (!set) {
 		*tail = pwr_pmu_msgq_tail_val_v(
-			gk20a_readl(g, pwr_pmu_msgq_tail_r()));
+			gk20a_readl(g, g->ops.pmu.pmu_get_msgq_tail()));
 	} else {
 		gk20a_writel(g,
-			pwr_pmu_msgq_tail_r(),
+			g->ops.pmu.pmu_get_msgq_tail(),
 			pwr_pmu_msgq_tail_val_f(*tail));
 	}
 }
@@ -478,13 +459,15 @@ void gk20a_pmu_enable_irq(struct nvgpu_pmu *pmu, bool enable)
 bool gk20a_pmu_is_interrupted(struct nvgpu_pmu *pmu)
 {
 	struct gk20a *g = pmu->g;
-	u32 servicedpmuint;
+	u32 servicedpmuint, intr_stat;
 
 	servicedpmuint = pwr_falcon_irqstat_halt_true_f() |
 			pwr_falcon_irqstat_exterr_true_f() |
 			pwr_falcon_irqstat_swgen0_true_f();
 
-	if ((gk20a_readl(g, pwr_falcon_irqstat_r()) & servicedpmuint) != 0U) {
+	intr_stat = g->ops.pmu.get_irqstat(g);
+
+	if ((intr_stat & servicedpmuint) != 0U) {
 		return true;
 	}
 

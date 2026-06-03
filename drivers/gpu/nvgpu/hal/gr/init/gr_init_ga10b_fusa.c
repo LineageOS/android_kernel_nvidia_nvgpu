@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -176,6 +157,8 @@ void ga10b_gr_init_sm_id_numbering(struct gk20a *g, u32 gpc, u32 tpc, u32 smid,
 #else
 		sm_info = nvgpu_gr_config_get_sm_info(gr_config, smid);
 #endif
+	nvgpu_assert(sm_info != NULL);
+
 	global_tpc_index =
 		nvgpu_gr_config_get_sm_info_global_tpc_index(sm_info);
 
@@ -371,7 +354,8 @@ void ga10b_gr_init_eng_config(struct gk20a *g)
 	u32 data = 0U;
 
 	data |= gr_engine_config_supported_compute_true_f();
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		data |= gr_engine_config_supported_i2m_true_f();
 #ifdef CONFIG_NVGPU_GRAPHICS
 		data |= gr_engine_config_supported_2d_true_f();
@@ -381,66 +365,54 @@ void ga10b_gr_init_eng_config(struct gk20a *g)
 	nvgpu_writel(g, gr_engine_config_r(), data);
 }
 
-static void ga10b_gr_init_gpcs_enable(struct gk20a *g, bool enable)
-{
-	u32 reg_val;
-
-	if (enable) {
-		reg_val = gr_gpcs_gpccs_engine_reset_ctl_gpc_engine_reset_enabled_f();
-	} else {
-		reg_val = gr_gpcs_gpccs_engine_reset_ctl_gpc_engine_reset_disabled_f();
-	}
-	nvgpu_writel(g, gr_gpcs_gpccs_engine_reset_ctl_r(), reg_val);
-	/* Read same register back to ensure hw propagation of write */
-	reg_val = nvgpu_readl(g, gr_gpcs_gpccs_engine_reset_ctl_r());
-}
-
-static bool ga10b_gr_init_is_gpcs_enabled(struct gk20a *g)
+static void ga10b_gr_init_check_gpcs_status(struct gk20a *g, bool assert_reset)
 {
 	u32 gpc, gpc_offset;
-	u32 enabled_gpcs = 0U;
 	u32 reg_offset;
 	u32 reg_val;
 	u32 gpc_stride = nvgpu_get_litter_value(g, GPU_LIT_GPC_STRIDE);
 	u32 cur_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	u32 gpc_count = nvgpu_grmgr_get_gr_num_gpcs(g, cur_gr_instance_id);
+	u32 expected_status = 0U;
+
+	if (assert_reset) {
+		expected_status = gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_enabled_v();
+	} else {
+		expected_status = gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_disabled_v();
+	}
 
 	for (gpc = 0U; gpc < gpc_count; gpc++) {
 		gpc_offset = nvgpu_safe_mult_u32(gpc_stride, gpc);
 		reg_offset = nvgpu_safe_add_u32(gpc_offset,
-				gr_gpc0_gpccs_engine_reset_ctl_r());
+						gr_gpc0_gpccs_engine_reset_ctl_r());
 		reg_val = nvgpu_readl(g, reg_offset);
-		if (gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_v(reg_val)
-			== gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_disabled_v()) {
-			enabled_gpcs++;
+		if (gr_gpc0_gpccs_engine_reset_ctl_gpc_engine_reset_v(reg_val) != expected_status) {
+			nvgpu_err(g, "timed out waiting for GPC%u reset %s", gpc,
+					assert_reset ? "assert" : "deassert");
 		}
-	}
-	if (enabled_gpcs == gpc_count) {
-		return true;
-	} else {
-		nvgpu_log_info(g, "total gpc_count %d enabled gpcs %d",
-				gpc_count, enabled_gpcs);
-		return false;
 	}
 }
 
-int ga10b_gr_init_reset_gpcs(struct gk20a *g)
+void ga10b_gr_init_set_gpcs_reset(struct gk20a *g, bool assert_reset)
 {
-	int err = 0;
+	u32 reg_val = 0U;
 
 	nvgpu_log(g, gpu_dbg_gr, " ");
 
-	ga10b_gr_init_gpcs_enable(g, true);
-	nvgpu_udelay(NVGPU_GR_GPCS_RESET_DELAY_US);
-	ga10b_gr_init_gpcs_enable(g, false);
-
-	/* After issuing gpcs reset, check if gpcs are enabled */
-	if (!ga10b_gr_init_is_gpcs_enabled(g)) {
-		err = -EIO;
-		nvgpu_err(g, "GPCS are not out of reset");
+	if (assert_reset) {
+		reg_val = gr_gpcs_gpccs_engine_reset_ctl_gpc_engine_reset_enabled_f();
+	} else {
+		reg_val = gr_gpcs_gpccs_engine_reset_ctl_gpc_engine_reset_disabled_f();
 	}
 
-	return err;
+	nvgpu_writel(g, gr_gpcs_gpccs_engine_reset_ctl_r(), reg_val);
+	/* Read same register back to ensure hw propagation of write */
+	reg_val = nvgpu_readl(g, gr_gpcs_gpccs_engine_reset_ctl_r());
+
+	nvgpu_udelay(NVGPU_GR_GPCS_RESET_DELAY_US);
+
+	/* After toggling gpcs reset, check gpc status is as expected */
+	ga10b_gr_init_check_gpcs_status(g, assert_reset);
 }
 
 static bool ga10b_gr_init_activity_empty_or_preempted(u32 val)
@@ -598,7 +570,8 @@ bool ga10b_gr_init_is_allowed_reg(struct gk20a *g, u32 addr)
 		sizeof(struct nvgpu_gr_gfx_reg_range));
 	u32 index;
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_log(g, gpu_dbg_gr,
 			"Allowed reg addr[%x] ", addr);
 		return true;

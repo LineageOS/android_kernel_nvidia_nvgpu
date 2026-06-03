@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_PTIMER_H
 #define NVGPU_PTIMER_H
@@ -42,6 +24,33 @@ struct nvgpu_cpu_time_correlation_sample {
 /**
  * @defgroup NVGPU_PTIMER_DEFINES
  *
+ * @page ptimer ptimer
+ *
+ * Overview
+ * ========
+ *
+ * The ptimer unit of |nvgpu-rm| provides:
+ * - An interrupt handler to help decode priv errors. PRI_TIMEOUT_SAVE registers
+ * belonging to this unit are read and decoded in the handler to add more
+ * details to the PRI error like register address and access type (read/write).
+ * - API to get scaling factor for ptimer as the ptimer reference frequency might
+ * off by a scale factor compared to other clock speed.
+ * - API to convert ptimer referenced time to some other clock speed based on the
+ * scaling factor passed as argument.
+ *
+ * Static Design
+ * =============
+ *
+ * Initialization
+ * --------------
+ * The HAL interface of ptimer and common.priv_ring should be initialized
+ * before ptimer APIs are ready for use.
+ *
+ * External APIs
+ * -------------
+ *   + ptimer_scalingfactor10x()
+ *   + nvgpu_ptimer_scale()
+ *   + gops_ptimer.isr
  */
 
 /**
@@ -145,8 +154,8 @@ int nvgpu_ptimer_scale(struct gk20a *g, u32 timeout, u32 *scaled_timeout);
 
 #ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 
-/*
-
+/**
+ * @brief Structure to describe the CPU time source
  */
 enum nvgpu_cpu_timestamp_source {
 	/* The timestamp is selected to originate from the current core's TSC */
@@ -160,6 +169,6 @@ int nvgpu_get_timestamps_zipper(struct gk20a *g,
 		enum nvgpu_cpu_timestamp_source cpu_timestamp_source,
 		u32 count,
 		struct nvgpu_cpu_time_correlation_sample *samples);
-int nvgpu_ptimer_init(struct gk20a *g);
 #endif /* CONFIG_NVGPU_IOCTL_NON_FUSA */
+int nvgpu_ptimer_init(struct gk20a *g);
 #endif

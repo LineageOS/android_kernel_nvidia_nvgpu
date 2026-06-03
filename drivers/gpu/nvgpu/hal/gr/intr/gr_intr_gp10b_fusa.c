@@ -1,30 +1,12 @@
-/*
- * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
 #include <nvgpu/class.h>
 #include <nvgpu/channel.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/debug.h>
 
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr.h>
@@ -32,7 +14,9 @@
 #include <nvgpu/gr/gr_falcon.h>
 #include <nvgpu/gr/gr_intr.h>
 #include <nvgpu/gr/gr_utils.h>
+#include <nvgpu/gr/gr_instances.h>
 
+#include "common/gr/gr_priv.h"
 #include "common/gr/gr_intr_priv.h"
 
 #include "gr_intr_gp10b.h"
@@ -73,70 +57,42 @@ void gp10b_gr_intr_handle_class_error(struct gk20a *g, u32 chid,
 
 #ifdef CONFIG_NVGPU_CILP
 static int gp10b_gr_intr_clear_cilp_preempt_pending(struct gk20a *g,
-					       struct nvgpu_channel *fault_ch)
+					       u32 tsgid)
 {
-	struct nvgpu_tsg *tsg;
-	struct nvgpu_gr_ctx *gr_ctx;
-
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr, " ");
-
-	tsg = nvgpu_tsg_from_ch(fault_ch);
-	if (tsg == NULL) {
-		return -EINVAL;
-	}
-
-	gr_ctx = tsg->gr_ctx;
 
 	/*
 	 * The ucode is self-clearing, so all we need to do here is
 	 * to clear cilp_preempt_pending.
 	 */
-	if (!nvgpu_gr_ctx_get_cilp_preempt_pending(gr_ctx)) {
+	if (!nvgpu_gr_get_cilp_preempt_pending(g)) {
 		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
-				"CILP is already cleared for chid %d\n",
-				fault_ch->chid);
+				"CILP is already cleared for tsgid %d\n",
+				tsgid);
 		return 0;
 	}
 
-	nvgpu_gr_ctx_set_cilp_preempt_pending(gr_ctx, false);
-	nvgpu_gr_clear_cilp_preempt_pending_chid(g);
+	nvgpu_gr_set_cilp_preempt_pending(g, false);
+	nvgpu_gr_clear_cilp_preempt_pending_tsgid(g);
 
 	return 0;
 }
 
-static int gp10b_gr_intr_get_cilp_preempt_pending_chid(struct gk20a *g,
-					u32 *chid_ptr)
+static int gp10b_gr_intr_get_cilp_preempt_pending_tsgid(struct gk20a *g,
+					u32 *tsgid_ptr)
 {
-	struct nvgpu_gr_ctx *gr_ctx;
-	struct nvgpu_channel *ch;
-	struct nvgpu_tsg *tsg;
-	u32 chid;
+	u32 tsgid;
 	int ret = -EINVAL;
 
-	chid = nvgpu_gr_get_cilp_preempt_pending_chid(g);
-	if (chid == NVGPU_INVALID_CHANNEL_ID) {
+	tsgid = nvgpu_gr_get_cilp_preempt_pending_tsgid(g);
+	if (tsgid == NVGPU_INVALID_TSG_ID) {
 		return ret;
 	}
 
-	ch = nvgpu_channel_from_id(g, chid);
-	if (ch == NULL) {
-		return ret;
-	}
-
-	tsg = nvgpu_tsg_from_ch(ch);
-	if (tsg == NULL) {
-		nvgpu_channel_put(ch);
-		return -EINVAL;
-	}
-
-	gr_ctx = tsg->gr_ctx;
-
-	if (nvgpu_gr_ctx_get_cilp_preempt_pending(gr_ctx)) {
-		*chid_ptr = chid;
+	if (nvgpu_gr_get_cilp_preempt_pending(g)) {
+		*tsgid_ptr = tsgid;
 		ret = 0;
 	}
-
-	nvgpu_channel_put(ch);
 
 	return ret;
 }
@@ -147,13 +103,10 @@ int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 				struct nvgpu_gr_isr_data *isr_data)
 {
 #ifdef CONFIG_NVGPU_CILP
-	struct nvgpu_channel *ch;
-	u32 chid = NVGPU_INVALID_CHANNEL_ID;
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	u32 tsgid = NVGPU_INVALID_TSG_ID;
 	int ret = 0;
 	struct nvgpu_fecs_host_intr_status *fecs_host_intr;
-#ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
-	struct nvgpu_tsg *tsg;
-#endif
 #endif
 	u32 gr_fecs_intr = isr_data->fecs_intr;
 
@@ -174,6 +127,8 @@ int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 		nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg | gpu_dbg_intr,
 				"CILP: ctxsw save completed!\n");
 
+		gr->can_broadcast_stop_trigger = true;
+
 		/* now clear the interrupt */
 		g->ops.gr.falcon.fecs_host_clear_intr(g,
 					fecs_host_intr->ctxsw_intr1);
@@ -185,36 +140,26 @@ int gp10b_gr_intr_handle_fecs_error(struct gk20a *g,
 		isr_data->fecs_intr &= ~(fecs_host_intr->ctxsw_intr1);
 		fecs_host_intr->ctxsw_intr1 = 0U;
 
-		ret = gp10b_gr_intr_get_cilp_preempt_pending_chid(g, &chid);
-		if ((ret != 0) || (chid == NVGPU_INVALID_CHANNEL_ID)) {
-			goto clean_up;
-		}
-
-		ch = nvgpu_channel_from_id(g, chid);
-		if (ch == NULL) {
+		ret = gp10b_gr_intr_get_cilp_preempt_pending_tsgid(g, &tsgid);
+		if ((ret != 0) || (tsgid == NVGPU_INVALID_TSG_ID)) {
+			nvgpu_err(g, "CILP: Failed to get preempt pending TSG ID");
+			g->ops.gr.falcon.dump_stats(g);
+			gk20a_fecs_gr_debug_dump(g);
 			goto clean_up;
 		}
 
 		/* set preempt_pending to false */
-		ret = gp10b_gr_intr_clear_cilp_preempt_pending(g, ch);
+		ret = gp10b_gr_intr_clear_cilp_preempt_pending(g, tsgid);
 		if (ret != 0) {
 			nvgpu_err(g, "CILP: error while unsetting CILP preempt pending!");
-			nvgpu_channel_put(ch);
+			g->ops.gr.falcon.dump_stats(g);
+			gk20a_fecs_gr_debug_dump(g);
 			goto clean_up;
 		}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-		/* Post events to UMD */
-		g->ops.debugger.post_events(ch);
+		g->ops.gr.intr.handle_cilp_save_completed(g, gr->cilp_preempt_pending_gfid, tsgid);
 #endif
-
-#ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
-		tsg = &g->fifo.tsg[ch->tsgid];
-		g->ops.tsg.post_event_id(tsg,
-				NVGPU_EVENT_ID_CILP_PREEMPTION_COMPLETE);
-#endif
-
-		nvgpu_channel_put(ch);
 	}
 
 clean_up:

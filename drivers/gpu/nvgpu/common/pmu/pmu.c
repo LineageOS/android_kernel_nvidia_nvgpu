@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -27,7 +8,7 @@
 #include <nvgpu/utils.h>
 #include <nvgpu/power_features/cg.h>
 #include <nvgpu/nvgpu_err.h>
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu/boardobjgrp.h>
 #endif
 #include <nvgpu/pmu.h>
@@ -172,12 +153,14 @@ exit:
 	return err;
 }
 
-int nvgpu_pmu_reset(struct gk20a *g)
+int nvgpu_pmu_reset(struct gk20a *g, u32 inst_id)
 {
 	struct nvgpu_pmu *pmu = g->pmu;
 	int err = 0;
 
 	nvgpu_log_fn(g, " %s ", g->name);
+
+	nvgpu_assert(inst_id == 0U);
 
 	err = pmu_enable(pmu, false);
 	if (err != 0) {
@@ -204,6 +187,7 @@ void nvgpu_pmu_remove_support(struct gk20a *g, struct nvgpu_pmu *pmu)
 		}
 #endif
 		nvgpu_mutex_destroy(&pmu->isr_mutex);
+		nvgpu_mutex_destroy(&pmu->ptcb_queue_mutex);
 		if (g->ops.pmu.ecc_free != NULL) {
 			g->ops.pmu.ecc_free(g);
 		}
@@ -225,7 +209,7 @@ static void nvgpu_pmu_disable_features(struct gk20a *g)
 #endif
 		nvgpu_set_enabled(g, NVGPU_PMU_PERFMON, false);
 		nvgpu_set_enabled(g, NVGPU_ELPG_MS_ENABLED, false);
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_NEXT)
 		nvgpu_set_enabled(g, NVGPU_PMU_PSTATE, false);
 #endif
 }
@@ -275,10 +259,7 @@ int nvgpu_pmu_early_init(struct gk20a *g)
 	}
 
 	nvgpu_mutex_init(&pmu->isr_mutex);
-
-	if (!g->support_ls_pmu) {
-		goto exit;
-	}
+	nvgpu_mutex_init(&pmu->ptcb_queue_mutex);
 
 	if (!g->ops.pmu.is_pmu_supported(g)) {
 		nvgpu_pmu_disable_features(g);
@@ -289,6 +270,7 @@ int nvgpu_pmu_early_init(struct gk20a *g)
 	err = nvgpu_pmu_rtos_early_init(g, pmu);
 	if (err != 0) {
 		nvgpu_mutex_destroy(&pmu->isr_mutex);
+		nvgpu_mutex_destroy(&pmu->ptcb_queue_mutex);
 		if (g->ops.pmu.ecc_free != NULL) {
 			g->ops.pmu.ecc_free(g);
 		}

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_MIG_H
@@ -99,6 +81,8 @@ struct nvgpu_gr_syspipe {
 	u32 max_veid_count_per_tsg;
 	/** VEID start offset. */
 	u32 veid_start_offset;
+	/** veid_mask to be programmed in the smc_veid_config */
+	u32 veid_mask;
 };
 
 /**
@@ -137,10 +121,37 @@ struct nvgpu_gpu_instance {
 
 	/** Memory area to store h/w CE engine ids. */
 	const struct nvgpu_device *lce_devs[NVGPU_MIG_MAX_ENGINES];
+	/** Memory area to store h/w MM engine ids. */
+	const struct nvgpu_device *ofa_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvjpg_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvenc_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvdec_devs[NVGPU_MIG_MAX_ENGINES];
+	u32 num_ofa;
+	u32 num_nvjpg;
+	u32 num_nvenc;
+	u32 num_nvdec;
+	/** Memory area to store h/w GSP information. */
+	const struct nvgpu_device *nvgsp_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvgsplite_devs[NVGPU_MIG_MAX_ENGINES];
+	u32 num_nvgsp;
+	u32 num_nvgsplite;
+
 	/* Flag to indicate whether memory partition is supported or not. */
 	bool is_memory_partition_supported;
 	/** Enumerated type used to identify various gpu instance types */
 	enum nvgpu_mig_gpu_instance_type gpu_instance_type;
+	/** The mig instance supports GFX or not */
+	bool is_gfx_capable;
+	/** VEID mask for the mig instance */
+	u32 veid_mask;
+	/** LTS mask to be programmed for the mig instance */
+	u32 lts_mask;
+	/** LTC enabled for the instance. */
+	u32 logical_ltc_mask;
+	/** L2 slides enbled for the given enabled LTCs. */
+	u64 logical_lts_mask;
+	/** Swizzle id for the instance */
+	u32 swizzle_id;
 };
 
 /**
@@ -155,6 +166,34 @@ struct nvgpu_gpu_instance_static_config {
 	u32 gr_syspipe_id;
 	/** Number of GPC assigned to this config. */
 	u32 num_gpc;
+	/** Gfx capable */
+	bool is_gfx_capable;
+	/** Swizzle id for memory partition support */
+	u32 swizzle_id;
+	/** The mig instance supports memory_partition or not */
+	bool is_memory_partition_supported;
+	/** lts_mask for the corresponding swizzle id. */
+	u32 lts_mask;
+	/** veid_mask to be programmed in the smc_veid_config */
+	u32 veid_mask;
+	/** num_fbps associated with the instance. */
+	u32 num_fbps;
+	u32 fbp_en_mask;
+
+	/** Memory area to store h/w MM engine ids. */
+	const struct nvgpu_device *ofa_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvjpg_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvenc_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvdec_devs[NVGPU_MIG_MAX_ENGINES];
+	u32 num_ofa;
+	u32 num_nvjpg;
+	u32 num_nvenc;
+	u32 num_nvdec;
+	/** Memory area to store h/w GSP information. */
+	const struct nvgpu_device *nvgsp_devs[NVGPU_MIG_MAX_ENGINES];
+	const struct nvgpu_device *nvgsplite_devs[NVGPU_MIG_MAX_ENGINES];
+	u32 num_nvgsp;
+	u32 num_nvgsplite;
 };
 
 /**

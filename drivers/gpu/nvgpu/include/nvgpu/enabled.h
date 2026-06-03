@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ENABLED_H
@@ -76,6 +58,7 @@ struct gk20a;
 		"Support batch mapping"),				\
 	DEFINE_FLAG(NVGPU_SUPPORT_MAPPING_MODIFY,			\
 		"Support mapping modify"),				\
+	DEFINE_FLAG(NVGPU_SUPPORT_COMPUTE, "compute operations support"),\
 	DEFINE_FLAG(NVGPU_SUPPORT_REMAP,				\
 		"Support remap"),					\
 	DEFINE_FLAG(NVGPU_USE_COHERENT_SYSMEM,				\
@@ -84,6 +67,8 @@ struct gk20a;
 		"Use physical scatter tables instead of IOMMU"),	\
 	DEFINE_FLAG(NVGPU_MM_BYPASSES_IOMMU,				\
 		"Some chips (using nvlink) bypass the IOMMU on tegra"),	\
+	DEFINE_FLAG(NVGPU_MM_SUPPORT_NONPASID_ATS,				\
+		"Support non-pasid(serial) ats IOMMU translation"),	\
 	DEFINE_FLAG(NVGPU_DISABLE_L3_SUPPORT,				\
 		"Disable L3 alloc Bit of the physical address"),	\
 	/* Host Flags */						\
@@ -160,11 +145,8 @@ struct gk20a;
 	DEFINE_FLAG(NVGPU_SUPPORT_MULTIPLE_WPR, "Multiple WPR support"),\
 	DEFINE_FLAG(NVGPU_SUPPORT_SEC2_RTOS, "SEC2 RTOS support"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_PMU_RTOS_FBQ, "PMU RTOS FBQ support"),\
-	DEFINE_FLAG(NVGPU_SUPPORT_ZBC_STENCIL, "ZBC STENCIL support"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_SEC2_VM, "SEC2 VM support"),		\
 	DEFINE_FLAG(NVGPU_SUPPORT_GSP_VM, "GSP VM support"),		\
-	DEFINE_FLAG(NVGPU_SUPPORT_PREEMPTION_GFXP,			\
-		"GFXP preemption support"),				\
 	DEFINE_FLAG(NVGPU_SUPPORT_PMU_SUPER_SURFACE, "PMU Super surface"),\
 	DEFINE_FLAG(NVGPU_DRIVER_REDUCED_PROFILE,			\
 		"Reduced profile of nvgpu driver"),			\
@@ -189,11 +171,6 @@ struct gk20a;
 	DEFINE_FLAG(NVGPU_SUPPORT_POST_L2_COMPRESSION, "PLC Compression"),\
 	DEFINE_FLAG(NVGPU_SUPPORT_MAP_ACCESS_TYPE,			\
 		"GMMU map access type support"),			\
-	DEFINE_FLAG(NVGPU_SUPPORT_2D, "2d operations support"),		\
-	DEFINE_FLAG(NVGPU_SUPPORT_3D, "3d graphics operations support"),\
-	DEFINE_FLAG(NVGPU_SUPPORT_COMPUTE, "compute operations support"),\
-	DEFINE_FLAG(NVGPU_SUPPORT_I2M, "inline methods support"),	\
-	DEFINE_FLAG(NVGPU_SUPPORT_ZBC, "zbc classes support"),		\
 	DEFINE_FLAG(NVGPU_SUPPORT_MIG, "Multi Instance GPU support"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_PROFILER_V2_DEVICE,			\
 		"Profiler V2 device object support"),			\
@@ -224,7 +201,7 @@ struct gk20a;
 			"PES Floorsweeping"),				\
 	DEFINE_FLAG(NVGPU_SCHED_EXIT_WAIT_FOR_ERRBAR_SUPPORTED,		\
 			"Implicit ERRBAR support"),			\
-	DEFINE_FLAG(NVGPU_SUPPORT_GSP_SCHED, "To enable gsp sheduler"),	\
+	DEFINE_FLAG(NVGPU_SUPPORT_GSP_SCHED, "To enable gsp scheduler"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_GSP_STEST,				\
 		"Support GSP stress test"),				\
 	DEFINE_FLAG(NVGPU_SUPPORT_KMD_SCHEDULING_WORKER_THREAD, 	\
@@ -237,6 +214,14 @@ struct gk20a;
 			"Semaphore based gpfifo get update support"),	\
 	DEFINE_FLAG(NVGPU_SUPPORT_GPU_MMIO,				\
 			"Support for work submit through GPUMMIO"),	\
+	DEFINE_FLAG(NVGPU_IS_VIRTUALIZATION, "Is virtualized GPU device"), \
+	DEFINE_FLAG(NVGPU_IS_VIRTUAL_FUNCTION, "Is virtual function"), \
+	DEFINE_FLAG(NVGPU_GSP_SCHEDULER_VM,			\
+			"Enable GSP scheduler virtualization"),		\
+	DEFINE_FLAG(NVGPU_SUPPORT_SET_CTX_MMU_DEBUG_MODE_GCC,		\
+		"GCC MMU debug mode is available"),			\
+	DEFINE_FLAG(NVGPU_SUPPORT_CCU_PROF, "CCU profiler support"),	\
+	DEFINE_FLAG(NVGPU_SUPPORT_CWD_HES, "HES CWD binding support"),	\
 	DEFINE_FLAG(NVGPU_MAX_ENABLED_BITS, "Marks max number of flags"),
 
 /**
@@ -246,6 +231,7 @@ struct gk20a;
 enum enum_enabled_flags {
 	ENABLED_FLAGS
 };
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 20_5), "SWE-NVGPU-109-SWSADR.docx")
 #undef DEFINE_FLAG
 
 /**
@@ -325,12 +311,14 @@ int nvgpu_init_enabled_flags(struct gk20a *g);
  */
 void nvgpu_free_enabled_flags(struct gk20a *g);
 
+#if defined(CONFIG_NVGPU_TRACE)
 /**
  * @brief Print enabled flags value.
  *
  * @param g [in] The GPU superstructure.
  */
 void nvgpu_print_enabled_flags(struct gk20a *g);
+#endif
 
 /**
  * @}

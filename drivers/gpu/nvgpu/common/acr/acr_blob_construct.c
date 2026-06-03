@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/firmware.h>
 #include <nvgpu/pmu.h>
@@ -28,6 +9,9 @@
 #include <nvgpu/gr/gr_falcon.h>
 #include <nvgpu/gr/gr_utils.h>
 #include <nvgpu/soc.h>
+#include <nvgpu/static_analysis.h>
+
+#include <nvgpu/dma.h>
 
 #include "nvgpu_acr_interface.h"
 #include "nvgpu_acr_interface_v2.h"
@@ -35,8 +19,25 @@
 #include "acr_wpr.h"
 #include "acr_priv.h"
 
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#include "hal/netlist/netlist_gb20c.h"
+#endif
+
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_firmware.h>
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA)
+#if defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C)
+#define GB10B_FECS_RISCV_UCODE_PKC_SIG             "fecs_riscv_pkc_sig.bin"
+#define GB10B_GPCCS_RISCV_UCODE_PKC_SIG            "gpccs_riscv_pkc_sig.bin"
+#endif
+#endif
+
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+#define MAX_NETLIST_NAME (sizeof("prod_test_nsr/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
+#else
+#define MAX_NETLIST_NAME (sizeof("safety/g_xxxcs_riscv_gbxxx_NET?_pkc_ls_sig.bin"))
 #endif
 
 #ifdef CONFIG_NVGPU_LS_PMU
@@ -126,13 +127,22 @@ s32 nvgpu_acr_lsf_pmu_ncore_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 	} else {
 		nvgpu_memcpy((u8 *)lsf_desc_wrapper, (u8 *)fw_sig->data,
 			min_t(size_t, sizeof(*lsf_desc_wrapper), fw_sig->size));
-		lsf_desc_wrapper->lsf_ucode_desc_v2.falcon_id = FALCON_ID_PMU_NEXT_CORE;
+		lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id = FALCON_ID_PMU_NEXT_CORE;
 	}
 
 	p_img->ndesc = (struct falcon_next_core_ucode_desc *)(void *)fw_desc->data;
 
 	p_img->data = (u32 *)(void *)fw_image->data;
-	p_img->data_size = U32(fw_image->size);
+	if (fw_image->size > UINT_MAX) {
+    	nvgpu_err(g, "fw_image size %lu exceeds UINT_MAX", fw_image->size);
+		if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
+        	nvgpu_kfree(g, lsf_desc);
+    	} else {
+        	nvgpu_kfree(g, lsf_desc_wrapper);
+    	}
+    	return -EOVERFLOW;
+	}
+	p_img->data_size = (u32)fw_image->size;
 	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
 		p_img->lsf_desc = (struct lsf_ucode_desc *)lsf_desc;
 	} else {
@@ -147,22 +157,17 @@ exit:
 }
 #endif
 
-int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
+struct nvgpu_firmware *nvgpu_acr_lsf_fecs_get_firmware(struct gk20a *g, u32 version)
 {
-	u32 tmp_size;
-	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch,
-					g->params.gpu_impl);
-	struct lsf_ucode_desc *lsf_desc = NULL;
-	struct lsf_ucode_desc_wrapper *lsf_desc_wrapper = NULL;
 	struct nvgpu_firmware *fecs_sig = NULL;
-	struct flcn_ucode_img *p_img =
-		(struct flcn_ucode_img *)lsf_ucode_img;
-	struct nvgpu_gr_falcon *gr_falcon = nvgpu_gr_get_falcon_ptr(g);
-	struct nvgpu_ctxsw_ucode_segments *fecs =
-			nvgpu_gr_falcon_get_fecs_ucode_segments(gr_falcon);
-	int err;
 
-	switch (ver) {
+#ifdef CONFIG_NVGPU_NON_FUSA
+#if defined(CONFIG_NVGPU_GB20C) || defined(CONFIG_NVGPU_GB10B)
+	char name[MAX_NETLIST_NAME];
+#endif
+#endif
+
+	switch (version) {
 		case NVGPU_GPUID_GV11B:
 			fecs_sig = nvgpu_request_firmware(g, GM20B_FECS_UCODE_SIG,
 					g->acr->fw_load_flag);
@@ -197,6 +202,31 @@ int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 			break;
 #endif
 
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+		case NVGPU_GPUID_GB10B:
+		case NVGPU_GPUID_GB10B_NEXT:
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+		case NVGPU_GPUID_GB20C:
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && (defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C))
+			if (nvgpu_platform_is_simulation(g)) {
+				fecs_sig = nvgpu_request_firmware(g,
+					GB10B_FECS_RISCV_UCODE_PKC_SIG,
+					g->acr->fw_load_flag);
+			} else {
+				if(g->ops.netlist.get_fecs_pkc_name == NULL){
+					nvgpu_err(g, "failed to fetch get_fecs_ctxsw_name hal");
+					return fecs_sig;
+				}
+				g->ops.netlist.get_fecs_pkc_name(g,name);
+				fecs_sig = nvgpu_request_firmware(g, name, g->acr->fw_load_flag);
+				if(fecs_sig == NULL){
+					nvgpu_err(g, "failed to load %s", name);
+				}
+			}
+			break;
+#endif
 		default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 			fecs_sig = nvgpu_next_request_fecs_firmware(g);
@@ -204,39 +234,22 @@ int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 			break;
 	}
 
-	if (fecs_sig == NULL) {
-		nvgpu_err(g, "failed to load fecs sig");
-		return -ENOENT;
+	return fecs_sig;
+}
+
+static s32 acr_lsf_fecs_ucode_add_details(struct gk20a *g, struct flcn_ucode_img *p_img,
+											struct nvgpu_ctxsw_ucode_segments *fecs,
+											struct nvgpu_gr_falcon *gr_falcon,
+											struct lsf_ucode_desc *lsf_desc,
+											struct lsf_ucode_desc_wrapper *lsf_desc_wrapper)
+{
+	u32 tmp_size;
+	s32 err = 0;
+	if (((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < fecs->code.size) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < fecs->data.size) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < fecs->boot.size)) {
+		return -EOVERFLOW;
 	}
-	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
-		lsf_desc = nvgpu_kzalloc(g, sizeof(struct lsf_ucode_desc));
-		if (lsf_desc == NULL) {
-			err = -ENOMEM;
-			goto rel_sig;
-		}
-		nvgpu_memcpy((u8 *)lsf_desc, (u8 *)fecs_sig->data,
-			min_t(size_t, sizeof(*lsf_desc), fecs_sig->size));
-
-		lsf_desc->falcon_id = FALCON_ID_FECS;
-	} else {
-		lsf_desc_wrapper =
-			nvgpu_kzalloc(g, sizeof(struct lsf_ucode_desc_wrapper));
-		if (lsf_desc_wrapper == NULL) {
-			err = -ENOMEM;
-			goto rel_sig;
-		}
-		nvgpu_memcpy((u8 *)lsf_desc_wrapper, (u8 *)fecs_sig->data,
-			min_t(size_t, sizeof(*lsf_desc_wrapper), fecs_sig->size));
-
-		lsf_desc_wrapper->lsf_ucode_desc_v2.falcon_id = FALCON_ID_FECS;
-	}
-
-	p_img->desc = nvgpu_kzalloc(g, sizeof(struct ls_falcon_ucode_desc));
-	if (p_img->desc == NULL) {
-		err = -ENOMEM;
-		goto free_lsf_desc;
-	}
-
 	p_img->desc->bootloader_start_offset = fecs->boot.offset;
 	p_img->desc->bootloader_size = NVGPU_ALIGN(fecs->boot.size,
 						LSF_DATA_SIZE_ALIGNMENT);
@@ -272,6 +285,65 @@ int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 		p_img->lsf_desc_wrapper =
 			(struct lsf_ucode_desc_wrapper *)lsf_desc_wrapper;
 	}
+	return err;
+
+}
+
+int nvgpu_acr_lsf_fecs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
+{
+	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch,
+					g->params.gpu_impl);
+	struct lsf_ucode_desc *lsf_desc = NULL;
+	struct lsf_ucode_desc_wrapper *lsf_desc_wrapper = NULL;
+	struct nvgpu_firmware *fecs_sig = NULL;
+	struct flcn_ucode_img *p_img =
+		(struct flcn_ucode_img *)lsf_ucode_img;
+	struct nvgpu_gr_falcon *gr_falcon = nvgpu_gr_get_falcon_ptr(g);
+	struct nvgpu_ctxsw_ucode_segments *fecs =
+			nvgpu_gr_falcon_get_fecs_ucode_segments(gr_falcon);
+	int err;
+
+	fecs_sig = nvgpu_acr_lsf_fecs_get_firmware(g, ver);
+	if (fecs_sig == NULL) {
+		nvgpu_err(g, "failed to load fecs sig");
+		return -ENOENT;
+	}
+
+	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
+		lsf_desc = nvgpu_kzalloc(g, sizeof(struct lsf_ucode_desc));
+		if (lsf_desc == NULL) {
+			err = -ENOMEM;
+			goto rel_sig;
+		}
+		nvgpu_memcpy((u8 *)lsf_desc, (u8 *)fecs_sig->data,
+			min_t(size_t, sizeof(*lsf_desc), fecs_sig->size));
+
+		lsf_desc->falcon_id = FALCON_ID_FECS;
+	} else {
+		lsf_desc_wrapper =
+			nvgpu_kzalloc(g, sizeof(struct lsf_ucode_desc_wrapper));
+		if (lsf_desc_wrapper == NULL) {
+			err = -ENOMEM;
+			goto rel_sig;
+		}
+		nvgpu_memcpy((u8 *)lsf_desc_wrapper, (u8 *)fecs_sig->data,
+			min_t(size_t, sizeof(*lsf_desc_wrapper), fecs_sig->size));
+
+		lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id = FALCON_ID_FECS;
+	}
+
+	p_img->desc = nvgpu_kzalloc(g, sizeof(struct ls_falcon_ucode_desc));
+	if (p_img->desc == NULL) {
+		err = -ENOMEM;
+		goto free_lsf_desc;
+	}
+
+	err = acr_lsf_fecs_ucode_add_details(g, p_img, fecs, gr_falcon,
+				lsf_desc, lsf_desc_wrapper);
+	if (err != 0) {
+		nvgpu_err(g, "acr_lsf_fecs_ucode_add_detais Failed!");
+		goto free_lsf_desc;
+	}
 
 	nvgpu_acr_dbg(g, "fecs fw loaded\n");
 
@@ -289,9 +361,185 @@ rel_sig:
 	return err;
 }
 
-int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
+struct nvgpu_firmware *nvgpu_acr_lsf_gpccs_get_firmware(struct gk20a *g, u32 version)
+{
+	struct nvgpu_firmware *gpccs_sig = NULL;
+#ifdef CONFIG_NVGPU_NON_FUSA
+#if defined(CONFIG_NVGPU_GB20C) || defined(CONFIG_NVGPU_GB10B)
+	char name[MAX_NETLIST_NAME];
+#endif
+#endif
+
+	switch (version) {
+	case NVGPU_GPUID_GV11B:
+		gpccs_sig = nvgpu_request_firmware(g, T18x_GPCCS_UCODE_SIG,
+				g->acr->fw_load_flag);
+		break;
+	case NVGPU_GPUID_GA10B:
+		if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
+			gpccs_sig = nvgpu_request_firmware(g,
+				T18x_GPCCS_UCODE_SIG,
+				g->acr->fw_load_flag);
+		} else {
+			if (nvgpu_platform_is_simulation(g)) {
+				gpccs_sig = nvgpu_request_firmware(g,
+					GA10B_GPCCS_UCODE_PKC_SIG,
+					g->acr->fw_load_flag);
+			} else {
+				gpccs_sig = nvgpu_request_firmware(g,
+					GA10B_GPCCS_UCODE_ENCRYPT_PKC_SIG,
+					g->acr->fw_load_flag);
+			}
+		}
+		break;
+#ifdef CONFIG_NVGPU_DGPU
+		case NVGPU_GPUID_TU104:
+			gpccs_sig = nvgpu_request_firmware(g, TU104_GPCCS_UCODE_SIG,
+					g->acr->fw_load_flag);
+			break;
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA)
+		case NVGPU_GPUID_GA100:
+			gpccs_sig = nvgpu_request_firmware(g, GA100_GPCCS_UCODE_SIG,
+					g->acr->fw_load_flag);
+			break;
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+		case NVGPU_GPUID_GB10B:
+		case NVGPU_GPUID_GB10B_NEXT:
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+		case NVGPU_GPUID_GB20C:
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && (defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C))
+			if (nvgpu_platform_is_simulation(g)) {
+				gpccs_sig = nvgpu_request_firmware(g,
+					GB10B_GPCCS_RISCV_UCODE_PKC_SIG,
+					g->acr->fw_load_flag);
+			} else {
+				if(g->ops.netlist.get_gpccs_pkc_name == NULL){
+					nvgpu_err(g, "failed to fetch get_gpccs_ctxsw_name hal");
+					return gpccs_sig;
+				}
+				g->ops.netlist.get_gpccs_pkc_name(g,name);
+				gpccs_sig = nvgpu_request_firmware(g, name, g->acr->fw_load_flag);
+				if(gpccs_sig == NULL){
+					nvgpu_err(g, "failed to load %s", name);
+				}
+			}
+			break;
+#endif
+		default:
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
+			gpccs_sig = nvgpu_next_request_gpccs_firmware(g);
+#endif
+			break;
+	}
+
+	return gpccs_sig;
+}
+
+static s32 acr_lsf_gpccs_ucode_add_tcm_details(struct flcn_ucode_img *p_img,
+					struct nvgpu_ctxsw_ucode_segments *gpccs)
 {
 	u32 tmp_size;
+	s32 err = 0;
+
+	p_img->desc->bootloader_start_offset = BL_START_OFFSET;
+	if (((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->code.size) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->data.size) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->boot.size)) {
+		return -EOVERFLOW;
+	}
+	p_img->desc->bootloader_size = NVGPU_ALIGN(gpccs->boot.size,
+						LSF_DATA_SIZE_ALIGNMENT);
+	p_img->desc->bootloader_imem_offset = gpccs->boot_imem_offset;
+	p_img->desc->bootloader_entry_point = gpccs->boot_entry;
+
+	tmp_size = nvgpu_safe_add_u32(NVGPU_ALIGN(gpccs->boot.size,
+						LSF_DATA_SIZE_ALIGNMENT),
+					NVGPU_ALIGN(gpccs->code.size,
+						LSF_DATA_SIZE_ALIGNMENT));
+
+	p_img->desc->image_size = nvgpu_safe_add_u32(tmp_size,
+						NVGPU_ALIGN(gpccs->data.size,
+						LSF_DATA_SIZE_ALIGNMENT));
+	return err;
+}
+
+static s32 acr_lsf_gpccs_ucode_add_app_details(struct flcn_ucode_img *p_img,
+					struct nvgpu_ctxsw_ucode_segments *gpccs)
+{
+	s32 err = 0;
+	if (((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->code.size) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->data.size)) {
+		return -EOVERFLOW;
+	}
+	p_img->desc->app_size =
+			nvgpu_safe_add_u32(NVGPU_ALIGN(gpccs->code.size,
+						LSF_DATA_SIZE_ALIGNMENT),
+				NVGPU_ALIGN(gpccs->data.size,
+						LSF_DATA_SIZE_ALIGNMENT));
+	p_img->desc->app_start_offset = p_img->desc->bootloader_size;
+	p_img->desc->app_imem_offset = APP_IMEM_OFFSET;
+	p_img->desc->app_imem_entry = APP_IMEM_ENTRY;
+	p_img->desc->app_dmem_offset = APP_DMEM_OFFSET;
+	p_img->desc->app_resident_code_offset = APP_RESIDENT_CODE_OFFSET;
+	p_img->desc->app_resident_code_size = NVGPU_ALIGN(gpccs->code.size,
+						LSF_DATA_SIZE_ALIGNMENT);
+	if (((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->data.offset) ||
+		((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < gpccs->code.offset)) {
+		return -EOVERFLOW;
+	}
+	p_img->desc->app_resident_data_offset =
+		nvgpu_safe_sub_u32(NVGPU_ALIGN(gpccs->data.offset,
+						LSF_DATA_SIZE_ALIGNMENT),
+			NVGPU_ALIGN(gpccs->code.offset,
+					LSF_DATA_SIZE_ALIGNMENT));
+	p_img->desc->app_resident_data_size = NVGPU_ALIGN(gpccs->data.size,
+					LSF_DATA_SIZE_ALIGNMENT);
+	return err;
+}
+
+static s32 acr_lsf_gpccs_ucode_add_details(struct gk20a *g, struct flcn_ucode_img *p_img,
+					struct nvgpu_ctxsw_ucode_segments *gpccs,
+					struct nvgpu_gr_falcon *gr_falcon,
+					struct lsf_ucode_desc *lsf_desc,
+					struct lsf_ucode_desc_wrapper *lsf_desc_wrapper)
+{
+	s32 err = 0;
+	err = acr_lsf_gpccs_ucode_add_tcm_details(p_img, gpccs);
+	if (err != 0) {
+		nvgpu_err(g, "acr_lsf_gpccs_ucode_add_tcm_details Failed!");
+		return err;
+	}
+	err = acr_lsf_gpccs_ucode_add_app_details(p_img, gpccs);
+	if (err != 0) {
+		nvgpu_err(g, "acr_lsf_gpccs_ucode_add_app_details Failed!");
+		return err;
+	}
+
+	p_img->data = (u32 *)
+	(void *)((u8 *)nvgpu_gr_falcon_get_surface_desc_cpu_va(gr_falcon)
+				+ gpccs->boot.offset);
+	if ((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < p_img->desc->image_size) {
+		return -EOVERFLOW;
+	}
+	p_img->data_size = NVGPU_ALIGN(p_img->desc->image_size,
+					LSF_DATA_SIZE_ALIGNMENT);
+
+	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
+		p_img->lsf_desc = (struct lsf_ucode_desc *)lsf_desc;
+	} else {
+		p_img->lsf_desc_wrapper =
+			(struct lsf_ucode_desc_wrapper *)lsf_desc_wrapper;
+	}
+	return err;
+}
+
+int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
+{
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 	struct lsf_ucode_desc *lsf_desc = NULL;
 	struct lsf_ucode_desc_wrapper *lsf_desc_wrapper = NULL;
@@ -311,53 +559,13 @@ int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 		return -ENOENT;
 	}
 
-	switch (ver) {
-		case NVGPU_GPUID_GV11B:
-			gpccs_sig = nvgpu_request_firmware(g, T18x_GPCCS_UCODE_SIG,
-					g->acr->fw_load_flag);
-			break;
-		case NVGPU_GPUID_GA10B:
-			if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
-				gpccs_sig = nvgpu_request_firmware(g,
-					T18x_GPCCS_UCODE_SIG,
-					g->acr->fw_load_flag);
-			} else {
-				if (nvgpu_platform_is_simulation(g)) {
-					gpccs_sig = nvgpu_request_firmware(g,
-						GA10B_GPCCS_UCODE_PKC_SIG,
-						g->acr->fw_load_flag);
-				} else {
-					gpccs_sig = nvgpu_request_firmware(g,
-						GA10B_GPCCS_UCODE_ENCRYPT_PKC_SIG,
-						g->acr->fw_load_flag);
-				}
-			}
-			break;
-#ifdef CONFIG_NVGPU_DGPU
-		case NVGPU_GPUID_TU104:
-			gpccs_sig = nvgpu_request_firmware(g, TU104_GPCCS_UCODE_SIG,
-					g->acr->fw_load_flag);
-			break;
-#endif
-#if defined(CONFIG_NVGPU_NON_FUSA)
-		case NVGPU_GPUID_GA100:
-			gpccs_sig = nvgpu_request_firmware(g, GA100_GPCCS_UCODE_SIG,
-					g->acr->fw_load_flag);
-			break;
-#endif
-
-		default:
-#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
-			gpccs_sig = nvgpu_next_request_gpccs_firmware(g);
-#endif
-			break;
-	}
-
-	nvgpu_acr_dbg(g, "gpccs fw fetched from FS\n");
+	gpccs_sig = nvgpu_acr_lsf_gpccs_get_firmware(g, ver);
 	if (gpccs_sig == NULL) {
 		nvgpu_err(g, "failed to load gpccs sig");
 		return -ENOENT;
 	}
+
+	nvgpu_acr_dbg(g, "gpccs fw fetched from FS\n");
 	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
 		lsf_desc = nvgpu_kzalloc(g, sizeof(struct lsf_ucode_desc));
 		if (lsf_desc == NULL) {
@@ -376,7 +584,7 @@ int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 		}
 		nvgpu_memcpy((u8 *)lsf_desc_wrapper, gpccs_sig->data,
 			min_t(size_t, sizeof(*lsf_desc_wrapper), gpccs_sig->size));
-		lsf_desc_wrapper->lsf_ucode_desc_v2.falcon_id = FALCON_ID_GPCCS;
+		lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id = FALCON_ID_GPCCS;
 	}
 
 	nvgpu_acr_dbg(g, "gpccs fw copied to desc buffer\n");
@@ -386,50 +594,10 @@ int nvgpu_acr_lsf_gpccs_ucode_details(struct gk20a *g, void *lsf_ucode_img)
 		goto free_lsf_desc;
 	}
 
-	p_img->desc->bootloader_start_offset = BL_START_OFFSET;
-	p_img->desc->bootloader_size = NVGPU_ALIGN(gpccs->boot.size,
-						LSF_DATA_SIZE_ALIGNMENT);
-	p_img->desc->bootloader_imem_offset = gpccs->boot_imem_offset;
-	p_img->desc->bootloader_entry_point = gpccs->boot_entry;
-
-	tmp_size = nvgpu_safe_add_u32(NVGPU_ALIGN(gpccs->boot.size,
-						LSF_DATA_SIZE_ALIGNMENT),
-					NVGPU_ALIGN(gpccs->code.size,
-						LSF_DATA_SIZE_ALIGNMENT));
-
-	p_img->desc->image_size = nvgpu_safe_add_u32(tmp_size,
-						NVGPU_ALIGN(gpccs->data.size,
-						LSF_DATA_SIZE_ALIGNMENT));
-	p_img->desc->app_size =
-			nvgpu_safe_add_u32(NVGPU_ALIGN(gpccs->code.size,
-						LSF_DATA_SIZE_ALIGNMENT),
-				NVGPU_ALIGN(gpccs->data.size,
-						LSF_DATA_SIZE_ALIGNMENT));
-	p_img->desc->app_start_offset = p_img->desc->bootloader_size;
-	p_img->desc->app_imem_offset = APP_IMEM_OFFSET;
-	p_img->desc->app_imem_entry = APP_IMEM_ENTRY;
-	p_img->desc->app_dmem_offset = APP_DMEM_OFFSET;
-	p_img->desc->app_resident_code_offset = APP_RESIDENT_CODE_OFFSET;
-	p_img->desc->app_resident_code_size = NVGPU_ALIGN(gpccs->code.size,
-						LSF_DATA_SIZE_ALIGNMENT);
-	p_img->desc->app_resident_data_offset =
-		nvgpu_safe_sub_u32(NVGPU_ALIGN(gpccs->data.offset,
-						LSF_DATA_SIZE_ALIGNMENT),
-			NVGPU_ALIGN(gpccs->code.offset,
-					LSF_DATA_SIZE_ALIGNMENT));
-	p_img->desc->app_resident_data_size = NVGPU_ALIGN(gpccs->data.size,
-					LSF_DATA_SIZE_ALIGNMENT);
-	p_img->data = (u32 *)
-	(void *)((u8 *)nvgpu_gr_falcon_get_surface_desc_cpu_va(gr_falcon)
-				+ gpccs->boot.offset);
-	p_img->data_size = NVGPU_ALIGN(p_img->desc->image_size,
-					LSF_DATA_SIZE_ALIGNMENT);
-
-	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
-		p_img->lsf_desc = (struct lsf_ucode_desc *)lsf_desc;
-	} else {
-		p_img->lsf_desc_wrapper =
-			(struct lsf_ucode_desc_wrapper *)lsf_desc_wrapper;
+	err = acr_lsf_gpccs_ucode_add_details(g, p_img, gpccs, gr_falcon, lsf_desc, lsf_desc_wrapper);
+	if (err != 0) {
+		nvgpu_err(g, "acr_lsf_gpccs_ucode_add_details");
+		goto free_lsf_desc;
 	}
 
 	nvgpu_acr_dbg(g, "gpccs fw loaded\n");
@@ -545,6 +713,7 @@ release_img_fw:
 }
 #endif
 
+#if defined(CONFIG_NVGPU_NON_FUSA)
 static void lsfm_fill_static_lsb_hdr_info_aes(struct gk20a *g,
 	u32 falcon_id, struct lsfm_managed_ucode_img *pnode)
 {
@@ -646,7 +815,7 @@ static void lsfm_fill_static_lsb_hdr_info_pkc(struct gk20a *g,
 }
 
 /* Populate static LSB header information using the provided ucode image */
-static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
+static s32 lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 	u32 falcon_id, struct lsfm_managed_ucode_img *pnode)
 {
 #ifdef CONFIG_NVGPU_LS_PMU
@@ -655,6 +824,7 @@ static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 	struct falcon_next_core_ucode_desc *ndesc = pnode->ucode_img.ndesc;
 #endif
 
+	s32 err = 0;
 	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)
 			&& (!pnode->ucode_img.is_next_core_img)) {
 		lsfm_fill_static_lsb_hdr_info_aes(g, falcon_id, pnode);
@@ -676,21 +846,40 @@ static void lsfm_fill_static_lsb_hdr_info(struct gk20a *g,
 				(u8 *)pnode->ucode_img.lsf_desc_wrapper,
 				sizeof(struct lsf_ucode_desc_wrapper));
 		}
-		pnode->lsb_header_v1.ucode_size = ndesc->bootloader_offset +
-						ndesc->bootloader_size +
-						ndesc->bootloader_param_size;
+		if ((UINT_MAX - ndesc->bootloader_size) < ndesc->bootloader_offset) {
+    		nvgpu_err(g, "bootloader_offset + bootloader_size overflow");
+    		return -EOVERFLOW;
+		}
+		pnode->lsb_header_v1.ucode_size = nvgpu_safe_add_u32(ndesc->bootloader_offset,
+                              ndesc->bootloader_size);
+		if ((UINT_MAX - ndesc->bootloader_param_size) < pnode->lsb_header_v1.ucode_size) {
+			nvgpu_err(g, "ucode_size will overflow");
+			return -EOVERFLOW;
+		}
+		pnode->lsb_header_v1.ucode_size = nvgpu_safe_add_u32(pnode->lsb_header_v1.ucode_size,
+                                                    ndesc->bootloader_param_size);
+
 		base_size = nvgpu_safe_add_u32(pnode->lsb_header_v1.ucode_size,
 						ndesc->next_core_elf_size);
+		if ((UINT_MAX - LSF_UCODE_DATA_ALIGNMENT) < base_size) {
+    		nvgpu_err(g, "base_size too large for alignment");
+    			return -EOVERFLOW;
+		}
+		if (NVGPU_ALIGN(base_size, LSF_UCODE_DATA_ALIGNMENT) < base_size) {
+    		nvgpu_err(g, "alignment subtraction would overflow");
+    		return -EOVERFLOW;
+		}
 		image_padding_size = NVGPU_ALIGN(base_size,
 					LSF_UCODE_DATA_ALIGNMENT) - base_size;
-		pnode->lsb_header_v1.data_size = ndesc->next_core_elf_size +
-						image_padding_size;
+		pnode->lsb_header_v1.data_size = nvgpu_safe_add_u32(ndesc->next_core_elf_size,
+                                                   image_padding_size);
 		pnode->lsb_header_v1.bl_code_size = 0;
 		pnode->lsb_header_v1.bl_imem_off = 0;
 		pnode->lsb_header_v1.bl_data_size = 0;
 		pnode->lsb_header_v1.bl_data_off = 0;
 #endif
 	}
+	return err;
 }
 
 /* Adds a ucode image to the list of managed ucode images managed. */
@@ -698,6 +887,7 @@ static int lsfm_add_ucode_img(struct gk20a *g, struct ls_flcn_mgr *plsfm,
 	struct flcn_ucode_img *ucode_image, u32 falcon_id)
 {
 	struct lsfm_managed_ucode_img *pnode;
+	s32 err;
 
 	pnode = nvgpu_kzalloc(g, sizeof(struct lsfm_managed_ucode_img));
 	if (pnode == NULL) {
@@ -718,13 +908,17 @@ static int lsfm_add_ucode_img(struct gk20a *g, struct ls_flcn_mgr *plsfm,
 				g->acr->lsf[falcon_id].is_lazy_bootstrap);
 
 	/* Fill in static LSB header info elsewhere */
-	lsfm_fill_static_lsb_hdr_info(g, falcon_id, pnode);
+	err = lsfm_fill_static_lsb_hdr_info(g, falcon_id, pnode);
+	if (err != 0) {
+		nvgpu_kfree(g, pnode);
+		return err;
+	}
 	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
 		pnode->wpr_header.bin_version =
 			pnode->lsb_header.signature.version;
 	} else {
 		pnode->wpr_header.bin_version =
-			pnode->lsb_header_v1.signature.lsf_ucode_desc_v2.ls_ucode_version;
+			pnode->lsb_header_v1.signature.nvlsf_ucode_desc_v2.ls_ucode_version;
 	}
 	pnode->next = plsfm->ucode_img_list;
 	plsfm->ucode_img_list = pnode;
@@ -762,7 +956,7 @@ static int lsfm_check_and_add_ucode_image(struct gk20a *g,
 	if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
 		falcon_id = ucode_img.lsf_desc->falcon_id;
 	} else {
-		falcon_id = ucode_img.lsf_desc_wrapper->lsf_ucode_desc_v2.falcon_id;
+		falcon_id = ucode_img.lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id;
 	}
 
 	err = lsfm_add_ucode_img(g, plsfm, &ucode_img, falcon_id);
@@ -852,12 +1046,16 @@ static int lsfm_discover_and_add_sub_wprs(struct gk20a *g,
 }
 #endif
 
-static void lsf_calc_wpr_size_aes(struct lsfm_managed_ucode_img *pnode,
+static s32 lsf_calc_wpr_size_aes(struct lsfm_managed_ucode_img *pnode,
 					u32 *wpr_off)
 {
 	u32 wpr_offset = *wpr_off;
+	s32 err = 0;
 
 	/* Align, save off and include an LSB header size */
+	if ((UINT_MAX - LSF_LSB_HEADER_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_LSB_HEADER_ALIGNMENT);
 	pnode->wpr_header.lsb_offset = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
@@ -867,6 +1065,9 @@ static void lsf_calc_wpr_size_aes(struct lsfm_managed_ucode_img *pnode,
 	 * Align, save off and include the original (static)ucode
 	 * image size
 	 */
+	if ((UINT_MAX - LSF_UCODE_DATA_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_UCODE_DATA_ALIGNMENT);
 	pnode->lsb_header.ucode_off = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
@@ -892,14 +1093,17 @@ static void lsf_calc_wpr_size_aes(struct lsfm_managed_ucode_img *pnode,
 		LSF_BL_DATA_SIZE_ALIGNMENT);
 
 	/*Align, save off, and include the additional BL data*/
+	if ((UINT_MAX - LSF_BL_DATA_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_BL_DATA_ALIGNMENT);
 	pnode->lsb_header.bl_data_off = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
 				pnode->lsb_header.bl_data_size);
 
 	/* Finally, update ucode surface size to include updates */
-	pnode->full_ucode_size = wpr_offset -
-		pnode->lsb_header.ucode_off;
+	pnode->full_ucode_size = nvgpu_safe_sub_u32(wpr_offset,
+						    pnode->lsb_header.ucode_off);
 	if (pnode->wpr_header.falcon_id != FALCON_ID_PMU &&
 		pnode->wpr_header.falcon_id != FALCON_ID_PMU_NEXT_CORE) {
 		pnode->lsb_header.app_code_off =
@@ -914,19 +1118,26 @@ static void lsf_calc_wpr_size_aes(struct lsfm_managed_ucode_img *pnode,
 	}
 
 	*wpr_off = wpr_offset;
+	return err;
 }
 
-static void lsf_calc_wpr_size_pkc(struct lsfm_managed_ucode_img *pnode,
+static s32 lsf_calc_wpr_size_pkc(struct lsfm_managed_ucode_img *pnode,
 					u32 *wpr_off)
 {
 	u32 wpr_offset = *wpr_off;
 
 	/* Align, save off, and include an LSB header size */
+	if ((UINT_MAX - LSF_LSB_HEADER_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_LSB_HEADER_ALIGNMENT);
 	pnode->wpr_header.lsb_offset = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
 				(u32)sizeof(struct lsf_lsb_header_v1));
 
+	if ((UINT_MAX - LSF_UCODE_DATA_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_UCODE_DATA_ALIGNMENT);
 	pnode->lsb_header_v1.ucode_off = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
@@ -937,13 +1148,16 @@ static void lsf_calc_wpr_size_pkc(struct lsfm_managed_ucode_img *pnode,
 				sizeof(pnode->bl_gen_desc)),
 		LSF_BL_DATA_SIZE_ALIGNMENT);
 
+	if ((UINT_MAX - LSF_BL_DATA_ALIGNMENT) < wpr_offset) {
+		return -EOVERFLOW;
+	}
 	wpr_offset = NVGPU_ALIGN(wpr_offset, LSF_BL_DATA_ALIGNMENT);
 	pnode->lsb_header_v1.bl_data_off = wpr_offset;
 	wpr_offset = nvgpu_safe_add_u32(wpr_offset,
 				pnode->lsb_header_v1.bl_data_size);
 
-	pnode->full_ucode_size = wpr_offset -
-		pnode->lsb_header_v1.ucode_off;
+	pnode->full_ucode_size = nvgpu_safe_sub_u32(wpr_offset,
+						    pnode->lsb_header_v1.ucode_off);
 	if (pnode->wpr_header.falcon_id != FALCON_ID_PMU &&
 		pnode->wpr_header.falcon_id != FALCON_ID_PMU_NEXT_CORE) {
 		pnode->lsb_header_v1.app_code_off =
@@ -958,6 +1172,7 @@ static void lsf_calc_wpr_size_pkc(struct lsfm_managed_ucode_img *pnode,
 	}
 
 	*wpr_off = wpr_offset;
+	return 0;
 }
 
 /* Generate WPR requirements for ACR allocation request */
@@ -965,6 +1180,7 @@ static int lsf_gen_wpr_requirements(struct gk20a *g,
 		struct ls_flcn_mgr *plsfm)
 {
 	struct lsfm_managed_ucode_img *pnode = plsfm->ucode_img_list;
+	s32 err = 0;
 #ifdef CONFIG_NVGPU_DGPU
 	struct lsfm_sub_wpr *pnode_sub_wpr = plsfm->psub_wpr_list;
 	u32 sub_wpr_header;
@@ -986,6 +1202,9 @@ static int lsf_gen_wpr_requirements(struct gk20a *g,
 
 #ifdef CONFIG_NVGPU_DGPU
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MULTIPLE_WPR)) {
+		if ((UINT_MAX - LSF_WPR_HEADERS_TOTAL_SIZE_MAX) < wpr_offset) {
+				return -EOVERFLOW;
+			}
 		wpr_offset = ALIGN_UP(wpr_offset, LSF_WPR_HEADERS_TOTAL_SIZE_MAX);
 		/*
 		 * SUB WPR header is appended after lsf_wpr_header_v0 in WPR blob.
@@ -1008,7 +1227,11 @@ static int lsf_gen_wpr_requirements(struct gk20a *g,
 		if (!nvgpu_is_enabled(g, NVGPU_PKC_LS_SIG_ENABLED)) {
 			lsf_calc_wpr_size_aes(pnode, &wpr_offset);
 		} else {
-			lsf_calc_wpr_size_pkc(pnode, &wpr_offset);
+			err = lsf_calc_wpr_size_pkc(pnode, &wpr_offset);
+			if (err != 0) {
+				nvgpu_err(g, "overflow in lsf_calc_wpr_size_pkc");
+				return err;
+			}
 		}
 #if defined(CONFIG_NVGPU_NON_FUSA)
 		/* Falcon image is cleanly partitioned between a code and
@@ -1031,6 +1254,9 @@ static int lsf_gen_wpr_requirements(struct gk20a *g,
 		 * sub wprs in WPR request
 		 */
 		while (pnode_sub_wpr != NULL) {
+			if ((UINT_MAX - SUB_WPR_SIZE_ALIGNMENT) < wpr_offset) {
+				return -EOVERFLOW;
+			}
 			wpr_offset = ALIGN_UP(wpr_offset,
 					SUB_WPR_SIZE_ALIGNMENT);
 			pnode_sub_wpr->sub_wpr_header.start_addr = wpr_offset;
@@ -1038,6 +1264,9 @@ static int lsf_gen_wpr_requirements(struct gk20a *g,
 				(pnode_sub_wpr->sub_wpr_header.size_4K
 				<< SHIFT_4KB);
 			pnode_sub_wpr = pnode_sub_wpr->pnext;
+		}
+		if ((UINT_MAX - LSF_DATA_SIZE_ALIGNMENT) < wpr_offset) {
+			return -EOVERFLOW;
 		}
 		wpr_offset = ALIGN_UP(wpr_offset, SUB_WPR_SIZE_ALIGNMENT);
 	}
@@ -1329,6 +1558,18 @@ static int lsfm_init_wpr_contents(struct gk20a *g,
 	return err;
 }
 
+static void lsfm_free_sec2_ucode_img_res(struct gk20a *g,
+	struct flcn_ucode_img *p_img)
+{
+	if (p_img->lsf_desc != NULL) {
+		nvgpu_kfree(g, p_img->lsf_desc);
+		p_img->lsf_desc = NULL;
+	}
+	p_img->data = NULL;
+	p_img->desc = NULL;
+}
+#endif
+
 /* Free any ucode image structure resources. */
 static void lsfm_free_ucode_img_res(struct gk20a *g,
 	struct flcn_ucode_img *p_img)
@@ -1346,29 +1587,46 @@ static void lsfm_free_ucode_img_res(struct gk20a *g,
 static void lsfm_free_nonpmu_ucode_img_res(struct gk20a *g,
 	struct flcn_ucode_img *p_img)
 {
+
 	if (p_img->lsf_desc != NULL) {
 		nvgpu_kfree(g, p_img->lsf_desc);
 		p_img->lsf_desc = NULL;
 	}
 	if (p_img->lsf_desc_wrapper != NULL) {
-		nvgpu_kfree(g, p_img->lsf_desc_wrapper);
+		if ((p_img->lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id !=
+		FALCON_ID_PMU_RISCV_EB) &&
+		(p_img->lsf_desc_wrapper->nvlsf_ucode_desc_v2.falcon_id !=
+		FALCON_ID_PMU_NEXT_CORE)) {
+			if (p_img->desc_fw != NULL) {
+				nvgpu_release_firmware(g, p_img->desc_fw);
+			}
+			if (p_img->image_fw != NULL) {
+				nvgpu_release_firmware(g, p_img->image_fw);
+			}
+			if (p_img->pkc_sig != NULL) {
+				nvgpu_release_firmware(g, p_img->pkc_sig);
+			}
+		}
+		/* lsb_header_wrapper is allocated from lsb_header_wrapper in V3 */
+		if (p_img->lsb_header_wrapper != NULL) {
+			nvgpu_kfree(g, p_img->lsb_header_wrapper);
+			p_img->lsb_header_wrapper = NULL;
+		} else {
+			nvgpu_kfree(g, p_img->lsf_desc_wrapper);
+		}
 		p_img->lsf_desc_wrapper = NULL;
 	}
 	if (p_img->desc != NULL) {
 		nvgpu_kfree(g, p_img->desc);
 		p_img->desc = NULL;
 	}
-}
-
-static void lsfm_free_sec2_ucode_img_res(struct gk20a *g,
-	struct flcn_ucode_img *p_img)
-{
-	if (p_img->lsf_desc != NULL) {
-		nvgpu_kfree(g, p_img->lsf_desc);
-		p_img->lsf_desc = NULL;
+	if (p_img->ucode_image != NULL) {
+		if (nvgpu_mem_is_valid(p_img->ucode_image)) {
+			nvgpu_dma_free_sys(g, p_img->ucode_image);
+		}
+		nvgpu_kfree(g, p_img->ucode_image);
+		p_img->ucode_image = NULL;
 	}
-	p_img->data = NULL;
-	p_img->desc = NULL;
 }
 
 void nvgpu_acr_free_resources(struct gk20a *g, struct ls_flcn_mgr *plsfm)
@@ -1381,12 +1639,16 @@ void nvgpu_acr_free_resources(struct gk20a *g, struct ls_flcn_mgr *plsfm)
 		if (mg_ucode_img->ucode_img.lsf_desc != NULL &&
 			mg_ucode_img->ucode_img.lsf_desc->falcon_id == FALCON_ID_PMU) {
 			lsfm_free_ucode_img_res(g, &mg_ucode_img->ucode_img);
-		} else if (mg_ucode_img->ucode_img.lsf_desc != NULL &&
+		}
+#if defined(CONFIG_NVGPU_NON_FUSA)
+		else if (mg_ucode_img->ucode_img.lsf_desc != NULL &&
 				mg_ucode_img->ucode_img.lsf_desc->falcon_id ==
 				FALCON_ID_SEC2) {
 			lsfm_free_sec2_ucode_img_res(g,
 				&mg_ucode_img->ucode_img);
-		} else {
+		}
+#endif
+		else {
 			lsfm_free_nonpmu_ucode_img_res(g,
 				&mg_ucode_img->ucode_img);
 		}
@@ -1396,6 +1658,7 @@ void nvgpu_acr_free_resources(struct gk20a *g, struct ls_flcn_mgr *plsfm)
 	}
 }
 
+#if defined(CONFIG_NVGPU_NON_FUSA)
 int nvgpu_acr_prepare_ucode_blob(struct gk20a *g)
 {
 	int err = 0;
@@ -1458,7 +1721,7 @@ int nvgpu_acr_prepare_ucode_blob(struct gk20a *g)
 
 		err = lsfm_init_wpr_contents(g, plsfm, &g->acr->ucode_blob);
 		if (err != 0) {
-			nvgpu_kfree(g, &g->acr->ucode_blob);
+			nvgpu_dma_free_sys(g, &g->acr->ucode_blob);
 			goto cleanup_exit;
 		}
 	} else {
@@ -1470,3 +1733,4 @@ cleanup_exit:
 	nvgpu_acr_free_resources(g, plsfm);
 	return err;
 }
+#endif

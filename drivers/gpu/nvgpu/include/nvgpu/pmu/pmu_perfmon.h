@@ -1,29 +1,11 @@
-/*                                                      |
- * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- *
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PMU_PERFMON_H
 #define NVGPU_PMU_PERFMON_H
 
+#include <nvgpu/lock.h>
 //#include <nvgpu/enabled.h>
 #include <nvgpu/pmu/pmuif/nvgpu_cmdif.h>
 #include <nvgpu/pmu/pmuif/perfmon.h>
@@ -35,17 +17,39 @@ struct nv_pmu_rpc_header;
 struct pmu_msg;
 
 /* pmu load const defines */
-#define PMU_BUSY_CYCLES_NORM_MAX		(1000U)
+#define PMU_BUSY_CYCLES_NORM_MAX			(1000U)
+
+#define PMU_PERFMON_SAMPLE_PERIOD_US_SIM	(4175U)
+
+#define PMU_PERFMON_SAMPLE_PERIOD_US		(16700U)
+
+#define PMU_PERFMON_MOVING_AVG_SAMPLE_CNT	(17U)
+
+enum nvgpu_pmu_perfmon_class {
+	NVGPU_PMU_PERFMON_CLASS_GR     =  0,
+	NVGPU_PMU_PERFMON_CLASS_NVD    =  1,
+	NVGPU_PMU_PERFMON_CLASS_NVENC0 =  2,
+	NVGPU_PMU_PERFMON_CLASS_NVENC1 =  3,
+	NVGPU_PMU_PERFMON_CLASS_NVDEC0 =  4,
+	NVGPU_PMU_PERFMON_CLASS_NVDEC1 =  5,
+	NVGPU_PMU_PERFMON_CLASS_OFA    =  6,
+	NVGPU_PMU_PERFMON_CLASS_NVJPG0 =  7,
+	NVGPU_PMU_PERFMON_CLASS_NUM
+};
 
 struct nvgpu_pmu_perfmon {
 	struct pmu_perfmon_counter_v2 perfmon_counter_v2;
 	u64 perfmon_events_cnt;
 	u32 perfmon_query;
+	struct nvgpu_mutex query_mutex;
 	u8 perfmon_state_id[PMU_DOMAIN_GROUP_NUM];
 	u32 sample_buffer;
-	u32 load_shadow;
-	u32 load_avg;
-	u32 load;
+	u32 load_shadow[NVGPU_PMU_PERFMON_CLASS_NUM];
+	u32 load_avg[NVGPU_PMU_PERFMON_CLASS_NUM];
+	u32 load[NVGPU_PMU_PERFMON_CLASS_NUM];
+	u32 min_load_refresh_interv_us;
+	s64 last_load_refresh_time_us;
+	bool query_mutex_initialized;
 	bool perfmon_ready;
 	bool perfmon_sampling_enabled;
 	int (*init_perfmon)(struct nvgpu_pmu *pmu);
@@ -53,7 +57,7 @@ struct nvgpu_pmu_perfmon {
 	int (*stop_sampling)(struct nvgpu_pmu *pmu);
 	int (*get_samples_rpc)(struct nvgpu_pmu *pmu);
 	int (*perfmon_event_handler)(struct gk20a *g,
-		struct nvgpu_pmu *pmu, struct pmu_msg *msg);
+		struct nvgpu_pmu *pmu, void *msg);
 };
 
 /* perfmon */
@@ -70,13 +74,16 @@ int nvgpu_pmu_perfmon_start_sampling_rpc(struct nvgpu_pmu *pmu);
 int nvgpu_pmu_perfmon_stop_sampling_rpc(struct nvgpu_pmu *pmu);
 int nvgpu_pmu_perfmon_get_samples_rpc(struct nvgpu_pmu *pmu);
 int nvgpu_pmu_handle_perfmon_event(struct gk20a *g,
-		struct nvgpu_pmu *pmu, struct pmu_msg *msg);
+		struct nvgpu_pmu *pmu, void *pmsg);
 int nvgpu_pmu_handle_perfmon_event_rpc(struct gk20a *g,
-		struct nvgpu_pmu *pmu, struct pmu_msg *msg);
+		struct nvgpu_pmu *pmu, void *msg);
 int nvgpu_pmu_init_perfmon_rpc(struct nvgpu_pmu *pmu);
-int nvgpu_pmu_load_norm(struct gk20a *g, u32 *load);
-int nvgpu_pmu_load_update(struct gk20a *g);
-int nvgpu_pmu_busy_cycles_norm(struct gk20a *g, u32 *norm);
+int nvgpu_pmu_sysfs_load_refresh(struct gk20a *g, u32 *query,
+		enum nvgpu_pmu_perfmon_class perfmon_class);
+int nvgpu_pmu_load_query(struct gk20a *g, u32 *query,
+		enum nvgpu_pmu_perfmon_class perfmon_class);
+void nvgpu_pmu_load_read(struct gk20a *g, u32 *value,
+		enum nvgpu_pmu_perfmon_class perfmon_class);
 void nvgpu_pmu_reset_load_counters(struct gk20a *g);
 void nvgpu_pmu_get_load_counters(struct gk20a *g, u32 *busy_cycles,
 		u32 *total_cycles);
@@ -96,6 +103,6 @@ int nvgpu_pmu_perfmon_stop_sample(struct gk20a *g,
 int nvgpu_pmu_perfmon_get_sample(struct gk20a *g,
 	struct nvgpu_pmu *pmu, struct nvgpu_pmu_perfmon *perfmon);
 int nvgpu_pmu_perfmon_event_handler(struct gk20a *g,
-	struct nvgpu_pmu *pmu, struct pmu_msg *msg);
+	struct nvgpu_pmu *pmu, void *msg);
 
 #endif /* NVGPU_PMU_PERFMON_H */

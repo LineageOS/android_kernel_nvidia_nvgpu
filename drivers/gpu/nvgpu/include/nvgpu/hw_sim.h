@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2012-2019, NVIDIA Corporation.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2012-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
  /*
@@ -263,7 +245,7 @@ static inline u32 sim_send_ring_gp_in_ring_f(u32 v)
 }
 static inline u32 sim_send_ring_gp_in_ring_m(void)
 {
-	return 0x1U << 11U;
+	return 0x00000001U << 11U;
 }
 static inline u32 sim_send_ring_gp_in_ring_v(u32 r)
 {
@@ -619,7 +601,7 @@ static inline u32 sim_recv_ring_gp_in_ring_f(u32 v)
 }
 static inline u32 sim_recv_ring_gp_in_ring_m(void)
 {
-	return 0x1U << 11U;
+	return 0x00000001U << 11U;
 }
 static inline u32 sim_recv_ring_gp_in_ring_v(u32 r)
 {
@@ -839,7 +821,7 @@ static inline u32 sim_config_cached_only_f(u32 v)
 }
 static inline u32 sim_config_cached_only_m(void)
 {
-	return 0x1U << 8U;
+	return 0x00000001U << 8U;
 }
 static inline u32 sim_config_cached_only_v(u32 r)
 {
@@ -871,7 +853,7 @@ static inline u32 sim_config_validity_f(u32 v)
 }
 static inline u32 sim_config_validity_m(void)
 {
-	return 0x3U << 9U;
+	return 0x00000003U << 9U;
 }
 static inline u32 sim_config_validity_v(u32 r)
 {
@@ -903,7 +885,7 @@ static inline u32 sim_config_simulation_f(u32 v)
 }
 static inline u32 sim_config_simulation_m(void)
 {
-	return 0x3U << 12U;
+	return 0x00000003U << 12U;
 }
 static inline u32 sim_config_simulation_v(u32 r)
 {
@@ -943,7 +925,7 @@ static inline u32 sim_config_secondary_display_f(u32 v)
 }
 static inline u32 sim_config_secondary_display_m(void)
 {
-	return 0x1U << 14U;
+	return 0x00000001U << 14U;
 }
 static inline u32 sim_config_secondary_display_v(u32 r)
 {
@@ -975,7 +957,7 @@ static inline u32 sim_config_num_heads_f(u32 v)
 }
 static inline u32 sim_config_num_heads_m(void)
 {
-	return 0xffU << 17U;
+	return 0x000000ffU << 17U;
 }
 static inline u32 sim_config_num_heads_v(u32 r)
 {
@@ -1187,7 +1169,7 @@ static inline u32 sim_event_ring_gp_in_ring_f(u32 v)
 }
 static inline u32 sim_event_ring_gp_in_ring_m(void)
 {
-	return 0x1U << 11U;
+	return 0x00000001U << 11U;
 }
 static inline u32 sim_event_ring_gp_in_ring_v(u32 r)
 {

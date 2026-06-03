@@ -9,6 +9,7 @@
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
 #include <soc/tegra/fuse.h>
 #endif
+#include <linux/of_address.h>
 
 #include <nvgpu/cic_rm.h>
 #include <nvgpu/defaults.h>
@@ -21,6 +22,7 @@
 #include "common/vgpu/ivc/comm_vgpu.h"
 #include "common/vgpu/init/init_vgpu.h"
 #include "common/vgpu/intr/intr_vgpu.h"
+#include "common/vgpu/pm_reservation_vgpu.h"
 
 #include "os/linux/module.h"
 #include "os/linux/os_linux.h"
@@ -65,16 +67,13 @@ static void vgpu_init_vars(struct gk20a *g, struct gk20a_platform *platform)
 	nvgpu_set_enabled(g, NVGPU_CAN_RAILGATE, platform->can_railgate_init);
 	g->railgate_delay = platform->railgate_delay_init;
 
-	g->mm.disable_bigpage = NVGPU_CPU_PAGE_SIZE < SZ_64K;
+	g->mm.disable_bigpage = !iommu_get_domain_for_dev(l->dev) &&
+		(NVGPU_CPU_PAGE_SIZE < SZ_64K);
 	nvgpu_set_enabled(g, NVGPU_MM_UNIFIED_MEMORY,
 			    platform->unified_memory);
 	nvgpu_set_enabled(g, NVGPU_MM_UNIFY_ADDRESS_SPACES,
 			    platform->unify_address_spaces);
-
-	if (nvgpu_is_vf(g)) {
-		/* only VF needs IPA2PA */
-		nvgpu_init_soc_vars(g);
-	}
+	nvgpu_set_enabled(g, NVGPU_IS_VIRTUALIZATION, true);
 }
 
 static int vgpu_init_support(struct gk20a *g)
@@ -129,6 +128,7 @@ int vgpu_pm_prepare_poweroff(struct device *dev)
 		goto done;
 	}
 
+	nvgpu_disable_irqs(g);
 	nvgpu_set_power_state(g, NVGPU_STATE_POWERED_OFF);
 
  done:
@@ -142,8 +142,11 @@ int vgpu_pm_finalize_poweron(struct device *dev)
 	struct gk20a *g = get_gk20a(dev);
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 	int err = 0;
+	u64 begin_time = 0ULL, end_time = 0ULL;
 
 	nvgpu_log_fn(g, " ");
+
+	begin_time = ktime_get_ns();
 
 	nvgpu_mutex_acquire(&g->power_lock);
 
@@ -170,9 +173,22 @@ int vgpu_pm_finalize_poweron(struct device *dev)
 	/* Initialize linux specific flags */
 	gk20a_init_linux_characteristics(g);
 
+	err = nvgpu_enable_irqs(g);
+	if (err) {
+		nvgpu_err(g, "failed to enable irqs %d", err);
+		goto done;
+	}
+
 	err = nvgpu_finalize_poweron_linux(l);
 	if (err)
 		goto done;
+
+#ifdef CONFIG_NVGPU_PROFILER
+	err = vgpu_pm_reservation_init(g);
+	if (err) {
+		goto done;
+	}
+#endif
 
 	gk20a_sched_ctrl_init(g);
 
@@ -182,6 +198,11 @@ int vgpu_pm_finalize_poweron(struct device *dev)
 
 done:
 	nvgpu_mutex_release(&g->power_lock);
+
+	end_time = ktime_get_ns();
+	if (l->poweron_time_ns == 0ULL)
+		l->poweron_time_ns = (end_time - begin_time);
+
 	return err;
 }
 
@@ -191,6 +212,7 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 	struct device *dev = l->dev;
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
 	struct vgpu_priv_data *priv;
+	struct device_node *np;
 	int err;
 
 	nvgpu_log_fn(g, " ");
@@ -207,6 +229,12 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 	err = nvgpu_init_enabled_flags(g);
 	if (err) {
 		goto free_errata;
+	}
+
+	np = dev_from_gk20a(g)->of_node;
+	if (of_dma_is_coherent(np)) {
+		nvgpu_set_enabled(g, NVGPU_USE_COHERENT_SYSMEM, true);
+		nvgpu_set_enabled(g, NVGPU_SUPPORT_IO_COHERENCE, true);
 	}
 
 	#ifdef CONFIG_NVGPU_TEGRA_FUSE
@@ -278,13 +306,13 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 		goto remove_cic;
 	}
 
-	err = vgpu_comm_init(g);
+	err = vgpu_ivc_init_support(g);
 	if (err) {
 		nvgpu_err(g, "failed to init comm interface");
 		goto remove_cic;
 	}
 
-	priv->virt_handle = vgpu_connect();
+	priv->virt_handle = vgpu_connect(g);
 	if (!priv->virt_handle) {
 		nvgpu_err(g, "failed to connect to server node");
 		goto comm_deinit;
@@ -298,7 +326,6 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 	gk20a_debug_init(g, "gpu.0");
 
 	/* Set DMA parameters to allow larger sgt lists */
-	dev->dma_parms = &l->dma_parms;
 	dma_set_max_seg_size(dev, UINT_MAX);
 
 	dma_set_mask(dev, platform->dma_mask);
@@ -325,7 +352,7 @@ int vgpu_probe_common(struct nvgpu_os_linux *l)
 	return 0;
 
 comm_deinit:
-	vgpu_comm_deinit();
+	vgpu_ivc_remove_support(g);
 remove_cic:
 	(void) nvgpu_cic_rm_remove(g);
 free_errata:

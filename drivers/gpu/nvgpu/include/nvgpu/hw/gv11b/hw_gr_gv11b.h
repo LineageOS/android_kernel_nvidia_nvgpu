@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -695,6 +677,7 @@
 #define gr_fecs_current_ctx_valid_m()                         (U32(0x1U) << 31U)
 #define gr_fecs_current_ctx_valid_v(r)                     (((r) >> 31U) & 0x1U)
 #define gr_fecs_current_ctx_valid_false_f()                               (0x0U)
+#define gr_fecs_ctxsw_current_ctx_id_r()                           (0x00409b74U)
 #define gr_fecs_method_data_r()                                    (0x00409500U)
 #define gr_fecs_method_push_r()                                    (0x00409504U)
 #define gr_fecs_method_push_adr_f(v)                   ((U32(v) & 0xfffU) << 0U)
@@ -1332,6 +1315,7 @@
 				(0x10000U)
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_m()\
 				(U32(0x1U) << 18U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_report_f()\
 				(0x40000U)
 #define gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_invalid_const_addr_ldc_no_report_f()\
@@ -1653,18 +1637,22 @@
 				(U32(0x1U) << 3U)
 #define gr_gpc0_mmu_l1tlb_ecc_status_uncorrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 18U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_mmu_l1tlb_ecc_status_uncorrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 18U)
 #define gr_gpc0_mmu_l1tlb_ecc_status_corrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 16U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_mmu_l1tlb_ecc_status_corrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 16U)
 #define gr_gpc0_mmu_l1tlb_ecc_status_uncorrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 19U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_mmu_l1tlb_ecc_status_uncorrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 19U)
 #define gr_gpc0_mmu_l1tlb_ecc_status_corrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 17U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_mmu_l1tlb_ecc_status_corrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 17U)
 #define gr_gpc0_mmu_l1tlb_ecc_status_reset_f(v)         ((U32(v) & 0x1U) << 30U)
@@ -1733,26 +1721,34 @@
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_dmem_pending_f() (0x20U)
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 10U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 10U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_total_counter_overflow_pending_f()\
 				(0x400U)
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 8U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 8U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_total_counter_overflow_pending_f()\
 				(0x100U)
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 11U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 11U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_pending_f()\
 				(0x800U)
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 9U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 9U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_gpc0_gpccs_falcon_ecc_status_corrected_err_unique_counter_overflow_pending_f()\
 				(0x200U)
 #define gr_gpc0_gpccs_falcon_ecc_status_reset_f(v)      ((U32(v) & 0x1U) << 31U)
@@ -1818,26 +1814,34 @@
 #define gr_fecs_falcon_ecc_status_uncorrected_err_dmem_pending_f()       (0x20U)
 #define gr_fecs_falcon_ecc_status_uncorrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 10U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_uncorrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 10U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_uncorrected_err_total_counter_overflow_pending_f()\
 				(0x400U)
 #define gr_fecs_falcon_ecc_status_corrected_err_total_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 8U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_corrected_err_total_counter_overflow_m()\
 				(U32(0x1U) << 8U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_corrected_err_total_counter_overflow_pending_f()\
 				(0x100U)
 #define gr_fecs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 11U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 11U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_uncorrected_err_unique_counter_overflow_pending_f()\
 				(0x800U)
 #define gr_fecs_falcon_ecc_status_corrected_err_unique_counter_overflow_f(v)\
 				((U32(v) & 0x1U) << 9U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_corrected_err_unique_counter_overflow_m()\
 				(U32(0x1U) << 9U)
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_4), "SWE-DRC-502-SWSADP-M5.dox")
 #define gr_fecs_falcon_ecc_status_corrected_err_unique_counter_overflow_pending_f()\
 				(0x200U)
 #define gr_fecs_falcon_ecc_status_reset_f(v)            ((U32(v) & 0x1U) << 31U)

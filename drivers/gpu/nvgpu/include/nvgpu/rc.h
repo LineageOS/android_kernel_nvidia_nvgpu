@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_RC_H
@@ -155,9 +137,9 @@ static inline const char *nvgpu_rc_type_to_str(unsigned int rc_type)
  * @param eng_bitmask [in]	Engine bitmask.
  * - The function does not perform validation of \a eng_bitmask parameter
  *   because it is not used for safety.
- * @param tsg [in]		Pointer to TSG struct.
- * - The function does not perform validation of \a tsg parameter because it is
- *   passed as is to \ref nvgpu_tsg_set_error_notifier.
+ * @param gfid [in]		gfid of the context.
+ * @param tsgid [in]		Id of the TSG .
+ * - The function does not perform validation of \a tsgid parameter.
  * @param debug_dump [in]	Whether debug dump required or not.
  * - The function does not perform validation of \a debug_dump parameter
  *   because it is not used for safety.
@@ -171,7 +153,7 @@ static inline const char *nvgpu_rc_type_to_str(unsigned int rc_type)
  *   quiesce is not triggered already.
  */
 void nvgpu_rc_ctxsw_timeout(struct gk20a *g, u32 eng_bitmask,
-				struct nvgpu_tsg *tsg, bool debug_dump);
+				u32 gfid, u32 tsgid, bool debug_dump);
 
 /**
  * @brief Do recovery processing for PBDMA fault.
@@ -188,7 +170,7 @@ void nvgpu_rc_ctxsw_timeout(struct gk20a *g, u32 eng_bitmask,
  * - The function does not perform validation of \a pbdma_status parameter
  *   because it is not deferenced in this function.
  * Do PBDMA fault recovery. Set error notifier as per \a error_notifier and call
- * \ref nvgpu_rc_tsg_and_related_engines to do the recovery. Steps involved are
+ * \ref nvgpu_rc_fifo_recover to do the recovery. Steps involved are
  * - If \a error_notifier is >= \ref NVGPU_ERR_NOTIFIER_INVAL, set error variable to
  *   -EINVAL, trigger quiesce \ref nvgpu_sw_quiesce "nvgpu_sw_quiesce(g)" and
  *   jump to label \a out.
@@ -215,28 +197,12 @@ void nvgpu_rc_ctxsw_timeout(struct gk20a *g, u32 eng_bitmask,
  *   \ref nvgpu_tsg_set_error_notifier
  *   "nvgpu_tsg_set_error_notifier(g, tsg, error_notifier)" to set error
  *   notifier buffer. Finally, call
- *   \ref nvgpu_rc_tsg_and_related_engines
- *   "nvgpu_rc_tsg_and_related_engines(g, tsg, true, RC_TYPE_PBDMA_FAULT)"
+ *   \ref nvgpu_rc_fifo_recover
+ *   "nvgpu_rc_fifo_recover(g, runlist_id, tsgid, true, true, true, RC_TYPE_PBDMA_FAULT)"
  *   to do recovery for tsg and related engines.
- * - If id_type set in above steps matches with \ref PBDMA_STATUS_ID_TYPE_CHID,
- *   call \ref nvgpu_channel_from_id to get
- *   pointer to struct \ref nvgpu_channel and store in variable ch. If ch is NULL
- *   log error, set error variable to -EINVAL, trigger quiesce
- *   \ref nvgpu_sw_quiesce "nvgpu_sw_quiesce(g)" and jump to label \a out else get
- *   pointer to struct \ref nvgpu_tsg using API \ref nvgpu_tsg_from_ch
- *   "nvgpu_tsg_from_ch(ch)" and store in variable tsg. If tsg is NULL log
- *   error, put the channel reference by calling \ref nvgpu_channel_put
- *   "nvgpu_channel_put(ch)", set error variable to -EINVAL, trigger quiesce
- *   \ref nvgpu_sw_quiesce "nvgpu_sw_quiesce(g)" and jump to label \a out else
- *   set error notifier buffer by calling \ref nvgpu_tsg_set_error_notifier
- *   "nvgpu_tsg_set_error_notifier(g, tsg, error_notifier)" followed by doing
- *   recovery by calling \ref nvgpu_rc_tsg_and_related_engines
- *   "nvgpu_rc_tsg_and_related_engines(g, tsg, true, RC_TYPE_PBDMA_FAULT)".
- *   Put the channel reference by calling \ref nvgpu_channel_put
- *   "nvgpu_channel_put(ch)".
- * - If id_type is not set to any of \ref PBMDA_STATUS_ID_TYPE_TSGID or
- *   \ref PBMDA_STATUS_ID_TYPE_CHID, log error and set error variable to -EINVAL,
- *   trigger quiesce \ref nvgpu_sw_quiesce "nvgpu_sw_quiesce(g)"
+ * - If id_type is not set to \ref PBMDA_STATUS_ID_TYPE_TSGID, log error and set
+ *   error variable to -EINVAL, trigger quiesce \ref nvgpu_sw_quiesce
+ *   "nvgpu_sw_quiesce(g)"
  * - Return error variable.
  *
  * @return 0 in case of success, < 0 in case of failure.
@@ -270,37 +236,34 @@ void nvgpu_rc_runlist_update(struct gk20a *g, u32 runlist_id);
  *
  * @param g [in]		Pointer to GPU driver struct.
  * - The function does not perform validation of \a g parameter.
- * @param tsg [in]		Pointer to TSG struct.
- * - The function does not perform validation of \a tsg parameter because it is
- *   passed as is to \ref nvgpu_tsg_set_error_notifier().
+ * @param runlist_id [in]		Id of the runlist.
+ * - The function does not perform validation of \a runlist_id parameter.
+ * @param tsgid [in]		Id of the TSG.
+ * - The function does not perform validation of \a tsgid parameter.
  *
  * Do preemption timeout recovery. For safety, following steps are performed
  * - Set error notifier buffer to \ref NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT by
  *   calling \ref nvgpu_tsg_set_error_notifier
- *   "nvgpu_tsg_set_error_notifier(g, tsg, NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT)".
+ *   "nvgpu_tsg_set_error_notifier(g, tsgid, NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT)".
  * - Call \ref BUG_ON "BUG_ON(!g->sw_quiesce_pending)" if quiesce is not
  *   triggered already.
  */
-void nvgpu_rc_preempt_timeout(struct gk20a *g, struct nvgpu_tsg *tsg);
+void nvgpu_rc_preempt_timeout(struct gk20a *g, u32 runlist_id, u32 tsgid);
 
 /**
  * @brief Do recovery processing for GR fault.
  *
  * @param g [in]		Pointer to GPU driver struct.
  * - The function does not perform validation of \a g parameter.
- * @param tsg [in]		Pointer to TSG struct.
- * - The function does not perform validation of \a tsg parameter
- *   because it is not used for safety.
- * @param ch [in]		Pointer to channel struct.
- * - The function does not perform validation of \a ch parameter
- *   because it is not used for safety.
+ * @param gfid [in]		gfid of the tsg.
+ * @param tsgid [in]		Id of the TSG.
+ * - The function does not perform validation of \a tsgid parameter.
  *
  * Do GR fault recovery. For safety, just print warning by calling
  * \ref WARN_ON "WARN_ON(!g->sw_quiesce_pending)" if quiesce is not triggered
  * already.
  */
-void nvgpu_rc_gr_fault(struct gk20a *g,
-			struct nvgpu_tsg *tsg, struct nvgpu_channel *ch);
+void nvgpu_rc_gr_fault(struct gk20a *g, u32 gfid, u32 tsgid);
 
 /**
  * @brief Do recovery processing for bad TSG sched error.
@@ -395,9 +358,9 @@ int nvgpu_rc_mmu_fault(struct gk20a *g, u32 act_eng_bitmask,
  *
  * @param g [in]		Pointer to GPU driver struct.
  * - The function does not perform validation of \a g parameter.
- * @param eng_bitmask [in]	Engine bitmask.
- * - The function does not perform validation of \a eng_bitmask parameter
- *   because it is not used for safety.
+ * @param gfid [in]		gfid of runlist and tsg.
+ * @param runlist_id [in]	Id of the runlist.
+ * - The function does not perform validation of \a runlist_id parameter.
  * @param hw_id [in]		Hardware identifier.
  * - The function does not perform validation of \a hw_id parameter
  *   because it is not used for safety.
@@ -415,13 +378,14 @@ int nvgpu_rc_mmu_fault(struct gk20a *g, u32 act_eng_bitmask,
  *   because it is not used for safety.
  *
  * Perform the manual recommended channel teardown sequence depending on the
- * \a rc_type, \a eng_bitmask, \a hw_id, \a id_is_tsg and \a id_is_known. For
+ * \a rc_type, \a runlist_id, \a hw_id, \a id_is_tsg and \a id_is_known. For
  * safety, just print warning by calling
  * \ref WARN_ON "WARN_ON(!g->sw_quiesce_pending)" if quiesce is not triggered
  * already.
  */
 void nvgpu_rc_fifo_recover(struct gk20a *g,
-			u32 eng_bitmask, /* if zero, will be queried from HW */
+			u32 gfid,
+			u32 runlist_id,
 			u32 hw_id, /* if ~0, will be queried from HW */
 			bool id_is_tsg, /* ignored if hw_id == ~0 */
 			bool id_is_known, bool debug_dump, u32 rc_type);

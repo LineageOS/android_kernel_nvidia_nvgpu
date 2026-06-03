@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2021-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_CIC_MON_H
@@ -28,10 +10,16 @@
 #include <nvgpu/log.h>
 
 #define MISC_EC_SW_ERR_CODE_0		(0U)
-#define HW_UNIT_ID_MASK			(0xFU)
+/*
+ * HW_UNIT_ID_MASK is updated to include bits 20-23 along
+ * with bits 0-3 which are also used to capture hw_unit_id now.
+ */
+#define HW_UNIT_ID_MASK			(0xF0000FU)
 #define ERR_ID_MASK			(0x1FU)
 #define ERR_ID_FIELD_SHIFT		(4U)
 #define CORRECTED_BIT_FIELD_SHIFT	(9U)
+#define RC_BIT_FIELD_SHIFT		(10U)
+#define QUIESCE_BIT_FIELD_SHIFT		(11U)
 #define ERR_REPORT_TIMEOUT_US		(5000U)
 #define SS_WAIT_DURATION_US		(500U)
 #define MAX_SS_RETRIES (ERR_REPORT_TIMEOUT_US / SS_WAIT_DURATION_US)
@@ -57,8 +45,8 @@
 #define HOST2SOC_3_SUBTREE		3U
 #define HOST2SOC_NUM_SUBTREE		4U
 
-#define HOST2SOC_SUBTREE_TO_TOP_IDX(i)	((i) / 32U)
-#define HOST2SOC_SUBTREE_TO_TOP_BIT(i)	((i) % 32U)
+#define HOST2SOC_SUBTREE_TO_TOP_IDX(i)	((u32)(i) / 32U)
+#define HOST2SOC_SUBTREE_TO_TOP_BIT(i)	((u32)(i) % 32U)
 #define HOST2SOC_SUBTREE_TO_LEAF0(i) \
 		(nvgpu_safe_mult_u32((i), 2U))
 #define HOST2SOC_SUBTREE_TO_LEAF1(i) \
@@ -205,7 +193,7 @@ struct nvgpu_err_desc;
  * @ingroup NVGPU_CIC_INTR_UNIT_DEFINES
  * CIC interrupt for GR unit.
  */
-#define NVGPU_CIC_INTR_UNIT_GR		5
+#define NVGPU_CIC_INTR_UNIT_GR		5U
 /**
  * @ingroup NVGPU_CIC_INTR_UNIT_DEFINES
  * CIC interrupt for PMU unit.
@@ -215,7 +203,7 @@ struct nvgpu_err_desc;
  * @ingroup NVGPU_CIC_INTR_UNIT_DEFINES
  * CIC interrupt for CE unit.
  */
-#define NVGPU_CIC_INTR_UNIT_CE		7
+#define NVGPU_CIC_INTR_UNIT_CE		7U
 /**
  * @ingroup NVGPU_CIC_INTR_UNIT_DEFINES
  * CIC interrupt for NVLINK unit.
@@ -351,6 +339,7 @@ int nvgpu_cic_mon_bound_check_hw_unit_id(struct gk20a *g, u32 hw_unit_id);
 int nvgpu_cic_mon_bound_check_err_id(struct gk20a *g, u32 hw_unit_id,
 						u32 err_id);
 
+#ifdef CONFIG_NVGPU_INTR_DEBUG
 /**
  * @brief Get the LUT data for input HW unit ID and error ID
  *
@@ -382,6 +371,7 @@ int nvgpu_cic_mon_bound_check_err_id(struct gk20a *g, u32 hw_unit_id,
  */
 int nvgpu_cic_mon_get_err_desc(struct gk20a *g, u32 hw_unit_id,
 		u32 err_id, struct nvgpu_err_desc **err_desc);
+#endif
 
 /**
  * @brief GPU HW errors are reported to Safety_Services via SDL unit.
@@ -398,6 +388,7 @@ int nvgpu_cic_mon_get_err_desc(struct gk20a *g, u32 hw_unit_id,
 int nvgpu_cic_mon_report_err_safety_services(struct gk20a *g,
 		u32 err_id);
 
+#ifndef CONFIG_NVGPU_MON_PRESENT
 /**
  * @brief Get the number of HW modules supported by CIC.
  *
@@ -413,6 +404,7 @@ int nvgpu_cic_mon_report_err_safety_services(struct gk20a *g,
  * @retval -EINVAL if CIC is not initialized.
  */
 int nvgpu_cic_mon_get_num_hw_modules(struct gk20a *g);
+#endif
 
 #ifdef CONFIG_NVGPU_MON_PRESENT
 /**
@@ -484,6 +476,35 @@ u32 nvgpu_cic_mon_intr_nonstall_isr(struct gk20a *g);
  */
 void nvgpu_cic_mon_intr_nonstall_handle(struct gk20a *g);
 #endif
+
+/**
+ * @brief Top half of MSI/MSI-X interrupt ISR.
+ *
+ * @param g [in]	The GPU driver struct.
+ * @param id [in]	The MSI/MSI-X id.
+ *
+ * This function is invoked by MSI/MSI-X interrupt ISRs to check if there are
+ * any pending interrupts. The function will return the action to be taken based
+ * on interrupt, gpu and quiesce status.
+ *
+ * @retval NVGPU_CIC_INTR_HANDLE if interrupts are pending.
+ * @retval NVGPU_CIC_INTR_UNMASK if GPU is powered off.
+ * @retval NVGPU_CIC_INTR_NONE if no interrupts are pending.
+ * @retval NVGPU_CIC_INTR_QUIESCE_PENDING if quiesce is pending.
+ */
+u32 nvgpu_cic_mon_intr_msi_isr(struct gk20a *g, u32 id);
+
+/**
+ * @brief Bottom half of MSI/MSI-X interrupt ISR.
+ *
+ * @param g [in]	The GPU driver struct.
+ * @param id [in]	The MSI/MSI-X id.
+ *
+ * This function is called to take action based on pending MSI/MSI-X interrupts.
+ * This function will determine if the pending interrupt is a stall or nonstall
+ * interrupt and then invoke the appropriate interrupt handling operation.
+ */
+void nvgpu_cic_mon_intr_msi_handle(struct gk20a *g, u32 id);
 
 /**
  * @brief Clear the GPU device interrupts at master level.
@@ -592,38 +613,54 @@ void nvgpu_cic_mon_intr_stall_unit_config(struct gk20a *g, u32 unit, bool enable
 void nvgpu_cic_mon_intr_nonstall_unit_config(struct gk20a *g, u32 unit, bool enable);
 #endif
 
+#ifndef CONFIG_NVGPU_MON_PRESENT
 /**
  * @brief Disable/Pause the stalling interrupts.
  *
- * @param g [in]	The GPU driver struct.
+ * @param g [in]		The GPU driver struct.
+ * @param intr_mask [in]	The mask of interrupts to be disabled.
  *
  * This function is invoked to disable the stalling interrupts before
  * the ISR is executed.
  *
  * Steps:
+ * - If GIN is enabled
+ * - Invoke nvgpu_gin_intr_stall_pause to disable the GIN interrupts in
+ *   CPU_INTR_TOP register.
+ * - Else
  * - Acquire the spinlock g->mc.intr_lock.
  * - Write U32_MAX to the stalling interrupts enable clear register
  *   (mc_intr_en_clear_r(#NVGPU_CIC_INTR_STALLING)).
  * - Release the spinlock g->mc.intr_lock.
  */
-void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g);
+void nvgpu_cic_mon_intr_stall_pause(struct gk20a *g, u64 intr_mask);
 
 /**
  * @brief Enable/Resume the stalling interrupts.
  *
  * @param g [in]	The GPU driver struct.
+ * @param intr_mask [in]	The mask of interrupts to be enabled.
  *
  * This function is invoked to enable the stalling interrupts after
  * the ISR is executed.
  *
  * Steps:
+ * - If GIN is enabled
+ * - Invoke nvgpu_gin_intr_stall_resume to enable the GIN interrupts in
+ *   CPU_INTR_TOP register.
+ * - Else
  * - Acquire the spinlock g->mc.intr_lock.
  * - Enable stalling interrupts as configured during #intr_stall_unit_config
  * - Write #intr_mask_restore[#NVGPU_CIC_INTR_STALLING] to the stalling
  *   interrupts enable set register (mc_intr_en_set_r(#NVGPU_CIC_INTR_STALLING)).
  * - Release the spinlock g->mc.intr_lock.
  */
-void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g);
+void nvgpu_cic_mon_intr_stall_resume(struct gk20a *g, u64 intr_mask);
+#endif
+
+#ifdef CONFIG_NVGPU_NON_FUSA
+void nvgpu_cic_mon_intr_enable(struct gk20a *g);
+#endif
 
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
 /**
@@ -662,7 +699,6 @@ void nvgpu_cic_mon_intr_nonstall_pause(struct gk20a *g);
 void nvgpu_cic_mon_intr_nonstall_resume(struct gk20a *g);
 #endif
 
-void nvgpu_cic_mon_intr_enable(struct gk20a *g);
 
 #ifdef CONFIG_NVGPU_FSI_ERR_INJECTION
 int nvgpu_cic_mon_reg_errinj_cb(struct gk20a *g);

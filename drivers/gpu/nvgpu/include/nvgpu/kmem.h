@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_KMEM_H
@@ -243,7 +225,13 @@ void nvgpu_kmem_cache_free(struct nvgpu_kmem_cache *cache, void *ptr);
  * @param g [in] Current GPU.
  * @param addr [in] Address of object to free.
  */
-#define nvgpu_kfree(g, addr)	nvgpu_kfree_impl(g, addr)
+
+#define nvgpu_kfree(g, addr) 			\
+	do { 					\
+		nvgpu_kfree_impl(g, addr); 	\
+		(addr) = (void *)NULL; 		\
+	} while (false)
+
 
 /**
  * @brief Frees an allocated chunk of virtual memory.
@@ -254,7 +242,11 @@ void nvgpu_kmem_cache_free(struct nvgpu_kmem_cache *cache, void *ptr);
  * @param g [in] Current GPU.
  * @param addr [in] Address of object to free.
  */
-#define nvgpu_vfree(g, addr)	nvgpu_vfree_impl(g, addr)
+#define nvgpu_vfree(g, addr)		\
+	do {				\
+	nvgpu_vfree_impl(g, addr);	\
+	(addr) = (void *)NULL;		\
+	} while (false)
 
 #define kmem_dbg(g, fmt, args...)		\
 	nvgpu_log(g, gpu_dbg_kmem, fmt, ##args)

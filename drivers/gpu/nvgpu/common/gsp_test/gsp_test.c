@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/firmware.h>
 #include <nvgpu/falcon.h>
@@ -231,7 +212,7 @@ int nvgpu_gsp_stress_test_halt(struct gk20a *g, bool restart)
 		goto exit;
 	}
 
-	nvgpu_gsp_suspend(g, gsp);
+	nvgpu_gsp_suspend(g);
 
 	if (restart && (gsp_stest->gsp_test.load_stress_test == false)) {
 		nvgpu_info(g, "GSP stress test not loaded ");
@@ -328,7 +309,7 @@ int nvgpu_gsp_stress_test_sw_init(struct gk20a *g)
 	gsp->g = g;
 
 	/* Init isr mutex */
-	nvgpu_mutex_init(&gsp->isr_mutex);
+	nvgpu_mutex_init(&gsp->gsp_flcn->isr_mutex);
 
 	nvgpu_log_fn(g, " Done ");
 	return err;
@@ -337,9 +318,3 @@ de_init:
 	return err;
 }
 
-void nvgpu_gsp_stest_isr(struct gk20a *g)
-{
-	struct nvgpu_gsp *gsp = g->gsp_stest->gsp;
-
-	g->ops.gsp.gsp_isr(g, gsp);
-}

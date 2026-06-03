@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/types.h>
@@ -41,7 +22,7 @@ void ga10b_fb_handle_mmu_fault(struct gk20a *g, u32 intr_unit_bitmask)
 
 	nvgpu_log(g, gpu_dbg_intr, "mmu_fault_status = 0x%08x", fault_status);
 
-	if ((intr_unit_bitmask & BIT32(NVGPU_CIC_INTR_UNIT_MMU_INFO_FAULT)) != 0) {
+	if ((intr_unit_bitmask & BIT32(NVGPU_CIC_INTR_UNIT_MMU_INFO_FAULT)) != 0U) {
 
 		gv11b_fb_handle_dropped_mmu_fault(g, fault_status);
 		gv11b_mm_mmu_fault_handle_other_fault_notify(g, fault_status);
@@ -58,7 +39,7 @@ void ga10b_fb_handle_mmu_fault(struct gk20a *g, u32 intr_unit_bitmask)
 	if (gv11b_fb_is_fault_buf_enabled(g,
 			NVGPU_MMU_FAULT_NONREPLAY_REG_INDX)) {
 		if ((intr_unit_bitmask &
-			BIT32(NVGPU_CIC_INTR_UNIT_MMU_NON_REPLAYABLE_FAULT)) != 0) {
+			BIT32(NVGPU_CIC_INTR_UNIT_MMU_NON_REPLAYABLE_FAULT)) != 0U) {
 
 			gv11b_mm_mmu_fault_handle_nonreplay_replay_fault(g,
 					fault_status,
@@ -72,7 +53,7 @@ void ga10b_fb_handle_mmu_fault(struct gk20a *g, u32 intr_unit_bitmask)
 		}
 
 		if ((intr_unit_bitmask &
-			BIT32(NVGPU_CIC_INTR_UNIT_MMU_NON_REPLAYABLE_FAULT_ERROR)) != 0) {
+			BIT32(NVGPU_CIC_INTR_UNIT_MMU_NON_REPLAYABLE_FAULT_ERROR)) != 0U) {
 
 			gv11b_fb_handle_nonreplay_fault_overflow(g,
 				 fault_status);

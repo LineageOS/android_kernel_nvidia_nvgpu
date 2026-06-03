@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/debug.h>
@@ -32,7 +13,7 @@
 
 #include "engine_status_gm20b.h"
 
-static void populate_invalid_ctxsw_status_info(
+static void gm20b_populate_invalid_ctxsw_status_info(
 		struct nvgpu_engine_status_info *status_info)
 {
 	status_info->ctx_id = ENGINE_STATUS_CTX_ID_INVALID;
@@ -43,7 +24,7 @@ static void populate_invalid_ctxsw_status_info(
 	status_info->ctxsw_status = NVGPU_CTX_STATUS_INVALID;
 }
 
-static void populate_valid_ctxsw_status_info(
+static void gm20b_populate_valid_ctxsw_status_info(
 		struct nvgpu_engine_status_info *status_info)
 {
 	bool id_type_tsg;
@@ -62,7 +43,7 @@ static void populate_valid_ctxsw_status_info(
 	status_info->ctxsw_status = NVGPU_CTX_STATUS_VALID;
 }
 
-static void populate_load_ctxsw_status_info(
+static void gm20b_populate_load_ctxsw_status_info(
 		struct nvgpu_engine_status_info *status_info)
 {
 	bool next_id_type_tsg;
@@ -81,7 +62,7 @@ static void populate_load_ctxsw_status_info(
 	status_info->ctxsw_status = NVGPU_CTX_STATUS_CTXSW_LOAD;
 }
 
-static void populate_save_ctxsw_status_info(
+static void gm20b_populate_save_ctxsw_status_info(
 		struct nvgpu_engine_status_info *status_info)
 {
 	bool id_type_tsg;
@@ -100,7 +81,7 @@ static void populate_save_ctxsw_status_info(
 	status_info->ctxsw_status = NVGPU_CTX_STATUS_CTXSW_SAVE;
 }
 
-static void populate_switch_ctxsw_status_info(
+static void gm20b_populate_switch_ctxsw_status_info(
 		struct nvgpu_engine_status_info *status_info)
 {
 	bool id_type_tsg;
@@ -159,17 +140,17 @@ void gm20b_read_engine_status_info(struct gk20a *g, u32 engine_id,
 	status->ctxsw_state = ctxsw_state;
 
 	if (ctxsw_state == fifo_engine_status_ctx_status_valid_v()) {
-		populate_valid_ctxsw_status_info(status);
+		gm20b_populate_valid_ctxsw_status_info(status);
 	} else if (ctxsw_state ==
 			fifo_engine_status_ctx_status_ctxsw_load_v()) {
-		populate_load_ctxsw_status_info(status);
+		gm20b_populate_load_ctxsw_status_info(status);
 	} else if (ctxsw_state ==
 			fifo_engine_status_ctx_status_ctxsw_save_v()) {
-		populate_save_ctxsw_status_info(status);
+		gm20b_populate_save_ctxsw_status_info(status);
 	} else if (ctxsw_state ==
 			fifo_engine_status_ctx_status_ctxsw_switch_v()) {
-		populate_switch_ctxsw_status_info(status);
+		gm20b_populate_switch_ctxsw_status_info(status);
 	} else {
-		populate_invalid_ctxsw_status_info(status);
+		gm20b_populate_invalid_ctxsw_status_info(status);
 	}
 }

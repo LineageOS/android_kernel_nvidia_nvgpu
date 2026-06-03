@@ -1,25 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 /*
  * GM20B GPC MMU
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  */
 
 #include <nvgpu/kmem.h>
@@ -559,12 +542,12 @@ fail:
 }
 
 int gm20b_gr_set_mmu_debug_mode(struct gk20a *g,
-		struct nvgpu_channel *ch, bool enable)
+		struct nvgpu_channel *ch, bool enable, bool enable_gcc)
 {
 	struct nvgpu_dbg_reg_op ctx_ops = {
 		.op = REGOP(WRITE_32),
 		.type = REGOP(TYPE_GR_CTX),
-		.offset = gr_gpcs_pri_mmu_debug_ctrl_r(),
+		.offset = g->ops.gr.get_gpcs_pri_mmu_debug_ctrl_reg(),
 		.value_lo = enable ?
 			gr_gpcs_pri_mmu_debug_ctrl_debug_enabled_f() :
 			gr_gpcs_pri_mmu_debug_ctrl_debug_disabled_f(),
@@ -572,6 +555,7 @@ int gm20b_gr_set_mmu_debug_mode(struct gk20a *g,
 	int err;
 	struct nvgpu_tsg *tsg = nvgpu_tsg_from_ch(ch);
 	u32 flags = NVGPU_REG_OP_FLAG_MODE_ALL_OR_NONE;
+	(void)enable_gcc;
 
 	if (tsg == NULL) {
 		return enable ? -EINVAL : 0;
@@ -586,7 +570,9 @@ int gm20b_gr_set_mmu_debug_mode(struct gk20a *g,
 
 void gm20b_gr_set_debug_mode(struct gk20a *g, bool enable)
 {
-	u32 reg_val, gpc_debug_ctrl;
+	u32 reg_val, gpc_debug_ctrl, gpcs_pri_mmu_debug_ctrl_debug_addr;
+
+	gpcs_pri_mmu_debug_ctrl_debug_addr = g->ops.gr.get_gpcs_pri_mmu_debug_ctrl_reg();
 
 	if (enable) {
 		gpc_debug_ctrl = gr_gpcs_pri_mmu_debug_ctrl_debug_enabled_f();
@@ -594,10 +580,10 @@ void gm20b_gr_set_debug_mode(struct gk20a *g, bool enable)
 		gpc_debug_ctrl = gr_gpcs_pri_mmu_debug_ctrl_debug_disabled_f();
 	}
 
-	reg_val = gk20a_readl(g, gr_gpcs_pri_mmu_debug_ctrl_r());
+	reg_val = gk20a_readl(g, gpcs_pri_mmu_debug_ctrl_debug_addr);
 	reg_val = set_field(reg_val,
 			gr_gpcs_pri_mmu_debug_ctrl_debug_m(), gpc_debug_ctrl);
-	gk20a_writel(g, gr_gpcs_pri_mmu_debug_ctrl_r(), reg_val);
+	gk20a_writel(g, gpcs_pri_mmu_debug_ctrl_debug_addr, reg_val);
 }
 
 bool gm20b_gr_esr_bpt_pending_events(u32 global_esr,
@@ -620,4 +606,9 @@ bool gm20b_gr_esr_bpt_pending_events(u32 global_esr,
 	}
 
 	return ret;
+}
+
+u32 gm20b_get_gpcs_pri_mmu_debug_ctrl_reg(void)
+{
+	return gr_gpcs_pri_mmu_debug_ctrl_r();
 }

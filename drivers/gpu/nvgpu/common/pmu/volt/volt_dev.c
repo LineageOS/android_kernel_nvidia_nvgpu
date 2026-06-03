@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/pmu/pmuif/nvgpu_cmdif.h>
@@ -57,6 +38,8 @@ static int volt_device_pmu_data_init_super(struct gk20a *g,
 	pset->voltage_min_uv = pdev->voltage_min_uv;
 	pset->voltage_max_uv = pdev->voltage_max_uv;
 	pset->volt_step_uv = pdev->volt_step_uv;
+	pset->power_up_settle_time_us = pdev->power_up_settle_time_us;
+	pset->power_down_settle_time_us = pdev->power_down_settle_time_us;
 
 	return status;
 }
@@ -80,14 +63,20 @@ static int volt_device_pmu_data_init_pwm(struct gk20a *g,
 	pset->voltage_base_uv = pdev->voltage_base_uv;
 	pset->voltage_offset_scale_uv = pdev->voltage_offset_scale_uv;
 	pset->pwm_source = pdev->source;
+	pset->volt_en_gpio_pin = pdev->volt_en_gpio_pin;
+	pset->gate_voltage_uv = pdev->gate_voltage_uv;
+	pset->clvc_offset_source = pdev->clvc_offset_source;
+	pset->b_clvc_hw_offset_support = pdev->b_clvc_hw_offset_support;
+
+	// No need to set accumulator_pwm_source because it's skipped
+	// in volt_get_voltage_device_table_1x_psv
 
 	return status;
 }
 
 static int volt_construct_volt_device(struct gk20a *g,
-	struct pmu_board_obj **obj, size_t size, void *pargs)
+	struct pmu_board_obj **obj, size_t size, struct voltage_device_pwm *ptmp_dev)
 {
-	struct voltage_device *ptmp_dev = (struct voltage_device *)pargs;
 	struct voltage_device *pvolt_dev = NULL;
 	int status = 0;
 
@@ -97,22 +86,24 @@ static int volt_construct_volt_device(struct gk20a *g,
 	}
 
 	status = pmu_board_obj_construct_super(g,
-			(struct pmu_board_obj *)(void *)pvolt_dev, pargs);
+			&pvolt_dev->super, &ptmp_dev->super.super);
 	if (status != 0) {
 		return -EINVAL;
 	}
 
 	*obj = (struct pmu_board_obj *)(void *)pvolt_dev;
 
-	pvolt_dev->volt_domain = ptmp_dev->volt_domain;
-	pvolt_dev->i2c_dev_idx = ptmp_dev->i2c_dev_idx;
-	pvolt_dev->switch_delay_us = ptmp_dev->switch_delay_us;
-	pvolt_dev->rsvd_0 = VOLTAGE_DESCRIPTOR_TABLE_ENTRY_INVALID;
-	pvolt_dev->rsvd_1 =
+	pvolt_dev->volt_domain = ptmp_dev->super.volt_domain;
+	pvolt_dev->i2c_dev_idx = ptmp_dev->super.i2c_dev_idx;
+	pvolt_dev->switch_delay_us = ptmp_dev->super.switch_delay_us;
+	pvolt_dev->deep_idle_vdt_idx = VOLTAGE_DESCRIPTOR_TABLE_ENTRY_INVALID;
+	pvolt_dev->gcx_state_retention_vdt_idx =
 			VOLTAGE_DESCRIPTOR_TABLE_ENTRY_INVALID;
-	pvolt_dev->operation_type = ptmp_dev->operation_type;
-	pvolt_dev->voltage_min_uv = ptmp_dev->voltage_min_uv;
-	pvolt_dev->voltage_max_uv = ptmp_dev->voltage_max_uv;
+	pvolt_dev->operation_type = ptmp_dev->super.operation_type;
+	pvolt_dev->voltage_min_uv = ptmp_dev->super.voltage_min_uv;
+	pvolt_dev->voltage_max_uv = ptmp_dev->super.voltage_max_uv;
+	pvolt_dev->power_up_settle_time_us = ptmp_dev->super.power_up_settle_time_us;
+	pvolt_dev->power_down_settle_time_us = ptmp_dev->super.power_down_settle_time_us;
 
 	pvolt_dev->super.pmudatainit = volt_device_pmu_data_init_super;
 
@@ -121,15 +112,13 @@ static int volt_construct_volt_device(struct gk20a *g,
 
 static int volt_construct_pwm_volt_device(struct gk20a *g,
 		struct pmu_board_obj **obj,
-		size_t size, void *pargs)
+		size_t size, struct voltage_device_pwm *ptmp_dev)
 {
 	struct pmu_board_obj *obj_tmp = NULL;
-	struct voltage_device_pwm *ptmp_dev =
-			(struct voltage_device_pwm *)pargs;
 	struct voltage_device_pwm *pdev = NULL;
 	int status = 0;
 
-	status = volt_construct_volt_device(g, obj, size, pargs);
+	status = volt_construct_volt_device(g, obj, size, ptmp_dev);
 	if (status != 0) {
 		return status;
 	}
@@ -144,7 +133,13 @@ static int volt_construct_pwm_volt_device(struct gk20a *g,
 	pdev->voltage_offset_scale_uv = ptmp_dev->voltage_offset_scale_uv;
 	pdev->source = ptmp_dev->source;
 	pdev->raw_period = ptmp_dev->raw_period;
+	pdev->volt_en_gpio_pin = ptmp_dev->volt_en_gpio_pin;
+	pdev->gate_voltage_uv = ptmp_dev->gate_voltage_uv;
+	pdev->clvc_offset_source = ptmp_dev->clvc_offset_source;
+	pdev->b_clvc_hw_offset_support = ptmp_dev->b_clvc_hw_offset_support;
 
+	// No need to set accumulator_pwm_source because it's skipped
+	// in volt_get_voltage_device_table_1x_psv
 	return status;
 }
 
@@ -183,17 +178,17 @@ static u8 volt_dev_operation_type_convert(u8 vbios_type)
 }
 
 static struct voltage_device *volt_volt_device_construct(struct gk20a *g,
-		void *pargs)
+		struct voltage_device_pwm *ptmp_dev)
 {
 	struct pmu_board_obj *obj = NULL;
 
-	if (pmu_board_obj_get_type(pargs) == CTRL_VOLT_DEVICE_TYPE_PWM) {
+	if (pmu_board_obj_get_type(&ptmp_dev->super.super) == CTRL_VOLT_DEVICE_TYPE_PWM) {
 		int status = volt_construct_pwm_volt_device(g, &obj,
-				sizeof(struct voltage_device_pwm), pargs);
+				sizeof(struct voltage_device_pwm), ptmp_dev);
 		if (status != 0) {
 			nvgpu_err(g,
 				" Could not allocate memory for VOLTAGE_DEVICE type (%x).",
-				pmu_board_obj_get_type(pargs));
+				pmu_board_obj_get_type(&ptmp_dev->super.super));
 			obj = NULL;
 		}
 	}
@@ -204,7 +199,7 @@ static struct voltage_device *volt_volt_device_construct(struct gk20a *g,
 static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 		struct vbios_voltage_device_table_1x_entry *p_bios_entry,
 		struct voltage_device_metadata *p_Volt_Device_Meta_Data,
-		u8 entry_Idx)
+		u8 entry_Idx, u8 entry_size)
 {
 	int status = 0;
 	u32 entry_cnt = 0;
@@ -242,13 +237,6 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 		goto done;
 	}
 
-	/* Skip and return success as ucode doesn't support IPC VMIN type */
-	if (ptmp_dev->super.operation_type ==
-			CTRL_VOLT_VOLT_DEVICE_OPERATION_TYPE_IPC_VMIN) {
-		status = 0;
-		goto done;
-	}
-
 	ptmp_dev->super.voltage_min_uv = BIOS_GET_FIELD(u32,
 		p_bios_entry->param1,
 		NV_VBIOS_VDT_1X_ENTRY_PARAM1_PSV_VOLTAGE_MINIMUM);
@@ -257,6 +245,13 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 		p_bios_entry->param2,
 		NV_VBIOS_VDT_1X_ENTRY_PARAM2_PSV_VOLTAGE_MAXIMUM);
 
+	/*
+	 * No need to parse VBIOS for ptmp_dev->b_clvc_hw_offset_support
+	 * because the field is 0 in VBIOS
+	 */
+	ptmp_dev->b_clvc_hw_offset_support = 0;
+
+	/* Skipped sign extension handling because in VBIOS, it's not a -ve value */
 	ptmp_dev->voltage_base_uv = BIOS_GET_FIELD(s32, p_bios_entry->param3,
 			NV_VBIOS_VDT_1X_ENTRY_PARAM3_PSV_VOLTAGE_BASE);
 
@@ -266,9 +261,37 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 		steps = VOLT_DEV_PWM_VOLTAGE_STEPS_DEFAULT;
 	}
 
+	/* Skipped sign extension handling because in VBIOS, it's not a -ve value */
 	ptmp_dev->voltage_offset_scale_uv =
 			BIOS_GET_FIELD(s32, p_bios_entry->param4,
 				NV_VBIOS_VDT_1X_ENTRY_PARAM4_PSV_OFFSET_SCALE);
+
+	if (entry_size >= VBIOS_VOLTAGE_DEVICE_1X_ENTRY_SIZE_20) {
+		/* In GB20C VBIOS, value for this field in all entries is SKIP_ENTRY */
+		u8 gpio_func = BIOS_GET_FIELD(u8, p_bios_entry->param5,
+			NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_VOLTAGE_EN_GPIO_FUNC);
+		if (gpio_func != GPIO_FUNC_SKIPENTRY) {
+			nvgpu_err(g, "GPIO function other than skip entry is not supported = %d", gpio_func);
+			status = -EINVAL;
+			goto done;
+		}
+
+		ptmp_dev->super.power_up_settle_time_us =
+			(u16)p_bios_entry->power_up_settle_time_us;
+		ptmp_dev->super.power_down_settle_time_us =
+			(u16)p_bios_entry->power_down_settle_time_us;
+		ptmp_dev->gate_voltage_uv = BIOS_GET_FIELD(u32,
+			p_bios_entry->param5,
+			NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_GATE_VOLTAGE_UV);
+	} else {
+		ptmp_dev->super.power_up_settle_time_us = 0;
+		ptmp_dev->super.power_down_settle_time_us = 0;
+		ptmp_dev->gate_voltage_uv =
+			CTRL_VOLT_DEVICE_PSV_GATE_VOLTAGE_UV_INVALID;
+	}
+
+	/* RM assigns 0xFF to volt_en_gpio_pin, if gpio_func is GPIO_FUNC_SKIPENTRY */
+	ptmp_dev->volt_en_gpio_pin = 0xFF;
 
 	volt_domain = volt_rail_vbios_volt_domain_convert_to_internal(g,
 		(u8)p_bios_entry->volt_domain);
@@ -283,21 +306,61 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 		CTRL_VOLT_DEVICE_OPERATION_TYPE_DEFAULT ||
 		ptmp_dev->super.operation_type ==
 		CTRL_VOLT_VOLT_DEVICE_OPERATION_TYPE_IPC_VMIN) {
-		if (volt_domain == CTRL_VOLT_DOMAIN_LOGIC) {
-			ptmp_dev->source =
-				NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_0;
-		}
-
-		if (ptmp_dev->super.operation_type ==
-			CTRL_VOLT_VOLT_DEVICE_OPERATION_TYPE_IPC_VMIN) {
-			if (ptmp_dev->source ==
-				NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_0) {
+		/*
+		 * GB20C VBIOS supports only CTRL_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL volt_domain_hal
+		 * Previous VIOS supported CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL
+		 */
+		if (g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal ==
+			CTRL_VOLT_DOMAIN_HAL_GP10X_SINGLE_RAIL ||
+		    g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal ==
+			CTRL_VOLT_DOMAIN_HAL_GA10X_MULTI_RAIL) {
+			/* Valid values for volt_domain are LOGIC and MSVDD */
+			if (volt_domain == CTRL_VOLT_DOMAIN_LOGIC) {
 				ptmp_dev->source =
-					NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_0;
+					NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_0;
+			} else if (volt_domain == CTRL_VOLT_DOMAIN_MSVDD) {
+				ptmp_dev->source =
+					NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_1;
+			} else {
+				nvgpu_err(g, "Unsupported volt_domain = %d", volt_domain);
+				status = -EINVAL;
+				goto done;
 			}
+
+			if (ptmp_dev->super.operation_type ==
+				CTRL_VOLT_VOLT_DEVICE_OPERATION_TYPE_IPC_VMIN) {
+				if (ptmp_dev->source ==
+					NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_0) {
+					ptmp_dev->source =
+						NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_0;
+				} else if (ptmp_dev->source ==
+					NV_PMU_PMGR_PWM_SOURCE_THERM_VID_PWM_1) {
+					ptmp_dev->source =
+						NV_PMU_PMGR_PWM_SOURCE_THERM_IPC_VMIN_VID_PWM_1;
+				} else {
+					nvgpu_err(g, "Unsupported source = %d", ptmp_dev->source);
+					status = -EINVAL;
+					goto done;
+				}
+			}
+
+			/*
+			 * No need to set clvc_offset_source and accumulator_pwm_source in ptmp_dev
+			 * because b_clvc_hw_offset_support is 0 in VBIOS
+			 */
+			ptmp_dev->raw_period =
+				g->ops.clk.get_crystal_clk_hz(g) / frequency_hz;
+			if (ptmp_dev->raw_period == 0) {
+				nvgpu_err(g, "Invalid raw_period = %d", ptmp_dev->raw_period);
+				status = -EINVAL;
+				goto done;
+			}
+		} else {
+			nvgpu_err(g, "Unsupported volt_domain_hal = %d",
+				g->pmu->volt->volt_metadata->volt_rail_metadata.volt_domain_hal);
+			status = -EINVAL;
+			goto done;
 		}
-		ptmp_dev->raw_period =
-			g->ops.clk.get_crystal_clk_hz(g) / frequency_hz;
 	}
 
 	/* Initialize data for parent class. */
@@ -363,6 +426,11 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 			entry_cnt++;
 		}
 
+		/* Voltage table is constructed, exit! */
+		if (duty_cycle == pvolt_dev_pwm->raw_period) {
+			break;
+		}
+
 		/* Obtain next value after the specified steps. */
 		duty_cycle = duty_cycle + (u32)steps;
 
@@ -371,7 +439,7 @@ static int volt_get_voltage_device_table_1x_psv(struct gk20a *g,
 			duty_cycle = pvolt_dev_pwm->raw_period;
 		}
 
-	} while (duty_cycle < pvolt_dev_pwm->raw_period);
+	} while (1);
 
 done:
 	if (pvolt_dev != NULL) {
@@ -414,7 +482,7 @@ static int volt_get_volt_devices_table(struct gk20a *g,
 		if (entry.type == NV_VBIOS_VOLTAGE_DEVICE_1X_ENTRY_TYPE_PSV) {
 			status = volt_get_voltage_device_table_1x_psv(g,
 					&entry, pvolt_device_metadata,
-					entry_idx);
+					entry_idx, header.table_entry_size);
 		}
 	}
 
@@ -448,7 +516,7 @@ static int volt_device_state_init(struct gk20a *g,
 			struct voltage_device *pvolt_dev)
 {
 	int status = 0;
-	struct voltage_rail *pRail = NULL;
+	void *pRail = NULL;
 	u8 rail_idx = 0;
 
 	/* Initialize VOLT_DEVICE step size. */
@@ -472,7 +540,7 @@ static int volt_device_state_init(struct gk20a *g,
 			goto done;
 		}
 
-		pRail = (struct voltage_rail *)BOARDOBJGRP_OBJ_GET_BY_IDX(
+		pRail = (void *)BOARDOBJGRP_OBJ_GET_BY_IDX(
 			&g->pmu->volt->volt_metadata->volt_rail_metadata.volt_rails.super,
 			rail_idx);
 		if (pRail == NULL) {
@@ -540,14 +608,14 @@ int volt_dev_sw_setup(struct gk20a *g)
 
 	pboardobjgrp->pmudatainstget  = volt_device_devgrp_pmudata_instget;
 
-	/* Obtain Voltage Rail Table from VBIOS */
+	/* Obtain Voltage Device Table from VBIOS */
 	status = volt_get_volt_devices_table(g, &g->pmu->volt->volt_metadata->
 			volt_dev_metadata);
 	if (status != 0) {
 		goto done;
 	}
 
-	/* Populate data for the VOLT_RAIL PMU interface */
+	/* Populate data for the VOLT_DEVICE PMU interface */
 	BOARDOBJGRP_PMU_CONSTRUCT(pboardobjgrp, VOLT, VOLT_DEVICE);
 
 	status = BOARDOBJGRP_PMU_CMD_GRP_SET_CONSTRUCT(g, pboardobjgrp,

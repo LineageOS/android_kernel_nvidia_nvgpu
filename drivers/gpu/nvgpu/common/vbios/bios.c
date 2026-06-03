@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2015-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bios.h>
 #include <nvgpu/io.h>
@@ -33,6 +14,7 @@
 
 static void nvgpu_bios_parse_bit(struct gk20a *g, u32 offset);
 
+#ifdef CONFIG_NVGPU_DGPU
 int nvgpu_bios_devinit(struct gk20a *g,
 		 struct nvgpu_bios *bios)
 {
@@ -60,6 +42,7 @@ int nvgpu_bios_preos_wait_for_halt(struct gk20a *g,
 		return 0;
 	}
 }
+#endif /* CONFIG_NVGPU_DGPU */
 
 bool nvgpu_bios_check_dgpu(struct gk20a *g, u32 ver)
 {
@@ -433,6 +416,7 @@ static void nvgpu_bios_parse_bios_board_id_ptrs(struct gk20a *g, u16 offset)
 	g->bios->vbios_board_id = board.board_id;
 }
 
+#ifdef CONFIG_NVGPU_DGPU
 static void nvgpu_bios_parse_devinit_appinfo(struct gk20a *g, u32 dmem_offset)
 {
 	struct devinit_engine_interface interface;
@@ -672,6 +656,7 @@ static void nvgpu_bios_parse_falcon_data_v2(struct gk20a *g, u32 offset)
 		nvgpu_err(g, "could not parse falcon ucode table");
 	}
 }
+#endif /* CONFIG_NVGPU_DGPU */
 
 void *nvgpu_bios_get_perf_table_ptrs(struct gk20a *g,
 		struct bit_token *ptoken, u8 table_id)
@@ -759,12 +744,14 @@ static void nvgpu_bios_parse_bit(struct gk20a *g, u32 offset)
 		case TOKEN_ID_NVINIT_PTRS:
 			nvgpu_bios_parse_nvinit_ptrs(g, token.data_ptr);
 			break;
+#ifdef CONFIG_NVGPU_DGPU
 		case TOKEN_ID_FALCON_DATA:
 			if (token.data_version == 2U) {
 				nvgpu_bios_parse_falcon_data_v2(g,
 						token.data_ptr);
 			}
 			break;
+#endif
 		case TOKEN_ID_PERF_PTRS:
 			g->bios->perf_token =
 				(struct bit_token *)

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2016-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/log.h>
@@ -241,16 +222,19 @@ void fb_gv11b_write_mmu_fault_buffer_get(struct gk20a *g, u32 index,
 	nvgpu_writel(g, fb_mmu_fault_buffer_get_r(index), reg_val);
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 u32 gv11b_fb_read_mmu_fault_buffer_put(struct gk20a *g, u32 index)
 {
 	return nvgpu_readl(g, fb_mmu_fault_buffer_put_r(index));
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 u32 gv11b_fb_read_mmu_fault_buffer_size(struct gk20a *g, u32 index)
 {
 	return nvgpu_readl(g, fb_mmu_fault_buffer_size_r(index));
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 void gv11b_fb_write_mmu_fault_buffer_size(struct gk20a *g, u32 index,
 	u32 reg_val)
 {
@@ -314,7 +298,7 @@ void gv11b_fb_mmu_fault_info_dump(struct gk20a *g,
 			mmufault->client_id_desc,
 			mmufault->gpc_id);
 
-		nvgpu_log(g, gpu_dbg_intr, "[MMU FAULT] "
+		nvgpu_err(g, "[MMU FAULT] "
 			"faulted act eng id if any: 0x%x, "
 			"faulted veid if any: 0x%x, "
 			"faulted pbdma id if any: 0x%x, ",

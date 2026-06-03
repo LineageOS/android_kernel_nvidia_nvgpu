@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_WATCHDOG_H
@@ -57,62 +39,110 @@ bool nvgpu_channel_wdt_check(struct nvgpu_channel_wdt *wdt,
 
 #else /* CONFIG_NVGPU_CHANNEL_WDT */
 
+/**
+ * @brief This function does nothing on safety build.
+ * @return returns NULL on safety build
+ */
 static inline struct nvgpu_channel_wdt *nvgpu_channel_wdt_alloc(
 		struct gk20a *g)
 {
 	(void)g;
 	return NULL;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_destroy(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_enable(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_disable(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ * @return returns false on safety build
+ */
 static inline bool nvgpu_channel_wdt_enabled(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 	return false;
 }
 
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_set_limit(struct nvgpu_channel_wdt *wdt,
 		u32 limit_ms)
 {
 	(void)wdt;
 	(void)limit_ms;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ * @return returns 0 on safety build
+ */
 static inline u32 nvgpu_channel_wdt_limit(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 	return 0U;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_start(struct nvgpu_channel_wdt *wdt,
 		struct nvgpu_channel_wdt_state *state)
 {
 	(void)wdt;
 	(void)state;
 }
+
+/**
+ * @brief This function does nothing on safety build.
+ * @return returns false on safety build
+ */
 static inline bool nvgpu_channel_wdt_stop(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 	return false;
 }
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_continue(struct nvgpu_channel_wdt *wdt)
 {
 	(void)wdt;
 }
+/**
+ * @brief This function does nothing on safety build.
+ */
 static inline void nvgpu_channel_wdt_rewind(struct nvgpu_channel_wdt *wdt,
 		struct nvgpu_channel_wdt_state *state)
 {
 	(void)wdt;
 	(void)state;
 }
+/**
+ * @brief This function does nothing on safety build.
+ * @return returns false on safety build
+ */
 static inline bool nvgpu_channel_wdt_check(struct nvgpu_channel_wdt *wdt,
 		struct nvgpu_channel_wdt_state *state) {
 	(void)wdt;

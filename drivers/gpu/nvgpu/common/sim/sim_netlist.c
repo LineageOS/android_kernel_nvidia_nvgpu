@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/sim.h>
@@ -29,8 +10,8 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 {
 	int err = -ENOMEM;
 	u32 i, temp;
-	u32 fecs_inst_count, fecs_data_count;
-	u32 gpccs_inst_count, gpccs_data_count;
+	u32 fecs_inst_count, fecs_data_count, fecs_manifest_count;
+	u32 gpccs_inst_count, gpccs_data_count, gpccs_manifest_count;
 	struct netlist_av_list *sw_bundle_init;
 	struct netlist_av_list *sw_method_init;
 	struct netlist_aiv_list *sw_ctx_load;
@@ -59,6 +40,7 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 	struct netlist_aiv_list *perf_gpc_ctxsw_regs;
 	struct netlist_aiv_list *perf_gpcrouter_ctxsw_regs;
 	struct netlist_aiv_list *pm_ltc_ctxsw_regs;
+	struct netlist_aiv_list *pm_lrcc_ctxsw_regs;
 	struct netlist_aiv_list *pm_rop_ctxsw_regs;
 	struct netlist_aiv_list *pm_ucgpc_ctxsw_regs;
 	struct netlist_aiv_list *pm_cau_ctxsw_regs;
@@ -67,8 +49,8 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 	struct netlist_aiv_list *perf_gpc_control_ctxsw_regs;
 	struct netlist_aiv_list *perf_pma_control_ctxsw_regs;
 #endif /* CONFIG_NVGPU_DEBUGGER */
-	struct netlist_u32_list *fecs_inst, *fecs_data;
-	struct netlist_u32_list *gpccs_inst, *gpccs_data;
+	struct netlist_u32_list *fecs_inst, *fecs_data, *fecs_manifest;
+	struct netlist_u32_list *gpccs_inst, *gpccs_data, *gpccs_manifest;
 	u32 regs_base_index;
 #ifdef CONFIG_NVGPU_NON_FUSA
 	struct netlist_av_list *sw_non_ctx_local_compute_load;
@@ -153,6 +135,7 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 	perf_gpcrouter_ctxsw_regs =
 		nvgpu_netlist_get_gpc_router_ctxsw_regs(g);
 	pm_ltc_ctxsw_regs = nvgpu_netlist_get_pm_ltc_ctxsw_regs(g);
+	pm_lrcc_ctxsw_regs = nvgpu_netlist_get_pm_lrcc_ctxsw_regs(g);
 	pm_rop_ctxsw_regs = nvgpu_netlist_get_pm_rop_ctxsw_regs(g);
 	pm_ucgpc_ctxsw_regs = nvgpu_netlist_get_pm_ucgpc_ctxsw_regs(g);
 	pm_cau_ctxsw_regs = nvgpu_netlist_get_pm_cau_ctxsw_regs(g);
@@ -183,22 +166,47 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 
 	fecs_inst = nvgpu_netlist_get_fecs_inst(g);
 	fecs_data = nvgpu_netlist_get_fecs_data(g);
+	fecs_manifest = nvgpu_netlist_get_fecs_manifest(g);
 	gpccs_inst = nvgpu_netlist_get_gpccs_inst(g);
 	gpccs_data = nvgpu_netlist_get_gpccs_data(g);
+	gpccs_manifest = nvgpu_netlist_get_gpccs_manifest(g);
 
-	/* query sizes and counts */
-	g->sim->esc_readl(g, "GRCTX_UCODE_INST_FECS_COUNT", 0,
-			&fecs_inst_count);
-	nvgpu_netlist_set_fecs_inst_count(g, fecs_inst_count);
-	g->sim->esc_readl(g, "GRCTX_UCODE_DATA_FECS_COUNT", 0,
-			&fecs_data_count);
-	nvgpu_netlist_set_fecs_data_count(g, fecs_data_count);
-	g->sim->esc_readl(g, "GRCTX_UCODE_INST_GPCCS_COUNT", 0,
-			&gpccs_inst_count);
-	nvgpu_netlist_set_gpccs_inst_count(g, gpccs_inst_count);
-	g->sim->esc_readl(g, "GRCTX_UCODE_DATA_GPCCS_COUNT", 0,
-			&gpccs_data_count);
-	nvgpu_netlist_set_gpccs_data_count(g, gpccs_data_count);
+	if (!g->fecs_flcn.is_falcon2_enabled) {
+		/* query sizes and counts */
+		g->sim->esc_readl(g, "GRCTX_UCODE_INST_FECS_COUNT", 0,
+				&fecs_inst_count);
+		nvgpu_netlist_set_fecs_inst_count(g, fecs_inst_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_DATA_FECS_COUNT", 0,
+				&fecs_data_count);
+		nvgpu_netlist_set_fecs_data_count(g, fecs_data_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_INST_GPCCS_COUNT", 0,
+				&gpccs_inst_count);
+		nvgpu_netlist_set_gpccs_inst_count(g, gpccs_inst_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_DATA_GPCCS_COUNT", 0,
+				&gpccs_data_count);
+		nvgpu_netlist_set_gpccs_data_count(g, gpccs_data_count);
+	} else {
+		/* query sizes and counts */
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_INST_FECS_COUNT", 0,
+				&fecs_inst_count);
+		nvgpu_netlist_set_fecs_inst_count(g, fecs_inst_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_DATA_FECS_COUNT", 0,
+				&fecs_data_count);
+		nvgpu_netlist_set_fecs_data_count(g, fecs_data_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_INST_GPCCS_COUNT", 0,
+				&gpccs_inst_count);
+		nvgpu_netlist_set_gpccs_inst_count(g, gpccs_inst_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_DATA_GPCCS_COUNT", 0,
+				&gpccs_data_count);
+		nvgpu_netlist_set_gpccs_data_count(g, gpccs_data_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_MANIFEST_FECS_COUNT", 0,
+				&fecs_manifest_count);
+		nvgpu_netlist_set_fecs_manifest_count(g, fecs_manifest_count);
+		g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_MANIFEST_GPCCS_COUNT", 0,
+				&gpccs_manifest_count);
+		nvgpu_netlist_set_gpccs_manifest_count(g, gpccs_manifest_count);
+	}
+
 	g->sim->esc_readl(g, "GRCTX_ALL_CTX_TOTAL_WORDS", 0, &temp);
 	nvgpu_netlist_vars_set_buffer_size(g, (temp << 2));
 	g->sim->esc_readl(g, "GRCTX_SW_BUNDLE_INIT_SIZE", 0,
@@ -255,6 +263,8 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 			&perf_gpcrouter_ctxsw_regs->count);
 	g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_LTC_COUNT", 0,
 			&pm_ltc_ctxsw_regs->count);
+	g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_LRCC_COUNT", 0,
+			&pm_lrcc_ctxsw_regs->count);
 	g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_ROP_COUNT", 0,
 			&pm_rop_ctxsw_regs->count);
 	g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_UNICAST_GPC_COUNT", 0,
@@ -285,6 +295,12 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 		goto fail;
 	}
 	if (nvgpu_netlist_alloc_av_list(g, sw_bundle_init) == NULL) {
+		goto fail;
+	}
+	if (nvgpu_netlist_alloc_u32_list(g, fecs_manifest) == NULL) {
+		goto fail;
+	}
+	if (nvgpu_netlist_alloc_u32_list(g, gpccs_manifest) == NULL) {
 		goto fail;
 	}
 	if (nvgpu_netlist_alloc_av64_list(g, sw_bundle64_init) == NULL) {
@@ -363,6 +379,9 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 		goto fail;
 	}
 	if (nvgpu_netlist_alloc_aiv_list(g, pm_ltc_ctxsw_regs) == NULL) {
+		goto fail;
+	}
+	if (nvgpu_netlist_alloc_aiv_list(g, pm_lrcc_ctxsw_regs) == NULL) {
 		goto fail;
 	}
 	if (nvgpu_netlist_alloc_aiv_list(g, pm_rop_ctxsw_regs) == NULL) {
@@ -671,24 +690,56 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 #endif /* CONFIG_NVGPU_GRAPHICS */
 #endif /* CONFIG_NVGPU_NON_FUSA */
 
-	for (i = 0; i < nvgpu_netlist_get_fecs_inst_count(g); i++) {
-		g->sim->esc_readl(g, "GRCTX_UCODE_INST_FECS",
+	if (!g->fecs_flcn.is_falcon2_enabled) {
+		for (i = 0; i < nvgpu_netlist_get_fecs_inst_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_INST_FECS",
 				    i, &fecs_inst->l[i]);
-	}
+		}
 
-	for (i = 0; i < nvgpu_netlist_get_fecs_data_count(g); i++) {
-		g->sim->esc_readl(g, "GRCTX_UCODE_DATA_FECS",
+		for (i = 0; i < nvgpu_netlist_get_fecs_data_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_DATA_FECS",
 				    i, &fecs_data->l[i]);
-	}
+		}
 
-	for (i = 0; i < nvgpu_netlist_get_gpccs_inst_count(g); i++) {
-		g->sim->esc_readl(g, "GRCTX_UCODE_INST_GPCCS",
+		for (i = 0; i < nvgpu_netlist_get_gpccs_inst_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_INST_GPCCS",
 				    i, &gpccs_inst->l[i]);
-	}
+		}
 
-	for (i = 0; i < nvgpu_netlist_get_gpccs_data_count(g); i++) {
-		g->sim->esc_readl(g, "GRCTX_UCODE_DATA_GPCCS",
+		for (i = 0; i < nvgpu_netlist_get_gpccs_data_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_DATA_GPCCS",
 				    i, &gpccs_data->l[i]);
+		}
+	} else {
+		for (i = 0; i < nvgpu_netlist_get_fecs_inst_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_INST_FECS",
+				    i, &fecs_inst->l[i]);
+		}
+
+		for (i = 0; i < nvgpu_netlist_get_fecs_data_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_DATA_FECS",
+				    i, &fecs_data->l[i]);
+		}
+
+		for (i = 0; i < nvgpu_netlist_get_gpccs_inst_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_INST_GPCCS",
+				    i, &gpccs_inst->l[i]);
+		}
+
+		for (i = 0; i < nvgpu_netlist_get_gpccs_data_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_DATA_GPCCS",
+				    i, &gpccs_data->l[i]);
+		}
+
+		for (i = 0; i < nvgpu_netlist_get_fecs_manifest_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_MANIFEST_FECS",
+				    i, &fecs_manifest->l[i]);
+		}
+
+		for (i = 0; i < nvgpu_netlist_get_gpccs_manifest_count(g); i++) {
+			g->sim->esc_readl(g, "GRCTX_UCODE_RISCV_MANIFEST_GPCCS",
+				    i, &gpccs_manifest->l[i]);
+		}
 	}
 
 	for (i = 0; i < sw_bundle_init->count; i++) {
@@ -982,6 +1033,20 @@ int nvgpu_init_sim_netlist_ctx_vars(struct gk20a *g)
 				l[i].addr, l[i].index, l[i].value);
 	}
 
+	nvgpu_log(g, gpu_dbg_info | gpu_dbg_fn, "query GRCTX_REG_LIST_PM_LRCC");
+	for (i = 0; i < pm_lrcc_ctxsw_regs->count; i++) {
+		struct netlist_aiv *l =  pm_lrcc_ctxsw_regs->l;
+		g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_LRCC:ADDR",
+				    i, &l[i].addr);
+		g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_LRCC:INDEX",
+				    i, &l[i].index);
+		g->sim->esc_readl(g, "GRCTX_REG_LIST_PM_LRCC:VALUE",
+				    i, &l[i].value);
+		nvgpu_log(g, gpu_dbg_info | gpu_dbg_fn,
+				"addr:0x%#08x index:0x%08x value:0x%08x",
+				l[i].addr, l[i].index, l[i].value);
+	}
+
 	nvgpu_log(g, gpu_dbg_info | gpu_dbg_fn, "query GRCTX_REG_LIST_PM_ROP");
 	for (i = 0; i < pm_rop_ctxsw_regs->count; i++) {
 		struct netlist_aiv *l =  pm_rop_ctxsw_regs->l;
@@ -1096,6 +1161,8 @@ fail:
 	nvgpu_kfree(g, fecs_data->l);
 	nvgpu_kfree(g, gpccs_inst->l);
 	nvgpu_kfree(g, gpccs_data->l);
+	nvgpu_kfree(g, fecs_manifest->l);
+	nvgpu_kfree(g, gpccs_manifest->l);
 	nvgpu_kfree(g, sw_bundle_init->l);
 	nvgpu_kfree(g, sw_bundle64_init->l);
 	nvgpu_kfree(g, sw_method_init->l);
@@ -1123,6 +1190,7 @@ fail:
 	nvgpu_kfree(g, perf_gpc_ctxsw_regs->l);
 	nvgpu_kfree(g, perf_gpcrouter_ctxsw_regs->l);
 	nvgpu_kfree(g, pm_ltc_ctxsw_regs->l);
+	nvgpu_kfree(g, pm_lrcc_ctxsw_regs->l);
 	nvgpu_kfree(g, pm_ucgpc_ctxsw_regs->l);
 	nvgpu_kfree(g, pm_cau_ctxsw_regs->l);
 	nvgpu_kfree(g, pm_fbpa_ctxsw_regs->l);

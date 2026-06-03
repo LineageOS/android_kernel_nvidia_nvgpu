@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -27,6 +8,8 @@
 #include <nvgpu/nvgpu_err.h>
 #include <nvgpu/string.h>
 #include <nvgpu/errata.h>
+#include <nvgpu/grmgr.h>
+#include <nvgpu/error_notifier.h>
 
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/config.h>
@@ -43,7 +26,8 @@
 
 #include <nvgpu/hw/gv11b/hw_gr_gv11b.h>
 
-static u32 get_sm_hww_warp_esr_report_mask(void)
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
+static u32 gv11b_get_sm_hww_warp_esr_report_mask(void)
 {
 	u32 mask = gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_stack_error_report_f() |
 		gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_api_stack_error_report_f() |
@@ -65,7 +49,7 @@ static u32 get_sm_hww_warp_esr_report_mask(void)
 	return mask;
 }
 
-static u32 get_sm_hww_global_esr_report_mask(void)
+static u32 gv11b_get_sm_hww_global_esr_report_mask(void)
 {
 	u32 mask = gr_gpc0_tpc0_sm0_hww_global_esr_report_mask_multiple_warp_errors_report_f() |
 		gr_gpc0_tpc0_sm0_hww_global_esr_report_mask_bpt_int_report_f() |
@@ -75,6 +59,7 @@ static u32 get_sm_hww_global_esr_report_mask(void)
 
 	return mask;
 }
+#endif
 
 static void gv11b_gr_intr_handle_fecs_ecc_error(struct gk20a *g)
 {
@@ -178,7 +163,6 @@ void gv11b_gr_intr_set_shader_cut_collector(struct gk20a *g, u32 data)
 	}
 	nvgpu_writel(g, gr_gpcs_tpcs_sm_l1tag_ctrl_r(), val);
 }
-#endif
 
 int gv11b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 				     u32 class_num, u32 offset, u32 data)
@@ -192,7 +176,6 @@ int gv11b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 
 	nvgpu_log_fn(g, " ");
 
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 	if (class_num == VOLTA_COMPUTE_A) {
 		switch (offset << 2) {
 		case NVC0C0_SET_SHADER_EXCEPTIONS:
@@ -212,7 +195,6 @@ int gv11b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 			break;
 		}
 	}
-#endif
 
 #if defined(CONFIG_NVGPU_DEBUGGER) && defined(CONFIG_NVGPU_GRAPHICS)
 	if (class_num == VOLTA_A) {
@@ -266,6 +248,7 @@ int gv11b_gr_intr_handle_sw_method(struct gk20a *g, u32 addr,
 
 	return err;
 }
+#endif
 
 void gv11b_gr_intr_handle_gcc_exception(struct gk20a *g, u32 gpc,
 				u32 gpc_exception,
@@ -362,6 +345,7 @@ void gv11b_gr_intr_handle_gcc_exception(struct gk20a *g, u32 gpc,
 			gr_pri_gpc0_gcc_l15_ecc_status_reset_task_f());
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static void gv11b_gr_intr_report_gpcmmu_ecc_err(struct gk20a *g,
 			u32 ecc_status, u32 gpc)
 {
@@ -479,6 +463,7 @@ void gv11b_gr_intr_handle_gpc_gpcmmu_exception(struct gk20a *g, u32 gpc,
 	nvgpu_err(g, "ecc error count corrected: %d, uncorrected %d",
 		(u32)*corrected_err, (u32)*uncorrected_err);
 }
+#endif
 
 static void gv11b_gr_intr_report_gpccs_ecc_err(struct gk20a *g,
 			u32 ecc_status, u32 ecc_addr, u32 gpc)
@@ -518,7 +503,8 @@ void gv11b_gr_intr_handle_gpc_prop_exception(struct gk20a *g, u32 gpc,
 		u32 gpc_exception)
 {
 	u32 offset = nvgpu_gr_gpc_offset(g, gpc);
-	u32 hww_esr;
+	u32 hww_esr, esr_coord, esr_format, esr_state;
+	u32 esr_state2, esr_offset;
 
 	if ((gpc_exception & gr_gpc0_gpccs_gpc_exception_prop_m()) == 0U) {
 		return;
@@ -533,24 +519,14 @@ void gv11b_gr_intr_handle_gpc_prop_exception(struct gk20a *g, u32 gpc,
 	/*
 	 * print additional diagnostic information.
 	 */
-	nvgpu_err(g,
-		"prop hww: (0x%x 0x%x 0x%x 0x%x 0x%x 0x%x)",
-		hww_esr,
-		nvgpu_readl(g,
-			nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_coord_r(),
-				offset)),
-		nvgpu_readl(g,
-			nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_format_r(),
-				offset)),
-		nvgpu_readl(g,
-			nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_state_r(),
-				offset)),
-		nvgpu_readl(g,
-			nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_state2_r(),
-				offset)),
-		nvgpu_readl(g,
-			nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_offset_r(),
-				offset)));
+	esr_coord = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_coord_r(), offset));
+	esr_format = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_format_r(), offset));
+	esr_state = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_state_r(), offset));
+	esr_state2 = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_state2_r(), offset));
+	esr_offset = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_prop_hww_esr_offset_r(), offset));
+
+	nvgpu_err(g, "prop hww: (0x%x 0x%x 0x%x 0x%x 0x%x 0x%x)", hww_esr, esr_coord, esr_format,
+		esr_state, esr_state2, esr_offset);
 
 	/* clear the interrupt */
 	nvgpu_writel(g, nvgpu_safe_add_u32(
@@ -581,6 +557,9 @@ void gv11b_gr_intr_handle_gpc_zcull_exception(struct gk20a *g, u32 gpc,
 				gr_gpc0_zcull_hww_esr_reset_active_f());
 
 	nvgpu_err(g, "gpc:%d zcull interrupt intr: 0x%x", gpc, hww_esr);
+#ifndef CONFIG_NVGPU_HAL_NON_FUSA
+	nvgpu_err(g, "zcull is not supported on FUSA build, interrupt is not expected");
+#endif
 }
 
 void gv11b_gr_intr_handle_gpc_setup_exception(struct gk20a *g, u32 gpc,
@@ -620,9 +599,9 @@ void gv11b_gr_intr_handle_gpc_pes_exception(struct gk20a *g, u32 gpc,
 		gr_gpc0_gpccs_gpc_exception_pes1_m()
 	};
 	u32 num_pes_pending_masks =
-		sizeof(pes_pending_masks)/sizeof(*pes_pending_masks);
+		(u32)(sizeof(pes_pending_masks)/sizeof(*pes_pending_masks));
 	u32 i = 0U;
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 pes_id;
 
@@ -805,7 +784,8 @@ void gv11b_gr_intr_enable_hww_exceptions(struct gk20a *g)
 	 * PD, SCC, DS, SSYNC - SYS Graphics Units.
 	 * Accessible only in legacy mode (graphics+compute).
 	 */
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_writel(g, gr_pd_hww_esr_r(),
 				 gr_pd_hww_esr_en_enable_f() |
 				 gr_pd_hww_esr_reset_active_f());
@@ -828,6 +808,7 @@ void gv11b_gr_intr_enable_hww_exceptions(struct gk20a *g)
 			nvgpu_readl(g, gr_sked_hww_esr_en_r()));
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void gv11b_gr_intr_enable_exceptions(struct gk20a *g,
 				     struct nvgpu_gr_config *gr_config,
 				     bool enable)
@@ -914,16 +895,17 @@ void gv11b_gr_intr_set_hww_esr_report_mask(struct gk20a *g)
 
 	/* setup sm warp esr report masks */
 	nvgpu_writel(g, gr_gpcs_tpcs_sms_hww_warp_esr_report_mask_r(),
-		sm_hww_warp_esr_report_mask | get_sm_hww_warp_esr_report_mask());
+		sm_hww_warp_esr_report_mask | gv11b_get_sm_hww_warp_esr_report_mask());
 
 	nvgpu_writel(g, gr_gpcs_tpcs_sms_hww_global_esr_report_mask_r(),
-		sm_hww_global_esr_report_mask | get_sm_hww_global_esr_report_mask());
+		sm_hww_global_esr_report_mask | gv11b_get_sm_hww_global_esr_report_mask());
 
 	nvgpu_log_info(g,
 		"configured (global, warp)_esr_report_mask(0x%x, 0x%x)",
-		sm_hww_global_esr_report_mask | get_sm_hww_global_esr_report_mask(),
-		sm_hww_warp_esr_report_mask | get_sm_hww_warp_esr_report_mask());
+		sm_hww_global_esr_report_mask | gv11b_get_sm_hww_global_esr_report_mask(),
+		sm_hww_warp_esr_report_mask | gv11b_get_sm_hww_warp_esr_report_mask());
 }
+#endif
 
 void gv11b_gr_intr_report_l1_tag_uncorrected_err(struct gk20a *g,
 		struct nvgpu_gr_sm_ecc_status *ecc_status, u32 gpc, u32 tpc)
@@ -973,6 +955,7 @@ void gv11b_gr_intr_report_l1_tag_corrected_err(struct gk20a *g,
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static void gv11b_gr_intr_set_l1_tag_uncorrected_err(struct gk20a *g,
 	u32 l1_tag_ecc_status, struct nvgpu_gr_sm_ecc_status *ecc_status)
 {
@@ -1066,6 +1049,7 @@ static bool gv11b_gr_intr_sm_l1_tag_ecc_status_errors(struct gk20a *g,
 
 	return err_status;
 }
+#endif
 
 static void gv11b_gr_intr_handle_l1_tag_exception(struct gk20a *g, u32 gpc, u32 tpc)
 {
@@ -1079,7 +1063,7 @@ static void gv11b_gr_intr_handle_l1_tag_exception(struct gk20a *g, u32 gpc, u32 
 	bool is_l1_tag_ecc_uncorrected_total_err_overflow = false;
 	struct nvgpu_gr_sm_ecc_status ecc_status;
 	u32 cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc);
 	u32 tpc_phys_id = config->gpc_tpc_physical_id_map[gpc_phys_id][tpc];
@@ -1162,6 +1146,7 @@ static void gv11b_gr_intr_handle_l1_tag_exception(struct gk20a *g, u32 gpc, u32 
 			gr_pri_gpc0_tpc0_sm_l1_tag_ecc_status_reset_task_f());
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static bool gv11b_gr_intr_sm_lrf_ecc_status_errors(struct gk20a *g,
 	u32 lrf_ecc_status, struct nvgpu_gr_sm_ecc_status *ecc_status)
 {
@@ -1215,6 +1200,7 @@ static bool gv11b_gr_intr_sm_lrf_ecc_status_errors(struct gk20a *g,
 
 	return err_status;
 }
+#endif
 
 static void gv11b_gr_intr_handle_lrf_exception(struct gk20a *g, u32 gpc, u32 tpc)
 {
@@ -1227,7 +1213,7 @@ static void gv11b_gr_intr_handle_lrf_exception(struct gk20a *g, u32 gpc, u32 tpc
 	bool is_lrf_ecc_corrected_total_err_overflow = false;
 	bool is_lrf_ecc_uncorrected_total_err_overflow = false;
 	struct nvgpu_gr_sm_ecc_status ecc_status;
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
 	u32 gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc);
@@ -1308,6 +1294,7 @@ static void gv11b_gr_intr_handle_lrf_exception(struct gk20a *g, u32 gpc, u32 tpc
 			gr_pri_gpc0_tpc0_sm_lrf_ecc_status_reset_task_f());
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static bool gv11b_gr_intr_sm_cbu_ecc_status_errors(struct gk20a *g,
 	u32 cbu_ecc_status, struct nvgpu_gr_sm_ecc_status *ecc_status)
 {
@@ -1353,6 +1340,7 @@ static bool gv11b_gr_intr_sm_cbu_ecc_status_errors(struct gk20a *g,
 
 	return err_status;
 }
+#endif
 
 static void gv11b_gr_intr_handle_cbu_exception(struct gk20a *g, u32 gpc, u32 tpc)
 {
@@ -1366,7 +1354,7 @@ static void gv11b_gr_intr_handle_cbu_exception(struct gk20a *g, u32 gpc, u32 tpc
 	bool is_cbu_ecc_uncorrected_total_err_overflow = false;
 	struct nvgpu_gr_sm_ecc_status ecc_status;
 	u32 cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc);
 	u32 tpc_phys_id = config->gpc_tpc_physical_id_map[gpc_phys_id][tpc];
@@ -1444,6 +1432,7 @@ static void gv11b_gr_intr_handle_cbu_exception(struct gk20a *g, u32 gpc, u32 tpc
 			gr_pri_gpc0_tpc0_sm_cbu_ecc_status_reset_task_f());
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static bool gv11b_gr_intr_sm_l1_data_ecc_status_errors(struct gk20a *g,
 	u32 l1_data_ecc_status, struct nvgpu_gr_sm_ecc_status *ecc_status)
 {
@@ -1484,6 +1473,7 @@ static bool gv11b_gr_intr_sm_l1_data_ecc_status_errors(struct gk20a *g,
 
 	return err_status;
 }
+#endif
 
 static void gv11b_gr_intr_handle_l1_data_exception(struct gk20a *g, u32 gpc, u32 tpc)
 {
@@ -1497,7 +1487,7 @@ static void gv11b_gr_intr_handle_l1_data_exception(struct gk20a *g, u32 gpc, u32
 	bool is_l1_data_ecc_uncorrected_total_err_overflow = false;
 	struct nvgpu_gr_sm_ecc_status ecc_status;
 	u32 cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc);
 	u32 tpc_phys_id = config->gpc_tpc_physical_id_map[gpc_phys_id][tpc];
@@ -1604,6 +1594,7 @@ void gv11b_gr_intr_report_icache_uncorrected_err(struct gk20a *g,
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 static void gv11b_set_icache_ecc_status_uncorrected_errors(struct gk20a *g,
 				u32 icache_ecc_status,
 				struct nvgpu_gr_sm_ecc_status *ecc_status)
@@ -1670,6 +1661,7 @@ static bool gv11b_gr_intr_sm_icache_ecc_status_errors(struct gk20a *g,
 
 	return err_status;
 }
+#endif
 
 static void gv11b_gr_intr_handle_icache_exception(struct gk20a *g, u32 gpc, u32 tpc)
 {
@@ -1683,7 +1675,7 @@ static void gv11b_gr_intr_handle_icache_exception(struct gk20a *g, u32 gpc, u32 
 	bool is_icache_ecc_uncorrected_total_err_overflow = false;
 	struct nvgpu_gr_sm_ecc_status ecc_status;
 	u32 cur_gr_instance = nvgpu_gr_get_cur_instance_id(g);
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_config *config = gr->config;
 	u32 gpc_phys_id = nvgpu_grmgr_get_gr_gpc_phys_id(g, cur_gr_instance, gpc);
 	u32 tpc_phys_id = config->gpc_tpc_physical_id_map[gpc_phys_id][tpc];
@@ -1765,6 +1757,7 @@ static void gv11b_gr_intr_handle_icache_exception(struct gk20a *g, u32 gpc, u32 
 			gr_pri_gpc0_tpc0_sm_icache_ecc_status_reset_task_f());
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 bool gv11b_gr_intr_sm_ecc_status_errors(struct gk20a *g,
 	u32 ecc_status_reg, enum nvgpu_gr_sm_ecc_error_types err_type,
 	struct nvgpu_gr_sm_ecc_status *ecc_status)
@@ -1786,10 +1779,17 @@ bool gv11b_gr_intr_sm_ecc_status_errors(struct gk20a *g,
 	} else if (err_type == SM_L1_DATA_ECC_ERROR) {
 		err_status = gv11b_gr_intr_sm_l1_data_ecc_status_errors(g,
 						ecc_status_reg, ecc_status);
+	} else {
+		/* do nothing */
+	}
+
+	if (err_status == true) {
+		nvgpu_err(g, "uncorrected ECC error detected");
 	}
 
 	return err_status;
 }
+#endif
 
 void gv11b_gr_intr_handle_tpc_sm_ecc_exception(struct gk20a *g,
 					u32 gpc, u32 tpc)
@@ -1875,8 +1875,11 @@ void gv11b_gr_intr_handle_ssync_hww(struct gk20a *g, u32 *ssync_esr)
 }
 
 static int gv11b_gr_intr_read_sm_error_state(struct gk20a *g,
-		struct nvgpu_tsg *tsg, u32 offset, u32 sm_id)
+		struct nvgpu_gr_isr_data *isr_data, u32 offset, u32 sm_id)
 {
+	u32 instance_id;
+	u32 current_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
+
 	u32 hww_global_esr = nvgpu_readl(g, nvgpu_safe_add_u32(
 		gr_gpc0_tpc0_sm0_hww_global_esr_r(), offset));
 
@@ -1899,20 +1902,21 @@ static int gv11b_gr_intr_read_sm_error_state(struct gk20a *g,
 		nvgpu_safe_add_u32(
 			gr_gpc0_tpc0_sm0_hww_warp_esr_report_mask_r(),
 			offset));
+	u32 hww_cga_esr = 0U;
 
-	return nvgpu_tsg_store_sm_error_state(tsg, sm_id,
+	instance_id = nvgpu_grmgr_get_gpu_instance_id(g, current_gr_instance_id);
+	return nvgpu_tsg_store_sm_error_state(g, isr_data, sm_id,
 		hww_global_esr, hww_warp_esr,
 		hww_warp_esr_pc, hww_global_esr_report_mask,
-		hww_warp_esr_report_mask);
+		hww_warp_esr_report_mask, hww_cga_esr, instance_id);
 }
 
 u32 gv11b_gr_intr_record_sm_error_state(struct gk20a *g, u32 gpc, u32 tpc, u32 sm,
-				struct nvgpu_channel *fault_ch)
+				struct nvgpu_gr_isr_data *isr_data)
 {
 	u32 sm_id;
 	u32 offset, sm_per_tpc, tpc_id;
 	u32 gpc_offset, gpc_tpc_offset;
-	struct nvgpu_tsg *tsg = NULL;
 	int err = 0;
 
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -1933,29 +1937,11 @@ u32 gv11b_gr_intr_record_sm_error_state(struct gk20a *g, u32 gpc, u32 tpc, u32 s
 	offset = nvgpu_safe_add_u32(gpc_tpc_offset,
 			nvgpu_gr_sm_offset(g, sm));
 
-	if (fault_ch != NULL) {
-		tsg = nvgpu_tsg_from_ch(fault_ch);
-	}
-
-	if (tsg == NULL) {
-		nvgpu_err(g, "no valid tsg");
-		goto record_fail;
-	}
-
-	err = gv11b_gr_intr_read_sm_error_state(g, tsg, offset, sm_id);
+	err = gv11b_gr_intr_read_sm_error_state(g, isr_data, offset, sm_id);
 	if (err != 0) {
 		nvgpu_err(g, "error populating tsg sm_error_state");
-	} else {
-		nvgpu_err(g, "sm err state gpc_id(%d), tpc_id(%d), "
-				"offset(%d), sm_id(%d), hww_global_esr %d,"
-				"hww_warp_esr %d, hww_warp_esr_pc 0x%llx",
-				gpc, tpc, offset, sm_id,
-				tsg->sm_error_states[sm_id].hww_global_esr,
-				tsg->sm_error_states[sm_id].hww_warp_esr,
-				tsg->sm_error_states[sm_id].hww_warp_esr_pc);
 	}
 
-record_fail:
 #ifdef CONFIG_NVGPU_DEBUGGER
 	nvgpu_mutex_release(&g->dbg_sessions_lock);
 #endif
@@ -2057,17 +2043,22 @@ void gv11b_gr_intr_set_tex_in_dbg(struct gk20a *g, u32 data)
 {
 	u32 val;
 	u32 flag;
+	u32 gpcs_tpcs_tex_in_dbg_reg_addr;
+	u32 gpcs_tpcs_sm_l1tag_ctrl_reg_addr;
 
 	nvgpu_log_fn(g, " ");
 
-	val = nvgpu_readl(g, gr_gpcs_tpcs_tex_in_dbg_r());
+	gpcs_tpcs_tex_in_dbg_reg_addr = g->ops.gr.get_gpcs_tpcs_tex_in_dbg_reg();
+	gpcs_tpcs_sm_l1tag_ctrl_reg_addr = g->ops.gr.get_gpcs_tpcs_sm_l1tag_ctrl_reg();
+
+	val = nvgpu_readl(g, gpcs_tpcs_tex_in_dbg_reg_addr);
 	flag = (data & NVC397_SET_TEX_IN_DBG_TSL1_RVCH_INVALIDATE) != 0U
 		? 1U : 0U;
 	val = set_field(val, gr_gpcs_tpcs_tex_in_dbg_tsl1_rvch_invalidate_m(),
 			gr_gpcs_tpcs_tex_in_dbg_tsl1_rvch_invalidate_f(flag));
-	nvgpu_writel(g, gr_gpcs_tpcs_tex_in_dbg_r(), val);
+	nvgpu_writel(g, gpcs_tpcs_tex_in_dbg_reg_addr, val);
 
-	val = nvgpu_readl(g, gr_gpcs_tpcs_sm_l1tag_ctrl_r());
+	val = nvgpu_readl(g, gpcs_tpcs_sm_l1tag_ctrl_reg_addr);
 	flag = (data &
 		NVC397_SET_TEX_IN_DBG_SM_L1TAG_CTRL_CACHE_SURFACE_LD) != 0U
 		? 1U : 0U;
@@ -2079,7 +2070,7 @@ void gv11b_gr_intr_set_tex_in_dbg(struct gk20a *g, u32 data)
 
 	val = set_field(val, gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_st_m(),
 			gr_gpcs_tpcs_sm_l1tag_ctrl_cache_surface_st_f(flag));
-	nvgpu_writel(g, gr_gpcs_tpcs_sm_l1tag_ctrl_r(), val);
+	nvgpu_writel(g, gpcs_tpcs_sm_l1tag_ctrl_reg_addr, val);
 }
 
 void gv11b_gr_intr_set_coalesce_buffer_size(struct gk20a *g, u32 data)
@@ -2094,5 +2085,69 @@ void gv11b_gr_intr_set_coalesce_buffer_size(struct gk20a *g, u32 data)
 	nvgpu_writel(g, gr_gpcs_tc_debug0_r(), val);
 
 	nvgpu_log_fn(g, "done");
+}
+#endif
+
+#ifdef CONFIG_NVGPU_DEBUGGER
+void gv11b_gr_intr_handle_cilp_save_completed(struct gk20a *g, u32 gfid, u32 tsgid)
+{
+	u32 sm_id = 0U;
+	u32 no_of_sm = 0U;
+	u32 instance_id = 0U;
+	bool pending_warp_esr_err = false;
+	bool mask_fatal_exceptions = false;
+	struct nvgpu_tsg *tsg = NULL;
+
+	tsg = nvgpu_tsg_check_and_get_from_id(g, tsgid);
+	if (tsg == NULL) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
+		return;
+	}
+
+	instance_id = tsg->gpu_instance_id;
+	no_of_sm = g->ops.gr.init.get_no_of_sm(g, instance_id);
+
+	for (sm_id = 0U; sm_id < no_of_sm; sm_id++) {
+		const struct nvgpu_tsg_sm_error_state *sm_error_state =
+			nvgpu_tsg_get_sm_error_state(tsg, sm_id, instance_id);
+		if (sm_error_state != NULL) {
+			u32 warp_esr_error =
+				gr_gpc0_tpc0_sm0_hww_warp_esr_error_v(sm_error_state->hww_warp_esr);
+
+			if (g->ops.gr.check_warp_esr_error(g, warp_esr_error)) {
+				pending_warp_esr_err = true;
+				break;
+			}
+		} else {
+			nvgpu_warn(g, "warp_esr_error is null for sm_id : %d", sm_id);
+		}
+	}
+
+	mask_fatal_exceptions =
+		((tsg->sm_exception_mask_type & NVGPU_SM_EXCEPTION_TYPE_MASK_FATAL) ==
+		 NVGPU_SM_EXCEPTION_TYPE_MASK_FATAL);
+
+	if (pending_warp_esr_err && !mask_fatal_exceptions) {
+		nvgpu_tsg_set_error_notifier(g, gfid, tsgid,
+				NVGPU_ERR_NOTIFIER_GR_EXCEPTION);
+		(void)nvgpu_tsg_mark_error(g, tsg);
+		nvgpu_tsg_abort(g, tsg, false);
+	} else {
+		/*
+		 * CILP preemption with ESR error disables the TSG, set this flag
+		 * to enable the tsg when user-space explicitly does TSG enable or
+		 * resumes_all_contexts after CILP preemption complete.
+		 */
+		nvgpu_atomic_set(&tsg->cilp_save_cmpl, 1);
+
+		/* Post events to UMD */
+		g->ops.debugger.post_events(g, gfid, tsgid);
+
+#ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
+		/* sr-iov gpu server uses different hal impl, use gfid 0 */
+		g->ops.tsg.post_event_id(g, 0U, tsgid,
+				NVGPU_EVENT_ID_CILP_PREEMPTION_COMPLETE);
+#endif
+	}
 }
 #endif

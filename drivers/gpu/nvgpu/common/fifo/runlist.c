@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/channel.h>
@@ -35,6 +16,7 @@
 #include <nvgpu/string.h>
 #include <nvgpu/lock.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/power_features/cg.h>
 #ifdef CONFIG_NVGPU_LS_PMU
 #include <nvgpu/pmu/mutex.h>
 #endif
@@ -45,6 +27,11 @@
 #ifdef CONFIG_NVS_PRESENT
 #include <nvgpu/nvs.h>
 #endif
+#ifdef CONFIG_NVGPU_CHECKER
+#include <nvgpu/checker_common_data_utils.h>
+#endif
+#include <nvgpu/gsp.h>
+
 void nvgpu_runlist_lock_active_runlists(struct gk20a *g)
 {
 	struct nvgpu_fifo *f = &g->fifo;
@@ -352,12 +339,31 @@ static bool nvgpu_runlist_modify_active_remove_channel(
 					struct nvgpu_channel *ch,
 					struct nvgpu_tsg *tsg)
 {
+#ifdef CONFIG_NVS_PRESENT
+	struct gk20a *g = tsg->g;
+	struct nvgpu_nvs_domain *shadow_dom = nvgpu_nvs_get_shadow_domain_locked(g);
+#endif
+
 	if (!nvgpu_test_and_clear_bit(ch->chid,
 			domain->active_channels)) {
 		/* wasn't there */
 		return false;
 	} else {
+
+		/* tsg removal from Shadow domain reduces the num_active_channels
+		 * which can leave stale active_tsgs bit mask set for user domain.
+		 * Clear active_tsgs if tsg removal for Shadow domain is already
+		 * done.*/
+#ifdef CONFIG_NVS_PRESENT
+		if (tsg->num_active_channels == 1U ||
+				((tsg->num_active_channels == 0U) &&
+				tsg->is_shadow_cleared)) {
+			if (shadow_dom->id == domain->domain_id) {
+				tsg->is_shadow_cleared = true;
+			}
+#else
 		if (tsg->num_active_channels == 1U) {
+#endif
 			/* was the only member of this tsg */
 			nvgpu_clear_bit(tsg->tsgid,
 					domain->active_tsgs);
@@ -449,13 +455,15 @@ void nvgpu_runlist_swap_mem(struct gk20a *g, struct nvgpu_runlist_domain *domain
 	 */
 	rl_dbg(g, "Swapping mem for rl domain[%llu]", domain->domain_id);
 
-	nvgpu_spinlock_acquire(&domain->lock);
+	nvgpu_mutex_acquire(&domain->lock);
 
 	mem_tmp = domain->mem;
 	domain->mem = domain->mem_hw;
 	domain->mem_hw = mem_tmp;
 
-	nvgpu_spinlock_release(&domain->lock);
+	domain->mem->count = 0;
+
+	nvgpu_mutex_release(&domain->lock);
 }
 
 int nvgpu_runlist_wait_pending_legacy(struct gk20a *g, struct nvgpu_runlist *rl)
@@ -556,10 +564,14 @@ int nvgpu_runlist_update_locked(struct gk20a *g, struct nvgpu_runlist *rl,
 #ifdef CONFIG_NVS_ROUND_ROBIN_SCHEDULER_DISABLE
 		nvgpu_runlist_swap_mem(g, rl->shadow_rl_domain);
 #if defined(CONFIG_NVGPU_GSP_SCHEDULER) && defined(CONFIG_NVS_PRESENT)
-	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GSP_SCHED)) {
 		if ((nvgpu_gsp_is_ready(g) == true)
 			&& (nvgpu_nvs_gsp_usr_domain_present(g) == true)) {
 			ret = nvgpu_gps_sched_update_runlist(g, rl->shadow_rl_domain, rl);
+			if (ret != 0) {
+				nvgpu_err(g, "runlist update failed [%d]", ret);
+				return ret;
+			}
 		}
 	}
 #endif
@@ -575,12 +587,23 @@ int nvgpu_runlist_update_locked(struct gk20a *g, struct nvgpu_runlist *rl,
 	nvgpu_runlist_swap_mem(g, domain);
 	/* runlist update */
 #if defined(CONFIG_NVGPU_GSP_SCHEDULER) && defined(CONFIG_NVS_PRESENT)
-	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GSP_SCHED)) {
 		if ((nvgpu_gsp_is_ready(g) == true)
 			&& (nvgpu_nvs_gsp_usr_domain_present(g) == true)) {
 			ret = nvgpu_gps_sched_update_runlist(g, domain, rl);
+			if (ret != 0) {
+				nvgpu_err(g, "runlist update failed [%d]", ret);
+				return ret;
+			}
 		}
 	}
+#endif
+
+#ifdef CONFIG_NVGPU_CHECKER
+	nvgpu_checker_nvs_domains_store_rlmem_count(domain->domain_id, rl->id,
+		&domain->mem->mem, domain->mem->count);
+	nvgpu_checker_nvs_domains_store_rlmem_count(domain->domain_id, rl->id,
+		&domain->mem_hw->mem, domain->mem_hw->count);
 #endif
 
 	return ret;
@@ -676,6 +699,51 @@ done:
    special cases below: runlist->active_channels will NOT be changed.
    (ch == NULL && !add) means remove all active channels from runlist.
    (ch == NULL &&  add) means restore all active channels on runlist. */
+
+/**
+ * @brief Perform a runlist update operation with synchronization.
+ *
+ * This function updates the runlist by adding or removing a channel and ensures
+ * synchronization with the PMU and other scheduling components. It acquires the
+ * necessary locks, performs the update, and then releases the locks. It also
+ * handles the submission to the NVS worker if required.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize the return value to success.
+ * -# If PMU support is configured, declare a token for mutex ownership and a
+ *    return value for mutex operations.
+ * -# Acquire the runlist lock to synchronize access to the runlist.
+ * -# If PMU support is configured, acquire the PMU lock with 'nvgpu_pmu_lock_acquire()'.
+ * -# Perform the runlist update while holding the locks by calling
+ *    'nvgpu_runlist_update_locked()'.
+ * -# If the update is successful, perform a domain sync submission with
+ *    'nvgpu_rl_domain_sync_submit()'.
+ * -# If KMD scheduling worker thread support is enabled, handle domain removal
+ *    and submit to the NVS worker with 'g->nvs_worker_submit()'. If the return
+ *    value indicates a deferred update, set the return value to success.
+ * -# If NVS is not present, perform a domain sync submission with
+ *    'nvgpu_rl_domain_sync_submit()'.
+ * -# If PMU support is configured and the PMU lock was successfully acquired,
+ *    release the PMU lock with 'nvgpu_pmu_lock_release()'.
+ * -# Release the runlist lock.
+ * -# If the return value indicates a timeout, record the runlist update failure
+ *    with 'nvgpu_rc_runlist_update()'.
+ * -# Return the result of the runlist update operation.
+ *
+ * @param [in]  g                Pointer to the GPU driver structure.
+ * @param [in]  rl               Pointer to the runlist structure.
+ * @param [in]  domain           Pointer to the runlist domain being updated.
+ * @param [in]  ch               Pointer to the channel structure, or NULL to
+ *                               update all entries.
+ * @param [in]  add              Flag indicating whether to add or remove the
+ *                               channel from the runlist.
+ * @param [in]  wait_for_finish  Flag indicating whether to wait for the update
+ *                               to finish.
+ *
+ * @return 0 if the runlist update was successful.
+ * @return -ETIMEDOUT if the update operation timed out.
+ * @return Non-zero error code if any other error occurred during the update.
+ */
 static int nvgpu_runlist_do_update(struct gk20a *g, struct nvgpu_runlist *rl,
 				   struct nvgpu_runlist_domain *domain,
 				   struct nvgpu_channel *ch,
@@ -707,9 +775,9 @@ static int nvgpu_runlist_do_update(struct gk20a *g, struct nvgpu_runlist *rl,
 #if defined(CONFIG_KMD_SCHEDULING_WORKER_THREAD)
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_KMD_SCHEDULING_WORKER_THREAD)) {
 			if ((domain != NULL) && (domain->domain_id != SHADOW_DOMAIN_ID)) {
-				domain->remove = !add;
-				rl_dbg(g, "domain-id %llu is_remove %d",
-						domain->domain_id, domain->remove);
+				domain->removed = !add;
+				rl_dbg(g, "domain-id %llu is_removed %d",
+						domain->domain_id, domain->removed);
 			}
 
 			ret = g->nvs_worker_submit(g, rl, domain, wait_for_finish);
@@ -755,9 +823,9 @@ static void nvgpu_runlist_domain_actual_submit(struct gk20a *g, struct nvgpu_run
 	/* Here, its essential to synchronize between hw_submit
 	 * and domain mem swaps.
 	 */
-	nvgpu_spinlock_acquire(&rl->domain->lock);
+	nvgpu_mutex_acquire(&rl->domain->lock);
 	nvgpu_runlist_hw_submit(g, rl);
-	nvgpu_spinlock_release(&rl->domain->lock);
+	nvgpu_mutex_release(&rl->domain->lock);
 }
 
 /*
@@ -1003,8 +1071,13 @@ void nvgpu_runlist_cleanup_sw(struct gk20a *g)
 		/* this isn't an owning pointer, just reset */
 		runlist->domain = NULL;
 
-		nvgpu_runlist_domain_free(g, runlist->shadow_rl_domain);
-		runlist->shadow_rl_domain = NULL;
+		if (runlist->shadow_rl_domain != NULL) {
+#ifdef CONFIG_NVGPU_CHECKER
+			nvgpu_checker_nvs_domains_remove_domain(runlist->shadow_rl_domain->domain_id);
+#endif
+			nvgpu_runlist_domain_free(g, runlist->shadow_rl_domain);
+			runlist->shadow_rl_domain = NULL;
+		}
 
 		nvgpu_mutex_destroy(&runlist->runlist_lock);
 		f->runlists[runlist->id] = NULL;
@@ -1068,12 +1141,11 @@ static u32 nvgpu_runlist_get_pbdma_mask(struct gk20a *g,
 
 	(void)g;
 
-	nvgpu_assert(runlist != NULL);
-
 	for ( i = 0U; i < PBDMA_PER_RUNLIST_SIZE; i++) {
 		pbdma_id = runlist->pbdma_info->pbdma_id[i];
-		if (pbdma_id != NVGPU_INVALID_PBDMA_ID)
+		if (pbdma_id != NVGPU_INVALID_PBDMA_ID) {
 			pbdma_mask |= BIT32(pbdma_id);
+		}
 	}
 	return pbdma_mask;
 }
@@ -1092,6 +1164,8 @@ void nvgpu_runlist_init_enginfo(struct gk20a *g, struct nvgpu_fifo *f)
 
 	for (i = 0; i < f->num_runlists; i++) {
 		runlist = &f->active_runlists[i];
+
+		nvgpu_assert(runlist != NULL);
 
 		nvgpu_log(g, gpu_dbg_info, "Configuring runlist %u (%u)", runlist->id, i);
 
@@ -1172,6 +1246,7 @@ struct nvgpu_runlist_domain *nvgpu_runlist_domain_alloc(struct gk20a *g,
 	struct nvgpu_fifo *f = &g->fifo;
 	size_t runlist_size = (size_t)f->runlist_entry_size *
 				(size_t)f->num_runlist_entries;
+	u64 bitmap_size;
 
 	if (domain == NULL) {
 		return NULL;
@@ -1179,31 +1254,31 @@ struct nvgpu_runlist_domain *nvgpu_runlist_domain_alloc(struct gk20a *g,
 
 	domain->domain_id = domain_id;
 
-	domain->mem = init_rl_mem(g, (u32)runlist_size);
+	domain->mem = init_rl_mem(g, nvgpu_safe_cast_u64_to_u32(runlist_size));
 	if (domain->mem == NULL) {
 		goto free_domain;
 	}
 
-	domain->mem_hw = init_rl_mem(g, (u32)runlist_size);
+	domain->mem_hw = init_rl_mem(g, nvgpu_safe_cast_u64_to_u32(runlist_size));
 	if (domain->mem_hw == NULL) {
 		goto free_mem;
 	}
 
+	bitmap_size = DIV_ROUND_UP(f->num_channels, BITS_PER_BYTE);
+
 	domain->active_channels =
-		nvgpu_kzalloc(g, DIV_ROUND_UP(f->num_channels,
-					      BITS_PER_BYTE));
+		nvgpu_kzalloc(g, NVGPU_ALIGN(bitmap_size, sizeof(*(domain->active_channels))));
 	if (domain->active_channels == NULL) {
 		goto free_mem_hw;
 	}
 
 	domain->active_tsgs =
-		nvgpu_kzalloc(g, DIV_ROUND_UP(f->num_channels,
-					      BITS_PER_BYTE));
+		nvgpu_kzalloc(g, NVGPU_ALIGN(bitmap_size, sizeof(*(domain->active_tsgs))));
 	if (domain->active_tsgs == NULL) {
 		goto free_active_channels;
 	}
 
-	nvgpu_spinlock_init(&domain->lock);
+	nvgpu_mutex_init(&domain->lock);
 
 	return domain;
 free_active_channels:
@@ -1279,6 +1354,9 @@ static void nvgpu_init_active_runlist_mapping(struct gk20a *g)
 static int nvgpu_runlist_alloc_shadow_rl_domain(struct gk20a *g)
 {
 	struct nvgpu_fifo *f = &g->fifo;
+#ifdef CONFIG_NVGPU_CHECKER
+	int err;
+#endif
 	u32 i;
 
 	for (i = 0; i < g->fifo.num_runlists; i++) {
@@ -1299,6 +1377,15 @@ static int nvgpu_runlist_alloc_shadow_rl_domain(struct gk20a *g)
 
 		runlist->domain = runlist->shadow_rl_domain;
 	}
+
+#ifdef CONFIG_NVGPU_CHECKER
+	err = nvgpu_runlist_store_shadow_rl_domain(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to store shadow domain info");
+		return err;
+	}
+#endif
+
 	return 0;
 }
 
@@ -1352,6 +1439,11 @@ int nvgpu_runlist_setup_sw(struct gk20a *g)
 	}
 
 	g->ops.runlist.init_enginfo(g, f);
+
+	nvgpu_cg_slcg_fifo_load_enable(g);
+
+	nvgpu_cg_blcg_fifo_load_enable(g);
+
 	return 0;
 
 clean_up_runlist:
@@ -1360,6 +1452,7 @@ clean_up_runlist:
 	return err;
 }
 
+#ifdef CONFIG_NVGPU_RECOVERY
 u32 nvgpu_runlist_get_runlists_mask(struct gk20a *g, u32 id,
 	unsigned int id_type, u32 act_eng_bitmask, u32 pbdma_bitmask)
 {
@@ -1435,6 +1528,7 @@ void nvgpu_runlist_unlock_runlists(struct gk20a *g, u32 runlists_mask)
 		}
 	}
 }
+#endif
 
 s32 nvgpu_runlist_get_runlist_info(struct gk20a *g, u32 rl_index, u32 *runlist_id,
 		u8 *device_id)
@@ -1487,5 +1581,5 @@ void nvgpu_runlist_hw_submit(struct gk20a *g, struct nvgpu_runlist *runlist)
 	enum nvgpu_aperture aperture = runlist->domain->mem_hw->mem.aperture;
 	u32 count = runlist->domain->mem_hw->count;
 
-	g->ops.runlist.hw_submit(g, runlist->id, runlist_iova, aperture, count);
+	g->ops.runlist.hw_submit(g, runlist->id, runlist_iova, aperture, count, 0);
 }

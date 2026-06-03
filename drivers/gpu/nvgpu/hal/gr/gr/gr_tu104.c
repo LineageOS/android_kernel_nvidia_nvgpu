@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/io.h>
@@ -130,9 +111,10 @@ int tu104_gr_update_smpc_global_mode(struct gk20a *g, bool enable)
 	return err;
 }
 
-void tu104_gr_disable_cau(struct gk20a *g)
+int tu104_gr_disable_cau(struct gk20a *g, u32 gr_instance_id)
 {
 	u32 i;
+	(void)gr_instance_id;
 
 	for (i = 0U; i < gr_gpcs_tpcs_cau_control__size_1_v(); ++i) {
 		nvgpu_writel(g, gr_gpcs_tpcs_cau_control_r(i), 0U);
@@ -141,6 +123,8 @@ void tu104_gr_disable_cau(struct gk20a *g)
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
 void tu104_gr_disable_smpc(struct gk20a *g)
@@ -181,13 +165,14 @@ const u32 *tu104_gr_get_hwpm_cau_init_data(u32 *count)
 	return hwpm_cau_init_data;
 }
 
-void tu104_gr_init_cau(struct gk20a *g)
+int tu104_gr_init_cau(struct gk20a *g, u32 gr_instance_id)
 {
 	const u32 *data;
 	u32 cau_stride;
 	u32 num_cau;
 	u32 count;
 	u32 i, j;
+	(void)gr_instance_id;
 
 	num_cau = gr_gpcs_tpcs_cau_control__size_1_v();
 	cau_stride = g->ops.regops.get_cau_register_stride();
@@ -203,6 +188,8 @@ void tu104_gr_init_cau(struct gk20a *g)
 	if (g->ops.priv_ring.read_pri_fence != NULL) {
 		g->ops.priv_ring.read_pri_fence(g);
 	}
+
+	return 0;
 }
 
 /*

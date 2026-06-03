@@ -1,24 +1,6 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
 #include <nvgpu/gk20a.h>
 #include <nvgpu/timers.h>
 #include <nvgpu/falcon.h>
@@ -32,9 +14,18 @@
 #endif
 #include "falcon_sw_ga10b.h"
 
+#if defined(CONFIG_NVGPU_NON_FUSA)
+#if defined(CONFIG_NVGPU_GB10B) || defined(CONFIG_NVGPU_GB20C)
+#include "falcon_sw_gb10b.h"
+#endif
+#endif
+
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_falcon.h>
 #endif
+
+/* Timeout duration in number of retries */
+#define NVGPU_DEBUGINFO_CLEAR_TIMEOUT		(2000U)
 
 static bool is_falcon_valid(struct nvgpu_falcon *flcn)
 {
@@ -43,7 +34,7 @@ static bool is_falcon_valid(struct nvgpu_falcon *flcn)
 	}
 
 	if (!flcn->is_falcon_supported) {
-		nvgpu_err(flcn->g, "Falcon %d not supported", flcn->flcn_id);
+		nvgpu_err(flcn->g, "Falcon %u instance %u not supported", flcn->flcn_id, flcn->inst_id);
 		return false;
 	}
 
@@ -75,7 +66,7 @@ int nvgpu_falcon_reset(struct nvgpu_falcon *flcn)
 
 	if (flcn->flcn_engine_dep_ops.reset_eng != NULL) {
 		/* falcon & engine reset */
-		status = flcn->flcn_engine_dep_ops.reset_eng(g);
+		status = flcn->flcn_engine_dep_ops.reset_eng(g, flcn->inst_id);
 	} else {
 		g->ops.falcon.reset(flcn);
 	}
@@ -187,6 +178,61 @@ int nvgpu_falcon_mem_scrub_wait(struct nvgpu_falcon *flcn)
 int nvgpu_falcon_wait_for_nvriscv_brom_completion(struct nvgpu_falcon *flcn)
 {
 	struct gk20a *g;
+	s32 timeoutms = 0;
+	u32 polling_time = 0;
+	u32 retcode = 0;
+	int err = 0;
+
+	if (!is_falcon_valid(flcn)) {
+		return -EINVAL;
+	}
+
+	g = flcn->g;
+
+	if (nvgpu_platform_is_silicon(g)) {
+		timeoutms = NVRISCV_BR_COMPLETION_TIMEOUT_SILICON_MS;
+		polling_time = NVRISCV_BR_COMPLETION_POLLING_TIME_SILICON_MS;
+	} else {
+		timeoutms = NVRISCV_BR_COMPLETION_TIMEOUT_NON_SILICON_MS;
+		polling_time = NVRISCV_BR_COMPLETION_POLLING_TIME_INTERVAL_MS;
+	}
+
+	do {
+		retcode = g->ops.falcon.get_brom_retcode(flcn);
+		if (g->ops.falcon.check_brom_passed(retcode)) {
+			break;
+		}
+
+		if (g->ops.falcon.check_brom_failed(retcode)) {
+			err = -ENOTRECOVERABLE;
+			nvgpu_err(g, "Falcon-%u instance-%u RISCV BROM Failed",
+					flcn->flcn_id, flcn->inst_id);
+			goto exit;
+		}
+
+		if (timeoutms <= 0) {
+			nvgpu_err(g, "Falcon-%u instance-%u RISCV BROM timed out, limit: %d ms",
+					flcn->flcn_id, flcn->inst_id, timeoutms);
+			err =  -ETIMEDOUT;
+			goto exit;
+		}
+
+		nvgpu_msleep(polling_time);
+		timeoutms -= nvgpu_safe_cast_u32_to_s32(polling_time);
+
+	} while (true);
+
+	nvgpu_falcon_dbg(flcn->g, "Falcon-%u instance-%uRISCV BROM passed",
+			flcn->flcn_id, flcn->inst_id);
+
+exit:
+	g->ops.falcon.dump_brom_stats(flcn);
+	return err;
+}
+
+int nvgpu_falcon_wait_for_nvriscv_brom_init(struct nvgpu_falcon *flcn)
+{
+	struct gk20a *g;
 	u32 timeoutms = 0;
 	u32 retcode = 0;
 	int err = 0;
@@ -205,19 +251,20 @@ int nvgpu_falcon_wait_for_nvriscv_brom_completion(struct nvgpu_falcon *flcn)
 
 	do {
 		retcode = g->ops.falcon.get_brom_retcode(flcn);
-		if (g->ops.falcon.check_brom_passed(retcode)) {
+		if (g->ops.falcon.check_brom_init_done(retcode)) {
 			break;
 		}
 
 		if (g->ops.falcon.check_brom_failed(retcode)) {
 			err = -ENOTRECOVERABLE;
-			nvgpu_err(g, "Falcon-%d RISCV BROM Failed", flcn->flcn_id);
+			nvgpu_err(g, "Falcon-%u instance-%u RISCV BROM Failed",
+					flcn->flcn_id, flcn->inst_id);
 			goto exit;
 		}
 
 		if (timeoutms <= 0) {
-			nvgpu_err(g, "Falcon-%d RISCV BROM timed out, limit: %d ms",
-					flcn->flcn_id, timeoutms);
+			nvgpu_err(g, "Falcon-%u instance-%u RISCV BROM timed out, limit: %d ms",
+					flcn->flcn_id, flcn->inst_id, timeoutms);
 			err =  -ETIMEDOUT;
 			goto exit;
 		}
@@ -227,8 +274,8 @@ int nvgpu_falcon_wait_for_nvriscv_brom_completion(struct nvgpu_falcon *flcn)
 
 	} while (true);
 
-	nvgpu_falcon_dbg(flcn->g, "Falcon-%d RISCV BROM passed",
-			flcn->flcn_id);
+	nvgpu_falcon_dbg(flcn->g, "Falcon-%d instance-%u RISCV BROM passed",
+			flcn->flcn_id, flcn->inst_id);
 
 exit:
 	g->ops.falcon.dump_brom_stats(flcn);
@@ -455,7 +502,7 @@ bool nvgpu_falcon_is_feature_supported(struct nvgpu_falcon *flcn,
 	return nvgpu_test_bit(feature, (void *)&flcn->fuse_settings);
 }
 
-struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id)
+struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id, u32 instance)
 {
 	struct nvgpu_falcon *flcn = NULL;
 
@@ -464,27 +511,43 @@ struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id)
 		flcn = &g->pmu_flcn;
 		break;
 	case FALCON_ID_FECS:
+	case FALCON_ID_FECS_RISCV_EB:
 		flcn = &g->fecs_flcn;
 		break;
 	case FALCON_ID_GPCCS:
+	case FALCON_ID_GPCCS_RISCV_EB:
 		flcn = &g->gpccs_flcn;
 		break;
 	case FALCON_ID_GSPLITE:
 		flcn = &g->gsp_flcn;
 		break;
+	case FALCON_ID_NVENC_RISCV_EB:
+		if (instance < NVENC_INST_MAX) {
+			flcn = &g->nvenc_riscv[instance];
+		}
+		break;
+	case FALCON_ID_OFA_RISCV_EB:
+		if (instance < OFA_INST_MAX) {
+			flcn = &g->ofa_riscv[instance];
+		}
+		break;
+	case FALCON_ID_NVDEC_RISCV:
+		if (instance < NVDEC_INST_MAX) {
+			flcn = &g->nvdec_riscv[instance];
+		}
+		break;
+	case FALCON_ID_NVJPG_RISCV_EB:
+		if (instance < NVJPG_INST_MAX) {
+			flcn = &g->nvjpg_riscv[instance];
+		}
+		break;
+#ifdef CONFIG_NVGPU_DGPU
 	case FALCON_ID_NVENC:
 		flcn = &g->nvenc_flcn;
-		break;
-	case FALCON_ID_OFA:
-		flcn = &g->ofa_flcn;
 		break;
 	case FALCON_ID_NVDEC:
 		flcn = &g->nvdec_flcn;
 		break;
-	case FALCON_ID_NVJPG:
-		flcn = &g->nvjpg_flcn;
-		break;
-#ifdef CONFIG_NVGPU_DGPU
 	case FALCON_ID_SEC2:
 		flcn = &g->sec2.flcn;
 		break;
@@ -493,11 +556,50 @@ struct nvgpu_falcon *nvgpu_falcon_get_instance(struct gk20a *g, u32 flcn_id)
 		break;
 #endif
 	default:
-		nvgpu_err(g, "Invalid/Unsupported falcon ID %x", flcn_id);
+		nvgpu_err(g, "Invalid/Unsupported falcon ID %u", flcn_id);
 		break;
 	};
 
 	return flcn;
+}
+
+static u32 nvgpu_falcon_get_instance_max(struct gk20a *g, u32 flcn_id)
+{
+	u32 inst_max = 0;
+
+	switch (flcn_id) {
+	case FALCON_ID_PMU:
+	case FALCON_ID_FECS:
+	case FALCON_ID_FECS_RISCV_EB:
+	case FALCON_ID_GPCCS:
+	case FALCON_ID_GPCCS_RISCV_EB:
+	case FALCON_ID_GSPLITE:
+#ifdef CONFIG_NVGPU_DGPU
+	case FALCON_ID_NVENC:
+	case FALCON_ID_NVDEC:
+	case FALCON_ID_SEC2:
+	case FALCON_ID_MINION:
+#endif
+		inst_max = 1U;
+		break;
+	case FALCON_ID_NVENC_RISCV_EB:
+		inst_max = NVENC_INST_MAX;
+		break;
+	case FALCON_ID_OFA_RISCV_EB:
+		inst_max = OFA_INST_MAX;
+		break;
+	case FALCON_ID_NVDEC_RISCV:
+		inst_max = NVDEC_INST_MAX;
+		break;
+	case FALCON_ID_NVJPG_RISCV_EB:
+		inst_max = NVJPG_INST_MAX;
+		break;
+	default:
+		nvgpu_err(g, "Invalid/Unsupported falcon ID %u", flcn_id);
+		break;
+	};
+
+	return inst_max;
 }
 
 static int falcon_sw_chip_init(struct gk20a *g, struct nvgpu_falcon *flcn)
@@ -527,6 +629,22 @@ static int falcon_sw_chip_init(struct gk20a *g, struct nvgpu_falcon *flcn)
 	case NVGPU_GPUID_GV11B:
 		gk20a_falcon_sw_init(flcn);
 		break;
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		gb10b_falcon_sw_init(flcn);
+		break;
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20C:
+	case NVGPU_GPUID_GB20C_NEXT:
+		gb10b_falcon_sw_init(flcn);
+		/* TODO: Remove when falcon2 is enabled by default on gb10b */
+		if (flcn->flcn_id == FALCON_ID_FECS ||
+				flcn->flcn_id == FALCON_ID_GPCCS)
+			flcn->is_falcon2_enabled = true;
+		break;
+#endif
 	default:
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 		err = nvgpu_next_falcon_sw_init(g, flcn);
@@ -546,27 +664,32 @@ int nvgpu_falcon_sw_init(struct gk20a *g, u32 flcn_id)
 {
 	struct nvgpu_falcon *flcn = NULL;
 	int err = 0;
+	u32 inst_id, inst_max;
 
-	flcn = nvgpu_falcon_get_instance(g, flcn_id);
-	if (flcn == NULL) {
-		return -ENODEV;
-	}
+	inst_max = nvgpu_falcon_get_instance_max(g, flcn_id);
+	for (inst_id = 0; inst_id < inst_max; inst_id++) {
+		flcn = nvgpu_falcon_get_instance(g, flcn_id, inst_id);
+		if (flcn == NULL) {
+			return -ENODEV;
+		}
 
-	flcn->flcn_id = flcn_id;
-	flcn->g = g;
+		flcn->flcn_id = flcn_id;
+		flcn->inst_id = inst_id;
+		flcn->g = g;
 
-	/* call SW init methods to assign flcn base & support of a falcon */
-	err = falcon_sw_chip_init(g, flcn);
-	if (err != 0) {
-		nvgpu_err(g, "Chip specific falcon sw init failed %d", err);
-		return err;
-	}
+		/* call SW init methods to assign flcn base & support of a falcon */
+		err = falcon_sw_chip_init(g, flcn);
+		if (err != 0) {
+			nvgpu_err(g, "Chip specific falcon sw init failed %d", err);
+			return err;
+		}
 
-	nvgpu_mutex_init(&flcn->imem_lock);
-	nvgpu_mutex_init(&flcn->dmem_lock);
+		nvgpu_mutex_init(&flcn->imem_lock);
+		nvgpu_mutex_init(&flcn->dmem_lock);
 
-	if (flcn->emem_supported) {
-		nvgpu_mutex_init(&flcn->emem_lock);
+		if (flcn->emem_supported) {
+			nvgpu_mutex_init(&flcn->emem_lock);
+		}
 	}
 
 	return 0;
@@ -575,26 +698,30 @@ int nvgpu_falcon_sw_init(struct gk20a *g, u32 flcn_id)
 void nvgpu_falcon_sw_free(struct gk20a *g, u32 flcn_id)
 {
 	struct nvgpu_falcon *flcn = NULL;
+	u32 inst_id, inst_max;
 
-	flcn = nvgpu_falcon_get_instance(g, flcn_id);
-	if (flcn == NULL) {
-		return;
+	inst_max = nvgpu_falcon_get_instance_max(g, flcn_id);
+	for (inst_id = 0; inst_id < inst_max; inst_id++) {
+		flcn = nvgpu_falcon_get_instance(g, flcn_id, inst_id);
+		if (flcn == NULL) {
+			continue;
+		}
+
+		if (flcn->is_falcon_supported) {
+			flcn->is_falcon_supported = false;
+		} else {
+			nvgpu_log_info(g, "falcon 0x%x instance %u not supported on %s",
+				flcn->flcn_id, flcn->inst_id, g->name);
+			continue;
+		}
+
+		if (flcn->emem_supported) {
+			nvgpu_mutex_destroy(&flcn->emem_lock);
+		}
+
+		nvgpu_mutex_destroy(&flcn->dmem_lock);
+		nvgpu_mutex_destroy(&flcn->imem_lock);
 	}
-
-	if (flcn->is_falcon_supported) {
-		flcn->is_falcon_supported = false;
-	} else {
-		nvgpu_log_info(g, "falcon 0x%x not supported on %s",
-			flcn->flcn_id, g->name);
-		return;
-	}
-
-	if (flcn->emem_supported) {
-		nvgpu_mutex_destroy(&flcn->emem_lock);
-	}
-
-	nvgpu_mutex_destroy(&flcn->dmem_lock);
-	nvgpu_mutex_destroy(&flcn->imem_lock);
 }
 
 void nvgpu_falcon_set_irq(struct nvgpu_falcon *flcn, bool enable,
@@ -890,4 +1017,61 @@ s32 nvgpu_falcon_load_ucode(struct nvgpu_falcon *flcn,
 
 	/* Load ucode */
 	return g->ops.falcon.load_ucode(flcn, ucode_mem_desc, ucode_header);
+}
+
+s32 nvgpu_falcon_debuginfo_write(struct nvgpu_falcon *flcn, u32 data)
+{
+	struct gk20a *g;
+
+	if (!is_falcon_valid(flcn)) {
+		return -EINVAL;
+	}
+
+	g = flcn->g;
+	if (g->ops.falcon.debuginfo_offset == NULL) {
+		nvgpu_err(g, "debuginfo_offset is not set");
+		return -EINVAL;
+	}
+
+	nvgpu_falcon_writel(flcn, g->ops.falcon.debuginfo_offset(), data);
+	return 0;
+}
+
+s32 nvgpu_falcon_wait_init_completion(struct nvgpu_falcon *flcn)
+{
+	struct nvgpu_timeout timeout;
+	struct gk20a *g;
+	u32 boot_success = 0x0;
+
+	if (!is_falcon_valid(flcn)) {
+		return -EINVAL;
+	}
+
+	g = flcn->g;
+	if (g->ops.falcon.debuginfo_offset == NULL) {
+		nvgpu_err(g, "debuginfo_offset is not set");
+		return -EINVAL;
+	}
+
+	nvgpu_timeout_init_retry(g, &timeout, NVGPU_DEBUGINFO_CLEAR_TIMEOUT);
+
+	if (g->ops.falcon.video_boot_done_value) {
+		boot_success = g->ops.falcon.video_boot_done_value();
+	}
+
+	/* Wait for debuginfo to be cleared */
+	do {
+		if (nvgpu_falcon_readl(flcn, g->ops.falcon.debuginfo_offset()) == boot_success) {
+			break;
+		}
+
+		if (nvgpu_timeout_expired_msg(&timeout,
+			"waiting for debuginfo clear") != 0) {
+			return -ETIMEDOUT;
+		}
+
+		nvgpu_usleep_range(100, 200);
+	} while (true);
+
+	return 0;
 }

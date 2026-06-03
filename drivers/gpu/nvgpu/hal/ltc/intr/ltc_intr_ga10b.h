@@ -1,25 +1,5 @@
-/*
- * GA10B L2 INTR
- *
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_LTC_INTR_GA10B_H
@@ -27,19 +7,51 @@
 
 #include <nvgpu/types.h>
 
+#define LTC_INTR_RESET_BIT_MASK		(0xFFFF)
+
 struct gk20a;
 
+#define GA10B_FATAL_LTC_INTR \
+	(ltc_ltcs_ltss_intr_idle_error_cbc_m() | \
+	ltc_ltcs_ltss_intr_idle_error_tstg_m() | \
+	ltc_ltcs_ltss_intr_idle_error_dstg_m() | \
+	ltc_ltcs_ltss_intr_illegal_atomic_m() | \
+	ltc_ltcs_ltss_intr_illegal_compstat_access_m())
+
+#define GA10B_FATAL_LTC_INTR2 \
+	(ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_m() | \
+	ltc_ltcs_ltss_intr2_unexpected_sysfill_bypass_m())
+
+#define GA10B_FATAL_LTC_ECC_INTR3 \
+	(ltc_ltcs_ltss_intr3_ecc_uncorrected_m() | \
+	ltc_ltcs_ltss_intr3_ecc_corrected_m())
+
+#define GA10B_FATAL_LTC_NON_ECC_INTR3 \
+	(ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_m() | \
+	ltc_ltcs_ltss_intr3_unexpected_rmwrs_m())
+
+#define GA10B_DEBUG_LTC_INTR3 \
+    (ltc_ltcs_ltss_intr3_volatile_to_compressed_m() | \
+     ltc_ltcs_ltss_intr3_illegal_access_kind_type1_m() | \
+     ltc_ltcs_ltss_intr3_illegal_access_kind_type2_m() | \
+     ltc_ltcs_ltss_intr3_dtm_kind_invalid_m() | \
+     ltc_ltcs_ltss_intr3_dtm_comptag_invalid_m())
+
 void ga10b_ltc_intr_configure(struct gk20a *g);
+void ga10b_ltc_intr1_configure(struct gk20a *g);
+void ga10b_ltc_intr2_configure(struct gk20a *g);
+void ga10b_ltc_intr3_configure(struct gk20a *g);
 int ga10b_ltc_intr_isr(struct gk20a *g, u32 ltc);
-void ga10b_ltc_intr3_configure_extra(struct gk20a *g, u32 *reg);
+void ga10b_ltc_intr3_ecc_interrupts(struct gk20a *g, u32 ltc, u32 slice,
+				u32 offset, u32 ltc_intr3, bool *needs_quiesce);
 void ga10b_ltc_intr3_interrupts(struct gk20a *g, u32 ltc, u32 slice,
-				u32 ltc_intr3);
-void ga10b_ltc_intr_handle_lts_intr(struct gk20a *g, u32 ltc, u32 slice);
-void ga10b_ltc_intr_handle_lts_intr2(struct gk20a *g, u32 ltc, u32 slice);
-void ga10b_ltc_intr_handle_lts_intr3(struct gk20a *g, u32 ltc, u32 slice);
-void ga10b_ltc_intr_handle_lts_intr3_extra(struct gk20a *g, u32 ltc, u32 slice, u32 *reg_value);
-void ga10b_ltc_intr_handle_illegal_compstat(struct gk20a *g, u32 ltc, u32 slice,
-				u32 ltc_intr, u32 *reg_value);
+				u32 ltc_intr3, bool *needs_quiesce);
+void ga10b_ltc_intr_handle_lts_intr(struct gk20a *g, u32 ltc, u32 slice,
+	bool *needs_quiesce);
+void ga10b_ltc_intr_handle_lts_intr2(struct gk20a *g, u32 ltc, u32 slice,
+	bool *needs_quiesce);
+void ga10b_ltc_intr_handle_lts_intr3(struct gk20a *g, u32 ltc, u32 slice,
+	bool *needs_quiesce);
 u32 ga10b_ltc_intr_read_intr1(struct gk20a *g);
 u32 ga10b_ltc_intr_read_intr2(struct gk20a *g);
 u32 ga10b_ltc_intr_read_intr3(struct gk20a *g);

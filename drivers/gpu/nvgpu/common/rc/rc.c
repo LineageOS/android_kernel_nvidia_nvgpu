@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/gk20a.h>
@@ -31,14 +12,16 @@
 #include <nvgpu/gr/gr_instances.h>
 #endif
 #include <nvgpu/channel.h>
+#include <nvgpu/engine_status.h>
 #include <nvgpu/tsg.h>
 #include <nvgpu/error_notifier.h>
 #include <nvgpu/pbdma_status.h>
 #include <nvgpu/rc.h>
+#include <nvgpu/runlist.h>
 #include <nvgpu/nvgpu_init.h>
 
-void nvgpu_rc_fifo_recover(struct gk20a *g, u32 eng_bitmask,
-			u32 hw_id, bool id_is_tsg,
+void nvgpu_rc_fifo_recover(struct gk20a *g, u32 gfid,
+			u32 runlist_id, u32 hw_id, bool id_is_tsg,
 			bool id_is_known, bool debug_dump, u32 rc_type)
 {
 #ifdef CONFIG_NVGPU_RECOVERY
@@ -58,11 +41,12 @@ void nvgpu_rc_fifo_recover(struct gk20a *g, u32 eng_bitmask,
 		id_type = ID_TYPE_UNKNOWN;
 	}
 
-	g->ops.fifo.recover(g, eng_bitmask, hw_id, id_type,
-				 rc_type, NULL);
+	g->ops.fifo.recover(g, gfid, runlist_id, hw_id, id_type,
+				 rc_type, false);
 #else
 	WARN_ON(!g->sw_quiesce_pending);
-	(void)eng_bitmask;
+	(void)gfid;
+	(void)runlist_id;
 	(void)hw_id;
 	(void)id_is_tsg;
 	(void)id_is_known;
@@ -72,12 +56,20 @@ void nvgpu_rc_fifo_recover(struct gk20a *g, u32 eng_bitmask,
 }
 
 void nvgpu_rc_ctxsw_timeout(struct gk20a *g, u32 eng_bitmask,
-				struct nvgpu_tsg *tsg, bool debug_dump)
+				u32 gfid, u32 tsgid, bool debug_dump)
 {
-	nvgpu_tsg_set_error_notifier(g, tsg,
+#ifdef CONFIG_NVGPU_RECOVERY
+	struct nvgpu_fifo *f = &g->fifo;
+	struct nvgpu_runlist *runlist = NULL;
+	u32 runlist_id = INVAL_ID;
+	u32 i;
+#endif
+
+	nvgpu_tsg_set_error_notifier(g, gfid, tsgid,
 		NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT);
 
 #ifdef CONFIG_NVGPU_RECOVERY
+
 	/*
 	 * Cancel all channels' wdt since ctxsw timeout causes the runlist to
 	 * stuck and might falsely trigger multiple watchdogs at a time. We
@@ -86,23 +78,37 @@ void nvgpu_rc_ctxsw_timeout(struct gk20a *g, u32 eng_bitmask,
 	 */
 	nvgpu_channel_restart_all_wdts(g);
 
-	nvgpu_rc_fifo_recover(g, eng_bitmask, tsg->tsgid, true, true, debug_dump,
+	for (i = 0U; i < f->num_runlists; i++) {
+		runlist = &f->active_runlists[i];
+
+		if (runlist->eng_bitmask & eng_bitmask) {
+			runlist_id = runlist->id;
+			break;
+		}
+	}
+	nvgpu_assert(runlist_id != INVAL_ID);
+
+	nvgpu_rc_fifo_recover(g, gfid, runlist_id, tsgid, true, true, debug_dump,
 			RC_TYPE_CTXSW_TIMEOUT);
 #else
 	WARN_ON(!g->sw_quiesce_pending);
 	(void)eng_bitmask;
 	(void)debug_dump;
+	(void)gfid;
 #endif
 }
 
 int nvgpu_rc_pbdma_fault(struct gk20a *g, u32 pbdma_id, u32 error_notifier,
 			struct nvgpu_pbdma_status_info *pbdma_status)
 {
+	struct nvgpu_fifo *f = &g->fifo;
+	struct nvgpu_runlist *runlist;
+	u32 runlist_id = INVAL_ID;
 	u32 id_type = PBDMA_STATUS_ID_TYPE_INVALID;
 	int err = 0;
 	u32 id;
-	struct nvgpu_tsg *tsg = NULL;
-	struct nvgpu_channel *ch = NULL;
+	u32 gfid;
+	u32 i;
 
 	if (error_notifier >= NVGPU_ERR_NOTIFIER_INVAL) {
 		nvgpu_err(g, "Invalid error notifier %u", error_notifier);
@@ -118,10 +124,12 @@ int nvgpu_rc_pbdma_fault(struct gk20a *g, u32 pbdma_id, u32 error_notifier,
 			nvgpu_pbdma_status_is_chsw_save(pbdma_status)) {
 		id = pbdma_status->id;
 		id_type = pbdma_status->id_type;
+		gfid = pbdma_status->gfid;
 	} else if (nvgpu_pbdma_status_is_chsw_load(pbdma_status) ||
 			nvgpu_pbdma_status_is_chsw_switch(pbdma_status)) {
 		id = pbdma_status->next_id;
 		id_type = pbdma_status->next_id_type;
+		gfid = pbdma_status->next_gfid;
 	} else if (nvgpu_pbdma_status_ch_not_loaded(pbdma_status)) {
 		/* Nothing to do here */
 		nvgpu_log_info(g, "no channel loaded on pbdma.");
@@ -133,37 +141,24 @@ int nvgpu_rc_pbdma_fault(struct gk20a *g, u32 pbdma_id, u32 error_notifier,
 		goto out;
 	}
 
+	for (i = 0U; i < f->num_runlists; i++) {
+		runlist = &f->active_runlists[i];
+
+		if (runlist->pbdma_bitmask & BIT32(pbdma_id)) {
+			runlist_id = runlist->id;
+			break;
+		}
+	}
+	nvgpu_assert(runlist_id != INVAL_ID);
+
 	switch (id_type) {
 	case PBDMA_STATUS_ID_TYPE_TSGID:
 	{
-		tsg = nvgpu_tsg_get_from_id(g, id);
+		u32 tsgid = id;
 
-		nvgpu_tsg_set_error_notifier(g, tsg, error_notifier);
-		nvgpu_rc_tsg_and_related_engines(g, tsg, true, RC_TYPE_PBDMA_FAULT);
-		break;
-	}
-	case PBDMA_STATUS_ID_TYPE_CHID:
-	{
-		ch = nvgpu_channel_from_id(g, id);
-		if (ch == NULL) {
-			nvgpu_err(g, "channel is not referenceable");
-			err = -EINVAL;
-			nvgpu_sw_quiesce(g);
-			break;
-		}
-
-		tsg = nvgpu_tsg_from_ch(ch);
-		if (tsg == NULL) {
-			nvgpu_err(g, "chid: %d is not bound to tsg", ch->chid);
-			nvgpu_channel_put(ch);
-			err = -EINVAL;
-			nvgpu_sw_quiesce(g);
-			break;
-		}
-		nvgpu_tsg_set_error_notifier(g, tsg, error_notifier);
-		nvgpu_rc_tsg_and_related_engines(g, tsg, true, RC_TYPE_PBDMA_FAULT);
-
-		nvgpu_channel_put(ch);
+		nvgpu_tsg_set_error_notifier(g, gfid, tsgid, error_notifier);
+		nvgpu_rc_fifo_recover(g, gfid, runlist_id, tsgid,
+				true, true, true, RC_TYPE_PBDMA_FAULT);
 		break;
 	}
 	default:
@@ -183,7 +178,8 @@ void nvgpu_rc_runlist_update(struct gk20a *g, u32 runlist_id)
 	u32 eng_bitmask = nvgpu_engine_get_runlist_busy_engines(g, runlist_id);
 
 	if (eng_bitmask != 0U) {
-		nvgpu_rc_fifo_recover(g, eng_bitmask, INVAL_ID, false, false, true,
+		/* not used on sr-iov gpu server, so set gfid 0 */
+		nvgpu_rc_fifo_recover(g, 0, runlist_id, INVAL_ID, false, false, true,
 				RC_TYPE_RUNLIST_UPDATE_TIMEOUT);
 	}
 #else
@@ -205,89 +201,73 @@ void nvgpu_rc_runlist_update(struct gk20a *g, u32 runlist_id)
 #endif
 }
 
-void nvgpu_rc_preempt_timeout(struct gk20a *g, struct nvgpu_tsg *tsg)
+void nvgpu_rc_preempt_timeout(struct gk20a *g, u32 runlist_id, u32 tsgid)
 {
-	nvgpu_tsg_set_error_notifier(g, tsg,
+	/* gfid is 0 since the code not used on server */
+	nvgpu_tsg_set_error_notifier(g, 0U, tsgid,
 		NVGPU_ERR_NOTIFIER_FIFO_ERROR_IDLE_TIMEOUT);
 
 #ifdef CONFIG_NVGPU_RECOVERY
-	nvgpu_rc_tsg_and_related_engines(g, tsg, true, RC_TYPE_PREEMPT_TIMEOUT);
+	nvgpu_rc_fifo_recover(g, 0U, runlist_id, tsgid,
+			true, true, true, RC_TYPE_PREEMPT_TIMEOUT);
 #else
+	(void)runlist_id;
 	BUG_ON(!g->sw_quiesce_pending);
 #endif
 }
 
-void nvgpu_rc_gr_fault(struct gk20a *g, struct nvgpu_tsg *tsg,
-		struct nvgpu_channel *ch)
+void nvgpu_rc_gr_fault(struct gk20a *g, u32 gfid, u32 tsgid)
 {
 #ifdef CONFIG_NVGPU_RECOVERY
-	u32 gr_engine_id;
-	u32 gr_eng_bitmask = 0U;
 	u32 cur_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	u32 inst_id = nvgpu_gr_get_syspipe_id(g, cur_gr_instance_id);
+	const struct nvgpu_device *dev = NULL;
 
 	nvgpu_log(g, gpu_dbg_gr, "RC GR%u inst_id%u",
 		cur_gr_instance_id, inst_id);
 
-	gr_engine_id = nvgpu_engine_get_gr_id_for_inst(g, inst_id);
-	if (gr_engine_id != NVGPU_INVALID_ENG_ID) {
-		gr_eng_bitmask = BIT32(gr_engine_id);
-	} else {
-		nvgpu_warn(g, "gr_engine_id is invalid");
-	}
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_GRAPHICS, inst_id);
+	nvgpu_assert(dev != NULL);
 
-	if (tsg != NULL) {
-		nvgpu_rc_fifo_recover(g, gr_eng_bitmask, tsg->tsgid,
-				   true, true, true, RC_TYPE_GR_FAULT);
-	} else {
-		if (ch != NULL) {
-			nvgpu_err(g, "chid: %d referenceable but not "
-				"bound to tsg", ch->chid);
-		}
-		nvgpu_rc_fifo_recover(g, gr_eng_bitmask, INVAL_ID,
-				   false, false, true, RC_TYPE_GR_FAULT);
-	}
+	nvgpu_rc_fifo_recover(g, gfid, dev->runlist_id, tsgid,
+			true, true, true, RC_TYPE_GR_FAULT);
 #else
 	WARN_ON(!g->sw_quiesce_pending);
-	(void)tsg;
-	(void)ch;
+	(void)gfid;
+	(void)tsgid;
 #endif
 	nvgpu_log(g, gpu_dbg_gr, "done");
 }
 
 void nvgpu_rc_ce_fault(struct gk20a *g, u32 inst_id)
 {
-	struct nvgpu_channel *ch = NULL;
-	struct nvgpu_tsg *tsg = NULL;
-	u32 chid = NVGPU_INVALID_CHANNEL_ID;
-	u64 inst_ptr = 0U;
+	const struct nvgpu_device *dev = NULL;
+	struct nvgpu_engine_status_info engine_status;
+	u32 tsgid = NVGPU_INVALID_TSG_ID;
 
-	if (g->ops.ce.get_inst_ptr_from_lce != NULL) {
-		inst_ptr = g->ops.ce.get_inst_ptr_from_lce(g,
-						inst_id);
+	dev = nvgpu_device_get(g, NVGPU_DEVTYPE_LCE, inst_id);
+	nvgpu_assert(dev != NULL);
+
+	g->ops.engine_status.read_engine_status_info(g,
+			dev->engine_id, &engine_status);
+
+	if (engine_status.ctx_id_type == ENGINE_STATUS_CTX_ID_TYPE_TSGID) {
+		tsgid = engine_status.ctx_id;
 	}
-	/* refch will be put back before recovery */
-	ch = nvgpu_channel_refch_from_inst_ptr(g, inst_ptr);
-	if (ch == NULL) {
+
+	if (tsgid == NVGPU_INVALID_TSG_ID) {
+		nvgpu_err(g, "invalid tsgid %u", tsgid);
+		/* ToDo: Trigger Quiesce? */
 		return;
-	} else {
-		chid = ch->chid;
-		nvgpu_channel_put(ch);
-		tsg = nvgpu_tsg_from_ch(ch);
-		if (tsg == NULL) {
-			nvgpu_err(g, "channel_id: %d not bound to tsg",
-						chid);
-			/* ToDo: Trigger Quiesce? */
-			return;
-		}
-		nvgpu_tsg_set_error_notifier(g, tsg, NVGPU_ERR_NOTIFIER_CE_ERROR);
 	}
+
+	nvgpu_tsg_set_error_notifier(g, engine_status.gfid, tsgid, NVGPU_ERR_NOTIFIER_CE_ERROR);
+
 #ifdef CONFIG_NVGPU_RECOVERY
-	nvgpu_rc_tsg_and_related_engines(g, tsg, true,
-			RC_TYPE_CE_FAULT);
+	nvgpu_rc_fifo_recover(g, engine_status.gfid, dev->runlist_id, tsgid,
+			true, true, true, RC_TYPE_CE_FAULT);
 #else
 	WARN_ON(!g->sw_quiesce_pending);
-	(void)tsg;
 #endif
 }
 
@@ -295,7 +275,7 @@ void nvgpu_rc_sched_error_bad_tsg(struct gk20a *g)
 {
 #ifdef CONFIG_NVGPU_RECOVERY
 	/* id is unknown, preempt all runlists and do recovery */
-	nvgpu_rc_fifo_recover(g, 0, INVAL_ID, false, false, false,
+	nvgpu_rc_fifo_recover(g, 0U, INVAL_ID, INVAL_ID, false, false, false,
 		RC_TYPE_SCHED_ERR);
 #else
 	WARN_ON(!g->sw_quiesce_pending);
@@ -314,7 +294,7 @@ void nvgpu_rc_tsg_and_related_engines(struct gk20a *g, struct nvgpu_tsg *tsg,
 #endif
 
 	/* disable tsg so that it does not get scheduled again */
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	/*
 	 * On hitting engine reset, h/w drops the ctxsw_status to INVALID in
@@ -355,7 +335,7 @@ void nvgpu_rc_tsg_and_related_engines(struct gk20a *g, struct nvgpu_tsg *tsg,
 	nvgpu_mutex_release(&g->fifo.engines_reset_mutex);
 
 	if (eng_bitmask != 0U) {
-		nvgpu_rc_fifo_recover(g, eng_bitmask, tsg->tsgid, true, true,
+		nvgpu_rc_fifo_recover(g, 0U, tsg->runlist->id, tsg->tsgid, true, true,
 			debug_dump, rc_type);
 	} else {
 		if (nvgpu_tsg_mark_error(g, tsg) && debug_dump) {
@@ -383,6 +363,10 @@ static int nvgpu_rc_mmu_fault_recovery(struct gk20a *g, u32 act_eng_bitmask,
 				       struct mmu_fault_info *mmufault)
 {
 	int err = 0;
+	u32 pbdma_bitmask = 0U;
+	u32 runlists_mask = 0U;
+	u32 runlist_id = 0U;
+	bool should_defer_reset = false;
 
 	if (id >= g->fifo.num_channels && id != INVAL_ID) {
 		nvgpu_err(g, "invalid id %u", id);
@@ -399,8 +383,21 @@ static int nvgpu_rc_mmu_fault_recovery(struct gk20a *g, u32 act_eng_bitmask,
 	nvgpu_err(g, "mmu fault id=%u id_type=%u act_eng_bitmask=%08x",
 		id, id_type, act_eng_bitmask);
 
-	g->ops.fifo.recover(g, act_eng_bitmask,
-		id, id_type, rc_type, mmufault);
+#ifdef CONFIG_NVGPU_DEBUGGER
+	should_defer_reset = nvgpu_engine_should_defer_reset(g,
+			mmufault->faulted_engine, mmufault->client_type, false);
+#endif
+
+	if (mmufault->faulted_pbdma != INVAL_ID) {
+		pbdma_bitmask = BIT32(mmufault->faulted_pbdma);
+	}
+	runlists_mask = nvgpu_runlist_get_runlists_mask(g, id, id_type,
+			act_eng_bitmask, pbdma_bitmask);
+
+	runlist_id = nvgpu_safe_sub_u32(
+			nvgpu_safe_cast_u64_to_u32(nvgpu_ffs(runlists_mask)), 1U);
+	g->ops.fifo.recover(g, 0U, runlist_id,
+		id, id_type, rc_type, should_defer_reset);
 
 out:
 	if (err != 0) {
@@ -435,7 +432,8 @@ int nvgpu_rc_mmu_fault(struct gk20a *g, u32 act_eng_bitmask,
 
 	if ((id != INVAL_ID) && (id_type == ID_TYPE_TSG)) {
 		struct nvgpu_tsg *tsg = &g->fifo.tsg[id];
-		nvgpu_tsg_set_ctx_mmu_error(g, tsg);
+		/* not used by sr-iov server, use gfid 0 */
+		nvgpu_tsg_set_ctx_mmu_error(g, 0U, tsg->tsgid);
 		(void)nvgpu_tsg_mark_error(g, tsg);
 	}
 

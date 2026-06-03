@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -54,8 +35,8 @@ void gv11b_gr_config_set_live_pes_mask(struct gk20a *g,
 
 	for (gpc_index = 0U; gpc_index < gpc_count; gpc_index++) {
 		offset = nvgpu_gr_gpc_offset(g, gpc_index);
-		temp_mask = nvgpu_readl(g, gr_gpc0_gpm_pd_live_physical_pes_r()
-				+ offset);
+		temp_mask = nvgpu_readl(g, nvgpu_safe_add_u32(gr_gpc0_gpm_pd_live_physical_pes_r(),
+				offset));
 		temp_mask =
 			gr_gpc0_gpm_pd_live_physical_pes_gpc0_gpm_pd_live_physical_pes_mask_f(temp_mask);
 		temp_mask <<=  (NUMBER_OF_BITS_COMPUTE_PES_MASK * gpc_index);
@@ -69,6 +50,6 @@ void gv11b_gr_config_set_live_pes_mask(struct gk20a *g,
 	 */
 	for (gpc_index = 0U; gpc_index < gpc_count; gpc_index++) {
 		offset = nvgpu_gr_gpc_offset(g, gpc_index);
-		nvgpu_writel(g, gr_gpc0_swdx_pes_mask_r() + offset, pes_mask);
+		nvgpu_writel(g, nvgpu_safe_add_u32(gr_gpc0_swdx_pes_mask_r(), offset), pes_mask);
 	}
 }

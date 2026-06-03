@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/timers.h>
@@ -31,6 +12,7 @@
 #include <nvgpu/power_features/cg.h>
 #include <nvgpu/nvgpu_err.h>
 #include <nvgpu/boardobjgrp.h>
+#include <nvgpu/acr.h>
 #include <nvgpu/pmu.h>
 #include <nvgpu/string.h>
 #include <nvgpu/pmu/clk/clk.h>
@@ -42,8 +24,10 @@
 #include <nvgpu/pmu/super_surface.h>
 #include <nvgpu/pmu/pmu_perfmon.h>
 #include <nvgpu/pmu/fw.h>
+#include <nvgpu/pmu/msg.h>
 #include <nvgpu/pmu/debug.h>
 #include <nvgpu/pmu/pmu_pstate.h>
+#include <nvgpu/pmu/pmu_sw.h>
 #include <nvgpu/riscv.h>
 
 #include "boardobj/boardobj.h"
@@ -106,6 +90,11 @@ int nvgpu_pmu_destroy(struct gk20a *g, struct nvgpu_pmu *pmu)
 {
 	nvgpu_log_fn(g, " ");
 
+	/* sync with governor thread which may be doing Perfmon load query to PMU */
+	if (pmu->pmu_perfmon->query_mutex_initialized) {
+		nvgpu_mutex_acquire(&pmu->pmu_perfmon->query_mutex);
+	}
+
 #ifdef CONFIG_NVGPU_POWER_PG
 	if (g->can_elpg) {
 		nvgpu_pmu_pg_destroy(g, pmu, pmu->pg);
@@ -129,6 +118,11 @@ int nvgpu_pmu_destroy(struct gk20a *g, struct nvgpu_pmu *pmu)
 	nvgpu_pmu_set_fw_ready(g, pmu, false);
 	nvgpu_pmu_lsfm_clean(g, pmu, pmu->lsfm);
 	pmu->pmu_perfmon->perfmon_ready = false;
+
+	if (pmu->pmu_perfmon->query_mutex_initialized) {
+		nvgpu_mutex_release(&pmu->pmu_perfmon->query_mutex);
+	}
+
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
 	nvgpu_falcon_dbg_error_print_enable(pmu->flcn, false);
 #endif
@@ -296,7 +290,7 @@ void nvgpu_pmu_next_core_rtos_args_setup(struct gk20a *g,
 			sizeof(struct nv_pmu_boot_params));
 
 	/* copy boot args phyadr to mailbox 0/1 */
-	phyadr = nvgpu_safe_add_u64(NV_NEXT_CORE_AMAP_EXTMEM2_START,
+	phyadr = nvgpu_safe_add_u64(g->ops.pmu.get_amap_extmem2_start(),
 			nvgpu_mem_get_addr(g, &pmu->fw->ucode_boot_args));
 
 	nvgpu_falcon_mailbox_write(g->pmu->flcn, FALCON_MAILBOX_0,
@@ -369,10 +363,12 @@ static int nvgpu_pmu_wait_for_priv_lockdown_release(struct gk20a *g,
 int nvgpu_pmu_rtos_init(struct gk20a *g)
 {
 	int err = 0;
+	u32 intr_ctrl_msg = 0U;
 
 	nvgpu_log_fn(g, " ");
 
-	if (!g->support_ls_pmu || (g->pmu == NULL)) {
+	if ((g->ops.pmu.is_pmu_supported == NULL) ||
+		!g->ops.pmu.is_pmu_supported(g) || (g->pmu == NULL)) {
 		goto exit;
 	}
 
@@ -452,7 +448,33 @@ int nvgpu_pmu_rtos_init(struct gk20a *g)
 				goto exit;
 			}
 #endif
-			g->ops.falcon.bootstrap(g->pmu->flcn, 0U);
+			if (g->is_acr_ipc_supported == true) {
+				if (g->ops.pmu.get_intr_ctrl_msg != NULL) {
+					g->ops.pmu.get_intr_ctrl_msg(g, true,
+					&intr_ctrl_msg);
+				} else {
+					nvgpu_err(g, "Un-supported PMU interrupt msg ctrl");
+					err = -EINVAL;
+					goto exit;
+				}
+				nvgpu_pmu_fw_state_change(g, g->pmu, PMU_FW_STATE_STARTING, false);
+
+				/* Disable PMU boot for PMU2.0 ucode ie. gb20c*/
+				if (!g->pmu->is_pmu_ucode_model_20) {
+					err = nvgpu_acr_bootstrap_engine(g,
+						FALCON_ID_PMU_RISCV_EB, 0, 0, intr_ctrl_msg, 0);
+					if (err != 0) {
+						nvgpu_err(g, "flcn-%d: PMU ucode boot failed: %d",
+								FALCON_ID_PMU_RISCV_EB, err);
+						goto exit;
+					}
+				} else {
+					err = 0;
+					goto exit;
+				}
+			} else {
+				g->ops.falcon.bootstrap(g->pmu->flcn, 0U);
+			}
 		} else
 #endif
 		{
@@ -469,7 +491,9 @@ int nvgpu_pmu_rtos_init(struct gk20a *g)
 		}
 	}
 
-	nvgpu_pmu_fw_state_change(g, g->pmu, PMU_FW_STATE_STARTING, false);
+	if (g->is_acr_ipc_supported != true) {
+		nvgpu_pmu_fw_state_change(g, g->pmu, PMU_FW_STATE_STARTING, false);
+	}
 #if defined(CONFIG_NVGPU_NON_FUSA)
 	if (nvgpu_is_enabled(g, NVGPU_PMU_NEXT_CORE_ENABLED)) {
 
@@ -489,6 +513,17 @@ int nvgpu_pmu_rtos_init(struct gk20a *g)
 		}
 	}
 #endif
+
+	/* PMU 2.0 requires driver register before receiving msg from PMU, */
+	/* initiate message processing flow for driver register */
+	if (g->pmu->is_pmu_ucode_model_20) {
+		err = nvgpu_pmu_process_message(g->pmu);
+		if (err != 0) {
+			nvgpu_err(g, "pmu model 20 process message failed");
+			goto exit;
+		}
+	}
+
 exit:
 	return err;
 }
@@ -519,6 +554,8 @@ int nvgpu_pmu_rtos_early_init(struct gk20a *g, struct nvgpu_pmu *pmu)
 	if (err != 0) {
 		goto init_failed;
 	}
+
+	nvgpu_pmu_sw_init(g, pmu);
 
 #ifdef CONFIG_NVGPU_POWER_PG
 	if (g->can_elpg) {

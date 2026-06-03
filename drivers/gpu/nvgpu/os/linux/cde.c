@@ -1,20 +1,5 @@
-/*
- * Color decompression engine support
- *
- * Copyright (c) 2014-2023, NVIDIA Corporation.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/dma-mapping.h>
 #include <linux/fs.h>
@@ -48,7 +33,6 @@
 #include "os_linux.h"
 #include "dmabuf_priv.h"
 #include "channel.h"
-#include "cde_gm20b.h"
 #include "cde_gp10b.h"
 
 static int gk20a_cde_load(struct gk20a_cde_ctx *cde_ctx);
@@ -1345,7 +1329,7 @@ static int gk20a_cde_load(struct gk20a_cde_ctx *cde_ctx)
 		return -ENOSYS;
 	}
 
-	tsg = nvgpu_tsg_open(g, nvgpu_current_pid(g));
+	tsg = nvgpu_tsg_open(g, nvgpu_current_pid(g), 0);
 	if (!tsg) {
 		nvgpu_err(g, "cde: could not create TSG");
 		err = -ENOMEM;

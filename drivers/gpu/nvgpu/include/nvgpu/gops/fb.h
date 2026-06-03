@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_FB_H
 #define NVGPU_GOPS_FB_H
@@ -27,14 +9,50 @@
 /**
  * @file
  *
- * common.fb interface.
+ * fb interface.
+ * @page fb fb
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| fb unit provides interfaces for fb h/w configuration,
+ * tlb flush/invalidation, mmu debug control, mmu fault buffer handling and
+ * allocation/de-allocation of fb ecc corrected/uncorrected error counters.
+ * The |nvgpu-rm| fb unit enables fb mmu related interrupts and
+ * do the interrupt handling associated with it.
+ * The |nvgpu-rm| fb unit also provides interfaces for reading
+ * VPR/WPR info and trigger VPR info fetch that the mmu fetches from memory
+ * controller.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + gops_fb.dump_wpr_info
+ *   + gops_fb.mmu_debug_wr
+ *   + gops_fb.mmu_debug_ctrl
+ *   + gops_fb.mmu_debug_rd
+ *   + gops_fb.fault_buf_configure_hw
+ *   + gops_fb.tlb_invalidate
+ *   + gops_fb.mmu_ctrl
+ *   + gops_fb.is_fault_buf_enabled
+ *   + gops_fb.read_wpr_info
+ *   + gops_fb.init_fs_state
+ *   + gops_fb.init_hw
+ *   + gops_fb.fault_buf_set_state_hw
+ *   + gops_fb_intr.disable
+ *   + gops_fb_intr.enable
+ *   + gops_fb_intr.is_mmu_fault_pending
+ *   + gops_fb_intr.isr
  */
+
 struct gk20a;
 
 /**
- * common.fb intr subunit hal operations.
+ * fb intr subunit hal operations.
  *
- * This structure stores common.fb interrupt subunit hal pointers.
+ * This structure stores fb interrupt subunit hal pointers.
  *
  * @see gpu_ops
  */
@@ -153,7 +171,7 @@ struct gops_fb_ecc {
 	 *
 	 * @return 0 in case of success, < 0 in case of failure.
 	 */
-	int (*init)(struct gk20a *g);
+	int (*ecc_counter_init)(struct gk20a *g);
 
 	/**
 	 * @brief Free FB unit ECC support.
@@ -163,7 +181,7 @@ struct gops_fb_ecc {
 	 * This function deallocates memory allocated for ecc error counts
 	 * for FB unit.
 	 */
-	void (*free)(struct gk20a *g);
+	void (*ecc_counter_free)(struct gk20a *g);
 
 	/**
 	 * @brief Fetch bitmask for l2tlb corrected, uncorrcted errors.
@@ -231,9 +249,9 @@ struct gops_fb_vab {
 #endif
 
 /**
- * common.fb unit hal operations.
+ * fb unit hal operations.
  *
- * This structure stores common.fb unit hal pointers.
+ * This structure stores fb unit hal pointers.
  *
  * @see gpu_ops
  */
@@ -317,20 +335,6 @@ struct gops_fb {
 	u32 (*mmu_debug_rd)(struct gk20a *g);
 
 	/**
-	 * @brief Dumps VPR information.
-	 *
-	 * @param g [in]		Pointer to GPU driver struct.
-	 *
-	 * This function error logs VPR information that the MMU fetches from
-	 * memory controller. VPR info has following data:
-	 *  - addr_lo displays the lower address of the VPR
-	 *  - addr_hi displays the upper address of the VPR.
-	 *  - cya_low and cya_hi displays CYA bits that controls the
-	 *    trust level of each client.
-	 */
-	void (*dump_vpr_info)(struct gk20a *g);
-
-	/**
 	 * @brief Dumps WPR information.
 	 *
 	 * @param g [in]		Pointer to GPU driver struct.
@@ -346,6 +350,7 @@ struct gops_fb {
 	 */
 	void (*dump_wpr_info)(struct gk20a *g);
 
+#ifdef CONFIG_NVGPU_VPR
 	/**
 	 * @brief Trigger VPR fetch information.
 	 *
@@ -358,6 +363,21 @@ struct gops_fb {
 	 * @retval -ETIMEDOUT if CPU  polling timeout during VPR fetch.
 	 */
 	int (*vpr_info_fetch)(struct gk20a *g);
+
+	/**
+	 * @brief Dumps VPR information.
+	 *
+	 * @param g [in]		Pointer to GPU driver struct.
+	 *
+	 * This function error logs VPR information that the MMU fetches from
+	 * memory controller. VPR info has following data:
+	 *  - addr_lo displays the lower address of the VPR
+	 *  - addr_hi displays the upper address of the VPR.
+	 *  - cya_low and cya_hi displays CYA bits that controls the
+	 *    trust level of each client.
+	 */
+	void (*dump_vpr_info)(struct gk20a *g);
+#endif
 
 	/**
 	 * @brief Read WPR info.
@@ -388,6 +408,32 @@ struct gops_fb {
 	 *         operations.
 	 */
 	int (*tlb_invalidate)(struct gk20a *g, struct nvgpu_mem *pdb);
+
+	/**
+	 * @brief Flush Hub TLB.
+	 *
+	 * @param g [in]	Pointer to GPU driver struct.
+	 *
+	 * This function flushes the tlb. On platforms where gpu use serial ats,
+	 * the tlbs are required to be flushed for any GPA after it is mapped and
+	 * before it is accessed by gpu. This is required to ensure that, when igpu
+	 * access the GPA, the access won't hit in the TLB cacheline, which could
+	 * have been fetched from memory by any hardware prefetchers before the GPA
+	 * was mapped by the driver. For GVA, hw prefetcher will not send the ats
+	 * request for any unmapped addresses in GMMU, so doesn't require this
+	 * flush after a map.
+	 * It includes following steps:
+	 *  - Wait until pri input fifo space available for tlb invalidation.
+	 *  - Setup bar2 pdb address space for invalidation. The only requirement
+	 *  is that the pdb used should be valid. Use bar2 pdb as this lives during
+	 *  the lifetime of the driver.
+	 *  - Trigger invalidate using a valid pdb. The address can be any valid/invalid.
+	 *
+	 * @return 0 in case of success, < 0 in case of failure.
+	 * @retval -ETIMEDOUT if CPU polling timeout during any tlb invalidate
+	 *         operations.
+	 */
+	int (*tlb_flush)(struct gk20a *g);
 
 	/**
 	 * @brief Setup mmu fault buffer.
@@ -442,6 +488,7 @@ struct gops_fb {
 	 * @return 0.
 	 */
 	int (*set_atomic_mode)(struct gk20a *g);
+	int (*serial_ats_ctrl)(struct gk20a *g, bool enable);
 
 	struct gops_fb_ecc ecc;
 
@@ -530,9 +577,13 @@ struct gops_fb {
 	int (*config_veid_smc_map)(struct gk20a *g, bool enable);
 	int (*set_smc_eng_config)(struct gk20a *g, bool enable);
 	int (*set_remote_swizid)(struct gk20a *g, bool enable);
+	void (*set_smc_veid_table_mask)(struct gk20a *g, u32 veid_enable_mask);
+	void (*set_swizzid)(struct gk20a *g, u32 mmu_fault_id, u32 swizz_id);
 #endif
 	struct gops_fb_vab vab;
 #endif
+
+	int (*set_fbp_mask)(struct gk20a *g, u32 num_gpu_instances);
 
 #ifdef CONFIG_NVGPU_DGPU
 	/**

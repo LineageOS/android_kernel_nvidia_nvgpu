@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_RISCV_H
@@ -25,8 +7,89 @@
 
 #include <nvgpu/types.h>
 #include <nvgpu/falcon.h>
+
 struct gk20a;
 struct nvgpu_falcon;
+struct nvgpu_firmware;
+
+/*
+ * Structure for nvriscv firmware descriptor information.
+ */
+struct nvgpu_nvriscv_fw_desc {
+	/*
+	 * Descriptor structure version
+	 * Version 1
+	 * Version 2
+	 * Version 3 = for Partition boot
+	 * Version 4 = for eb riscv boot
+	 * Version 5 = Support signing entire RISC-V image as "code"
+	 *             in code section.
+	 */
+	u32 version;
+	/* Bootloader offset */
+	u32 bootloaderOffset;
+	/* Bootloader size */
+	u32 bootloaderSize;
+	/* Bootloader parameter offset */
+	u32 bootloaderParamOffset;
+	/* Bootloader parameter size */
+	u32 bootloaderParamSize;
+	/* riscv elf offset */
+	u32 riscvElfOffset;
+	/* riscv elf size */
+	u32 riscvElfSize;
+	/* Changelist number associated with the image */
+	u32  appVersion;
+	/*
+	 * Manifest contains information about Monitor and it is input to BR.
+	 * Manifest offset
+	 */
+	u32  manifestOffset;
+	/* Manifest size */
+	u32  manifestSize;
+	/* Monitor Data offset within RISCV image */
+	u32  monitorDataOffset;
+	/* Monitor Data size within RISCV image */
+	u32  monitorDataSize;
+	/* Monitor Code offset within RISCV image */
+	u32  monitorCodeOffset;
+	/* Monitor Code size within RISCV image */
+	u32  monitorCodeSize;
+	/* Indicates whether monitor is enabled */
+	u32  bIsMonitorEnabled;
+	/* Swbrom Code offset within RISCV image */
+	u32  swbromCodeOffset;
+	/* Swbrom Code size within RISCV image */
+	u32  swbromCodeSize;
+	/* Swbrom Data offset within RISCV image */
+	u32  swbromDataOffset;
+	/* Swbrom Data size within RISCV image */
+	u32  swbromDataSize;
+	/* Total size of FB carveout (image and reserved space) */
+	u32  fbReservedSize;
+	/* Indicates whether the entire RISC-V image is signed as "code" in code section */
+	u32 bSignedAsCode;
+};
+
+/**
+ * Indexes for nvriscv descriptor info needed for BCR config.
+ */
+enum {
+	/** code offset */
+	NVGPU_NVRISCV_CODE_OFFSET = 0U,
+	/** code size */
+	NVGPU_NVRISCV_CODE_SIZE = 1U,
+	/** data offset */
+	NVGPU_NVRISCV_DATA_OFFSET = 2U,
+	/** data size */
+	NVGPU_NVRISCV_DATA_SIZE = 3U,
+	/** manifest offset */
+	NVGPU_NVRISCV_MANIFEST_OFFSET = 4U,
+	/** manifest size */
+	NVGPU_NVRISCV_MANIFEST_SIZE = 5U,
+	/** max index */
+	NVGPU_NVRISCV_INDEX_MAX = 6U
+};
 
 /**
  * @brief Read the riscv register.
@@ -98,4 +161,33 @@ int nvgpu_riscv_hs_ucode_load_bootstrap(struct nvgpu_falcon *flcn,
 						struct nvgpu_firmware *code_fw,
 						struct nvgpu_firmware *data_fw,
 						u64 ucode_sysmem_desc_addr);
+
+/**
+ * @brief Boot nvriscv based engine.
+ *
+ * @param flcn    [in] The falcon.
+ * @param fw_mem  [in] Pointer to nvgpu_mem where firmware is present.
+ * @param fw_desc [in] Offset and size information of the firmware.
+ *
+ * This function is called to boot the nvriscv based engine.
+ *
+ * Steps:
+ * - Reset the nvriscv core.
+ * - Program interrupt mask and routing registers.
+ * - Setup boot-config.
+ * - Write debuginfo register with dummy value.
+ * - Dma the firmware for nvriscv-eb based engines.
+ * - Program interface enable register.
+ * - Program bcr registers.
+ * - Kick-start nvriscv core.
+ * - Wait for engine idle for nvriscv-eb based engine or
+ *   wait for BROM completion for nvriscv with BR.
+ * - Check if it has reached a proper initialized state,
+ *   by polling for debuginfo clearance.
+ *
+ * @return 0 in case of success, < 0 in case of failure.
+ * @retval -ETIMEDOUT in case of wait timeout.
+ */
+s32 nvgpu_nvriscv_ns_boot(struct nvgpu_falcon *flcn, struct nvgpu_mem *fw_mem,
+			u32 *fw_desc);
 #endif /* NVGPU_RISCV_H */

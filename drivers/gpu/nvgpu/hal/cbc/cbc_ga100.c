@@ -1,26 +1,5 @@
-/*
- * GA100 CBC
- *
- * Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -37,6 +16,7 @@
 #define AMAP_DIVIDE_ROUNDING_BASE_VALUE		U32(SIZE_2K)
 #define AMAP_SWIZZLE_ROUNDING_BASE_VALUE	U32(SZ_64K)
 
+#if defined(CONFIG_NVGPU_COMPRESSION) && defined(CONFIG_NVGPU_NON_FUSA)
 int ga100_cbc_alloc_comptags(struct gk20a *g, struct nvgpu_cbc *cbc)
 {
 	/*
@@ -118,17 +98,19 @@ int ga100_cbc_alloc_comptags(struct gk20a *g, struct nvgpu_cbc *cbc)
 		nvgpu_safe_mult_u32(compbit_backing_size,
 			gobs_per_comptagline_per_slice), compstatus_per_gob);
 
-	compbit_backing_size += nvgpu_ltc_get_ltc_count(g) *
-					amap_divide_rounding;
-	compbit_backing_size += amap_swizzle_rounding;
+	compbit_backing_size = nvgpu_safe_add_u32(compbit_backing_size,
+						  nvgpu_safe_mult_u32(nvgpu_ltc_get_ltc_count(g),
+								      amap_divide_rounding));
+	compbit_backing_size = nvgpu_safe_add_u32(compbit_backing_size, amap_swizzle_rounding);
 
 	/* aligned to 2KB * ltc_count */
-	compbit_backing_size +=
-		nvgpu_ltc_get_ltc_count(g) <<
-			ltc_ltcs_ltss_cbc_base_alignment_shift_v();
+	compbit_backing_size =
+		nvgpu_safe_add_u32(compbit_backing_size,
+				   nvgpu_ltc_get_ltc_count(g) <<
+				   ltc_ltcs_ltss_cbc_base_alignment_shift_v());
 
 	/* must be a multiple of 64KB */
-	compbit_backing_size = round_up(compbit_backing_size, SZ_64K);
+	compbit_backing_size = NVGPU_ALIGN(compbit_backing_size, SZ_64K);
 
 	err = nvgpu_cbc_alloc(g, compbit_backing_size, true);
 	if (err != 0) {
@@ -156,3 +138,4 @@ int ga100_cbc_alloc_comptags(struct gk20a *g, struct nvgpu_cbc *cbc)
 
 	return 0;
 }
+#endif

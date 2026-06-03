@@ -1,26 +1,5 @@
-/*
- * NVIDIA GPU HAL interface.
- *
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/log.h>
@@ -29,12 +8,18 @@
 #include <nvgpu/soc.h>
 #include <nvgpu/static_analysis.h>
 
-#include "hal_gm20b.h"
 #include "hal_gv11b.h"
 #include "hal_ga10b.h"
 #ifdef CONFIG_NVGPU_DGPU
 #include "hal_tu104.h"
 #include "hal_ga100.h"
+#endif
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+#include "hal_gb10b.h"
+#endif
+
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#include "hal/init/hal_gb20c.h"
 #endif
 
 #if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
@@ -49,26 +34,12 @@ int nvgpu_init_hal(struct gk20a *g)
 	u32 ver = nvgpu_safe_add_u32(g->params.gpu_arch, g->params.gpu_impl);
 
 	switch (ver) {
-#ifdef CONFIG_NVGPU_HAL_NON_FUSA
-	case GK20A_GPUID_GM20B:
-		nvgpu_log_info(g, "gm20b detected");
-		if (gm20b_init_hal(g) != 0) {
-			err = -ENODEV;
-		}
-		break;
-	case GK20A_GPUID_GM20B_B:
-		nvgpu_log_info(g, "gm20b detected");
-		if (gm20b_init_hal(g) != 0) {
-			err = -ENODEV;
-		}
-		break;
-#endif
 	case NVGPU_GPUID_GA10B:
 		if (ga10b_init_hal(g) != 0) {
 			err = -ENODEV;
 		}
 		break;
-#ifdef CONFIG_NVGPU_SUPPORT_GV11B
+#if defined(CONFIG_NVGPU_SUPPORT_GV11B) && defined(CONFIG_NVGPU_HAL_NON_FUSA)
 	case NVGPU_GPUID_GV11B:
 		if (gv11b_init_hal(g) != 0) {
 			err = -ENODEV;
@@ -91,6 +62,28 @@ int nvgpu_init_hal(struct gk20a *g)
 #endif
 
 #endif
+
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	case NVGPU_GPUID_GB10B:
+	case NVGPU_GPUID_GB10B_NEXT:
+		nvgpu_log_info(g, "gb10b detected");
+		if (gb10b_init_hal(g) != 0) {
+			nvgpu_err(g, "hal init failed");
+			return -ENODEV;
+		}
+		break;
+#endif
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	case NVGPU_GPUID_GB20B:
+	case NVGPU_GPUID_GB20C:
+	case NVGPU_GPUID_GB20C_NEXT:
+		nvgpu_log_info(g, "gb20c detected");
+		if (gb20c_init_hal(g) != 0) {
+			return -ENODEV;
+		}
+		break;
+#endif
+
 	default:
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 		if (nvgpu_next_init_hal(g) != 0)

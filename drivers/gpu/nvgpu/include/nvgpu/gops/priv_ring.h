@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_PRIV_RING_H
 #define NVGPU_GOPS_PRIV_RING_H
@@ -27,12 +9,34 @@
 /**
  * @file
  *
- * common.priv_ring interface.
+ * priv_ring interface.
+ * @page priv_ring priv_ring
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| priv_ring unit provides a set of interfaces to enable
+ * privileged register ring (priv_ring) access to s/w and support queries related
+ * to get floor swept values of GPC/LTC/FBP. This unit also implements interrupt
+ * handler for reporting priv_ring read/write errors and priv_ring connection
+ * status errors.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + gops_priv_ring.enable_priv_ring
+ *   + gops_priv_ring.isr
+ *   + gops_priv_ring.enum_ltc
+ *   + gops_priv_ring.get_gpc_count
+ *   + gops_priv_ring.get_fbp_count
+
  */
 struct gk20a;
 
 /**
- * common.priv_ring unit hal operations.
+ * priv_ring unit hal operations.
  *
  * This structure stores priv_ring unit hal pointers.
  *
@@ -234,6 +238,23 @@ struct gops_priv_ring {
 	 * @return U32 Number of fbp units.
 	 */
 	u32 (*get_fbp_count)(struct gk20a *g);
+
+	/**
+	 * @brief Initializes the fbps physical to logical id mapping.
+	 *
+	 * @param g [in]			Pointer to GPU driver struct.
+	 * @param fbp_physical_id_map [in]	Pointer to array of id map.
+	 * - The function does not perform validation of g parameter.
+	 *
+	 * This function initializes the physical id to logical id mapping for fbp.
+	 *
+	 * Steps:
+	 *      - Read the value of register ppriv_rs_ctrl_fbp_fbp<physcial_id>_rs_id_r() as \a offset.
+	 *      - uses value of ppriv_rs_ctrl_fbp_fbp<index>_rs_id_logical_v() and
+	 *        ppriv_rs_ctrl_fbp_fbp<index>_rs_id_logical_v() at offset obtained
+	 *        from above value and initializes the mapping array.
+	 */
+	void (*init_fbp_physical_logical_id_map)(struct gk20a *g, u32 *fbp_physical_id_map);
 
 	/**
 	 * @brief Decodes priv ring error code.

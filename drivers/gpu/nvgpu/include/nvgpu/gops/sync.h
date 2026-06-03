@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_SYNC_H
 #define NVGPU_GOPS_SYNC_H
@@ -50,8 +32,8 @@ struct gops_sync_syncpt {
 	 *
 	 * Map syncpoint aperture in GPU virtual memory as read-only:
 	 * - Acquire syncpoint read-only map lock.
-	 * - Map syncpoint aperture in sysmem to GPU virtual memory,
-	 *   if not already mapped. Map as read-only.
+	 * - Map syncpoint aperture in sysmem to GPU virtual memory using
+	 *   set_syncpt_ro_map_gpu_va_locked(), if not already mapped. Map as read-only.
 	 * - Release syncpoint read-only map lock.
 	 *
 	 * The syncpoint shim mapping size is sync_size * num_syncpoints.
@@ -63,12 +45,50 @@ struct gops_sync_syncpt {
 	int (*get_sync_ro_map)(struct vm_gk20a *vm,
 			u64 *base_gpuva, u32 *sync_size, u32 *num_syncpoints);
 
-/** @cond DOXYGEN_SHOULD_SKIP_THIS */
+	/**
+	 * @brief Allocates and maps a buffer for a given sync point ID.
+	 *
+	 * This function performs the following steps:
+	 * -# Acquire the mutex lock for the sync point read-only map.
+	 * -# Call set_syncpt_ro_map_gpu_va_locked() to add a read-only map for the complete
+	 *    sync point shim range in the virtual memory. All channels sharing the same
+	 *    virtual memory will share the same read-only mapping.
+	 * -# Release the mutex lock for the sync point read-only map.
+	 * -# If the previous step resulted in an error, return the error code.
+	 * -# Calculate the number of pages required for the sync point buffer by dividing
+	 *    the sync point size by the CPU page size and rounding up.
+	 * -# Call nvgpu_mem_create_from_phys() to create a memory buffer from a physical
+	 *    address, using the base address of the sync point unit and the byte offset
+	 *    for the given sync point ID.
+	 * -# If the memory buffer creation fails, log the error and return the error code.
+	 * -# Call nvgpu_gmmu_map_partial() to map the memory buffer to a GPU virtual address
+	 *    with system memory aperture.
+	 * -# If the mapping fails (i.e., GPU virtual address is 0), log the error, free the
+	 *    DMA memory for the sync point buffer, and set the error code to -ENOMEM.
+	 * -# Return the error code, which is 0 if all operations were successful.
+	 *
+	 * @param [in]  c           Pointer to the channel structure.
+	 * @param [in]  syncpt_id   Sync point ID for which the buffer is to be allocated.
+	 * @param [out] syncpt_buf  Pointer to the memory structure where the buffer will be allocated.
+	 *
+	 * @return 0 if successful, negative error code otherwise.
+	 */
 	int (*alloc_buf)(struct nvgpu_channel *c,
 			u32 syncpt_id,
 			struct nvgpu_mem *syncpt_buf);
+	/**
+	 * @brief Free a previously allocated buffer for syncpoint values.
+	 *
+	 * -# Free the memory allocated for the syncpoint buffer using the
+	 *    nvgpu_dma_unmap_free() function.
+	 *
+	 * @param [in]  c          Pointer to the channel structure.
+	 * @param [in]  syncpt_buf Pointer to the buffer information to be freed.
+	 */
 	void (*free_buf)(struct nvgpu_channel *c,
 			struct nvgpu_mem *syncpt_buf);
+
+/** @cond DOXYGEN_SHOULD_SKIP_THIS */
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
 	void (*add_wait_cmd)(struct gk20a *g,
 			struct priv_cmd_entry *cmd,

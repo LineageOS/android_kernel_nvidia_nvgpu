@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -140,6 +122,9 @@
 #define ltc_ltcs_ltss_tstg_set_mgmt_2_r()                          (0x0017e2b0U)
 #define ltc_ltcs_ltss_tstg_set_mgmt_2_l2_bypass_mode_enabled_f()   (0x10000000U)
 #define ltc_ltcs_ltss_intr_r()                                     (0x0017e20cU)
+#define ltc_ltcs_ltss_intr_idle_error_iq_m()                   (U32(0x1U) << 0U)
+#define ltc_ltcs_ltss_intr_en_idle_error_iq_m()               (U32(0x1U) << 16U)
+#define ltc_ltcs_ltss_intr_en_idle_error_iq_disabled_f()                  (0x0U)
 #define ltc_ltcs_ltss_intr_idle_error_cbc_m()                  (U32(0x1U) << 1U)
 #define ltc_ltcs_ltss_intr_idle_error_cbc_reset_f()                       (0x2U)
 #define ltc_ltcs_ltss_intr_en_idle_error_cbc_m()              (U32(0x1U) << 17U)
@@ -152,6 +137,16 @@
 #define ltc_ltcs_ltss_intr_idle_error_dstg_reset_f()                      (0x8U)
 #define ltc_ltcs_ltss_intr_en_idle_error_dstg_m()             (U32(0x1U) << 19U)
 #define ltc_ltcs_ltss_intr_en_idle_error_dstg_enabled_f()             (0x80000U)
+#define ltc_ltcs_ltss_intr_blocklinear_cb_m()                  (U32(0x1U) << 6U)
+#define ltc_ltcs_ltss_intr_blocklinear_cb_reset_f()                      (0x40U)
+#define ltc_ltcs_ltss_intr_en_blocklinear_cb_m()              (U32(0x1U) << 22U)
+#define ltc_ltcs_ltss_intr_en_blocklinear_cb_enabled_f()             (0x400000U)
+#define ltc_ltcs_ltss_intr_en_blocklinear_cb_disabled_f()                 (0x0U)
+#define ltc_ltcs_ltss_intr_atomic_to_z_m()                    (U32(0x1U) << 11U)
+#define ltc_ltcs_ltss_intr_atomic_to_z_reset_f()                        (0x800U)
+#define ltc_ltcs_ltss_intr_en_atomic_to_z_m()                 (U32(0x1U) << 27U)
+#define ltc_ltcs_ltss_intr_en_atomic_to_z_enabled_f()               (0x8000000U)
+#define ltc_ltcs_ltss_intr_en_atomic_to_z_disabled_f()                    (0x0U)
 #define ltc_ltcs_ltss_intr_evicted_cb_m()                      (U32(0x1U) << 4U)
 #define ltc_ltcs_ltss_intr_evicted_cb_reset_f()                          (0x10U)
 #define ltc_ltcs_ltss_intr_en_evicted_cb_m()                  (U32(0x1U) << 20U)
@@ -170,25 +165,35 @@
 #define ltc_ltcs_ltss_intr_blkactivity_err_reset_f()                   (0x2000U)
 #define ltc_ltcs_ltss_intr_en_blkactivity_err_m()             (U32(0x1U) << 29U)
 #define ltc_ltcs_ltss_intr_en_blkactivity_err_enabled_f()          (0x20000000U)
+#define ltc_ltcs_ltss_intr_en_blkactivity_err_disabled_f()                (0x0U)
 #define ltc_ltcs_ltss_intr_illegal_compstat_access_m()        (U32(0x1U) << 14U)
 #define ltc_ltcs_ltss_intr_illegal_compstat_access_reset_f()           (0x4000U)
 #define ltc_ltcs_ltss_intr_en_illegal_compstat_access_m()     (U32(0x1U) << 30U)
 #define ltc_ltcs_ltss_intr_en_illegal_compstat_access_enabled_f()  (0x40000000U)
+#define ltc_ltcs_ltss_intr_illegal_rop_access_m()             (U32(0x1U) << 15U)
+#define ltc_ltcs_ltss_intr_illegal_rop_access_reset_f()                (0x8000U)
+#define ltc_ltcs_ltss_intr_en_illegal_rop_access_m()          (U32(0x1U) << 31U)
+#define ltc_ltcs_ltss_intr_en_illegal_rop_access_enabled_f()       (0x80000000U)
+#define ltc_ltcs_ltss_intr_en_illegal_rop_access_disabled_f()             (0x0U)
 #define ltc_ltcs_ltss_intr2_r()                                    (0x0017e208U)
 #define ltc_ltcs_ltss_intr2_trdone_invalid_tdtag_m()           (U32(0x1U) << 0U)
 #define ltc_ltcs_ltss_intr2_trdone_invalid_tdtag_reset_f()                (0x1U)
 #define ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_m()       (U32(0x1U) << 16U)
 #define ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_enabled_f()       (0x10000U)
+#define ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_disabled_f()          (0x0U)
 #define ltc_ltcs_ltss_intr2_unexpected_trdone_m()              (U32(0x1U) << 1U)
 #define ltc_ltcs_ltss_intr2_unexpected_trdone_reset_f()                   (0x2U)
 #define ltc_ltcs_ltss_intr2_en_unexpected_trdone_m()          (U32(0x1U) << 17U)
 #define ltc_ltcs_ltss_intr2_en_unexpected_trdone_enabled_f()          (0x20000U)
+#define ltc_ltcs_ltss_intr2_en_unexpected_trdone_disabled_f()             (0x0U)
 #define ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_data_m() (U32(0x1U) << 2U)
 #define ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_data_reset_f()      (0x4U)
 #define ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_m()\
 				(U32(0x1U) << 18U)
 #define ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_enabled_f()\
 				(0x40000U)
+#define ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_disabled_f()\
+				(0x0U)
 #define ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_cancel_m()\
 				(U32(0x1U) << 3U)
 #define ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_cancel_reset_f()    (0x8U)
@@ -196,38 +201,48 @@
 				(U32(0x1U) << 19U)
 #define ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_enabled_f()\
 				(0x80000U)
+#define ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_disabled_f()\
+				(0x0U)
 #define ltc_ltcs_ltss_intr2_prbrs_invalid_subid_m()            (U32(0x1U) << 4U)
 #define ltc_ltcs_ltss_intr2_prbrs_invalid_subid_reset_f()                (0x10U)
 #define ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_m()        (U32(0x1U) << 20U)
 #define ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_enabled_f()       (0x100000U)
+#define ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_disabled_f()           (0x0U)
 #define ltc_ltcs_ltss_intr2_unexpected_prbrs_m()               (U32(0x1U) << 5U)
 #define ltc_ltcs_ltss_intr2_unexpected_prbrs_reset_f()                   (0x20U)
 #define ltc_ltcs_ltss_intr2_en_unexpected_prbrs_m()           (U32(0x1U) << 21U)
 #define ltc_ltcs_ltss_intr2_en_unexpected_prbrs_enabled_f()          (0x200000U)
+#define ltc_ltcs_ltss_intr2_en_unexpected_prbrs_disabled_f()              (0x0U)
 #define ltc_ltcs_ltss_intr2_prbin_unexpected_prbrs_m()         (U32(0x1U) << 6U)
 #define ltc_ltcs_ltss_intr2_prbin_unexpected_prbrs_reset_f()             (0x40U)
 #define ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_m()     (U32(0x1U) << 22U)
 #define ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_enabled_f()    (0x400000U)
+#define ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_disabled_f()        (0x0U)
 #define ltc_ltcs_ltss_intr2_prbimo_unexpected_prbrs_m()        (U32(0x1U) << 7U)
 #define ltc_ltcs_ltss_intr2_prbimo_unexpected_prbrs_reset_f()            (0x80U)
 #define ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_m()    (U32(0x1U) << 23U)
 #define ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_enabled_f()   (0x800000U)
+#define ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_disabled_f()       (0x0U)
 #define ltc_ltcs_ltss_intr2_prbx_missing_data_m()              (U32(0x1U) << 8U)
 #define ltc_ltcs_ltss_intr2_prbx_missing_data_reset_f()                 (0x100U)
 #define ltc_ltcs_ltss_intr2_en_prbx_missing_data_m()          (U32(0x1U) << 24U)
 #define ltc_ltcs_ltss_intr2_en_prbx_missing_data_enabled_f()        (0x1000000U)
+#define ltc_ltcs_ltss_intr2_en_prbx_missing_data_disabled_f()             (0x0U)
 #define ltc_ltcs_ltss_intr2_prbx_unexpected_data_m()           (U32(0x1U) << 9U)
 #define ltc_ltcs_ltss_intr2_prbx_unexpected_data_reset_f()              (0x200U)
 #define ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_m()       (U32(0x1U) << 25U)
 #define ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_enabled_f()     (0x2000000U)
+#define ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_disabled_f()          (0x0U)
 #define ltc_ltcs_ltss_intr2_prbrs_unexpected_pa7_m()          (U32(0x1U) << 10U)
 #define ltc_ltcs_ltss_intr2_prbrs_unexpected_pa7_reset_f()              (0x400U)
 #define ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_m()       (U32(0x1U) << 26U)
 #define ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_enabled_f()     (0x4000000U)
+#define ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_disabled_f()          (0x0U)
 #define ltc_ltcs_ltss_intr2_trdone_unexpected_pa7_m()         (U32(0x1U) << 11U)
 #define ltc_ltcs_ltss_intr2_trdone_unexpected_pa7_reset_f()             (0x800U)
 #define ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_m()      (U32(0x1U) << 27U)
 #define ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_enabled_f()    (0x8000000U)
+#define ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_disabled_f()         (0x0U)
 #define ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_m()  (U32(0x1U) << 12U)
 #define ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_reset_f()     (0x1000U)
 #define ltc_ltcs_ltss_intr2_en_sysfill_bypass_invalid_subid_m()\
@@ -244,12 +259,14 @@
 #define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_m() (U32(0x1U) << 30U)
 #define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_enabled_f()\
 				(0x40000000U)
+#define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_disabled_f()    (0x0U)
 #define ltc_ltcs_ltss_intr2_checkedin_unexpected_trdone_m()   (U32(0x1U) << 15U)
 #define ltc_ltcs_ltss_intr2_checkedin_unexpected_trdone_reset_f()      (0x8000U)
 #define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_m()\
 				(U32(0x1U) << 31U)
 #define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_enabled_f()\
 				(0x80000000U)
+#define ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_disabled_f()   (0x0U)
 #define ltc_ltcs_ltss_intr3_r()                                    (0x0017e388U)
 #define ltc_ltcs_ltss_intr3_checkedout_rwc_upg_unexpected_nvport_m()\
 				(U32(0x1U) << 0U)
@@ -259,6 +276,8 @@
 				(U32(0x1U) << 16U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_enabled_f()\
 				(0x10000U)
+#define ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_disabled_f()\
+				(0x0U)
 #define ltc_ltcs_ltss_intr3_checkedout_trdone_unexpected_nvport_m()\
 				(U32(0x1U) << 1U)
 #define ltc_ltcs_ltss_intr3_checkedout_trdone_unexpected_nvport_reset_f() (0x2U)
@@ -266,6 +285,8 @@
 				(U32(0x1U) << 17U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_enabled_f()\
 				(0x20000U)
+#define ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_disabled_f()\
+				(0x0U)
 #define ltc_ltcs_ltss_intr3_checkedout_prbrs_unexpected_nvport_m()\
 				(U32(0x1U) << 2U)
 #define ltc_ltcs_ltss_intr3_checkedout_prbrs_unexpected_nvport_reset_f()  (0x4U)
@@ -273,14 +294,18 @@
 				(U32(0x1U) << 18U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_enabled_f()\
 				(0x40000U)
+#define ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_disabled_f()\
+				(0x0U)
 #define ltc_ltcs_ltss_intr3_checkedout_ninb_ncnp_req_m()       (U32(0x1U) << 3U)
 #define ltc_ltcs_ltss_intr3_checkedout_ninb_ncnp_req_reset_f()            (0x8U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_m()   (U32(0x1U) << 19U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_enabled_f()   (0x80000U)
+#define ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_disabled_f()      (0x0U)
 #define ltc_ltcs_ltss_intr3_checkedout_creq_ncnp_req_m()       (U32(0x1U) << 4U)
 #define ltc_ltcs_ltss_intr3_checkedout_creq_ncnp_req_reset_f()           (0x10U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_m()   (U32(0x1U) << 20U)
 #define ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_enabled_f()  (0x100000U)
+#define ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_disabled_f()      (0x0U)
 #define ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_m()            (U32(0x1U) << 5U)
 #define ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_reset_f()                (0x20U)
 #define ltc_ltcs_ltss_intr3_en_rmwrs_invalid_subid_m()        (U32(0x1U) << 21U)
@@ -296,23 +321,33 @@
 #define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type1_m()  (U32(0x1U) << 26U)
 #define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type1_enabled_f()\
 				(0x4000000U)
+#define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type1_disabled_f()     (0x0U)
 #define ltc_ltcs_ltss_intr3_illegal_access_kind_type2_m()     (U32(0x1U) << 11U)
 #define ltc_ltcs_ltss_intr3_illegal_access_kind_type2_reset_f()         (0x800U)
 #define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type2_m()  (U32(0x1U) << 27U)
 #define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type2_enabled_f()\
 				(0x8000000U)
+#define ltc_ltcs_ltss_intr3_en_illegal_access_kind_type2_disabled_f()     (0x0U)
 #define ltc_ltcs_ltss_intr3_dtm_kind_invalid_m()              (U32(0x1U) << 12U)
 #define ltc_ltcs_ltss_intr3_dtm_kind_invalid_reset_f()                 (0x1000U)
 #define ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_m()           (U32(0x1U) << 28U)
 #define ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_enabled_f()        (0x10000000U)
+#define ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_disabled_f()              (0x0U)
 #define ltc_ltcs_ltss_intr3_dtm_comptag_invalid_m()           (U32(0x1U) << 13U)
 #define ltc_ltcs_ltss_intr3_dtm_comptag_invalid_reset_f()              (0x2000U)
 #define ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_m()        (U32(0x1U) << 29U)
 #define ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_enabled_f()     (0x20000000U)
+#define ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_disabled_f()           (0x0U)
 #define ltc_ltcs_ltss_intr3_cdcmp_ip_error_m()                (U32(0x1U) << 14U)
 #define ltc_ltcs_ltss_intr3_cdcmp_ip_error_reset_f()                   (0x4000U)
 #define ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_m()             (U32(0x1U) << 30U)
 #define ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_enabled_f()          (0x40000000U)
+#define ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_disabled_f()                (0x0U)
+#define ltc_ltcs_ltss_intr3_volatile_to_compressed_m()         (U32(0x1U) << 9U)
+#define ltc_ltcs_ltss_intr3_volatile_to_compressed_reset_f()            (0x200U)
+#define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_m()     (U32(0x1U) << 25U)
+#define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_enabled_f()   (0x2000000U)
+#define ltc_ltcs_ltss_intr3_en_volatile_to_compressed_disabled_f()        (0x0U)
 #define ltc_ltc0_lts0_intr_r()                                     (0x0014040cU)
 #define ltc_ltc0_lts0_intr2_r()                                    (0x00140408U)
 #define ltc_ltc0_lts0_intr3_r()                                    (0x00140588U)

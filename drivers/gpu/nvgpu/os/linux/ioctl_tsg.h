@@ -1,14 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_IOCTL_TSG_H
 #define NVGPU_IOCTL_TSG_H
@@ -27,7 +18,7 @@ int nvgpu_ioctl_tsg_dev_open(struct inode *inode, struct file *filp);
 int nvgpu_ioctl_tsg_open(struct gk20a *g, struct gk20a_ctrl_priv *ctrl_priv,
 			 struct nvgpu_cdev *cdev, struct file *filp,
 			 bool open_share, u64 source_device_instance_id,
-			 u64 target_device_instance_id, u64 share_token);
+			 u64 target_device_instance_id, u64 token);
 long nvgpu_ioctl_tsg_dev_ioctl(struct file *filp,
 			       unsigned int cmd, unsigned long arg);
 void nvgpu_ioctl_tsg_release(struct nvgpu_ref *ref);

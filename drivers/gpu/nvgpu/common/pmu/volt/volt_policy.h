@@ -1,27 +1,16 @@
-/*
-* Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
-*
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
-*/
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
 
 #ifndef NVGPU_VOLT_POLICY_H
 #define NVGPU_VOLT_POLICY_H
+
+#include <nvgpu/boardobjgrp.h>
+#include <nvgpu/boardobjgrpmask.h>
+#include <common/pmu/boardobj/boardobj.h>
+
+#define NV_VBIOS_VOLTAGE_POLICY_1X_VERSION		0x10U
+#define NV_VBIOS_VOLTAGE_POLICY_2X_VERSION		0x20U
 
 #define VOLT_POLICY_INDEX_IS_VALID(pvolt, policy_idx)	\
 		(boardobjgrp_idxisvalid(	\
@@ -33,6 +22,11 @@
  */
 struct voltage_policy {
 	struct pmu_board_obj super;
+};
+
+struct voltage_policy_multi_rail {
+	struct voltage_policy super;
+	struct boardobjgrpmask_e32 volt_rail_mask;
 };
 
 struct voltage_policy_single_rail {

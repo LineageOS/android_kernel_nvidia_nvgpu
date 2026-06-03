@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_RUNLIST_H
 #define NVGPU_GOPS_RUNLIST_H
@@ -92,8 +74,14 @@ struct gops_runlist {
 	void (*get_tsg_entry)(struct nvgpu_tsg *tsg,
 			u32 *runlist, u32 timeslice);
 	void (*get_ch_entry)(struct nvgpu_channel *ch, u32 *runlist);
+	u32 (*get_ch_entry_veid)(u32 value);
+	void (*checker_get_ch_entry)(struct nvgpu_channel *ch,
+			enum nvgpu_aperture userd_aperture,
+			enum nvgpu_aperture inst_block_aperture,
+			u64 inst_block_addr,
+			u32 *runlist);
 	void (*hw_submit)(struct gk20a *g, u32 runlist_id,
-		u64 runlist_iova, enum nvgpu_aperture aperture, u32 count);
+		u64 runlist_iova, enum nvgpu_aperture aperture, u32 count, u32 gfid);
 	int (*check_pending)(struct gk20a *g, struct nvgpu_runlist *runlist);
 	void (*write_state)(struct gk20a *g, u32 runlists_mask,
 			u32 runlist_state);
@@ -112,6 +100,9 @@ struct gops_runlist {
 	u32 (*get_engine_intr_id)(struct gk20a *g, u32 runlist_pri_base,
 			u32 rleng_id);
 	u32 (*get_esched_fb_thread_id)(struct gk20a *g, u32 runlist_pri_base);
+	u32 (*get_sched_disable_reg_off)(void);
+	u32 (*get_chan_userd_ptr_hi)(u32 addr_hi);
+	u32 (*get_virtual_channel_cfg_off)(u32 gfid);
 
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 };

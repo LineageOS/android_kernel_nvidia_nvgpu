@@ -1,20 +1,5 @@
-/*
- * Linux clock support
- *
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/clk.h>
 
@@ -299,11 +284,7 @@ void nvgpu_linux_init_clk_support(struct gk20a *g)
 	struct device *dev = dev_from_gk20a(g);
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 
-	if ((platform->platform_chip_id == TEGRA_234)
-#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
-		|| (platform->platform_chip_id == TEGRA_239)
-#endif
-	){
+	if (platform->platform_chip_id == TEGRA_234) {
 		g->ops.clk.get_rate = nvgpu_ga10b_linux_clk_get_rate;
 		g->ops.clk.set_rate = nvgpu_ga10b_linux_clk_set_rate;
 	} else {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if defined(CONFIG_NVIDIA_CONFTEST)
 #include <nvidia/conftest.h>
@@ -247,7 +247,7 @@ static long nvgpu_clk_arb_ioctl_event_dev(struct file *filp, unsigned int cmd,
 {
 	struct nvgpu_clk_dev *dev = filp->private_data;
 	struct gk20a *g = dev->session->g;
-	u8 buf[NVGPU_EVENT_IOCTL_MAX_ARG_SIZE];
+	u8 *buf = NULL;
 	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn, "nr=%d", _IOC_NR(cmd));
@@ -257,10 +257,16 @@ static long nvgpu_clk_arb_ioctl_event_dev(struct file *filp, unsigned int cmd,
 		|| (_IOC_SIZE(cmd) > NVGPU_EVENT_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_EVENT_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *) arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *) arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto exit;
+		}
 	}
 
 	switch (cmd) {
@@ -273,6 +279,8 @@ static long nvgpu_clk_arb_ioctl_event_dev(struct file *filp, unsigned int cmd,
 		err = -ENOTTY;
 	}
 
+exit:
+	nvgpu_kfree(g, buf);
 	return err;
 }
 

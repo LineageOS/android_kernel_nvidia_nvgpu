@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -130,7 +111,7 @@ static void gr_gp10b_sm_lrf_ecc_overcount_errata(bool single_err,
 
 int gp10b_gr_intr_handle_sm_exception(struct gk20a *g,
 			u32 gpc, u32 tpc, u32 sm,
-			bool *post_event, struct nvgpu_channel *fault_ch,
+			bool *post_event, struct nvgpu_gr_isr_data *isr_data,
 			u32 *hww_global_esr)
 {
 	int ret = 0;
@@ -141,7 +122,7 @@ int gp10b_gr_intr_handle_sm_exception(struct gk20a *g,
 	u32 shm_ecc_status;
 
 	ret = nvgpu_gr_intr_handle_sm_exception(g,
-		gpc, tpc, sm, post_event, fault_ch, hww_global_esr);
+		gpc, tpc, sm, post_event, isr_data, hww_global_esr);
 
 	/* Check for LRF ECC errors. */
         lrf_ecc_status = nvgpu_readl(g,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * GA10B Tegra Platform Interface
@@ -12,6 +12,7 @@
 #include <linux/iommu.h>
 #include <linux/hashtable.h>
 #include <linux/clk.h>
+#include <linux/devfreq.h>
 #if defined(CONFIG_INTERCONNECT)
 #include <linux/platform/tegra/mc_utils.h>
 #include <linux/interconnect.h>
@@ -164,7 +165,6 @@ static int ga10b_tegra_acquire_platform_clocks(struct device *dev,
 	platform->num_clks = 0;
 
 	for (i = 0; i < num_clks_dt; i++) {
-		long rate;
 		struct clk *c;
 
 		if (ga10b_tegra_is_clock_available(g, clk_entries[i].name)) {
@@ -179,9 +179,6 @@ static int ga10b_tegra_acquire_platform_clocks(struct device *dev,
 			err = PTR_ERR(c);
 			goto err_get_clock;
 		} else {
-			rate = clk_entries[i].default_rate;
-			clk_set_rate(c, rate);
-
 			/*
 			 * Note that DT clocks are iterated by index 'i' and
 			 * available clocks are iterated by index 'j' in the
@@ -227,8 +224,11 @@ static void ga10b_tegra_scale_init(struct device *dev)
 {
 #if defined(CONFIG_INTERCONNECT)
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
-	struct gk20a_scale_profile *profile = platform->g->scale_profile;
+	struct gk20a_scale_profile *profile;
 	struct icc_path *icc_path_handle;
+
+	gk20a_scale_init(dev);
+	profile = platform->g->scale_profile;
 
 	if (!profile)
 		return;
@@ -271,7 +271,7 @@ static void ga10b_tegra_scale_exit(struct device *dev)
 static int ga10b_tegra_probe(struct device *dev)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
-	int err;
+	int i, err;
 	bool joint_xpu_rail = false;
 	struct gk20a *g = platform->g;
 #ifdef CONFIG_OF
@@ -308,6 +308,11 @@ static int ga10b_tegra_probe(struct device *dev)
 	if (err != 0) {
 		return err;
 	}
+
+	for (i = 0; i < platform->num_clks; i++) {
+		clk_set_rate(platform->clk[i], UINT_MAX);
+	}
+
 	nvgpu_linux_init_clk_support(platform->g);
 
 	nvgpu_mutex_init(&platform->clk_get_freq_lock);
@@ -428,7 +433,28 @@ static int ga10b_tegra_bpmp_mrq_set(struct device *dev)
 			req.value = g->gpc_pg_mask;
 			ret = ga10b_tegra_static_pg_control(dev, bpmp, &req);
 			if (ret != 0) {
-				nvgpu_err(g, "GPC-PG mask send failed");
+				/*
+				 * MRQ send was not success
+				 * throw error print in case of invalid MRQ param
+				 */
+				if (ret == -EINVAL) {
+					nvgpu_err(g, "GPC-PG mask send failed");
+				} else if (ret == -ENODEV) {
+					nvgpu_log_info(g, "MRQ is not supported by BPMP-FW");
+					/*
+					 * reset the return value to 0
+					 * as the control can go forward
+					 */
+					ret = 0;
+				} else if (ret == -EPERM) {
+					nvgpu_log_info(g, "MRQ not permitted");
+					/*
+					 * reset the return value to 0
+					 * as the control can go forward
+					 */
+					ret = 0;
+				}
+
 				return ret;
 			}
 
@@ -439,7 +465,28 @@ static int ga10b_tegra_bpmp_mrq_set(struct device *dev)
 			req.value = g->fbp_pg_mask;
 			ret = ga10b_tegra_static_pg_control(dev, bpmp, &req);
 			if (ret != 0) {
-				nvgpu_err(g, "FBP-PG mask send failed");
+				/*
+				 * MRQ send was not success
+				 * throw error print in case of invalid MRQ param
+				 */
+				if (ret == -EINVAL) {
+					nvgpu_err(g, "FBP-PG mask send failed");
+				} else if (ret == -ENODEV) {
+					nvgpu_log_info(g, "MRQ is not supported by BPMP-FW");
+					/*
+					 * reset the return value to 0
+					 * as the control can go forward
+					 */
+					ret = 0;
+				} else if (ret == -EPERM) {
+					nvgpu_log_info(g, "MRQ not permitted");
+					/*
+					 * reset the return value to 0
+					 * as the control can go forward
+					 */
+					ret = 0;
+				}
+
 				return ret;
 			}
 
@@ -451,12 +498,32 @@ static int ga10b_tegra_bpmp_mrq_set(struct device *dev)
 				req.value = g->tpc_pg_mask[i];
 				ret = ga10b_tegra_static_pg_control(dev, bpmp, &req);
 				if (ret != 0) {
-					nvgpu_err(g, "TPC-PG mask send failed "
-							"for GPC: %d", i);
+					/*
+					 * MRQ send was not success
+					 * throw error print in case of invalid MRQ param
+					 */
+					if (ret == -EINVAL) {
+						nvgpu_err(g, "TPC-PG mask send"
+							"failed for GPC: %d", i);
+					} else if (ret == -ENODEV) {
+						nvgpu_log_info(g, "MRQ is not supported by BPMP-FW");
+						/*
+						 * reset the return value to 0
+						 * as the control can go forward
+						 */
+						ret = 0;
+					} else if (ret == -EPERM) {
+						nvgpu_log_info(g, "MRQ not permitted");
+						/*
+						 * reset the return value to 0
+						 * as the control can go forward
+						 */
+						ret = 0;
+					}
+
 					return ret;
 				}
 			}
-
 			/* re-initialize the clocks */
 			ret = ga10b_tegra_get_clocks(dev);
 			if (ret != 0) {
@@ -479,28 +546,10 @@ static int ga10b_tegra_unrailgate(struct device *dev)
 	long rate;
 #endif
 #if defined(CONFIG_TEGRA_BPMP)
-	struct gk20a *g = get_gk20a(dev);
-
 	ret = ga10b_tegra_bpmp_mrq_set(dev);
-	if (ret == -EINVAL) {
-		nvgpu_err(g, "MRQ incorrect parameters");
+	if (ret != 0) {
 		return ret;
-	} else if (ret == -ENODEV) {
-		nvgpu_log_info(g, "MRQ is not supported by BPMP-FW");
-		/*
-		 * reset the return value to 0
-		 * as the control can go forward
-		 */
-		ret = 0;
-	} else if (ret == -EPERM) {
-		nvgpu_log_info(g, "MRQ not permitted");
-		/*
-		 * reset the return value to 0
-		 * as the control can go forward
-		 */
-		ret = 0;
 	}
-
 #endif
 
 	/* Setting clk controls */
@@ -802,9 +851,16 @@ struct gk20a_platform ga10b_tegra_platform = {
 
 	/* frequency scaling configuration */
 	.initscale = ga10b_tegra_scale_init,
+	.exitscale = gk20a_scale_exit,
 	.prescale = gp10b_tegra_prescale,
 	.postscale = ga10b_tegra_postscale,
-	.devfreq_governor = "nvhost_podgov",
+#if defined(CONFIG_DEVFREQ_GOV_PERFORMANCE)
+	.devfreq_governor = DEVFREQ_GOV_PERFORMANCE,
+#elif defined(CONFIG_DEVFREQ_GOV_USERSPACE)
+	.devfreq_governor = DEVFREQ_GOV_USERSPACE,
+#else
+	.devfreq_governor = NULL,
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	.qos_min_notify = gk20a_scale_qos_min_notify,

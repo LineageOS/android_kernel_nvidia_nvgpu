@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/cdev.h>
 #include <linux/fs.h>
@@ -9,6 +9,7 @@
 
 #include <uapi/linux/nvgpu-nvs.h>
 
+#include <nvgpu/gsp.h>
 #include <nvgpu/nvs.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/nvgpu_init.h>
@@ -30,22 +31,17 @@
  * OS-specific layer to hold device node mapping for a domain.
  */
 struct nvgpu_nvs_domain_ioctl {
+	struct cdev cdev;
 	struct gk20a *g;
 	struct nvgpu_nvs_domain *domain;
-	struct cdev *cdev;
 	struct device *dev;
 	struct nvgpu_class *class;
-	struct list_head list; /* entry in cdev_lookup_list */
 };
 
 /*
  * This lock serializes domain removal and opening of domain device nodes.
  */
 static DEFINE_MUTEX(cdev_lookup_mutex);
-/*
- * A list of struct nvgpu_nvs_domain_ioctl objects.
- */
-static LIST_HEAD(cdev_lookup_list);
 
 /*
  * Priv data for an open domain device file.
@@ -56,26 +52,6 @@ struct nvgpu_nvs_domain_file_private {
 	struct gk20a *g;
 	struct nvgpu_nvs_domain *domain;
 };
-
-static struct nvgpu_nvs_domain_ioctl *nvgpu_nvs_lookup_cdev(dev_t dev)
-{
-	struct nvgpu_nvs_domain_ioctl *ioctl, *ret = NULL;
-
-	mutex_lock(&cdev_lookup_mutex);
-
-	list_for_each_entry(ioctl, &cdev_lookup_list, list) {
-		if (ioctl->cdev->dev == dev) {
-			/* put back in nvgpu_nvs_domain_dev_release */
-			nvgpu_nvs_domain_get(ioctl->g, ioctl->domain);
-			ret = ioctl;
-			goto out;
-		}
-	}
-
-out:
-	mutex_unlock(&cdev_lookup_mutex);
-	return ret;
-}
 
 int nvgpu_nvs_dev_open(struct inode *inode, struct file *filp)
 {
@@ -109,10 +85,6 @@ static int nvgpu_nvs_domain_dev_do_open(struct gk20a *g,
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_nvs, "opening domain %s",
 			domain->parent->name);
 
-	g = nvgpu_get(g);
-	if (!g)
-		return -ENODEV;
-
 	priv = nvgpu_kzalloc(g, sizeof(*priv));
 	if (!priv) {
 		err = -ENOMEM;
@@ -126,28 +98,26 @@ static int nvgpu_nvs_domain_dev_do_open(struct gk20a *g,
 	return 0;
 
 put_ref:
-	nvgpu_put(g);
 	return err;
 }
 
 static int nvgpu_nvs_domain_dev_open(struct inode *inode, struct file *filp)
 {
-	struct nvgpu_nvs_domain_ioctl *ioctl;
-	struct cdev *cdev = inode->i_cdev;
 	struct nvgpu_nvs_domain *domain;
-	struct gk20a *g;
+	struct nvgpu_nvs_domain_ioctl *ioctl =
+			container_of(inode->i_cdev, struct nvgpu_nvs_domain_ioctl, cdev);
+	struct gk20a *g = ioctl->g;
 	int err;
 
-	ioctl = nvgpu_nvs_lookup_cdev(cdev->dev);
-	if (ioctl == NULL) {
-		return -ENXIO;
-	}
-
-	g = ioctl->g;
+	g = nvgpu_get(g);
+	if (!g)
+		return -ENODEV;
 	domain = ioctl->domain;
+	nvgpu_nvs_domain_get(g, ioctl->domain);
 
 	err = nvgpu_nvs_domain_dev_do_open(g, domain, filp);
 	if (err) {
+		nvgpu_put(g);
 		nvgpu_nvs_domain_put(g, domain);
 	}
 
@@ -245,27 +215,23 @@ static int create_domain_dev(struct gk20a *g,
 
 	ioctl->g = g;
 	ioctl->domain = domain;
-	INIT_LIST_HEAD(&ioctl->list);
-	ioctl->cdev = cdev_alloc();
-	ioctl->cdev->ops = &nvgpu_nvs_domain_ops;
+	cdev_init(&ioctl->cdev, &nvgpu_nvs_domain_ops);
 	ioctl->class = class;
+	ioctl->cdev.owner = THIS_MODULE;
 	err = nvgpu_create_device(dev, devno, name,
-			ioctl->cdev, &ioctl->dev, class);
+			&ioctl->cdev, &ioctl->dev, class);
 	if (err) {
 		unregister_chrdev_region(devno, 1);
 		return err;
 	}
 
-	list_add_tail(&ioctl->list, &cdev_lookup_list);
-
 	return 0;
 }
 
 static void delete_domain_dev(struct gk20a *g,
-			     struct nvgpu_nvs_domain *domain)
+			     struct nvgpu_nvs_domain_ioctl *ioctl)
 {
-	struct nvgpu_nvs_domain_ioctl *ioctl = domain->ioctl;
-	dev_t dev = ioctl->cdev->dev;
+	dev_t dev = ioctl->cdev.dev;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_nvs, " ");
 	/*
@@ -276,10 +242,8 @@ static void delete_domain_dev(struct gk20a *g,
 	 * here until all successfully opened devices have been closed because
 	 * they hold domain refs.
 	 */
-	list_del(&ioctl->list);
 
 	device_destroy(nvgpu_class_get_class(ioctl->class), dev);
-	cdev_del(ioctl->cdev);
 	unregister_chrdev_region(dev, 1);
 }
 
@@ -310,6 +274,14 @@ static int nvgpu_nvs_ioctl_create_domain(
 
 	if (g->scheduler == NULL) {
 		return -ENOSYS;
+	}
+
+	if (g->scheduler->sched == NULL) {
+		return -ENOSYS;
+	}
+
+	if (nvs_domain_count(g->scheduler->sched) >= MAX_SUPPORTED_USER_DOMAINS) {
+		return -ENOMEM;
 	}
 
 	err = nvgpu_nvs_add_domain(g,
@@ -378,7 +350,7 @@ static int nvgpu_nvs_ioctl_remove_domain(struct gk20a *g,
 
 	/* note: the internal default domain lacks ->ioctl */
 	if (ret == 0 && ioctl != NULL) {
-		delete_domain_dev(g, domain);
+		delete_domain_dev(g, ioctl);
 		nvgpu_kfree(g, ioctl);
 	}
 
@@ -472,7 +444,7 @@ static int nvgpu_nvs_ioctl_query_domains(
 
 long nvgpu_nvs_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-	u8 buf[NVGPU_NVS_IOCTL_MAX_ARG_SIZE] = { 0 };
+	void *buf = NULL;
 	bool writable = filp->f_mode & FMODE_WRITE;
 	struct gk20a *g = filp->private_data;
 	int err = 0;
@@ -489,14 +461,21 @@ long nvgpu_nvs_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return -EINVAL;
 	}
 
+	buf = nvgpu_kzalloc(g, NVGPU_NVS_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+          		goto cleanup;
+                }
 	}
 
 	err = gk20a_busy(g);
 	if (err != 0) {
-		return err;
+		goto cleanup;
 	}
 
 	switch (cmd) {
@@ -556,6 +535,8 @@ long nvgpu_nvs_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 done:
 	gk20a_idle(g);
+cleanup:
+	nvgpu_kfree(g, buf);
 	return err;
 }
 
@@ -744,18 +725,18 @@ int nvgpu_nvs_ctrl_fifo_ops_release(struct inode *inode, struct file *filp)
 
 
 	if (is_sendq_remove) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, sendq);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, sendq, true);
 	}
 
 	if (is_recvq_remove) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, recvq);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, recvq, true);
 	}
 
 	nvgpu_nvs_ctrl_fifo_remove_user(g->sched_ctrl_fifo, &linux_user->user);
 
 	if (!nvgpu_nvs_ctrl_fifo_is_busy(g->sched_ctrl_fifo)) {
 		if (is_eventq_remove) {
-			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, eventq);
+			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, eventq, true);
 		}
 	}
 	nvgpu_nvs_ctrl_fifo_unlock_queues(g);
@@ -903,22 +884,10 @@ static int nvgpu_nvs_ctrl_fifo_create_queue(struct gk20a *g,
 		err = nvgpu_nvs_get_buf(g, queue, read_only);
 	}
 
-	/*
-	 * sending control fifo info to GSP scheduler
-	 * currently only control and message queues
-	 * are supported and not event queue
-	 */
-#if defined (CONFIG_NVS_PRESENT) && defined (CONFIG_NVGPU_GSP_SCHEDULER)
-	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
-		if ((nvgpu_gsp_is_ready(g) == true) &&
-			(num_queue == NVGPU_NVS_NUM_CONTROL)) {
-			err = nvgpu_gsp_sched_send_queue_info(g, queue, queue_direction);
-		}
-	}
-#endif
 	if (err != 0) {
 		goto fail;
 	}
+
 
 	/* At this point
 	 * 1) dma_mapping exists
@@ -939,18 +908,45 @@ static int nvgpu_nvs_ctrl_fifo_create_queue(struct gk20a *g,
 		 */
 		if ((num_queue == NVGPU_NVS_NUM_CONTROL) ||
 				!nvgpu_nvs_ctrl_fifo_queue_has_subscribed_users(queue)) {
-			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue);
+			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue, false);
 		}
 		err = fd;
 		goto fail;
 	}
 
-	nvgpu_nvs_ctrl_fifo_user_subscribe_queue(user, queue);
 
 	args->dmabuf_fd = fd;
 	/* update the queue size correctly */
 	args->queue_size = queue_size;
 
+	/*
+	 * sending control fifo info to GSP scheduler
+	 * currently only control and message queues
+	 * are supported and not event queue
+	 */
+#if defined (CONFIG_NVS_PRESENT) && defined (CONFIG_NVGPU_GSP_SCHEDULER)
+	if (nvgpu_is_enabled(g, (u32)(NVGPU_SUPPORT_GSP_SCHED))) {
+		if ((nvgpu_gsp_is_ready(g) == true) &&
+			(num_queue == NVGPU_NVS_NUM_CONTROL)) {
+			err = nvgpu_gsp_sched_send_queue_info(g, queue, queue_direction);
+		}
+		if (err != 0) {
+			/* move exclusive user to non-exclusive user list */
+			if (nvgpu_nvs_ctrl_fifo_is_exclusive_user(g->sched_ctrl_fifo, user)) {
+				nvgpu_nvs_ctrl_fifo_reset_exclusive_user(g->sched_ctrl_fifo, user);
+			}
+
+			dma_buf_put(priv->dmabuf_temp);
+
+			/* free the queue  */
+			queue->free_queue(g, queue, false);
+			return err;
+		}
+	}
+
+#endif
+
+	nvgpu_nvs_ctrl_fifo_user_subscribe_queue(user, queue);
 	nvgpu_nvs_ctrl_fifo_unlock_queues(g);
 	return 0;
 
@@ -998,7 +994,7 @@ static void nvgpu_nvs_ctrl_fifo_undo_create_queue(struct gk20a *g,
 	 */
 	if (nvgpu_nvs_buffer_is_valid(g, queue) &&
 			!nvgpu_nvs_ctrl_fifo_queue_has_subscribed_users(queue)) {
-		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue);
+		nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue, false);
 	}
 
 	put_unused_fd(args->dmabuf_fd);
@@ -1065,7 +1061,7 @@ static int nvgpu_nvs_ctrl_fifo_destroy_queue(struct gk20a *g,
 	 */
 	if (num_queue == NVGPU_NVS_NUM_CONTROL) {
 		if (!nvgpu_nvs_buf_linux_is_mapped(g, queue)) {
-			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue);
+			nvgpu_nvs_ctrl_fifo_erase_queue_locked(g, queue, false);
 		} else {
 			err = -EBUSY;
 			goto fail;
@@ -1122,7 +1118,7 @@ static int nvgpu_nvs_query_scheduler_characteristics(struct gk20a *g,
 
 long nvgpu_nvs_ctrl_fifo_ops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-	u8 buf[NVGPU_NVS_CTRL_FIFO_IOCTL_MAX_ARG_SIZE] = { 0 };
+	void *buf = NULL;
 	int err = 0;
 	struct nvgpu_nvs_domain_ctrl_fifo_user_linux *linux_user;
 	struct nvs_domain_ctrl_fifo_user *user;
@@ -1148,14 +1144,21 @@ long nvgpu_nvs_ctrl_fifo_ops_ioctl(struct file *filp, unsigned int cmd, unsigned
 		return -EINVAL;
 	}
 
+	buf = nvgpu_kzalloc(g, NVGPU_NVS_CTRL_FIFO_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto cleanup;
+                }
 	}
 
 	err = gk20a_busy(g);
 	if (err != 0) {
-		return err;
+		goto cleanup;
 	}
 
 	switch (cmd) {
@@ -1201,12 +1204,12 @@ long nvgpu_nvs_ctrl_fifo_ops_ioctl(struct file *filp, unsigned int cmd, unsigned
 
 		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_NVS)) {
 			err = -EOPNOTSUPP;
-			return err;
+			goto done;
 		}
 
 		err = nvgpu_nvs_query_scheduler_characteristics(g, user, args);
 		if (err != 0) {
-			return err;
+			goto done;
 		}
 
 		if (copy_to_user((void __user *)arg, buf, _IOC_SIZE(cmd))) {
@@ -1223,5 +1226,7 @@ long nvgpu_nvs_ctrl_fifo_ops_ioctl(struct file *filp, unsigned int cmd, unsigned
 
 done:
 	gk20a_idle(g);
+cleanup:
+	nvgpu_kfree(g, buf);
 	return err;
 }

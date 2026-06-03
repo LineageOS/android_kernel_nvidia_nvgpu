@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_HWPM_MAP_GV100_H
@@ -26,11 +8,17 @@
 #ifdef CONFIG_NVGPU_DEBUGGER
 
 #include <nvgpu/types.h>
+#include <nvgpu/netlist.h>
+#include <nvgpu/gr/hwpm_map.h>
 
 struct gk20a;
 
 void gv100_gr_hwpm_map_align_regs_perf_pma(u32 *offset);
 u32 gv100_gr_hwpm_map_get_active_fbpa_mask(struct gk20a *g);
+int gv100_hwpm_map_add_gpc_perf_entries_to_map(struct gk20a *g,
+		struct ctxsw_buf_offset_map_entry *map,
+		struct netlist_aiv_list *regs, u32 *count, u32 *offset,
+		u32 max_cnt, u32 base, u32 mask, u32 gpc_num);
 
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* NVGPU_GR_HWPM_MAP_GV100_H */

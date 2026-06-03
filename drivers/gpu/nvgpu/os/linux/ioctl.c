@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2011-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * NVGPU IOCTLs
@@ -270,15 +270,19 @@ static char *nvgpu_mig_fgpu_devnode(struct device *dev, umode_t *mode)
 
 	priv_data = dev_get_drvdata(dev);
 
-	if (priv_data->pci) {
+	if (priv_data->is_pci_igpu) {
+		return kasprintf(GFP_KERNEL, "nvgpu/igpu-%s/fgpu-%u-%u/%s",
+				dev_name(dev->parent), priv_data->major_instance_id,
+				priv_data->minor_instance_id, dev_name(dev));
+	} else if (priv_data->pci) {
 		return kasprintf(GFP_KERNEL, "nvgpu/dgpu-%s/fgpu-%u-%u/%s",
 				dev_name(dev->parent), priv_data->major_instance_id,
 				priv_data->minor_instance_id, dev_name(dev));
-	}
-
-	return kasprintf(GFP_KERNEL, "nvgpu/igpu0/fgpu-%u-%u/%s",
+	} else {
+		return kasprintf(GFP_KERNEL, "nvgpu/igpu0/fgpu-%u-%u/%s",
 				priv_data->major_instance_id,
 				priv_data->minor_instance_id, dev_name(dev));
+	}
 }
 
 int nvgpu_create_device(
@@ -386,6 +390,7 @@ static void gk20a_remove_devices_and_classes(struct gk20a *g, bool power_node)
 
 		nvgpu_list_del(&class->list_entry);
 		class_destroy(class->class);
+		nvgpu_kfree(g, class->name);
 		nvgpu_kfree(g, class);
 	}
 }
@@ -465,6 +470,7 @@ struct nvgpu_mig_static_info {
 static int nvgpu_prepare_mig_dev_node_class_list(struct gk20a *g, u32 *num_classes)
 {
 	u32 class_count = 0U;
+	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 	struct nvgpu_class *class;
 	u32 i;
 	u32 num_instances;
@@ -482,8 +488,8 @@ static int nvgpu_prepare_mig_dev_node_class_list(struct gk20a *g, u32 *num_class
 		}
 
 		err = snprintf(priv_data->class_name, sizeof(priv_data->class_name),
-			"nvidia%s-gpu-fgpu%u",
-			(g->pci_class != 0U) ? "-pci" : "", i);
+			"nvidia%s-gpu-fgpu-%s-%u",
+			(g->pci_class != 0U) ? "-pci" : "", dev_name(l->dev), i);
 		nvgpu_assert(err > 0);
 
 		class = nvgpu_create_class(g, priv_data->class_name);
@@ -497,7 +503,7 @@ static int nvgpu_prepare_mig_dev_node_class_list(struct gk20a *g, u32 *num_class
 		priv_data->major_instance_id = g->mig.gpu_instance[i].gpu_instance_id;
 		priv_data->minor_instance_id = g->mig.gpu_instance[i].gr_syspipe.gr_syspipe_id;
 		class->instance_type = NVGPU_MIG_TYPE_MIG;
-
+		priv_data->is_pci_igpu = g->is_pci_igpu;
 		class->priv_data = priv_data;
 		priv_data->local_instance_id = i;
 		priv_data->pci = (g->pci_class != 0U);
@@ -507,41 +513,59 @@ static int nvgpu_prepare_mig_dev_node_class_list(struct gk20a *g, u32 *num_class
 	return 0;
 }
 
+#define NVGPU_CLASS_NAME_LEN			64
+
 static int nvgpu_prepare_default_dev_node_class_list(struct gk20a *g,
 		u32 *num_classes, bool power_node)
 {
+	struct device *dev = dev_from_gk20a(g);
+	int numa_node = dev_to_node(dev);
 	struct nvgpu_class *class;
 	u32 count = 0U;
+	char *class_name;
+	int err;
+
+	g->numa_node_id = numa_node;
+	/*
+	 * Expecting 0 or 1, not error.
+	 * Non-numa case is handled by this.
+	 */
+	if (g->numa_node_id != 1) {
+		g->numa_node_id = 0;
+	}
+	class_name = nvgpu_kzalloc(g, sizeof(char) * NVGPU_CLASS_NAME_LEN);
+	if (class_name == NULL) {
+		return -ENOMEM;
+	}
+
+	if (numa_node == 0 || numa_node == NUMA_NO_NODE) {
+		err = snprintf(class_name, NVGPU_CLASS_NAME_LEN, "nvidia%s-gpu%s",
+				g->pci_class != 0U ? "-pci" : "",
+				power_node ? "-power" : "");
+	} else {
+		err = snprintf(class_name, NVGPU_CLASS_NAME_LEN, "nvidia%s-gpu%s-%s",
+				g->pci_class != 0U ? "-pci" : "",
+				power_node ? "-power" : "", dev_name(dev));
+	}
+	nvgpu_assert(err > 0);
+
+	class = nvgpu_create_class(g, class_name);
+	if (class == NULL) {
+		return -ENOMEM;
+	}
 
 	if (g->pci_class != 0U) {
-		if (power_node) {
-			class = nvgpu_create_class(g, "nvidia-pci-gpu-power");
-		} else {
-			class = nvgpu_create_class(g, "nvidia-pci-gpu");
-		}
-
-		if (class == NULL) {
-			return -ENOMEM;
-		}
 		class->class->devnode = nvgpu_pci_devnode;
-		count++;
 	} else {
-		if (power_node) {
-			class = nvgpu_create_class(g, "nvidia-gpu-power");
-		} else {
-			class = nvgpu_create_class(g, "nvidia-gpu");
-		}
-
-		if (class == NULL) {
-			return -ENOMEM;
-		}
 		class->class->devnode = NULL;
-		count++;
 	}
+	count++;
 
 	if (power_node) {
 		class->power_node = true;
 	}
+
+	class->name = class_name;
 
 	/*
 	 * V2 device node names hierarchy.
@@ -550,40 +574,42 @@ static int nvgpu_prepare_default_dev_node_class_list(struct gk20a *g,
 	 *
 	 * Note: nvgpu_get_v2_user_class() assumes this order in the class list.
 	 */
+	class_name = nvgpu_kzalloc(g, sizeof(char) * NVGPU_CLASS_NAME_LEN);
+	if (class_name == NULL) {
+		return -ENOMEM;
+	}
+
+	if (numa_node == 0 || numa_node == NUMA_NO_NODE) {
+		err = snprintf(class_name, NVGPU_CLASS_NAME_LEN, "nvidia%s-gpu-v2%s",
+				g->pci_class != 0U ? "-pci" : "",
+				power_node ? "-power" : "");
+	} else {
+		err = snprintf(class_name, NVGPU_CLASS_NAME_LEN, "nvidia%s-gpu-v2%s-%s",
+				g->pci_class != 0U ? "-pci" : "",
+				power_node ? "-power" : "", dev_name(dev));
+	}
+	nvgpu_assert(err > 0);
+
+	class = nvgpu_create_class(g, class_name);
+	if (class == NULL) {
+		return -ENOMEM;
+	}
+
 	if (g->pci_class != 0U) {
-		if (power_node) {
-			class = nvgpu_create_class(g, "nvidia-pci-gpu-v2-power");
-		} else {
-			class = nvgpu_create_class(g, "nvidia-pci-gpu-v2");
-		}
-
-		if (class == NULL) {
-			return -ENOMEM;
-		}
-
 		if (g->is_pci_igpu) {
 			class->class->devnode = nvgpu_pci_igpu_devnode_v2;
 		} else {
 			class->class->devnode = nvgpu_pci_devnode_v2;
 		}
-		count++;
 	} else {
-		if (power_node) {
-			class = nvgpu_create_class(g, "nvidia-gpu-v2-power");
-		} else {
-			class = nvgpu_create_class(g, "nvidia-gpu-v2");
-		}
-
-		if (class == NULL) {
-			return -ENOMEM;
-		}
 		class->class->devnode = nvgpu_devnode_v2;
-		count++;
 	}
+	count++;
 
 	if (power_node) {
 		class->power_node = true;
 	}
+	class->name = class_name;
 
 	*num_classes = count;
 	return 0;

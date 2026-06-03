@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2018-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * Virtualized GPU for Linux
@@ -119,6 +119,9 @@ int vgpu_probe(struct platform_device *pdev)
 	int err;
 	struct device *dev = &pdev->dev;
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
+	u64 begin_time = 0ULL, end_time = 0ULL;
+
+	begin_time = ktime_get_ns();
 
 	if (!platform) {
 		dev_err(dev, "no platform data\n");
@@ -167,6 +170,9 @@ int vgpu_probe(struct platform_device *pdev)
 	gk20a->max_comptag_mem = totalram_size_in_mb;
 #endif
 
+	end_time = ktime_get_ns();
+	l->probe_time_ns = (end_time - begin_time);
+
 	return 0;
 }
 
@@ -193,7 +199,7 @@ int vgpu_remove(struct platform_device *pdev)
 	if (g->remove_support)
 		g->remove_support(g);
 
-	vgpu_comm_deinit();
+	vgpu_ivc_remove_support(g);
 	gk20a_sched_ctrl_cleanup(g);
 	gk20a_user_nodes_deinit(dev);
 	vgpu_remove_sysfs(dev);
@@ -211,7 +217,7 @@ int vgpu_tegra_suspend(struct device *dev)
 
 	msg.cmd = TEGRA_VGPU_CMD_SUSPEND;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err)
 		nvgpu_err(g, "vGPU suspend failed\n");
@@ -227,7 +233,7 @@ int vgpu_tegra_resume(struct device *dev)
 
 	msg.cmd = TEGRA_VGPU_CMD_RESUME;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err)
 		nvgpu_err(g, "vGPU resume failed\n");

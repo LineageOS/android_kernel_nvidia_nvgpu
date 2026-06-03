@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PMU_PG_H
@@ -39,6 +21,7 @@ struct nvgpu_pmu;
 struct vm_gk20a;
 struct pmu_pg_stats_data;
 struct rpc_handler_payload;
+struct nvgpu_pmu_fgpg_ctrl;
 
 /*PG defines used by nvpgu-pmu*/
 #define PMU_PG_SEQ_BUF_SIZE		4096U
@@ -64,6 +47,9 @@ struct rpc_handler_payload;
 #define APCTRL_POWER_BREAKEVEN_DEFAULT_US                       (2000U)
 #define APCTRL_CYCLES_PER_SAMPLE_MAX_DEFAULT                    (200U)
 
+#define PMU_ID_CG_FLCG_CTRL_IDLE_THRESHOLD_NS		(0x803U)
+#define PMU_ID_CG_FLCG_CTRL_MIN_RESIDENT_TIME_NS	(0x804U)
+
 /* State of golden image */
 enum {
 	GOLDEN_IMG_NOT_READY = 0,
@@ -82,6 +68,7 @@ struct nvgpu_pmu_pg {
 	u32 elpg_stat;
 	u32 disallow_state;
 	u32 elpg_ms_stat;
+	u32 elpg_ms_disallow_state;
 #define PMU_ELPG_ENABLE_ALLOW_DELAY_MSEC	1U /* msec */
 	struct nvgpu_pg_init pg_init;
 	struct nvgpu_mutex pg_mutex; /* protect pg-RPPG/MSCG enable/disable */
@@ -94,7 +81,11 @@ struct nvgpu_pmu_pg {
 	bool zbc_ready;
 	bool zbc_save_done;
 	bool buf_loaded;
-	struct nvgpu_mem pg_buf;
+	/*
+	 * some gpu chips support 2 GR instances in MIG mode
+	 * so allocate 2 pg buffers for save/restore reglist
+	 */
+	struct nvgpu_mem pg_buf[2U];
 	bool initialized;
 	u32 stat_dmem_offset[PMU_PG_ELPG_ENGINE_ID_INVALID_ENGINE];
 	struct nvgpu_mem seq_buf;
@@ -130,14 +121,58 @@ struct nvgpu_pmu_pg {
 	int (*aelpg_init_and_enable)(struct gk20a *g, u8 ctrl_id);
 	int (*aelpg_enable)(struct gk20a *g, u8 ctrl_id);
 	int (*aelpg_disable)(struct gk20a *g, u8 ctrl_id);
-	void (*pg_loading_rpc_handler)(struct gk20a *g, struct nvgpu_pmu *pmu,
+	void (*pg_loading_rpc_handler)(struct gk20a *g,
 			struct nv_pmu_rpc_header *rpc,
 			struct rpc_handler_payload *rpc_payload);
 	void (*pg_rpc_handler)(struct gk20a *g, struct nvgpu_pmu *pmu,
 		struct nv_pmu_rpc_header *rpc,
 		struct rpc_handler_payload *rpc_payload);
 	int (*init_send)(struct gk20a *g, struct nvgpu_pmu *pmu, u8 pg_engine_id);
+	u32 (*pmu_get_pg_buf_gpu_va)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 buf_id);
+	u32 (*pmu_get_pg_buf_gpu_va_hi)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 buf_id);
+	int (*fgpg_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
+	int (*fgpg_state_change)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u8 fgpg_ctrl_id, bool enable);
+	int (*fgpg_threshold_update)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		struct nvgpu_pmu_fgpg_ctrl *fgpg, u8 ctrl_id);
+	int (*priv_blocker_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
 	int (*process_pg_event)(struct gk20a *g, void *pmumsg);
+	int (*pmu_pg_sfm_update)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u8 pg_engine_id, bool enable);
+	int (*cg_elcg_get_entry_count) (struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 ctrl_id, u32 mode, u32 *entry_count);
+	int (*cg_elcg_get_residency) (struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 ctrl_id, u32 mode, u32 *delta_sleep_time_us,
+			u32 *delta_wall_time_us);
+	int (*cg_elcg_mon_start) (struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 ctrl_id, bool enable);
+	int (*cg_elcg_mon_config) (struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 mode);
+	int (*flcg_init)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 flcg_support_mask);
+	int (*cg_flcg_ctrl_enable)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u8 ctrl_id, bool enable);
+	int (*cg_flcg_ctrl_threshold_update)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u8 ctrl_id, u16 threshold_type, u16 threshold_ns);
+	void (*lpwr_lp_rpc_handler)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		struct nv_pmu_rpc_header *rpc,
+		struct rpc_handler_payload *rpc_payload);
+	int (*lpwr_lp_mon_start)(struct gk20a *g, struct nvgpu_pmu *pmu,
+				u32 lpwr_mon_index, bool enable);
+	int (*lpwr_lp_get_residency)(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u32 lpwr_mon_index, u32 *delta_sleep_time_tick,
+		u32 *delta_wall_time_tick);
+	int (*cg_elcg_state_change)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			u32 elcg_engine_status[]);
+	int (*csd_ctrl_enable)(struct gk20a *g, struct nvgpu_pmu *pmu,
+			bool enable);
+	int (*csd_init)(struct gk20a *g, struct nvgpu_pmu *pmu);
+	int (*csd_ctrl_threshold_update)(struct gk20a *g,
+		struct nvgpu_pmu *pmu, u32 threshold);
+	int (*csd_get_entry_count)(struct gk20a *g,
+		struct nvgpu_pmu *pmu, u32 *entry_count);
 };
 
 /*PG defines used by nvpgu-pmu*/
@@ -187,7 +222,25 @@ int nvgpu_pmu_elpg_statistics(struct gk20a *g, u32 pg_engine_id,
 		struct pmu_pg_stats_data *pg_stat_data);
 void nvgpu_pmu_save_zbc(struct gk20a *g, u32 entries);
 bool nvgpu_pmu_is_lpwr_feature_supported(struct gk20a *g, u32 feature_id);
-int nvgpu_pmu_pg_buf_alloc(struct gk20a *g, struct nvgpu_pmu *pmu, u32 size);
-u64 nvgpu_pmu_pg_buf_get_gpu_va(struct gk20a *g, struct nvgpu_pmu *pmu);
+int nvgpu_pmu_pg_buf_alloc(struct gk20a *g, struct nvgpu_pmu *pmu, u32 size,
+		u32 buf_id);
+u64 nvgpu_pmu_pg_buf_get_gpu_va(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u32 buf_id);
+int nvgpu_pmu_gpcclk_flcg_enable_disable(struct gk20a *g, bool enable);
+int nvgpu_pmu_fgpg_enable_disable(struct gk20a *g, bool enable);
+int nvgpu_pmu_fgpg_engine_enable_disable(struct gk20a *g,
+		unsigned long new_engine_bitmask);
+int nvgpu_pmu_elcg_monitor_config(struct gk20a *g, u32 mode);
+int nvgpu_pmu_elcg_monitor_start(struct gk20a *g, u32 ctrl_id);
+int nvgpu_pmu_elcg_monitor_stop(struct gk20a *g, u32 ctrl_id);
+u32 nvgpu_pmu_elcg_residency(struct gk20a *g);
+u32 nvgpu_pmu_elcg_entry_count(struct gk20a *g);
+int nvgpu_pmu_nvdclk_flcg_enable_disable(struct gk20a *g, bool enable);
+s32 nvgpu_pmu_lpwr_lp_mon_start(struct gk20a *g, u32 lpwr_mon_index, bool start);
+u32 nvgpu_pmu_lpwr_lp_get_residency(struct gk20a *g, u32 lpwr_mon_index);
+void nvgpu_pmu_elcg_state_change(struct gk20a *g, u32 mode_config);
+int nvgpu_pmu_sysclk_slowdown_enable_disable(struct gk20a *g, bool enable);
+int nvgpu_pmu_sysclk_slowdown_threshold_update(struct gk20a *g, u32 threshold);
+u32 nvgpu_pmu_sysclk_slowdown_entry_count(struct gk20a *g);
 
 #endif /* NVGPU_PMU_PG_H */

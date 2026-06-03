@@ -1,25 +1,5 @@
-/*
- * GK20A Graphics Context Pri Register Addressing
- *
- * Copyright (c) 2014-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef GR_PRI_GK20A_H
 #define GR_PRI_GK20A_H
@@ -240,9 +220,9 @@ enum ctxsw_addr_type {
 	CTXSW_ADDR_TYPE_FBPA = 6,
 	CTXSW_ADDR_TYPE_EGPC = 7,
 	CTXSW_ADDR_TYPE_ETPC = 8,
-	CTXSW_ADDR_TYPE_PMM_FBPGS_ROP  = 9,
-	CTXSW_ADDR_TYPE_FBP  = 10,
-	CTXSW_ADDR_TYPE_LTS_MAIN  = 11,
+	CTXSW_ADDR_TYPE_FBP  = 9,
+	CTXSW_ADDR_TYPE_LTS_MAIN  = 10,
+	CTXSW_ADDR_TYPE_LRCC = 11,
 };
 
 #define PRI_BROADCAST_FLAGS_NONE		0U
@@ -262,11 +242,13 @@ enum ctxsw_addr_type {
 #define PRI_BROADCAST_FLAGS_PMMFBP		BIT32(13)
 #define PRI_BROADCAST_FLAGS_PMM_FBPS		BIT32(14)
 #define PRI_BROADCAST_FLAGS_PMM_FBPGS_LTC	BIT32(15)
-#define PRI_BROADCAST_FLAGS_PMM_FBPGS_ROP	BIT32(16)
-#define PRI_BROADCAST_FLAGS_SM			BIT32(17)
-#define PRI_BROADCAST_FLAGS_PMM_GPCS_ROUTER	BIT32(18)
-#define PRI_BROADCAST_FLAGS_PMM_FBPS_ROUTER	BIT32(19)
-#define PRI_BROADCAST_FLAGS_PLTCG_LTCS		BIT32(20)
+#define PRI_BROADCAST_FLAGS_SMPC		BIT32(16)
+#define PRI_BROADCAST_FLAGS_PMM_GPCS_ROUTER	BIT32(17)
+#define PRI_BROADCAST_FLAGS_PMM_FBPS_ROUTER	BIT32(18)
+#define PRI_BROADCAST_FLAGS_PLTCG_LTCS		BIT32(19)
+#define PRI_BROADCAST_FLAGS_SM			BIT32(20)
+#define PRI_BROADCAST_FLAGS_LRCCS		BIT32(21)
+#define PRI_BROADCAST_FLAGS_LRCS		BIT32(22)
 
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /* GR_PRI_GK20A_H */

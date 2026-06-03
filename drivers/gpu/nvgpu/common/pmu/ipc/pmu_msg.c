@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu/allocator.h>
 #include <nvgpu/engine_fb_queue.h>
@@ -33,6 +14,12 @@
 #include <nvgpu/pmu/pmu_pg.h>
 #include <nvgpu/pmu/fw.h>
 #include <nvgpu/pmu/seq.h>
+#include <nvgpu/pmu/pmu_model_20.h>
+#include <nvgpu/pmu/pmuif/init.h>
+#include <nvgpu/pmu/pmuif/cmn.h>
+#include <nvgpu/pmu/pmuif/cmdmgmt.h>
+#include <nvgpu/io.h>
+#include <nvgpu/hw/gk20a/hw_pwr_gk20a.h>
 
 static int pmu_payload_extract(struct nvgpu_pmu *pmu, struct pmu_sequence *seq)
 {
@@ -191,7 +178,7 @@ static int pmu_handle_event(struct nvgpu_pmu *pmu, struct pmu_msg *msg)
 	switch (msg->hdr.unit_id) {
 	case PMU_UNIT_PERFMON:
 	case PMU_UNIT_PERFMON_T18X:
-		err = nvgpu_pmu_perfmon_event_handler(g, pmu, msg);
+		err = nvgpu_pmu_perfmon_event_handler(g, pmu, (void *)msg);
 		break;
 	case PMU_UNIT_PERF:
 		if (g->ops.pmu_perf.handle_pmu_perf_event != NULL) {
@@ -359,6 +346,176 @@ exit:
 	return err;
 }
 
+static s32 pmu_response_handle_ptcb(struct nvgpu_pmu *pmu, struct pmu_msg *msg,
+		struct pmu_nvgpu_rpc_struct *pmu_rpc)
+{
+	struct gk20a *g = pmu->g;
+	enum pmu_seq_state state;
+	struct pmu_sequence *seq;
+	struct nv_pmu_rpc_header *rpc_hdr = &(pmu_rpc->event_rpc.hdr);
+	u16 size_rpc;
+	s32 err = 0;
+	u8 id;
+
+	nvgpu_log_fn(g, " ");
+	seq = nvgpu_pmu_sequences_get_seq(pmu->sequences, rpc_hdr->seq_num_id);
+	state = nvgpu_pmu_seq_get_state(seq);
+	id = nvgpu_pmu_seq_get_id(seq);
+
+	if (state != PMU_SEQ_STATE_USED) {
+		nvgpu_err(g, "msg for an unknown sequence %u", (u32) id);
+		err = -EINVAL;
+		return err;
+	}
+	/* extract RPC response payload */
+	size_rpc = nvgpu_pmu_seq_get_buffer_size(seq);
+	nvgpu_memcpy((u8 *)nvgpu_pmu_seq_get_out_payload(seq),
+			(u8 *)rpc_hdr, size_rpc);
+
+	/*
+	 * msg parameter is passed just to
+	 * maintain the definition of seq_callback
+	 * to-do: clean-up the unused param
+	 */
+	nvgpu_pmu_seq_callback(g, seq, msg, err);
+	nvgpu_pmu_seq_release(g, pmu->sequences, seq);
+	return 0;
+}
+
+static s32 pmu_handle_event_ptcb(struct nvgpu_pmu *pmu, struct pmu_msg *msg,
+		struct pmu_nvgpu_rpc_struct *pmu_rpc)
+{
+	s32 err = 0;
+	struct gk20a *g = pmu->g;
+
+	nvgpu_log_fn(g, " ");
+
+	switch (pmu_rpc->event_rpc.hdr.unit_id) {
+	case PMU_UNIT_PERFMON:
+	case PMU_UNIT_PERFMON_T18X:
+		err = nvgpu_pmu_perfmon_event_handler(g, pmu, (void *)pmu_rpc);
+		break;
+	case PMU_UNIT_PERF:
+		if (g->ops.pmu_perf.handle_pmu_perf_event != NULL) {
+			err = g->ops.pmu_perf.handle_pmu_perf_event(g,
+				(void *)&msg->hdr);
+		} else {
+			WARN_ON(true);
+		}
+		break;
+	case PMU_UNIT_PG:
+		if (pmu->pg->process_pg_event != NULL) {
+			err = pmu->pg->process_pg_event(g, (void *)pmu_rpc);
+		}
+		break;
+	case PMU_UNIT_CMDMGMT:
+		nvgpu_pmu_dbg(g, "Received CMDMGMT EVENT, function %d",
+						pmu_rpc->event_rpc.hdr.function);
+		if (pmu_rpc->event_rpc.hdr.function ==
+			(u8)PMU_INIT_MSG_TYPE_DRIVER_REGISTER_EVENT_RESPONSE) {
+			nvgpu_pmu_dbg(g, "register_event_response %d",
+pmu_rpc->event_rpc.cmdmgmt_driver_register_event_response.register_event_response);
+		}
+		break;
+	default:
+		nvgpu_log_info(g, "Received invalid PMU unit event");
+		break;
+	}
+
+	return err;
+}
+
+static void pmu_read_msg_ptcb(struct gk20a *g, struct nvgpu_pmu *pmu,
+	u32 element_index, u32 size, void *buffer)
+{
+	u32 fbq_msg_queue_ss_offset = 0U;
+
+	size = nvgpu_safe_cast_u64_to_u32(sizeof(struct nv_pmu_rpc_header));
+
+	fbq_msg_queue_ss_offset =
+		nvgpu_pmu_get_fbq_ptcb_ss_offset(g, pmu,
+			pmu->super_surface, 1, element_index);
+
+	nvgpu_mem_rd_n(g, nvgpu_pmu_super_surface_mem(g,
+		pmu, pmu->super_surface), fbq_msg_queue_ss_offset,
+		buffer, size);
+
+	size = nvgpu_safe_cast_u64_to_u32(
+			((struct nv_pmu_rpc_header *)buffer)->rpc_size -
+				sizeof(struct nv_pmu_rpc_header));
+
+	fbq_msg_queue_ss_offset = nvgpu_safe_add_u32(fbq_msg_queue_ss_offset,
+			(u32)sizeof(struct nv_pmu_rpc_header));
+
+	nvgpu_mem_rd_n(g, nvgpu_pmu_super_surface_mem(g,
+		pmu, pmu->super_surface), fbq_msg_queue_ss_offset,
+		(u8 *)buffer + sizeof(struct nv_pmu_rpc_header), size);
+}
+
+static bool pmu_read_message_ptcb(struct nvgpu_pmu *pmu,
+	struct pmu_nvgpu_rpc_struct *pmu_rpc, int *status)
+{
+	struct gk20a *g = pmu->g;
+	u32 tail, next_tail, head;
+	bool ret;
+
+	*status = 0;
+
+	nvgpu_mutex_acquire(&pmu->ptcb_queue_mutex);
+	head = pwr_pmu_msgq_head_val_v(
+			g->ops.pmu.get_pmu_msgq_head(g));
+
+	g->ops.pmu.pmu_msgq_tail(pmu, &tail, QUEUE_GET);
+
+	if (head == tail) {
+		nvgpu_pmu_dbg(g, "queue empty");
+		ret = false;
+		goto exit;
+	}
+
+	pmu_read_msg_ptcb(g, pmu, tail,
+		nvgpu_safe_cast_u64_to_u32(sizeof(pmu_rpc->event_rpc)),
+		(void *)&pmu_rpc->event_rpc);
+
+	next_tail = nvgpu_pmu_get_next_head(tail);
+
+	g->ops.pmu.pmu_msgq_tail(pmu, &next_tail, QUEUE_SET);
+
+	ret = true;
+
+exit:
+	nvgpu_mutex_release(&pmu->ptcb_queue_mutex);
+	return ret;
+}
+
+static s32 pmu_process_init_msg_ptcb(struct gk20a *g,
+	struct nvgpu_pmu *pmu, struct pmu_nvgpu_rpc_struct *pmu_rpc)
+{
+	u32 tail = 0U;
+	s32 err = 0;
+
+	nvgpu_log_fn(g, " ");
+
+	g->ops.pmu.pmu_msgq_tail(pmu, &tail, QUEUE_GET);
+
+	pmu_read_msg_ptcb(g, pmu, tail,
+		nvgpu_safe_cast_u64_to_u32(sizeof(pmu_rpc->event_rpc)),
+		(void *)&pmu_rpc->event_rpc);
+
+	if ((pmu_rpc->event_rpc.hdr.unit_id != PMU_UNIT_CMDMGMT) ||
+			(pmu_rpc->event_rpc.hdr.function != PMU_INIT_MSG_TYPE_PMU_INIT)) {
+		nvgpu_err(g, "FB MSG Q: expecting pmu init msg");
+		err = -EINVAL;
+		goto exit;
+	}
+
+	tail = nvgpu_pmu_get_next_head(tail);
+	g->ops.pmu.pmu_msgq_tail(pmu, &tail, QUEUE_SET);
+
+exit:
+	return err;
+}
+
 static int pmu_process_init_msg_dmem(struct gk20a *g, struct nvgpu_pmu *pmu,
 	struct pmu_msg *msg)
 {
@@ -438,7 +595,7 @@ exit:
 }
 
 static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
-			struct pmu_msg *msg)
+		struct pmu_msg *msg, struct pmu_nvgpu_rpc_struct *pmu_rpc)
 {
 	struct gk20a *g = pmu->g;
 	struct pmu_fw_ver_ops *fw_ops = &g->pmu->fw->ops;
@@ -452,23 +609,6 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 	(void)memset((void *)msg, 0x0, sizeof(struct pmu_msg));
 
 	init = fw_ops->get_init_msg_ptr(&(msg->msg.init));
-
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_PMU_RTOS_FBQ)) {
-		err = pmu_process_init_msg_fb(g, pmu, msg);
-		if (err != 0) {
-			goto exit;
-		}
-	} else {
-		err = pmu_process_init_msg_dmem(g, pmu, msg);
-		if (err != 0) {
-			goto exit;
-		}
-
-		err = pmu_gid_info_dmem_read(pmu, init);
-		if (err != 0) {
-			goto exit;
-		}
-	}
 
 	err = nvgpu_pmu_queues_init(g, init, &pmu->queues,
 			nvgpu_pmu_super_surface_mem(g, pmu,
@@ -487,9 +627,63 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 		}
 	}
 
-	nvgpu_pmu_set_fw_ready(g, pmu, true);
+	/* For PMU 2.0 no isr from riscv. Start driver register */
+	if (pmu->is_pmu_ucode_model_20) {
+		err = nvgpu_pmu_wait_fw_driver_register_ready(g);
+		if (err != 0) {
+			nvgpu_err(g, "PMU not moved to register_ready state");
+			goto exit;
+		}
 
-	nvgpu_pmu_fw_state_change(g, pmu, PMU_FW_STATE_INIT_RECEIVED, true);
+		nvgpu_pmu_set_fw_ready(g, pmu, true);
+
+		err = nvgpu_pmu_driver_register_send(g, register_start);
+		if (err != 0) {
+			nvgpu_err(g, "Failed sending driver register start");
+			goto exit;
+		}
+
+		nvgpu_pmu_fw_state_change(g, pmu, PMU_FW_STATE_INIT_RECEIVED, true);
+		/* In case pmu_pg_task not running, send driver register complete */
+		if (!g->can_elpg) {
+			err = nvgpu_pmu_driver_register_send(g, register_complete);
+			if (err != 0) {
+				nvgpu_err(g, "Failed sending driver register complete");
+				goto exit;
+			}
+		}
+	} else {
+		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_PMU_RTOS_FBQ)) {
+			if (pmu->is_fbq_ptcb_enabled) {
+				/* Process init msg through PTCB method */
+				err = pmu_process_init_msg_ptcb(g, pmu, pmu_rpc);
+				if (err != 0) {
+					goto exit;
+				}
+
+			} else {
+				err = pmu_process_init_msg_fb(g, pmu, msg);
+				if (err != 0) {
+					goto exit;
+				}
+			}
+		} else {
+			err = pmu_process_init_msg_dmem(g, pmu, msg);
+			if (err != 0) {
+				goto exit;
+			}
+
+			err = pmu_gid_info_dmem_read(pmu, init);
+			if (err != 0) {
+				goto exit;
+			}
+		}
+
+		nvgpu_pmu_set_fw_ready(g, pmu, true);
+
+		nvgpu_pmu_fw_state_change(g, pmu, PMU_FW_STATE_INIT_RECEIVED, true);
+
+	}
 
 #ifdef CONFIG_NVGPU_FALCON_DEBUG
 	/*
@@ -501,7 +695,7 @@ static int pmu_process_init_msg(struct nvgpu_pmu *pmu,
 #endif
 
 exit:
-	nvgpu_pmu_dbg(g, "init received end, err %x", err);
+	nvgpu_pmu_dbg(g, "init receive end, err %x", err);
 	return err;
 }
 
@@ -510,65 +704,102 @@ int nvgpu_pmu_process_message(struct nvgpu_pmu *pmu)
 	struct pmu_msg msg;
 	int status;
 	struct gk20a *g = pmu->g;
+	struct pmu_nvgpu_rpc_struct *pmu_rpc;
+	struct nv_pmu_rpc_header *rpc_header;
 	int err;
 
+	pmu_rpc = (struct pmu_nvgpu_rpc_struct *)
+		nvgpu_kzalloc(g, sizeof(struct pmu_nvgpu_rpc_struct));
+	if (pmu_rpc == NULL) {
+		err = -ENOMEM;
+		return err;
+	}
+
+	rpc_header = &(pmu_rpc->event_rpc.hdr);
+
 	if (nvgpu_can_busy(g) == 0) {
-		return 0;
+		err = 0;
+		goto exit;
 	}
 
 	if (unlikely(!nvgpu_pmu_get_fw_ready(g, pmu))) {
-		err = pmu_process_init_msg(pmu, &msg);
+		err = pmu_process_init_msg(pmu, &msg, pmu_rpc);
 		if (err != 0) {
-			return err;
+			goto exit;
 		}
 
 		if (nvgpu_is_enabled(g, NVGPU_PMU_PERFMON)) {
 			err = nvgpu_pmu_perfmon_initialization(g, pmu,
 							pmu->pmu_perfmon);
 			if (err != 0) {
-				return err;
+				goto exit;
 			}
 		}
 
-		return 0;
+		err = 0;
+		goto exit;
 	}
 
-	while (pmu_read_message(pmu, PMU_MESSAGE_QUEUE, &msg, &status)) {
+	if (pmu->is_fbq_ptcb_enabled) {
+		/* Process other message using PTCB method */
+		while (pmu_read_message_ptcb(pmu, pmu_rpc, &status)) {
 
-		if (nvgpu_can_busy(g) == 0) {
-			return 0;
+			if (nvgpu_can_busy(g) == 0) {
+				err = 0;
+				goto exit;
+			}
+
+			if (rpc_header->flags == NV_RM_PMU_RPC_FLAGS_PMU_RESPONSE_YES) {
+				err = pmu_response_handle_ptcb(pmu, &msg, pmu_rpc);
+			} else {
+				err = pmu_handle_event_ptcb(pmu, &msg, pmu_rpc);
+			}
+
+			if (err != 0) {
+				goto exit;
+			}
 		}
+	} else {
+		/* non-ptcb */
+		while (pmu_read_message(pmu, PMU_MESSAGE_QUEUE, &msg, &status)) {
 
-		nvgpu_pmu_dbg(g, "read msg hdr: ");
-		nvgpu_pmu_dbg(g, "unit_id = 0x%08x, size = 0x%08x",
-			msg.hdr.unit_id, msg.hdr.size);
-		nvgpu_pmu_dbg(g, "ctrl_flags = 0x%08x, seq_id = 0x%08x",
-			msg.hdr.ctrl_flags, msg.hdr.seq_id);
+			if (nvgpu_can_busy(g) == 0) {
+				err = 0;
+				goto exit;
+			}
 
-		msg.hdr.ctrl_flags &= (u8)(~PMU_CMD_FLAGS_PMU_MASK);
+			nvgpu_pmu_dbg(g, "read msg hdr: ");
+			nvgpu_pmu_dbg(g, "unit_id = 0x%08x, size = 0x%08x",
+				msg.hdr.unit_id, msg.hdr.size);
+			nvgpu_pmu_dbg(g, "ctrl_flags = 0x%08x, seq_id = 0x%08x",
+				msg.hdr.ctrl_flags, msg.hdr.seq_id);
 
-		if ((msg.hdr.ctrl_flags == PMU_CMD_FLAGS_EVENT) ||
-			(msg.hdr.ctrl_flags == PMU_CMD_FLAGS_RPC_EVENT)) {
-			err = pmu_handle_event(pmu, &msg);
-		} else {
-			err = pmu_response_handle(pmu, &msg);
-		}
+			msg.hdr.ctrl_flags &= (u8)(~PMU_CMD_FLAGS_PMU_MASK);
 
-		if (err != 0) {
-			return err;
+			if ((msg.hdr.ctrl_flags == PMU_CMD_FLAGS_EVENT) ||
+				(msg.hdr.ctrl_flags == PMU_CMD_FLAGS_RPC_EVENT)) {
+				err = pmu_handle_event(pmu, &msg);
+			} else {
+				err = pmu_response_handle(pmu, &msg);
+			}
+
+			if (err != 0) {
+				goto exit;
+			}
 		}
 	}
-
-	return 0;
+exit:
+	nvgpu_kfree(g, pmu_rpc);
+	rpc_header = NULL;
+	return err;
 }
 
-static void pmu_rpc_handler(struct gk20a *g, struct pmu_msg *msg,
-			    struct nv_pmu_rpc_header rpc,
+static void pmu_rpc_handler(struct gk20a *g, struct nv_pmu_rpc_header rpc,
 			    struct rpc_handler_payload *rpc_payload)
 {
 	struct nvgpu_pmu *pmu = g->pmu;
 
-	switch (msg->hdr.unit_id) {
+	switch (rpc.unit_id) {
 	case PMU_UNIT_ACR:
 		nvgpu_pmu_lsfm_rpc_handler(g, rpc_payload);
 		break;
@@ -594,13 +825,26 @@ static void pmu_rpc_handler(struct gk20a *g, struct pmu_msg *msg,
 		break;
 	case PMU_UNIT_PG_LOADING:
 		if (pmu->pg->pg_loading_rpc_handler != NULL) {
-			pmu->pg->pg_loading_rpc_handler(g, pmu, &rpc,
+			pmu->pg->pg_loading_rpc_handler(g, &rpc,
 							rpc_payload);
 		}
 		break;
 	case PMU_UNIT_PG:
 		if (pmu->pg->pg_rpc_handler != NULL) {
 			pmu->pg->pg_rpc_handler(g, pmu, &rpc, rpc_payload);
+		}
+		break;
+	case PMU_UNIT_LPWR_LP:
+		if (pmu->pg->lpwr_lp_rpc_handler != NULL) {
+			pmu->pg->lpwr_lp_rpc_handler(g, pmu, &rpc, rpc_payload);
+		}
+		break;
+	case PMU_UNIT_CMDMGMT:
+		nvgpu_pmu_dbg(g, "reply PMU_UNIT_CMDMGMT, function %d", rpc.function);
+		if (rpc.function == (u8)NV_PMU_RPC_ID_CMDMGMT_DRIVER_REGISTER_EVENT) {
+			nvgpu_pmu_dbg(g, "registerEvent %d",
+			((struct pmu_rpc_struct_driver_register_event *)
+			rpc_payload->rpc_buff)->registerEvent);
 		}
 		break;
 	default:
@@ -636,7 +880,7 @@ void nvgpu_pmu_rpc_handler(struct gk20a *g, struct pmu_msg *msg,
 		goto exit;
 	}
 
-	pmu_rpc_handler(g, msg, rpc, rpc_payload);
+	pmu_rpc_handler(g, rpc, rpc_payload);
 
 exit:
 	rpc_payload->complete = true;
@@ -660,7 +904,8 @@ void pmu_wait_message_cond(struct nvgpu_pmu *pmu, u32 timeout_ms,
 {
 	struct gk20a *g = pmu->g;
 
-	if (nvgpu_pmu_wait_fw_ack_status(g, pmu, timeout_ms, var, val) != 0) {
+	if (nvgpu_pmu_wait_fw_ack_status(g, pmu, timeout_ms, var, val) == -ETIMEDOUT) {
 		nvgpu_err(g, "PMU wait timeout expired.");
+		WARN_ON(true);
 	}
 }

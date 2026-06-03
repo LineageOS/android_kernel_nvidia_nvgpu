@@ -25,6 +25,8 @@
 #include <nvgpu/tsg.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/cic_rm.h>
+#include <nvgpu/power_features/cg.h>
+#include <nvgpu/pmu/pmuif/pg.h>
 
 #include "platform_gk20a.h"
 #include "module.h"
@@ -42,6 +44,7 @@
 #define NVGPU_SLCG_ENABLEMENT BIT(9)
 #define NVGPU_AELPG_ENABLEMENT BIT(11)
 #define NVGPU_MSCG_ENABLEMENT BIT(13)
+#define NVGPU_RG_ENABLEMENT BIT(15)
 
 void nvgpu_kernel_restart(void *cmd)
 {
@@ -102,24 +105,24 @@ void nvgpu_devfreq_init(struct gk20a *g)
 #ifdef CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND
 	if (strncmp(nvgpu_devfreq_gov, "simple_ondemand",
 					strlen("simple_ondemand")) == 0)
-		platform->devfreq_governor = DEVFREQ_GOV_SIMPLE_ONDEMAND;
+		platform->devfreq_governor = "simple_ondemand";
 #endif
 #ifdef CONFIG_DEVFREQ_GOV_PERFORMANCE
 	if (strncmp(nvgpu_devfreq_gov, "performance",
 					strlen("performance")) == 0)
-		platform->devfreq_governor = DEVFREQ_GOV_PERFORMANCE;
+		platform->devfreq_governor = "performance";
 #endif
 #ifdef CONFIG_DEVFREQ_GOV_POWERSAVE
 	if (strncmp(nvgpu_devfreq_gov, "powersave", strlen("powersave")) == 0)
-		platform->devfreq_governor = DEVFREQ_GOV_POWERSAVE;
+		platform->devfreq_governor = "powersave";
 #endif
 #ifdef CONFIG_DEVFREQ_GOV_USERSPACE
 	if (strncmp(nvgpu_devfreq_gov, "userspace", strlen("userspace")) == 0)
-		platform->devfreq_governor = DEVFREQ_GOV_USERSPACE;
+		platform->devfreq_governor = "userspace";
 #endif
 #ifdef CONFIG_DEVFREQ_GOV_PASSIVE
 	if (strncmp(nvgpu_devfreq_gov, "passive", strlen("passive")) == 0)
-		platform->devfreq_governor = DEVFREQ_GOV_PASSIVE;
+		platform->devfreq_governor = "passive";
 #endif
 	nvgpu_log_info(g, "GPU devfreq governor: %s",
 					platform->devfreq_governor);
@@ -171,7 +174,6 @@ static void nvgpu_init_vars(struct gk20a *g)
 	g->emc3d_ratio = EMC3D_DEFAULT_RATIO;
 
 	/* Set DMA parameters to allow larger sgt lists */
-	dev->dma_parms = &l->dma_parms;
 	dma_set_max_seg_size(dev, UINT_MAX);
 
 	/*
@@ -277,6 +279,10 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 			nvgpu_lpwr_enable & (NVGPU_MSCG_ENABLEMENT >> 1) :
 						platform->enable_mscg;
 
+	platform->can_railgate_init  = nvgpu_lpwr_enable & NVGPU_RG_ENABLEMENT ?
+			nvgpu_lpwr_enable & (NVGPU_RG_ENABLEMENT >> 1) :
+						platform->can_railgate_init;
+
 	/*
 	 * Set up initial power settings. For non-slicon platforms, disable
 	 * power features and for silicon platforms, read from platform data
@@ -289,6 +295,16 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 		nvgpu_platform_is_silicon(g) ? platform->enable_blcg : false;
 	g->elcg_enabled =
 		nvgpu_platform_is_silicon(g) ? platform->enable_elcg : false;
+	g->gpcclk_flcg_enabled = nvgpu_platform_is_silicon(g) ?
+		platform->enable_gpcclk_flcg : false;
+	g->fgpg_enabled = nvgpu_platform_is_silicon(g) ?
+		platform->enable_fgpg : false;
+	g->sysclk_slowdown_enabled = nvgpu_platform_is_silicon(g) ?
+		platform->enable_sysclk_slowdown : false;
+	g->elcg_engine_bitmask = g->elcg_enabled ?
+		CG_ELCG_ALL_ENGINE_ENABLED_MASK : 0;
+	g->fgpg_engine_bitmask = g->fgpg_enabled ?
+		PG_FGPG_ALL_ENGINE_ENABLED_BITMASK : 0;
 
 	/* disable devfreq for pre-silicon */
 	if (!nvgpu_platform_is_silicon(g)) {
@@ -345,6 +361,10 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 		nvgpu_set_enabled(g, NVGPU_CAN_RAILGATE,
 				platform->can_railgate_init);
 	}
+
+	nvgpu_log(g, gpu_dbg_pm, "platform can_railgate_init = %s", \
+		platform->can_railgate_init ? "true" : "false");
+
 #ifdef CONFIG_NVGPU_STATIC_POWERGATE
 	g->can_tpc_pg = platform->can_tpc_pg;
 	g->can_gpc_pg = platform->can_gpc_pg;
@@ -371,12 +391,13 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 				nvgpu_platform_is_silicon(g) ? platform->enable_aelpg : false;
 			g->can_elpg =
 				nvgpu_platform_is_silicon(g) ? platform->can_elpg_init : false;
+#ifdef CONFIG_NVGPU_GB20C
+			g->can_elpg =
+				platform->can_elpg_init; // for nvgpu-next pre-sil
+#endif
 		}
 		g->mscg_enabled =
 			nvgpu_platform_is_silicon(g) ? platform->enable_mscg : false;
-		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
-			g->can_elpg = false;
-		}
 
 		nvgpu_set_enabled(g, NVGPU_PMU_PERFMON, platform->enable_perfmon);
 
@@ -384,7 +405,23 @@ static void nvgpu_init_pm_vars(struct gk20a *g)
 		if (g->elpg_enabled) {
 			nvgpu_set_enabled(g, NVGPU_ELPG_MS_ENABLED,
 						platform->enable_elpg_ms);
-			g->elpg_ms_enabled = platform->enable_elpg_ms;
+			g->can_elpg_ms =
+				nvgpu_platform_is_silicon(g) ?
+					platform->can_elpg_ms_init : false;
+			g->elpg_ms_enabled =
+				nvgpu_platform_is_silicon(g) ?
+					platform->enable_elpg_ms : false;
+		}
+		/*
+		 * NVDCLK FLCG is enabled when atleast
+		 * one Video Engine has ELCG enabled
+		 * During probe we keep ELCG enabled for GR and all MM engines
+		 * So enable nvdclk flcg as well.
+		 */
+		if (nvgpu_is_enabled(g, NVGPU_GPU_CAN_FLCG)
+				&& g->elcg_enabled) {
+			g->nvdclk_flcg_enabled = nvgpu_platform_is_silicon(g) ?
+				platform->enable_nvdclk_flcg : false;
 		}
 	}
 

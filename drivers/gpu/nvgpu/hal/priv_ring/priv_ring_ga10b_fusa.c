@@ -1,26 +1,5 @@
-/*
- * GA10B priv ring
- *
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #include <nvgpu/log.h>
 #include <nvgpu/timers.h>
 #include <nvgpu/enabled.h>
@@ -301,18 +280,19 @@ static void decode_pri_local_decode_error(struct gk20a *g, u32 value)
 static void decode_pri_client_error(struct gk20a *g, u32 value)
 {
 	const char **lookup_table = { (const char* []){ "undefined" } };
-	size_t lookup_table_size = 1;
-	size_t index = 0;
+	u32 lookup_table_size = 1, index = 0;
 
 	if (value >= pri_sys_pri_error_extra_extra_sync_req_v()) {
 		index = value - pri_sys_pri_error_extra_extra_sync_req_v();
 		lookup_table = pri_client_error_extra_2x;
-		lookup_table_size = npri_client_error_extra_2x;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(npri_client_error_extra_2x);
 
 	} else if (value >= pri_sys_pri_error_extra_async_idle_v()) {
 		index = value - pri_sys_pri_error_extra_async_idle_v();
 		lookup_table = pri_client_error_extra_0x;
-		lookup_table_size = npri_client_error_extra_0x;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(npri_client_error_extra_0x);
+	} else {
+		/* do nothing */
 	}
 
 	/*
@@ -321,7 +301,7 @@ static void decode_pri_client_error(struct gk20a *g, u32 value)
 	 * which is reserved for this purpose.
 	 */
 	if (index >= lookup_table_size) {
-		index = lookup_table_size - 1;
+		index = lookup_table_size - 1U;
 	}
 
 	nvgpu_err(g, "[Extra Info]: %s, value(0x%x)",
@@ -399,7 +379,7 @@ static void decode_pri_falcom_mem_violation(struct gk20a *g, u32 value)
 	u32 fault_priv_level;
 	u32 mem_priv_level_mask;
 
-	if (value & FALCON_DMEM_VIOLATION_MSK()) {
+	if ((value & FALCON_DMEM_VIOLATION_MSK()) != 0U) {
 		imem_violation = false;
 	}
 	fault_priv_level = FALCON_MEM_VIOLATION_PRIVLEVEL_ACCESS_VAL(value);
@@ -415,13 +395,12 @@ static void decode_pri_falcom_mem_violation(struct gk20a *g, u32 value)
 static void decode_pri_route_error(struct gk20a *g, u32 value)
 {
 	const char **lookup_table = { (const char* []){ "undefined" } };
-	size_t lookup_table_size = 1;
-	size_t index = 0;
+	u32 lookup_table_size = 1, index = 0;
 
 	if (value >= pri_sys_pri_error_fecs_pri_route_err_extra_write_only_v()) {
 		index = value - pri_sys_pri_error_fecs_pri_route_err_extra_write_only_v();
 		lookup_table = pri_route_error_extra_4x;
-		lookup_table_size = npri_route_error_extra_4x;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(npri_route_error_extra_4x);
 	}
 
 	/*
@@ -430,7 +409,7 @@ static void decode_pri_route_error(struct gk20a *g, u32 value)
 	 * which is reserved for this purpose.
 	 */
 	if (index >= lookup_table_size) {
-		index = lookup_table_size - 1;
+		index = lookup_table_size - 1U;
 	}
 
 	nvgpu_err(g, "[Extra Info]: %s, value(0x%x)", lookup_table[index],
@@ -475,13 +454,11 @@ static void decode_pri_lock_sec_sensor_violation(struct gk20a *g, u32 value)
 
 void ga10b_priv_ring_decode_error_code(struct gk20a *g, u32 error_code)
 {
-	u32 err_code;
-	u32 error_extra;
+	u32 err_code, error_extra;
+	u32 lookup_table_size = 1, index = 0;
 	const struct pri_error_code unknown_error_code[1] = {
 		{ "undefined", decode_pri_undefined_error_extra_info } };
 	const struct pri_error_code *error_lookup_table = unknown_error_code;
-	size_t lookup_table_size = 1;
-	size_t index = 0;
 
 	err_code = pri_sys_pri_error_code_v(error_code);
 	error_extra = pri_sys_pri_error_extra_v(error_code);
@@ -498,36 +475,38 @@ void ga10b_priv_ring_decode_error_code(struct gk20a *g, u32 error_code)
 		index = err_code -
 			pri_sys_pri_error_code_fecs_pri_lock_from_security_sensor_v();
 		error_lookup_table = badf6yxx;
-		lookup_table_size = nbadf6yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf6yxx_entries);
 	} else if (err_code >= pri_sys_pri_error_code_fecs_pri_client_err_v()) {
 		index = err_code - pri_sys_pri_error_code_fecs_pri_client_err_v();
 		error_lookup_table = badf5yxx;
-		lookup_table_size = nbadf5yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf5yxx_entries);
 	} else if (err_code >= pri_sys_pri_error_code_fecs_trap_v()) {
 		index = err_code - pri_sys_pri_error_code_fecs_trap_v();
 		error_lookup_table = badf4yxx;
-		lookup_table_size = nbadf4yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf4yxx_entries);
 	} else if (err_code >= pri_sys_pri_error_code_fecs_dead_ring_v()) {
 		index = err_code - pri_sys_pri_error_code_fecs_dead_ring_v();
 		error_lookup_table = badf3yxx;
-		lookup_table_size = nbadf3yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf3yxx_entries);
 	} else if (err_code >= pri_sys_pri_error_code_fecs_pri_orphan_v()) {
 		index = err_code - pri_sys_pri_error_code_fecs_pri_orphan_v();
 		error_lookup_table = badf2yxx;
-		lookup_table_size = nbadf2yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf2yxx_entries);
 	} else if (err_code >=  pri_sys_pri_error_code_fecs_pri_timeout_v()) {
 		index = err_code - pri_sys_pri_error_code_fecs_pri_timeout_v();
 		error_lookup_table = badf1yxx;
-		lookup_table_size = nbadf1yxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbadf1yxx_entries);
 	} else if (err_code ==  pri_sys_pri_error_code_host_fb_ack_timeout_v()) {
 		error_lookup_table = bad0b0xx;
-		lookup_table_size = nbad0b0xx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbad0b0xx_entries);
 	} else if (err_code == pri_sys_pri_error_code_host_fecs_err_v()) {
 		error_lookup_table = bad00fxx;
-		lookup_table_size = nbad00fxx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbad00fxx_entries);
 	} else if (err_code == pri_sys_pri_error_code_host_pri_timeout_v()) {
 		error_lookup_table = bad001xx;
-		lookup_table_size = nbad001xx_entries;
+		lookup_table_size = nvgpu_safe_cast_u64_to_u32(nbad001xx_entries);
+	} else {
+		/* do nothing */
 	}
 
 	/*
@@ -536,7 +515,7 @@ void ga10b_priv_ring_decode_error_code(struct gk20a *g, u32 error_code)
 	 * which is reserved for this purpose.
 	 */
 	if (index >= lookup_table_size) {
-		index = lookup_table_size - 1;
+		index = lookup_table_size - 1U;
 	}
 
 	nvgpu_err(g, "[Error Type]: %s", error_lookup_table[index].desc);
@@ -622,7 +601,7 @@ static void ga10b_priv_ring_handle_fbp_write_errors(struct gk20a *g, u32 status)
 
 void ga10b_priv_ring_isr_handle_0(struct gk20a *g, u32 status0)
 {
-	if (status0 == 0) {
+	if (status0 == 0U) {
 		return;
 	}
 
@@ -710,9 +689,9 @@ u32 ga10b_priv_ring_enum_ltc(struct gk20a *g)
 void ga10b_priv_ring_read_pri_fence(struct gk20a *g)
 {
 	/* Read back to ensure all writes to all chiplets are complete. */
-	nvgpu_readl(g, pri_sys_pri_fence_r());
-	nvgpu_readl(g, pri_gpc_pri_fence_r());
-	nvgpu_readl(g, pri_fbp_pri_fence_r());
+	(void) nvgpu_readl(g, pri_sys_pri_fence_r());
+	(void) nvgpu_readl(g, pri_gpc_pri_fence_r());
+	(void) nvgpu_readl(g, pri_fbp_pri_fence_r());
 }
 
 #ifdef CONFIG_NVGPU_MIG

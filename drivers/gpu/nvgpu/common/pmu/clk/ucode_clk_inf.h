@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PMUIF_CLK_H
@@ -40,6 +22,136 @@
 #define NV2080_CTRL_CLK_VIN_DEVICES_DISABLED			(0x00000000U)
 #define NV2080_CTRL_CLK_VIN_DEVICES_V10				(0x00000001U)
 #define NV2080_CTRL_CLK_VIN_DEVICES_V20				(0x00000002U)
+#define NV2080_CTRL_CLK_ADC_DEVICES_V30				(0x00000004U)
+
+/*!
+ * Types of ADC device that are supported
+ */
+#define NV2080_CTRL_CLK_ADC_DEVICE_TYPE_V30			(0x00000003U)
+
+/*!
+ * ADC output MUX's various modes of operations.
+ */
+#define NV2080_CTRL_CLK_ADC_SW_OVERRIDE_ADC_USE_INVALID		(0x00000000U)
+#define NV2080_CTRL_CLK_ADC_SW_OVERRIDE_ADC_USE_HW_REQ		(0x00000001U)    // HW mode
+#define NV2080_CTRL_CLK_ADC_SW_OVERRIDE_ADC_USE_MIN			(0x00000002U)    // MIN(HW, SW)
+#define NV2080_CTRL_CLK_ADC_SW_OVERRIDE_ADC_USE_SW_REQ		(0x00000003U)    // SW Mode
+
+/*
+ * Types of NAFLL devices that are supported
+ */
+#define NV2080_CTRL_CLK_NAFLL_DEVICE_TYPE_V35				(0x00000005U)
+
+/*
+ * Types of CLK_ENUM classes that are supported
+ */
+#define NV2080_CTRL_CLK_CLK_ENUM_TYPE_1X			(0x01)
+
+/*
+ * CLK_VF_REL related macros
+ */
+/*!
+ * Macros defining the positions of VF curves.
+ */
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_INVALID		0xFFU
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_PRI			0x00U
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_SEC_0		0x01U
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_SEC_1		0x02U
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_SEC_2		0x03U
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_MAX		0x04U // MUST be last.
+
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_ENTRY_SEC_MAX		0x03U
+#define NV2080_CTRL_CLK_CLK_VF_REL_VF_ENTRY_MAX		NV2080_CTRL_CLK_CLK_VF_REL_VF_CURVE_IDX_MAX
+
+/*!
+ * Count of max supported secondary entries.
+ */
+#define NV2080_CTRL_CLK_CLK_VF_REL_RATIO_SECONDARY_ENTRIES_MAX		0x04U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TABLE_SECONDARY_ENTRIES_MAX		0x04U
+
+#define NV2080_CTRL_CLK_CLK_VF_REL_RATIO_VOLT_VF_SMOOTH_DATA_ENTRIES_MAX	0x02U
+/*
+ * CLK_VF_TUPLE related macros
+ */
+#define NV2080_CTRL_CLK_CLK_VF_TUPLE_IDX_INVALID		0xFFFFU
+/*
+ * Macro representing maximum number of CLK_VF_TUPLE_VARIABLEs
+ * per one CLK_VF_TUPLE.
+ */
+#define NV2080_CTRL_CLK_CLK_VF_TUPLE_VARIABLE_MAX		0x04U
+
+#define NV2080_CTRL_PERF_VFE_EQU_INDEX_INVALID			0xFFFFU
+
+#define NV2080_CTRL_CLK_CLK_VF_POINT_IDX_INVALID		0xFFFFU
+
+/*!
+ * Enumeration of CLK_VF_REL class types.
+ */
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50				0x01U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50_RATIO		0x03U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50_TABLE		0x05U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50_TABLE_FREQ	0x07U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50_RATIO_VOLT	0x09U
+#define NV2080_CTRL_CLK_CLK_VF_REL_TYPE_50_RATIO_FREQ	0x0BU
+
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_HAL_GA10X_TESLA_3  0x05U
+/*
+ * Enumeration of clock propagation topology ids.
+ */
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_INVALID         0xFFU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS        0x00U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_COMPUTE         0x01U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_0          0x02U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_1          0x03U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_2          0x04U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_3          0x05U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_4          0x06U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_5          0x07U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_6          0x08U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_7          0x09U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_8          0x0AU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_9          0x0BU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_10         0x0CU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_11         0x0DU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_12         0x0EU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_13         0x0FU
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_MAX             0x10U
+
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS_MEMORY_0    NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_5
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS_MEMORY_1    NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_6
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS_MEMORY_2    NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_7
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS_MEMORY_3    NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_8
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_ID_GRAPHICS_MEMORY_4    NV2080_CTRL_CLK_CLK_PROP_TOP_ID_RSVD_9
+
+/*
+ * Macro for clock propagation topology index
+ */
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_IDX_INVALID        0xFFFFU
+
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_FREQUENCY_SEARCH_SPACE_HAL_10  0x00
+
+/*
+ * Enumeration of CLK_PROP_TOP class types.
+ */
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_TYPE_1X       0x00U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_TYPE_MODEL_10 0x01U
+
+/*
+ * Enumeration of CLK_PROP_TOP_REL class types.
+ */
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_BASE               0x00U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_MODEL_10           0x01U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X                 0x02U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_RATIO           0x03U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_TABLE           0x04U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_VOLT            0x05U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_VFE             0x06U
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_REL_TYPE_1X_VOLT_MULTI_RAIL 0x07U
+
+/*
+ * Enumeration of CLK_PROP_TOP_RELS class types.
+ */
+#define NV2080_CTRL_CLK_CLK_PROP_TOP_RELS_TYPE_MODEL_10          0x00U
 
 /*!
  * Enumeration of CLK_DOMAIN types.
@@ -53,6 +165,11 @@
 #define CTRL_CLK_CLK_DOMAIN_TYPE_35_MASTER				0x07U
 #define CTRL_CLK_CLK_DOMAIN_TYPE_35_SLAVE				0x08U
 #define CTRL_CLK_CLK_DOMAIN_TYPE_35_PROG				0x09U
+#define CTRL_CLK_CLK_DOMAIN_TYPE_50						0x0CU
+#define CTRL_CLK_CLK_DOMAIN_TYPE_50_FIXED				0x0DU
+#define CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG				0x0EU
+#define CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_LOGICAL		0x0FU
+#define CTRL_CLK_CLK_DOMAIN_TYPE_50_PROG_PHYSICAL		0x10U
 #define CTRL_CLK_CLK_DOMAIN_3X_PROG_ORDERING_INDEX_INVALID	 	0xFFU
 #define CTRL_CLK_CLK_DOMAIN_INDEX_INVALID				0xFFU
 
@@ -533,6 +650,248 @@ union nv_pmu_clk_clk_fll_device_boardobj_set_union {
 
 NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_fll_device);
 
+struct nv_pmu_clk_clk_nafll_device_boardobj_set {
+	struct nv_pmu_boardobj super;
+	u8 id;
+	u8 mdiv;
+	u8 vin_idx_logic;
+	u8 vin_idx_sram;
+	u8 rail_idx_for_lut;
+	u16 input_ref_freq_mhz;
+	u16 input_ref_div_value;
+	u32 clk_domain;
+	struct nv_pmu_clk_lut_device_desc lut_device;
+	struct nv_pmu_clk_regime_desc regime_desc;
+	u16 dvco_min_freq_vfe_idx;
+	u8 freq_ctrl_idx;
+	bool b_skip_pldiv_below_dvco_min;
+	bool b_mulltistep_pldiv_switch_enable;
+	bool b_dvco_1x;
+	struct ctrl_boardobjgrp_mask_e32 lut_prog_bcast_secndary_mask;
+};
+
+union nv_pmu_clk_clk_nafll_device_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_nafll_device_boardobj_set super;
+};
+
+struct nv_pmu_clk_clk_fll_device_model10_boardobj_set {
+	struct nv_pmu_clk_clk_nafll_device_boardobj_set super;
+	u8 rsvd;
+};
+
+struct nv_pmu_clk_clk_fll_device_v35_boardobj_set {
+	struct nv_pmu_clk_clk_fll_device_model10_boardobj_set super;
+	bool b_hw_pldiv_enable;
+};
+
+struct nv_pmu_clk_clk_nafll_device_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e32 super;
+	struct ctrl_boardobjgrp_mask_e32 lut_prog_master_mask;
+	u32 lut_step_size_uv;
+	u32 lut_min_voltage_uv;
+	u8 lut_num_entries;
+	u16 max_min_freq_mhz;
+};
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E32(clk, clk_nafll_device);
+
+struct nv_pmu_clk_clk_enum_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e255 super;
+};
+
+struct nv_pmu_clk_clk_enum_boardobj_set {
+	struct nv_pmu_boardobj super;
+	bool b_ocov_enabled;
+	u16	freq_min_mhz;
+	u16 freq_max_mhz;
+};
+
+struct nv_pmu_clk_clk_enum_model_10 {
+	struct nv_pmu_clk_clk_enum_boardobj_set super;
+	u8 rsvd;
+};
+
+union nv_pmu_clk_clk_enum_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_enum_boardobj_set super;
+	struct nv_pmu_clk_clk_enum_model_10 model10;
+};
+
+// _mg_ Todo: Move this to include/nvgpu/pmu/super_surface.h when we refactor super_surface.
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_ENUM_GRP					0x27U
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_enum);
+
+/*!
+ * CLK_VF_REL BOARDOBJGRP Header structure. Describes global state about the
+ * CLK_VF_REL feature.
+ */
+struct nv_pmu_clk_clk_vf_rel_boardobjgrp_set_header {
+	struct nv_pmu_boardobjgrp_e255 super;
+	u8 secondary_entry_count;
+	u8 vf_entry_count_sec;
+};
+
+/*!
+ * Structure describing the params required to generate primary VF curve of this
+ * VF_REL class.
+ */
+struct nv_pmu_clk_clk_vf_rel_vf_entry_pri {
+	u16 vfeIdx;
+	u16 cpmMaxFreqOffsetVfeIdx;
+	u16 vfPointIdxFirst;
+	u16 vfPointIdxLast;
+	u16 safeVfCurveTupleIdx;
+	u16 vfTupleIdxFirst;
+	u16 vfTupleIdxLast;
+};
+
+/*!
+ * Structure describing secondary VF curves for primary clock domains.
+ */
+struct mv_pmu_clk_clk_vf_rel_vf_entry_sec {
+	u16 vfeIdx;
+	u16 dvcoOffsetVfeIdx;
+	u16 vfPointIdxFirst;
+	u16 vfPointIdxLast;
+	u16 favDeratedSubCurveVFEEqnIdx;
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the CLK_VF_REL
+ * super class.
+ */
+struct nv_pmu_clk_clk_vf_rel_boardobj_set {
+	struct nv_pmu_boardobj super;
+	u8 rsvd;
+
+	/*!
+	 * Index of the VOLTAGE_RAIL for this CLK_VF_REL object.
+	 */
+	u8 railIdx;
+
+	/*!
+	 * Boolean flag indicating whether this entry supports OC/OV when those
+	 * settings are applied to the corresponding CLK_DOMAIN object.
+	 */
+	bool bOCOVEnabled;
+
+	/*!
+	 * Maximum frequency for this CLK_VF_REL entry. Entries for a given domain
+	 * need to be specified in ascending maxFreqMhz.
+	 */
+	u16 freqMaxMHz;
+
+	/*!
+	 * This will give the deviation of given voltage from it's nominal value.
+	 */
+	s32 voltDeltauV;
+
+	/*!
+	 * Primary VF curve params.
+	 */
+	struct nv_pmu_clk_clk_vf_rel_vf_entry_pri vfEntryPri;
+
+	/*!
+	 * Array of secondary VF curve's param.
+	 */
+	struct mv_pmu_clk_clk_vf_rel_vf_entry_sec
+		vfEntriesSec[NV2080_CTRL_CLK_CLK_VF_REL_VF_ENTRY_SEC_MAX];
+
+	/*!
+	 * This will give the deviation of given freq from it's nominal value.
+	 */
+	struct ctrl_clk_freq_delta freqDelta;
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the CLK_VF_REL_50
+ * super class.
+ */
+struct nv_pmu_clk_clk_vf_rel_50_boardobj_set {
+	struct nv_pmu_clk_clk_vf_rel_boardobj_set super;
+	u16 safeVfCurveTupleIdx;
+	u16 vfTupleIdxFirst;
+	u16 vfTupleIdxLast;
+	u16 pickedVfTupleIdx;
+};
+
+/*!
+ * Structure describing a TABLE PRIMARY-SECONDARY relationship which specifies the
+ * SECONDARY Clock Domain's VF curve is a table-lookup function of the PRIMARY Clock
+ * Domain's VF curve.
+ */
+struct nv_pmu_clk_clk_vf_rel_table_secondary_entry {
+	u8 clkDomIdx;
+	u16 freqMHz;
+};
+
+struct nv_pmu_clk_clk_vf_rel_4x_table_boardobj_set {
+	u8 rsvd;
+	struct nv_pmu_clk_clk_vf_rel_table_secondary_entry
+		secondaryEntries[NV2080_CTRL_CLK_CLK_VF_REL_TABLE_SECONDARY_ENTRIES_MAX];
+};
+
+/*!
+ * Structure describing the static configuration/POR state of the
+ * CLK_VF_REL_50_TABLE super class.
+ */
+struct nv_pmu_clk_clk_vf_rel_50_table_boardobj_set {
+	struct nv_pmu_clk_clk_vf_rel_50_boardobj_set super;
+	struct nv_pmu_clk_clk_vf_rel_4x_table_boardobj_set table;
+};
+
+struct nv_pmu_clk_clk_vf_rel_ratio_volt_smooth_data {
+	u32 baseVFSmoothVoltuV;
+	/*
+	 * Maximum ramp rate for a given voltage based VF curve. Driver will ensure
+	 * that the generated VF curve will respect this ramp rate. If the VF curve
+	 * has discontinuity in it, driver will smoothen the VF curve using this value.
+	 * For Frequency based VF curve this is don't care. It will be initialized
+	 * to NV_U32_MAX.
+	 * The format of the data is upper 20 bits is unsigned whole integer,
+	 * lower 12 bits is fraction.
+	 */
+	u32 maxVFRampRate;
+	u16 maxFreqStepSizeMHz;
+};
+
+struct nv_pmu_clk_clk_vf_rel_ratio_volt_vf_smooth_data_grp {
+	/*
+	 * Contains the number of different VF-ramp rates that indicate the
+	 * maximum step size.
+	 */
+	u8 vfSmoothDataEntriesCount;
+	/*
+	 * Array of VF-smoothing data and ramp rates allowing multiple
+	 * ramp rates for the same VF relationship.
+	 */
+	struct nv_pmu_clk_clk_vf_rel_ratio_volt_smooth_data
+		vfSmoothDataEntries[NV2080_CTRL_CLK_CLK_VF_REL_RATIO_VOLT_VF_SMOOTH_DATA_ENTRIES_MAX];
+};
+
+struct nv_pmu_clk_clk_vf_rel_ratio_secondary_entry {
+	u8 clkDomIdx;
+	u8 ratio;
+};
+
+/*!
+ * Union of CLK_VF_REL classes. Used to describe a single CLK_VF_REL object.
+ */
+union nv_pmu_clk_clk_vf_rel_boardobj_set_union {
+	struct nv_pmu_boardobj obj;
+	struct nv_pmu_clk_clk_vf_rel_boardobj_set super;
+	struct nv_pmu_clk_clk_vf_rel_50_boardobj_set v50;
+	// _mg_ Todo: add vf_rel_ratio 50 set, ratio_volt 50 set,
+	struct nv_pmu_clk_clk_vf_rel_50_table_boardobj_set v50Table;
+};
+
+#define NV_PMU_SUPER_SURFACE_MEMBER_CLK_VF_REL_GRP 0x30U
+
+NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(clk, clk_vf_rel);
+
+
 struct nv_pmu_clk_clk_vin_device_boardobjgrp_set_header {
 	struct nv_pmu_boardobjgrp_e32 super;
 	u8 version;
@@ -552,6 +911,52 @@ struct nv_pmu_clk_clk_vin_device_boardobj_set {
 struct nv_pmu_clk_clk_vin_device_v20_boardobj_set {
 	struct nv_pmu_clk_clk_vin_device_boardobj_set super;
 	struct ctrl_clk_vin_device_info_data_v20 data;
+};
+
+struct nv_pmu_clk_clk_adc_device_boardobj_set {
+	struct nv_pmu_boardobj super;
+	u8 id;
+	u8 volt_rail_idx;
+	bool dynamic_cal;
+	u8 override_mode;
+	u32 naflls_shared_mask;
+	u8 logical_api_id;
+	bool devinit_enabled;
+};
+
+struct nv_ctrl_boardobjgrp_interface {
+	u8	rsvd;
+};
+
+struct  nv_ctrl_boardobjgrp_info_iface_model {
+	struct nv_ctrl_boardobjgrp_interface super;
+};
+
+struct nv_ctrl_boardobjgrp_info_iface_model_10 {
+	struct  nv_ctrl_boardobjgrp_info_iface_model super;
+};
+
+struct nv_ctrl_clk_adc_devices_info_data_model_10 {
+	struct nv_ctrl_boardobjgrp_info_iface_model_10 model10;
+};
+
+struct nv_ctrl_clk_adc_devices_info_data_v20 {
+	struct nv_ctrl_clk_adc_devices_info_data_model_10 super;
+	u8 cal_invalid_fuse_rev_mask;
+	u8 low_temp_err_invalid_fuse_rev_mask;
+	u8 high_temp_err_invalid_fuse_rev_mask;
+	u8 adc_cal_rev_fused;
+	u8 adc_code_err_ht_rev_fused;
+	u8 adc_code_err_lt_rev_fused;
+	u8 temperature_vfe_var_idx;
+	s8 low_temperature;
+	s8 high_temperature;
+	s8 ref_temperature;
+	s8 adc_code_correction_offset_min;
+	s8 adc_code_correction_offset_max;
+	u32 low_volt_uv;
+	u32 high_volt_uv;
+	u32 ref_volt_uv;
 };
 
 union nv_pmu_clk_clk_vin_device_boardobj_set_union {

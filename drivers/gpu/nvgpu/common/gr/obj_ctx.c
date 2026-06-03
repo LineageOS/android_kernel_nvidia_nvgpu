@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/class.h>
 #include <nvgpu/gk20a.h>
@@ -30,6 +11,7 @@
 #include <nvgpu/pmu/pmu_pg.h>
 #include <nvgpu/power_features/pg.h>
 #endif
+#include <nvgpu/grmgr.h>
 #include <nvgpu/gr/ctx.h>
 #include <nvgpu/gr/ctx_mappings.h>
 #include <nvgpu/tsg_subctx.h>
@@ -50,6 +32,10 @@
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/tsg.h>
 #include <nvgpu/vm.h>
+#ifdef CONFIG_NVGPU_DEBUGGER
+#include <nvgpu/sort.h>
+#endif
+#include <nvgpu/gops/gr.h>
 
 #include "obj_ctx_priv.h"
 #include "gr_priv.h"
@@ -368,14 +354,22 @@ static void nvgpu_gr_obj_ctx_commit_veid0_preemption_buffers(struct gk20a *g,
 bool nvgpu_gr_obj_ctx_is_gfx_engine(struct gk20a *g, struct nvgpu_tsg_subctx *subctx)
 {
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_TSG_SUBCONTEXTS)) {
-		if ((subctx != NULL) && (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) &&
+		if ((subctx != NULL) && ((!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) &&
+					(g->numa_node_id == 0)) &&
 		     nvgpu_tsg_subctx_get_id(subctx) == CHANNEL_INFO_VEID0) {
 			return true;
 		}
 	}
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
+		 return true;
+	}
+
+	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) && (g->numa_node_id == 0)) {
 		return true;
+	} else {
+		/* do nothing */
 	}
 
 	return false;
@@ -386,16 +380,20 @@ void nvgpu_gr_obj_ctx_update_ctxsw_preemption_mode(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx, struct nvgpu_tsg_subctx *subctx,
 	struct nvgpu_gr_ctx_mappings *mappings)
 {
+#ifdef CONFIG_NVGPU_GFXP
+	u32 cur_instance_id = 0U;
+#endif
 	(void)config;
 	(void)subctx;
 	(void)mappings;
-
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
 
 	nvgpu_gr_ctx_set_preemption_modes(g, gr_ctx);
 
 #ifdef CONFIG_NVGPU_GFXP
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_PREEMPTION_GFXP)) {
+	cur_instance_id = nvgpu_gr_get_cur_instance_id(g);
+	if (!nvgpu_is_gr_class_enabled(g, NVGPU_SUPPORT_PREEMPTION_GFXP,
+			cur_instance_id)) {
 		goto done;
 	}
 
@@ -643,10 +641,11 @@ static int nvgpu_gr_obj_ctx_init_hw_state(struct gk20a *g,
 	nvgpu_log_info(g, "begin: netlist: sw_ctx_load: register writes");
 	for (i = 0U; i < sw_ctx_load->count; i++) {
 #ifdef CONFIG_NVGPU_MIG
-		if ((nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) &&
+		if ((g->numa_node_id == 1) || ((nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG) &&
+				!(nvgpu_grmgr_is_cur_instance_support_gfx(g))) &&
 				(g->ops.gr.init.is_allowed_reg != NULL) &&
 				(!(g->ops.gr.init.is_allowed_reg(g,
-					sw_ctx_load->l[i].addr)))) {
+					sw_ctx_load->l[i].addr))))) {
 			nvgpu_log(g, gpu_dbg_mig | gpu_dbg_gr,
 				"(MIG) Skip graphics ctx load reg "
 					"index[%u] addr[%x] value[%x] ",
@@ -709,7 +708,8 @@ static int nvgpu_gr_obj_ctx_commit_hw_state(struct gk20a *g,
 	nvgpu_gr_obj_ctx_commit_global_ctx_buffers(g, global_ctx_buffer,
 		config, gr_ctx, support_gfx, mappings, false);
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		/* override a few ctx state registers */
 		g->ops.gr.init.commit_global_timeslice(g);
 	}
@@ -838,6 +838,192 @@ clean_up:
 	return err;
 }
 
+#ifdef CONFIG_NVGPU_DEBUGGER
+static int compare_map(const void *a, const void *b)
+{
+	const struct ctxsw_map_entry *e1;
+	const struct ctxsw_map_entry *e2;
+
+	e1 = (const struct ctxsw_map_entry *)a;
+	e2 = (const struct ctxsw_map_entry *)b;
+
+	if (e1->addr < e2->addr) {
+		return -1;
+	}
+
+	if (e1->addr > e2->addr) {
+		return 1;
+	}
+
+	return 0;
+}
+
+int nvgpu_gr_setup_pri_address_buffer(struct gk20a *g,
+		struct nvgpu_mem *inst_block, struct nvgpu_gr_ctx *gr_ctx,
+		struct nvgpu_gr_obj_ctx_golden_image *golden_image)
+{
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
+	u32 main_header_size;
+	u32 fecs_header_size;
+	u32 gpccs_header_size;
+	u32 size;
+	u32 data;
+	u32 i;
+	struct nvgpu_mem *gr_mem;
+	u32 total_header_size;
+	u32 num_gpcs;
+	u8 *local_pri_addr_map = NULL;
+	struct nvgpu_priv_addr_map *p_pri_map = gr->pri_addr_map;
+	u32 map_idx = 0;
+	int err = -1;
+	u32 cur_gr_instance_id = nvgpu_gr_get_cur_instance_id(g);
+
+	num_gpcs = nvgpu_grmgr_get_gr_num_gpcs(g, cur_gr_instance_id);
+
+	if (p_pri_map == NULL) {
+		nvgpu_err(g, "gr pri address map null");
+		return -EINVAL;
+	}
+	if (p_pri_map->init_done == true) {
+		nvgpu_log(g, gpu_dbg_hwpm, "PRI addr buffer is already generated");
+		return 0;
+	}
+
+	main_header_size = g->ops.gr.ctxsw_prog.hw_get_main_header_size();
+	fecs_header_size = g->ops.gr.ctxsw_prog.hw_get_fecs_header_size();
+	gpccs_header_size = g->ops.gr.ctxsw_prog.hw_get_gpccs_header_stride();
+
+	gr_mem = nvgpu_gr_ctx_get_ctx_mem(gr_ctx, NVGPU_GR_CTX_CTX);
+
+	data = g->ops.gr.falcon.get_fecs_current_ctx_data(g, inst_block);
+	err = g->ops.gr.falcon.ctrl_ctxsw(g,
+		NVGPU_PRI_FECS_METHOD_PUSH_ADR_BUILD_PRI_ADDRESS_MAP, data, NULL);
+	if (err != 0) {
+		nvgpu_err(g, "PRI address build ctxsw command failed - %d", err);
+		goto cleanup;
+	}
+
+	err = g->ops.gr.init.wait_idle(g);
+	if (err != 0) {
+		nvgpu_err(g, "Error waiting for GR engine idle");
+		goto cleanup;
+	}
+
+	if (nvgpu_safe_mult_u32_return(num_gpcs, gpccs_header_size,
+					&total_header_size) == false)  {
+		nvgpu_err(g, "Buffer overflow");
+		err = -EOVERFLOW;
+		goto cleanup;
+	}
+
+	if (nvgpu_safe_add_u32_return(total_header_size, main_header_size,
+					&total_header_size) == false) {
+		nvgpu_err(g, "Buffer overflow");
+		err = -EOVERFLOW;
+		goto cleanup;
+	}
+
+	if (nvgpu_safe_add_u32_return(total_header_size, fecs_header_size,
+					&total_header_size) == false)  {
+		nvgpu_err(g, "Buffer overflow");
+		err = -EOVERFLOW;
+		goto cleanup;
+	}
+
+	size = nvgpu_safe_cast_u64_to_u32(
+		nvgpu_gr_obj_ctx_get_golden_image_size(golden_image));
+
+	local_pri_addr_map = nvgpu_kzalloc(g, size);
+	if (local_pri_addr_map == NULL) {
+		err = -ENOMEM;
+		goto cleanup;
+	}
+	nvgpu_mem_rd_n(g, gr_mem, 0, local_pri_addr_map, size);
+
+	p_pri_map->map_size = ((size >> 2) * (u32)sizeof(*(p_pri_map->map)));
+	p_pri_map->map = nvgpu_big_zalloc(g, p_pri_map->map_size);
+	if (p_pri_map->map == NULL) {
+		err = -ENOMEM;
+		goto cleanup;
+	}
+
+	nvgpu_log(g, gpu_dbg_hwpm, "start:generating pri data");
+	for (i = total_header_size; i < size; i += 4) {
+		u32 pri_addr = (*(const volatile u32 *)(local_pri_addr_map + i));
+
+		if ((pri_addr != 0) && ((pri_addr & 0x3) == 0x0)) {
+			p_pri_map->map[map_idx].addr = pri_addr;
+			p_pri_map->map[map_idx].offset = i;
+			nvgpu_log(g, gpu_dbg_hwpm,
+				"pri_map[%d]: addr - 0x%08x, offset - 0x%08x",
+				map_idx, pri_addr, i);
+			map_idx = nvgpu_safe_add_u32(map_idx, 1U);
+		}
+	}
+
+	p_pri_map->num_entries = map_idx;
+
+	sort(p_pri_map->map, map_idx, sizeof(*(p_pri_map->map)), compare_map, NULL);
+
+	for (i = 0; i < map_idx; i++) {
+		nvgpu_log(g, gpu_dbg_hwpm, "%08x -> %08x",
+				p_pri_map->map[i].addr,
+				p_pri_map->map[i].offset);
+	}
+
+	p_pri_map->init_done = true;
+
+	nvgpu_kfree(g, local_pri_addr_map);
+
+	return 0;
+cleanup:
+	if (local_pri_addr_map != NULL) {
+		nvgpu_kfree(g, local_pri_addr_map);
+	}
+
+	if (p_pri_map != NULL) {
+		if (p_pri_map->map != NULL) {
+			nvgpu_big_free(g, p_pri_map->map);
+		}
+		nvgpu_kfree(g, p_pri_map);
+	}
+
+	return err;
+}
+
+int nvgpu_gr_init_pri_address_buffer(struct gk20a *g,
+		struct nvgpu_priv_addr_map **pri_addr_map)
+{
+	int err = -1;
+	struct nvgpu_priv_addr_map *p_pri_map = NULL;
+
+	p_pri_map = nvgpu_kzalloc(g, sizeof(*p_pri_map));
+	if (p_pri_map == NULL) {
+		err = -ENOMEM;
+		nvgpu_err(g, "Buffer alloc failed for pri_addr_map");
+		return err;
+	}
+
+	p_pri_map->init_done = false;
+	p_pri_map->num_entries = 0U;
+
+	*pri_addr_map = p_pri_map;
+
+	return 0;
+}
+
+void nvgpu_gr_pri_address_buffer_deinit(struct gk20a *g,
+		struct nvgpu_priv_addr_map *pri_addr_map)
+{
+	if (pri_addr_map != NULL) {
+		if (pri_addr_map->map != NULL) {
+			nvgpu_big_free(g, pri_addr_map->map);
+		}
+		nvgpu_kfree(g, pri_addr_map);
+	}
+}
+#endif
+
 /*
  * init global golden image from a fresh gr_ctx in channel ctx.
  * save a copy in local_golden_image.
@@ -875,8 +1061,17 @@ int nvgpu_gr_obj_ctx_alloc_golden_ctx_image(struct gk20a *g,
 	if (err != 0) {
 		goto clean_up;
 	}
+#ifdef CONFIG_NVGPU_DEBUGGER
+	if (g->ops.gr.setup.setup_pri_address_buffer != NULL) {
+		err = g->ops.gr.setup.setup_pri_address_buffer(g, inst_block, gr_ctx, golden_image);
+		if (err != 0) {
+			nvgpu_err(g, "priv addr map generation failed - %d", err);
+			goto clean_up;
+		}
+	}
+#endif
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	if (support_gfx) {
 		err = nvgpu_gr_ctx_init_zcull(g, gr_ctx);
 		if (err != 0) {
@@ -1046,7 +1241,7 @@ static int nvgpu_gr_golden_ctx_prepare_gr_ctx(
 {
 	struct nvgpu_gr_obj_ctx_golden_image *golden_image =
 					nvgpu_gr_get_golden_image_ptr(g);
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_subctx *subctx = NULL;
 	u32 obj_class, i;
 	int err;
@@ -1118,7 +1313,7 @@ static void nvgpu_gr_golden_ctx_unprepare_gr_ctx(
 			struct nvgpu_gr_ctx *gr_ctx,
 			struct nvgpu_gr_ctx_mappings *mappings)
 {
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct vm_gk20a *vm = mappings->vm;
 	u32 i;
 
@@ -1134,14 +1329,14 @@ static void nvgpu_gr_golden_ctx_unprepare_gr_ctx(
 	}
 }
 
-int nvgpu_gr_obj_ctx_init_golden_context_image(struct gk20a *g)
+static int init_golden_context_image(struct gk20a *g)
 {
 	struct nvgpu_gr_obj_ctx_golden_image *golden_image =
 					nvgpu_gr_get_golden_image_ptr(g);
 	u64 user_size, kernel_size;
 	struct vm_gk20a *vm;
 	u32 big_page_size;
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_mem inst_block = {};
 	struct nvgpu_gr_subctx *subctx = NULL;
 	struct nvgpu_gr_ctx_mappings mappings = {};
@@ -1214,6 +1409,17 @@ free_vm:
 	nvgpu_vm_put(vm);
 out:
 	nvgpu_mutex_release(&golden_image->ctx_mutex);
+	return err;
+}
+
+int nvgpu_gr_obj_ctx_init_golden_context_image(struct gk20a *g)
+{
+	int err = 0;
+	err = nvgpu_gr_exec_with_ret_for_each_instance(g,
+			init_golden_context_image(g));
+	if (err != 0) {
+		nvgpu_err(g, "init_golden_context_image failed");
+	}
 	return err;
 }
 

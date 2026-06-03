@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -64,10 +46,12 @@
 #define pbdma_gp_base_r(i)\
 		(nvgpu_safe_add_u32(0x00040048U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_gp_base_offset_f(v)                 ((U32(v) & 0x1fffffffU) << 3U)
+#define pbdma_gp_base_offset_v(r)                    (((r) >> 3U) & 0x1fffffffU)
 #define pbdma_gp_base_rsvd_s()                                              (3U)
 #define pbdma_gp_base_hi_r(i)\
 		(nvgpu_safe_add_u32(0x0004004cU, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_gp_base_hi_offset_f(v)                    ((U32(v) & 0xffU) << 0U)
+#define pbdma_gp_base_hi_offset_v(r)                       (((r) >> 0U) & 0xffU)
 #define pbdma_gp_base_hi_limit2_f(v)                   ((U32(v) & 0x1fU) << 16U)
 #define pbdma_gp_fetch_r(i)\
 		(nvgpu_safe_add_u32(0x00040050U, nvgpu_safe_mult_u32((i), 2048U)))
@@ -136,6 +120,10 @@
 #define pbdma_hce_ctrl_r(i)\
 		(nvgpu_safe_add_u32(0x000400e4U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_hce_ctrl_hce_priv_mode_yes_f()                             (0x20U)
+#define pbdma_hce_dbg0_r(i)\
+		(nvgpu_safe_add_u32(0x00040150U, nvgpu_safe_mult_u32((i), 2048U)))
+#define pbdma_hce_dbg1_r(i)\
+		(nvgpu_safe_add_u32(0x00040154U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_intr_0_r(i)\
 		(nvgpu_safe_add_u32(0x00040108U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_intr_0__size_1_v()                                   (0x00000006U)
@@ -233,6 +221,13 @@
 #define pbdma_status_sched_chan_status_chsw_load_v()               (0x00000006U)
 #define pbdma_status_sched_chan_status_chsw_switch_v()             (0x00000007U)
 #define pbdma_status_sched_next_tsgid_v(r)               (((r) >> 16U) & 0xfffU)
+#define pbdma_channel_r(i)\
+		(nvgpu_safe_add_u32(0x00040120U, nvgpu_safe_mult_u32((i), 2048U)))
+#define pbdma_channel_gfid_v(r)                           (((r) >> 16U) & 0x3fU)
+#define pbdma_next_channel_r(i)\
+		(nvgpu_safe_add_u32(0x00040124U, nvgpu_safe_mult_u32((i), 2048U)))
+#define pbdma_next_channel_valid_v(r)                      (((r) >> 13U) & 0x1U)
+#define pbdma_next_channel_gfid_v(r)                      (((r) >> 16U) & 0x3fU)
 #define pbdma_intr_notify_r(i)\
 		(nvgpu_safe_add_u32(0x000400f8U, nvgpu_safe_mult_u32((i), 2048U)))
 #define pbdma_intr_notify_vector_f(v)                  ((U32(v) & 0xfffU) << 0U)

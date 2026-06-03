@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/atomic.h>
 #include <nvgpu/gk20a.h>
@@ -49,7 +30,7 @@ int vgpu_fifo_preempt_channel(struct gk20a *g, struct nvgpu_channel *ch)
 	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_PREEMPT;
 	msg.handle = vgpu_get_handle(g);
 	p->handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	if (err || msg.ret) {
 		nvgpu_err(g,
@@ -60,12 +41,12 @@ int vgpu_fifo_preempt_channel(struct gk20a *g, struct nvgpu_channel *ch)
 	return err;
 }
 
-int vgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid)
+int vgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid, u32 gfid)
 {
 	struct tegra_vgpu_cmd_msg msg;
-	struct tegra_vgpu_tsg_preempt_params *p =
-			&msg.params.tsg_preempt;
+	struct tegra_vgpu_tsg_params *p = &msg.params.tsg;
 	int err;
+	(void)gfid;
 
 	nvgpu_log_fn(g, " ");
 
@@ -73,7 +54,7 @@ int vgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid)
 	msg.handle = vgpu_get_handle(g);
 	p->runlist_id = runlist_id;
 	p->tsg_id = tsgid;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 
 	if (err) {

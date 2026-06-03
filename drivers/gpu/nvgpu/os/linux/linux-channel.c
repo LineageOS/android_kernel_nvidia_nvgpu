@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/enabled.h>
 #include <nvgpu/debug.h>
@@ -13,6 +13,7 @@
 #include <nvgpu/fence.h>
 #include <nvgpu/grmgr.h>
 #include <nvgpu/dt.h>
+#include <nvgpu/runlist.h>
 #include <nvgpu/soc.h>
 
 /*
@@ -27,6 +28,7 @@
 #include "ioctl.h"
 #include "os_linux.h"
 #include "dmabuf_priv.h"
+#include "platform_gk20a.h"
 
 #include <nvgpu/hw/gk20a/hw_pbdma_gk20a.h>
 
@@ -44,6 +46,7 @@
 #include <nvgpu/linux/os_fence_dma.h>
 
 #define NUM_CHANNELS	256U
+#define NUM_CHANNELS_THOR 400U
 
 u32 nvgpu_submit_gpfifo_user_flags_to_common_flags(u32 user_flags)
 {
@@ -425,13 +428,16 @@ static int nvgpu_channel_copy_user_gpfifo(struct nvgpu_gpfifo_entry *dest,
 	return n == 0 ? 0 : -EFAULT;
 }
 
-static int nvgpu_usermode_buf_from_dmabuf(struct gk20a *g, int dmabuf_fd,
+static int nvgpu_usermode_buf_from_dmabuf(struct gk20a *g,
+		const bool gpu_mmio_channel,
+		int dmabuf_fd,
 		struct nvgpu_mem *mem, struct nvgpu_usermode_buf_linux *buf)
 {
 	struct device *dev = dev_from_gk20a(g);
 	struct dma_buf *dmabuf;
 	struct sg_table *sgt;
 	struct dma_buf_attachment *attachment;
+	enum dma_data_direction dma_direction;
 	int err;
 
 	dmabuf = dma_buf_get(dmabuf_fd);
@@ -444,7 +450,19 @@ static int nvgpu_usermode_buf_from_dmabuf(struct gk20a *g, int dmabuf_fd,
 		goto put_dmabuf;
 	}
 
-	sgt = nvgpu_mm_pin(dev, dmabuf, &attachment, DMA_TO_DEVICE);
+	if (!gpu_mmio_channel) {
+		/*
+		 * Non-gpu-mmio channels only need read access to the mapped buffer.
+		 */
+		dma_direction = DMA_TO_DEVICE;
+	} else {
+		/*
+		 * GPU MMIO channels need the memory to be GPU RW.
+		 */
+		dma_direction = DMA_BIDIRECTIONAL;
+	}
+
+	sgt = nvgpu_mm_pin(dev, dmabuf, &attachment, dma_direction);
 	if (IS_ERR(sgt)) {
 		nvgpu_err(g, "Failed to pin dma_buf!");
 		err = PTR_ERR(sgt);
@@ -510,6 +528,7 @@ static int nvgpu_channel_alloc_usermode_buffers(struct nvgpu_channel *c,
 	struct device *dev = dev_from_gk20a(g);
 	size_t gpfifo_size;
 	int err;
+	bool is_gpu_mmio_channel;
 
 	if (args->gpfifo_dmabuf_fd == 0 || args->userd_dmabuf_fd == 0) {
 		return -EINVAL;
@@ -521,7 +540,14 @@ static int nvgpu_channel_alloc_usermode_buffers(struct nvgpu_channel *c,
 		return -EINVAL;
 	}
 
-	err = nvgpu_usermode_buf_from_dmabuf(g, args->gpfifo_dmabuf_fd,
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GPU_MMIO) &&
+		((args->flags & NVGPU_SETUP_BIND_FLAGS_USERMODE_GPU_MAP_RESOURCES_SUPPORT) != 0U)) {
+		is_gpu_mmio_channel = true;
+	} else {
+		is_gpu_mmio_channel = false;
+	}
+
+	err = nvgpu_usermode_buf_from_dmabuf(g, is_gpu_mmio_channel, args->gpfifo_dmabuf_fd,
 			&c->usermode_gpfifo, &priv->usermode.gpfifo);
 	if (err < 0) {
 		return err;
@@ -545,14 +571,13 @@ static int nvgpu_channel_alloc_usermode_buffers(struct nvgpu_channel *c,
 		goto unmap_free_gpfifo;
 	}
 
-	err = nvgpu_usermode_buf_from_dmabuf(g, args->userd_dmabuf_fd,
+	err = nvgpu_usermode_buf_from_dmabuf(g, is_gpu_mmio_channel, args->userd_dmabuf_fd,
 			&c->usermode_userd, &priv->usermode.userd);
 	if (err < 0) {
 		goto unmap_free_gpfifo;
 	}
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GPU_MMIO) &&
-		((args->flags & NVGPU_SETUP_BIND_FLAGS_USERMODE_GPU_MAP_RESOURCES_SUPPORT) != 0U)) {
+	if (is_gpu_mmio_channel) {
 		err = nvgpu_channel_setup_mmio_gpu_vas(g, c, gpfifo_size);
 		if (err < 0) {
 			err = -ENOMEM;
@@ -560,7 +585,7 @@ static int nvgpu_channel_alloc_usermode_buffers(struct nvgpu_channel *c,
 		}
 	}
 
-	args->work_submit_token = g->ops.usermode.doorbell_token(c);
+	args->work_submit_token = g->ops.usermode.doorbell_token(g, c->runlist->id, c->chid);
 	args->gpfifo_gpu_va = c->gpfifo_va;
 	args->userd_gpu_va = c->userd_va;
 	args->usermode_mmio_gpu_va = c->vm->gpummio_va;
@@ -665,9 +690,19 @@ u32 nvgpu_channel_get_max_subctx_count(struct nvgpu_channel *ch)
 
 u32 nvgpu_channel_get_synpoints(struct gk20a *g)
 {
+	struct device *dev = dev_from_gk20a(g);
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+
 	if (nvgpu_is_hypervisor_mode(g)) {
+		/*
+		 * Fix is needed if we are moving to
+		 * safety syncpoint pool.
+		 */
+		if (platform->platform_chip_id == TEGRA_264) {
+			return NUM_CHANNELS_THOR;
+		}
+
 	#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
-		(void)g;
 		/*
 		 * The syncpoints should be queried from the DT entry.
 		 * Once support is added in the DT, this function will
@@ -678,8 +713,6 @@ u32 nvgpu_channel_get_synpoints(struct gk20a *g)
 		struct device_node *syncpt_node = NULL;
 		int val_read = 0U;
 		u32 val[2] = {0U, 0U};
-
-		(void)g;
 		syncpt_node = of_find_compatible_node(NULL, NULL,
 				"nvidia,tegra234-host1x-hv");
 		if (syncpt_node == NULL) {

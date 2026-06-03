@@ -1,33 +1,17 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
+#include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/zbc.h>
-
+#include <nvgpu/gr/gr.h>
+#include <nvgpu/gr/gr_instances.h>
 #include "zbc_gm20b.h"
 
 #include <nvgpu/hw/gm20b/hw_gr_gm20b.h>
 
+#ifdef CONFIG_NVGPU_ZBC_USER
 void gm20b_gr_zbc_init_table_indices(struct gk20a *g,
 			struct nvgpu_gr_zbc_table_indices *zbc_indices)
 {
@@ -193,13 +177,18 @@ static void gm20b_gr_zbc_load_default_sw_color_table(struct gk20a *g,
 void gm20b_gr_zbc_load_default_sw_table(struct gk20a *g,
 					struct nvgpu_gr_zbc *zbc)
 {
+	u32 cur_instance_id = 0U;
+
+	cur_instance_id = nvgpu_gr_get_cur_instance_id(g);
 	nvgpu_mutex_init(&zbc->zbc_lock);
 
 	gm20b_gr_zbc_load_default_sw_color_table(g, zbc);
 
 	gm20b_gr_zbc_load_default_sw_depth_table(g, zbc);
 
-	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL)) {
+	if (nvgpu_is_gr_class_enabled(g,
+				NVGPU_SUPPORT_ZBC_STENCIL, cur_instance_id)) {
 		gm20b_gr_zbc_load_default_sw_stencil_table(g, zbc);
 	}
 }
+#endif

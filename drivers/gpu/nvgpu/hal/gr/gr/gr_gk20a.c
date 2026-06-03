@@ -1,26 +1,5 @@
-/*
- * GK20A Graphics
- *
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/kmem.h>
@@ -34,6 +13,7 @@
 #include <nvgpu/fifo.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/channel.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/string.h>
 #include <nvgpu/regops.h>
 #include <nvgpu/gr/subctx.h>
@@ -52,6 +32,7 @@
 #include "gr_pri_gk20a.h"
 
 #include "common/gr/gr_priv.h"
+#include "common/gr/obj_ctx_priv.h"
 
 #include <nvgpu/hw/gk20a/hw_gr_gk20a.h>
 
@@ -65,7 +46,7 @@ int gr_gk20a_update_smpc_ctxsw_mode(struct gk20a *g,
 
 	nvgpu_mutex_acquire(&tsg->ctx_init_lock);
 
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	ret = nvgpu_tsg_preempt(g, tsg);
 	if (ret != 0) {
@@ -76,7 +57,7 @@ int gr_gk20a_update_smpc_ctxsw_mode(struct gk20a *g,
 	ret = nvgpu_gr_ctx_set_smpc_mode(g, tsg->gr_ctx, enable_smpc_ctxsw);
 
 out:
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 
@@ -112,7 +93,7 @@ int gr_gk20a_update_hwpm_ctxsw_mode(struct gk20a *g,
 
 		if ((mode == NVGPU_GR_CTX_HWPM_CTXSW_MODE_STREAM_OUT_CTXSW) &&
 			(g->ops.perf.init_hwpm_pmm_register != NULL)) {
-			g->ops.perf.init_hwpm_pmm_register(g);
+			g->ops.perf.init_hwpm_pmm_register(g, gr_instance_id);
 		}
 	}
 
@@ -128,7 +109,7 @@ int gr_gk20a_update_hwpm_ctxsw_mode(struct gk20a *g,
 		return 0;
 	}
 
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	ret = nvgpu_tsg_preempt(g, tsg);
 	if (ret != 0) {
@@ -145,7 +126,7 @@ int gr_gk20a_update_hwpm_ctxsw_mode(struct gk20a *g,
 	}
 
 out:
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 
@@ -435,10 +416,11 @@ int gr_gk20a_get_ctx_buffer_offsets(struct gk20a *g,
 				    u32 *offsets, u32 *offset_addrs,
 				    u32 *num_offsets)
 {
-	u32 i;
-	u32 priv_offset = 0;
-	u32 *priv_registers;
+	u32 i, j;
+	u32 *priv_offset = NULL;
+	u32 *priv_registers = offset_addrs;
 	u32 num_registers = 0;
+	u32 num_dup_offsets = 0;
 	int err = 0;
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
 	u32 sm_per_tpc = nvgpu_get_litter_value(g, GPU_LIT_NUM_SM_PER_TPC);
@@ -478,28 +460,63 @@ int gr_gk20a_get_ctx_buffer_offsets(struct gk20a *g,
 		num_registers = 1;
 	}
 
+	/*
+	 * Allocate an array to hold all offsets of potential duplicate
+	 * addresses in the PRI amap.
+	 */
+	priv_offset = nvgpu_kzalloc(g, (sizeof(u32) * potential_offsets));
+	if (priv_offset == NULL) {
+		nvgpu_err(g, "Failed to allocate mem for priv offset buffer");
+		err = -ENOMEM;
+		goto cleanup;
+	}
+
 	for (i = 0; i < num_registers; i++) {
+		num_dup_offsets = 0;
 		err = g->ops.gr.find_priv_offset_in_buffer(g,
 			  priv_registers[i],
 			  nvgpu_gr_obj_ctx_get_local_golden_image_ptr(
 				gr->golden_image),
 			  (u32)nvgpu_gr_obj_ctx_get_golden_image_size(
-				gr->golden_image),
-			  &priv_offset);
+				gr->golden_image), max_offsets,
+			  priv_offset, &num_dup_offsets);
 		if (err != 0) {
 			nvgpu_log_fn(g, "Could not determine priv_offset for addr:0x%x",
 				      addr); /*, grPriRegStr(addr)));*/
 			goto cleanup;
 		}
 
-		offsets[i] = priv_offset;
 		offset_addrs[i] = priv_registers[i];
+
+		for (j = 0; j < num_dup_offsets; j++) {
+			u32 val = priv_offset[j];
+
+			nvgpu_log(g, gpu_dbg_prof|gpu_dbg_gpu_dbg,
+				"priv offset for addr: 0x%08x: priv offset: 0x%08x",
+				addr, val);
+			offsets[(*num_offsets)++] = val;
+		}
 	}
 
-	*num_offsets = num_registers;
+	/**
+	 * We didn't find the register in the context buffer map but its
+	 * not an error "yet", because we are expected to search the hwpm
+	 * map. We need to report invalid error so that caller searches
+	 * the hwpm map.
+	 */
+	if (num_registers == 0) {
+		err = -EINVAL;
+		nvgpu_log_fn(g, "Could not determine priv_offset for addr:0x%x",
+				      addr); /*, grPriRegStr(addr)));*/
+	}
+
 cleanup:
 	if (priv_registers != NULL) {
 		nvgpu_kfree(g, priv_registers);
+	}
+
+	if (priv_offset != NULL) {
+		nvgpu_kfree(g, priv_offset);
 	}
 
 	return err;
@@ -522,11 +539,30 @@ int gr_gk20a_get_pm_ctx_buffer_offsets(struct gk20a *g,
 		nvgpu_gr_config_get_max_tpc_per_gpc_count(gr->config) *
 		sm_per_tpc;
 
+	if (g->support_gpu_tools == 0x0U) {
+		return 0;
+	}
+
 	nvgpu_log(g, gpu_dbg_gpu_dbg, "addr=0x%x", addr);
 
 	/* implementation is crossed-up if either of these happen */
 	if (max_offsets > potential_offsets) {
 		return -EINVAL;
+	}
+
+	/**
+	 * Searching for register in the priv map before BC to UC conversion
+	 * works on the concept that the hwpm map is supposed to
+	 * include "only" unicast registers.
+	 */
+	err = nvgpu_gr_hwmp_map_find_priv_offset(g, gr->hwpm_map,
+					  addr,
+					  &priv_offset, gr->config);
+	if (err == 0) {
+		nvgpu_log(g, gpu_dbg_gpu_dbg, "Addr found=0x%x", addr);
+		*num_offsets = 1U;
+		offsets[0] = priv_offset;
+		return 0;
 	}
 
 	priv_registers = nvgpu_kzalloc(g, sizeof(u32) * potential_offsets);
@@ -565,6 +601,11 @@ int gr_gk20a_get_pm_ctx_buffer_offsets(struct gk20a *g,
 	}
 
 	*num_offsets = num_registers;
+	if (num_registers == 0) {
+		err = -EINVAL;
+		nvgpu_err(g, "Could not determine priv_offset for addr:0x%x",
+				addr);
+	}
 cleanup:
 	nvgpu_kfree(g, priv_registers);
 
@@ -1139,7 +1180,9 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 					       u32 addr,
 					       u32 *context_buffer,
 					       u32 context_buffer_size,
-					       u32 *priv_offset)
+					       u32 max_offsets,
+					       u32 *priv_offset,
+					       u32 *num_offsets)
 {
 	u32 i;
 	int err;
@@ -1152,6 +1195,7 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 	u32 ppc_mask, reg_list_ppc_count;
 	u32 *context;
 	u32 offset_to_segment, offset_in_segment = 0;
+	(void)max_offsets;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gpu_dbg, "addr=0x%x", addr);
 
@@ -1165,6 +1209,7 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 		return err;
 	}
 
+	*num_offsets = 1;
 	context = context_buffer;
 	if (!g->ops.gr.ctxsw_prog.check_main_image_header_magic(context)) {
 		nvgpu_err(g,
@@ -1232,7 +1277,8 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 		}
 		gpc_priv_offset = g->ops.gr.ctxsw_prog.get_local_priv_register_ctl_offset(context);
 
-		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+		if (nvgpu_support_gfx_with_numa(g) ||
+				nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 			err = gr_gk20a_determine_ppc_configuration(g, context,
 							&num_ppcs, &ppc_mask,
 							&reg_list_ppc_count);
@@ -1293,7 +1339,7 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 	return -EINVAL;
 }
 
-static struct nvgpu_channel *gk20a_get_resident_ctx(struct gk20a *g, u32 *tsgid)
+struct nvgpu_channel *gk20a_get_resident_ctx(struct gk20a *g, u32 *tsgid)
 {
 	u32 curr_gr_ctx;
 	struct nvgpu_channel *curr_ch;
@@ -1365,6 +1411,143 @@ bool gk20a_is_tsg_ctx_resident(struct nvgpu_tsg *tsg)
 	return ret;
 }
 
+void gr_gk20a_regops_wr_ctx_mem(struct nvgpu_tsg *tsg, struct nvgpu_dbg_reg_op *ctx_op,
+	struct nvgpu_mem *mem, u32 offset, u32 offset_addr)
+{
+	struct gk20a *g = tsg->g;
+	struct nvgpu_gr_ctx *gr_ctx = tsg->gr_ctx;
+	u32 v;
+
+	v = nvgpu_mem_rd(g, mem, offset);
+	v &= ~ctx_op->and_n_mask_lo;
+	v |= ctx_op->value_lo;
+	nvgpu_mem_wr(g, mem, offset, v);
+
+	nvgpu_log(g, gpu_dbg_gpu_dbg,
+		   "context wr: offset=0x%x v=0x%x",
+		   offset, v);
+
+	if (ctx_op->op == REGOP(WRITE_64)) {
+		v = nvgpu_mem_rd(g, mem, offset + 4U);
+		v &= ~ctx_op->and_n_mask_hi;
+		v |= ctx_op->value_hi;
+		nvgpu_mem_wr(g, mem, offset + 4U, v);
+
+		nvgpu_log(g, gpu_dbg_gpu_dbg,
+			   "context wr: offset=0x%x v=0x%x",
+			   nvgpu_safe_add_u32(offset, 4U), v);
+	}
+
+	if (mem ==
+		nvgpu_gr_ctx_get_ctx_mem(
+			gr_ctx, NVGPU_GR_CTX_CTX) &&
+			g->ops.gr.ctx_patch_smpc != NULL) {
+		/* check to see if we need to add a special fix
+		   for some of the SMPC perf regs */
+		g->ops.gr.ctx_patch_smpc(g, offset_addr, v, gr_ctx);
+	}
+}
+
+void gr_gk20a_regops_rd_ctx_mem(struct nvgpu_tsg *tsg, struct nvgpu_dbg_reg_op *ctx_op,
+	struct nvgpu_mem *mem, u32 offset)
+{
+	struct gk20a *g = tsg->g;
+
+	ctx_op->value_lo =
+		nvgpu_mem_rd(g, mem, offset);
+
+	nvgpu_log(g, gpu_dbg_gpu_dbg, "context rd: offset=0x%x v=0x%x",
+		   offset, ctx_op->value_lo);
+
+	if (ctx_op->op == REGOP(READ_64)) {
+		ctx_op->value_hi =
+			nvgpu_mem_rd(g, mem, offset + 4U);
+		nvgpu_log(g, gpu_dbg_gpu_dbg,
+			   "context rd: offset=0x%x v=0x%x",
+			   offset + 4U, ctx_op->value_hi);
+	} else {
+		ctx_op->value_hi = 0;
+	}
+}
+
+void gr_gk20a_exec_ctx_ops_resident(struct gk20a *g,
+				struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
+				u32 num_ctx_wr_ops, u32 num_ctx_rd_ops)
+{
+	u32 ctx_op_nr, num_ctx_ops[2] = {num_ctx_wr_ops, num_ctx_rd_ops};
+	u32 i, offset, v;
+	int pass;
+
+	for (pass = 0; pass < 2; pass++) {
+		ctx_op_nr = 0;
+		for (i = 0; i < num_ops; ++i) {
+			if (ctx_op_nr >= num_ctx_ops[pass]) {
+				break;
+			}
+
+			/*
+			* Move to next op if current op is invalid.
+			* Execution will reach here only if CONTINUE_ON_ERROR
+			* mode is requested.
+			*/
+			if (ctx_ops[i].status != REGOP(STATUS_SUCCESS)) {
+				continue;
+			}
+
+			/* only do ctx ops and only on the right pass */
+			if ((ctx_ops[i].type == REGOP(TYPE_GLOBAL)) ||
+				(((pass == 0) && reg_op_is_read(ctx_ops[i].op)) ||
+				((pass == 1) && !reg_op_is_read(ctx_ops[i].op)))) {
+				continue;
+			}
+
+			offset = ctx_ops[i].offset;
+
+			if (pass == 0) { /* write pass */
+				v = gk20a_readl(g, offset);
+				v &= ~ctx_ops[i].and_n_mask_lo;
+				v |= ctx_ops[i].value_lo;
+				gk20a_writel(g, offset, v);
+
+				nvgpu_log(g, gpu_dbg_gpu_dbg,
+					"direct wr: offset=0x%x v=0x%x",
+					offset, v);
+
+				if (ctx_ops[i].op == REGOP(WRITE_64)) {
+					v = gk20a_readl(g, offset + 4U);
+					v &= ~ctx_ops[i].and_n_mask_hi;
+					v |= ctx_ops[i].value_hi;
+					gk20a_writel(g, offset + 4U, v);
+
+					nvgpu_log(g, gpu_dbg_gpu_dbg,
+						"direct wr: offset=0x%x v=0x%x",
+						offset + 4U, v);
+				}
+
+			} else { /* read pass */
+				ctx_ops[i].value_lo =
+					gk20a_readl(g, offset);
+
+				nvgpu_log(g, gpu_dbg_gpu_dbg,
+					"direct rd: offset=0x%x v=0x%x",
+					offset, ctx_ops[i].value_lo);
+
+				if (ctx_ops[i].op == REGOP(READ_64)) {
+					ctx_ops[i].value_hi =
+						gk20a_readl(g, offset + 4U);
+
+					nvgpu_log(g, gpu_dbg_gpu_dbg,
+						"direct rd: offset=0x%x v=0x%x",
+						offset, ctx_ops[i].value_lo);
+				} else {
+					ctx_ops[i].value_hi = 0;
+				}
+			}
+			ctx_op_nr++;
+		}
+	}
+}
+
 static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 			    struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
 			    u32 num_ctx_wr_ops, u32 num_ctx_rd_ops,
@@ -1375,7 +1558,7 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 	bool gr_ctx_ready = false;
 	bool pm_ctx_ready = false;
 	struct nvgpu_mem *current_mem = NULL;
-	u32 i, j, offset, v;
+	u32 i, j;
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
 	u32 sm_per_tpc = nvgpu_get_litter_value(g, GPU_LIT_NUM_SM_PER_TPC);
 	u32 max_offsets = nvgpu_gr_config_get_max_gpc_count(gr->config) *
@@ -1392,74 +1575,8 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 	gr_ctx = tsg->gr_ctx;
 
 	if (ctx_resident) {
-		for (pass = 0; pass < 2; pass++) {
-			ctx_op_nr = 0;
-			for (i = 0; i < num_ops; ++i) {
-				if (ctx_op_nr >= num_ctx_ops[pass]) {
-					break;
-				}
-
-				/*
-				 * Move to next op if current op is invalid.
-				 * Execution will reach here only if CONTINUE_ON_ERROR
-				 * mode is requested.
-				 */
-				if (ctx_ops[i].status != REGOP(STATUS_SUCCESS)) {
-					continue;
-				}
-
-				/* only do ctx ops and only on the right pass */
-				if ((ctx_ops[i].type == REGOP(TYPE_GLOBAL)) ||
-				    (((pass == 0) && reg_op_is_read(ctx_ops[i].op)) ||
-				     ((pass == 1) && !reg_op_is_read(ctx_ops[i].op)))) {
-					continue;
-				}
-
-				offset = ctx_ops[i].offset;
-
-				if (pass == 0) { /* write pass */
-					v = gk20a_readl(g, offset);
-					v &= ~ctx_ops[i].and_n_mask_lo;
-					v |= ctx_ops[i].value_lo;
-					gk20a_writel(g, offset, v);
-
-					nvgpu_log(g, gpu_dbg_gpu_dbg,
-						   "direct wr: offset=0x%x v=0x%x",
-						   offset, v);
-
-					if (ctx_ops[i].op == REGOP(WRITE_64)) {
-						v = gk20a_readl(g, offset + 4U);
-						v &= ~ctx_ops[i].and_n_mask_hi;
-						v |= ctx_ops[i].value_hi;
-						gk20a_writel(g, offset + 4U, v);
-
-						nvgpu_log(g, gpu_dbg_gpu_dbg,
-							   "direct wr: offset=0x%x v=0x%x",
-							   offset + 4U, v);
-					}
-
-				} else { /* read pass */
-					ctx_ops[i].value_lo =
-						gk20a_readl(g, offset);
-
-					nvgpu_log(g, gpu_dbg_gpu_dbg,
-						   "direct rd: offset=0x%x v=0x%x",
-						   offset, ctx_ops[i].value_lo);
-
-					if (ctx_ops[i].op == REGOP(READ_64)) {
-						ctx_ops[i].value_hi =
-							gk20a_readl(g, offset + 4U);
-
-						nvgpu_log(g, gpu_dbg_gpu_dbg,
-							   "direct rd: offset=0x%x v=0x%x",
-							   offset, ctx_ops[i].value_lo);
-					} else {
-						ctx_ops[i].value_hi = 0;
-					}
-				}
-				ctx_op_nr++;
-			}
-		}
+		gr_gk20a_exec_ctx_ops_resident(g, ctx_ops, num_ops,
+				num_ctx_wr_ops, num_ctx_rd_ops);
 		goto cleanup;
 	}
 
@@ -1473,8 +1590,7 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 
 	nvgpu_gr_ctx_patch_write_begin(g, gr_ctx, false);
 
-	err = nvgpu_pg_elpg_ms_protected_call(g,
-			g->ops.mm.cache.l2_flush(g, true));
+	err = g->ops.mm.cache.l2_flush(g, true);
 	if (err != 0) {
 		nvgpu_err(g, "l2_flush failed");
 		goto cleanup;
@@ -1531,6 +1647,12 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 				current_mem = nvgpu_gr_ctx_get_ctx_mem(gr_ctx,
 							NVGPU_GR_CTX_CTX);
 			} else {
+				if (g->support_gpu_tools == 0x0U) {
+					nvgpu_err(g, "PM ctx switch is not supported: offset=0x%x",
+							ctx_ops[i].offset);
+					ctx_ops[i].status = REGOP(STATUS_UNSUPPORTED_OP);
+					continue;
+				}
 				err = gr_gk20a_get_pm_ctx_buffer_offsets(g,
 							ctx_ops[i].offset,
 							max_offsets,
@@ -1571,53 +1693,10 @@ static int gr_exec_ctx_ops(struct nvgpu_tsg *tsg,
 					continue;
 				}
 				if (pass == 0) { /* write pass */
-					v = nvgpu_mem_rd(g, current_mem, offsets[j]);
-					v &= ~ctx_ops[i].and_n_mask_lo;
-					v |= ctx_ops[i].value_lo;
-					nvgpu_mem_wr(g, current_mem, offsets[j], v);
-
-					nvgpu_log(g, gpu_dbg_gpu_dbg,
-						   "context wr: offset=0x%x v=0x%x",
-						   offsets[j], v);
-
-					if (ctx_ops[i].op == REGOP(WRITE_64)) {
-						v = nvgpu_mem_rd(g, current_mem, offsets[j] + 4U);
-						v &= ~ctx_ops[i].and_n_mask_hi;
-						v |= ctx_ops[i].value_hi;
-						nvgpu_mem_wr(g, current_mem, offsets[j] + 4U, v);
-
-						nvgpu_log(g, gpu_dbg_gpu_dbg,
-							   "context wr: offset=0x%x v=0x%x",
-							   offsets[j] + 4U, v);
-					}
-
-					if (current_mem ==
-						nvgpu_gr_ctx_get_ctx_mem(
-							gr_ctx, NVGPU_GR_CTX_CTX) &&
-							g->ops.gr.ctx_patch_smpc != NULL) {
-						/* check to see if we need to add a special fix
-						   for some of the SMPC perf regs */
-						g->ops.gr.ctx_patch_smpc(g,
-							offset_addrs[j],
-							v, gr_ctx);
-					}
+					gr_gk20a_regops_wr_ctx_mem(tsg, &ctx_ops[i],
+						current_mem, offsets[j], offset_addrs[j]);
 				} else { /* read pass */
-					ctx_ops[i].value_lo =
-						nvgpu_mem_rd(g, current_mem, offsets[0]);
-
-					nvgpu_log(g, gpu_dbg_gpu_dbg, "context rd: offset=0x%x v=0x%x",
-						   offsets[0], ctx_ops[i].value_lo);
-
-					if (ctx_ops[i].op == REGOP(READ_64)) {
-						ctx_ops[i].value_hi =
-							nvgpu_mem_rd(g, current_mem, offsets[0] + 4U);
-
-						nvgpu_log(g, gpu_dbg_gpu_dbg,
-							   "context rd: offset=0x%x v=0x%x",
-							   offsets[0] + 4U, ctx_ops[i].value_hi);
-					} else {
-						ctx_ops[i].value_hi = 0;
-					}
+					gr_gk20a_regops_rd_ctx_mem(tsg, &ctx_ops[i], current_mem, offsets[0]);
 				}
 			}
 			ctx_op_nr++;
@@ -1645,6 +1724,10 @@ int gr_gk20a_exec_ctx_ops(struct nvgpu_tsg *tsg,
 	int err, tmp_err;
 	bool ctx_resident;
 
+	if (g->ops.regops.exec_ctx_regops != NULL) {
+		return g->ops.regops.exec_ctx_regops(tsg, ctx_ops, num_ops,
+				num_ctx_wr_ops, num_ctx_rd_ops, flags);
+	}
 	/* disable channel switching.
 	 * at that point the hardware state can be inspected to
 	 * determine if the context we're interested in is current.

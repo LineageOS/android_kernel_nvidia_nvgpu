@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/enabled.h>
 #include <nvgpu/ptimer.h>
@@ -39,8 +20,10 @@
 #include <nvgpu/device.h>
 #include <nvgpu/fb.h>
 #include <nvgpu/nvs.h>
+#include <nvgpu/gin.h>
 
 #include "init_vgpu.h"
+#include "init_vf.h"
 #include "hal/vgpu/init/init_hal_vgpu.h"
 #include "common/vgpu/gr/fecs_trace_vgpu.h"
 #include "common/vgpu/fifo/fifo_vgpu.h"
@@ -49,7 +32,7 @@
 #include "common/vgpu/fbp/fbp_vgpu.h"
 #include "common/vgpu/ivc/comm_vgpu.h"
 
-u64 vgpu_connect(void)
+u64 vgpu_connect(struct gk20a *g)
 {
 	struct tegra_vgpu_cmd_msg msg;
 	struct tegra_vgpu_connect_params *p = &msg.params.connect;
@@ -57,7 +40,7 @@ u64 vgpu_connect(void)
 
 	msg.cmd = TEGRA_VGPU_CMD_CONNECT;
 	p->module = TEGRA_VGPU_MODULE_GPU;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	return (err || msg.ret) ? 0 : p->handle;
 }
@@ -65,8 +48,6 @@ u64 vgpu_connect(void)
 void vgpu_remove_support_common(struct gk20a *g)
 {
 	struct vgpu_priv_data *priv = vgpu_get_priv_data(g);
-	struct tegra_vgpu_intr_msg msg;
-	int err;
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 	if (g->dbg_regops_tmp_buf) {
@@ -108,10 +89,6 @@ void vgpu_remove_support_common(struct gk20a *g)
 
 	nvgpu_fbp_remove_support(g);
 
-	msg.event = TEGRA_VGPU_EVENT_ABORT;
-	err = vgpu_ivc_send(vgpu_ivc_get_peer_self(), TEGRA_VGPU_QUEUE_INTR,
-				&msg, sizeof(msg));
-	WARN_ON(err);
 	nvgpu_thread_stop(&priv->intr_handler);
 
 	nvgpu_clk_arb_cleanup_arbiter(g);
@@ -156,23 +133,22 @@ int vgpu_get_constants(struct gk20a *g)
 {
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_constants_params *p;
-	void *oob_handle;
 	size_t oob_size;
 	struct vgpu_priv_data *priv = vgpu_get_priv_data(g);
+	int ivc;
 	int err;
 
 	nvgpu_log_fn(g, " ");
 
-	oob_handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD,
-			(void **)&p, &oob_size);
-	if (!oob_handle || oob_size < sizeof(*p)) {
-		return -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&p, &oob_size);
+	if (ivc < 0) {
+		return ivc;
 	}
+	nvgpu_assert(oob_size >= sizeof(*p));
 
 	msg.cmd = TEGRA_VGPU_CMD_GET_CONSTANTS;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	err = err ? err : msg.ret;
 
 	if (unlikely(err)) {
@@ -192,7 +168,7 @@ int vgpu_get_constants(struct gk20a *g)
 
 	priv->constants = *p;
 fail:
-	vgpu_ivc_oob_put_ptr(oob_handle);
+	vgpu_comm_free_ivc(g, ivc);
 	return err;
 }
 
@@ -208,21 +184,29 @@ int vgpu_finalize_poweron_common(struct gk20a *g)
 		return err;
 	}
 
+	err = nvgpu_gin_init(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to init gin");
+		return err;
+	}
+
 	err = nvgpu_device_init(g);
 	if (err != 0) {
 		nvgpu_err(g, "failed to init devices");
 		return err;
 	}
 
+	if (nvgpu_is_vf(g)) {
+		err = vf_enable_engine_nonstall_intrs(g);
+		if (err != 0) {
+			nvgpu_err(g, "failed to enable interrupts");
+			return err;
+		}
+	}
+
 	err = nvgpu_init_ltc_support(g);
 	if (err != 0) {
 		nvgpu_err(g, "failed to init ltc");
-		return err;
-	}
-
-	err = vgpu_init_mm_support(g);
-	if (err != 0) {
-		nvgpu_err(g, "failed to init gk20a mm");
 		return err;
 	}
 
@@ -232,6 +216,12 @@ int vgpu_finalize_poweron_common(struct gk20a *g)
 			nvgpu_err(g, "failed to init pd_cache");
 			return err;
 		}
+	}
+
+	err = vgpu_init_mm_support(g);
+	if (err != 0) {
+		nvgpu_err(g, "failed to init gk20a mm");
+		return err;
 	}
 
 	err = nvgpu_fifo_init_support(g);
@@ -270,10 +260,12 @@ int vgpu_finalize_poweron_common(struct gk20a *g)
 		return err;
 	}
 
-	err = nvgpu_clk_arb_init_arbiter(g);
-	if (err != 0) {
-		nvgpu_err(g, "failed to init clk arb");
-		return err;
+	if (nvgpu_is_enabled(g, NVGPU_CLK_ARB_ENABLED)) {
+		err = nvgpu_clk_arb_init_arbiter(g);
+		if (err != 0) {
+			nvgpu_err(g, "failed to init clk arb");
+			return err;
+		}
 	}
 
 #ifdef CONFIG_NVGPU_COMPRESSION
@@ -302,6 +294,36 @@ int vgpu_finalize_poweron_common(struct gk20a *g)
 		err = nvgpu_init_syncpt_mem(g);
 		if (err != 0) {
 			nvgpu_err(g, "nvgpu_init_syncpt_mem failed");
+			return err;
+		}
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_COMPRESSION) &&
+			g->ops.ce.ce_app_init_support != NULL) {
+			u32 gfx_gpu_instance_id;
+			err = g->ops.ce.ce_app_init_support(g);
+			if (err != 0) {
+				nvgpu_err(g, "ce_app_init_support failed");
+				return err;
+			}
+
+			err = nvgpu_init_mm_ce_context_find_gfx_gpu_instance(g, &gfx_gpu_instance_id);
+			if (err) {
+				nvgpu_err(g, "failed to find gfx gpu instance id");
+				return err;
+			}
+			err = nvgpu_init_mm_ce_context(g, gfx_gpu_instance_id);
+			if (err != 0) {
+				nvgpu_err(g, "Failed to create CE context");
+				return err;
+			}
+		}
+#endif
+	}
+
+	if (g->ops.gr.setup.init_golden_image != NULL) {
+		err = g->ops.gr.setup.init_golden_image(g);
+		if (err != 0) {
+			nvgpu_err(g, "Failed to init golden image, err=%d", err);
 			return err;
 		}
 	}

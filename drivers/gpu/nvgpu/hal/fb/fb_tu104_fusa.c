@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/trace.h>
 #include <nvgpu/log.h>
@@ -57,6 +38,7 @@ void tu104_fb_cbc_get_alignment(struct gk20a *g,
 	}
 }
 
+#ifdef CONFIG_NVGPU_HAL_NON_FUSA
 void tu104_fb_cbc_configure(struct gk20a *g, struct nvgpu_cbc *cbc)
 {
 	u64 base_divisor;
@@ -72,8 +54,8 @@ void tu104_fb_cbc_configure(struct gk20a *g, struct nvgpu_cbc *cbc)
 	compbit_store_pa = nvgpu_mem_get_addr(g, &cbc->compbit_store.mem);
 	compbit_store_base = DIV_ROUND_UP(compbit_store_pa, base_divisor);
 
-	cbc_start_addr = compbit_store_base * base_divisor;
-	cbc_end_addr = cbc_start_addr + cbc->compbit_backing_size;
+	cbc_start_addr = nvgpu_safe_mult_u64(compbit_store_base, base_divisor);
+	cbc_end_addr = nvgpu_safe_add_u64(cbc_start_addr, cbc->compbit_backing_size);
 
 	cbc_top = (cbc_end_addr / top_divisor);
 	cbc_top_size = u64_lo32(cbc_top) - compbit_store_base;
@@ -100,4 +82,5 @@ void tu104_fb_cbc_configure(struct gk20a *g, struct nvgpu_cbc *cbc)
 
 	cbc->compbit_store.base_hw = compbit_store_base;
 }
+#endif
 #endif

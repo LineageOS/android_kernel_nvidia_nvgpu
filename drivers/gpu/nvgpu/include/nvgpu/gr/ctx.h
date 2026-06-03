@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_CTX_H
@@ -49,7 +31,7 @@ struct nvgpu_gr_global_ctx_local_golden_image;
 struct patch_desc;
 struct pm_ctx_desc;
 struct nvgpu_gr_ctx_desc;
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 struct zcull_ctx_desc;
 #endif
 
@@ -171,18 +153,39 @@ void nvgpu_gr_ctx_set_size(struct nvgpu_gr_ctx_desc *gr_ctx_desc,
  * index. \a index must be less than NVGPU_GR_CTX_COUNT otherwise
  * an assert is raised.
  */
+#ifdef CONFIG_NVGPU_GFXP
 u32 nvgpu_gr_ctx_get_size(struct nvgpu_gr_ctx_desc *gr_ctx_desc,
 	u32 index);
+#endif
 
 /**
- * @brief Free graphics context buffer.
+ * @brief Free graphics context and associated resources.
  *
- * @param g [in]		Pointer to GPU driver struct.
- * @param gr_ctx [in]		Pointer to graphics context struct.
- * @param global_ctx_buffer [in]Pointer to global context descriptor struct.
+ * This function is responsible for freeing the graphics context and any
+ * associated resources such as mappings and buffers. It also resets the
+ * graphics context structure to zero. It ensures that all the lists in the TSG
+ * structure are empty if #NVGPU_SUPPORT_TSG_SUBCONTEXTS is enabled.
  *
- * This function will free memory allocated for graphics context buffer,
- * patch context buffer, and all the ctxsw buffers.
+ * The steps performed by the function are as follows:
+ * -# Check if the graphics context pointer is not NULL.
+ * -# Retrieve the TSG structure associated with the graphics context using its
+ *    TSG ID.
+ * -# Acquire the mutex lock on the TSG context initialization lock.
+ * -# If #NVGPU_SUPPORT_TSG_SUBCONTEXTS is enabled, assert that the channel list,
+ *    subcontext list, and graphics context mappings list in the TSG structure
+ *    are empty.
+ * -# If #NVGPU_SUPPORT_TSG_SUBCONTEXTS is not enabled and the graphics context
+ *    has valid mappings, unmap the buffers and free the mappings.
+ * -# Reset the patch context data count in the graphics context to zero.
+ * -# Free the graphics context buffers.
+ * -# Reset the graphics context structure to zero.
+ * -# Release the mutex lock on the TSG context initialization lock.
+ *
+ * @param [in]  g                       Pointer to the GPU driver structure.
+ * @param [in]  gr_ctx                  Pointer to the graphics context structure.
+ * @param [in]  global_ctx_buffer       Pointer to the global context buffer descriptor.
+ *
+ * @return None.
  */
 void nvgpu_gr_ctx_free(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx,
@@ -248,20 +251,42 @@ u32 nvgpu_gr_ctx_get_sm_diversity_config(struct nvgpu_gr_ctx *gr_ctx);
 #endif
 
 /**
- * @brief Load local golden image into given graphics context buffer.
+ * @brief Load the local golden context image into the graphics context.
  *
- * @param g [in]			Pointer to GPU driver struct.
- * @param gr_ctx [in]			Pointer to graphics context struct.
- * @param mappings [in]			Pointer to mappings of GR context buffers.
- * @param local_golden_image [in]	Pointer to local golden image struct.
- * @param cde [in]			Boolean flag to enable/disable CDE.
+ * This function loads the local golden context image into the specified graphics
+ * context memory. It also initializes context switch program header data, sets
+ * various context switch program configurations, and updates the patch count
+ * and address. Depending on the build configuration, it may also set up
+ * conditional dynamic evaluation (CDE) and performance monitoring unit (PMU)
+ * options.
  *
- * This function loads local golden image copy into given new graphics
- * context buffer.
+ * The steps performed by the function are as follows:
+ * -# Ignore the 'cde' parameter by casting it to void.
+ * -# Get the pointer to the graphics context memory.
+ * -# Load the local golden context image into the graphics context memory using
+ *    nvgpu_gr_global_ctx_load_local_golden_image().
+ * -# If #CONFIG_NVGPU_HAL_NON_FUSA is defined, initialize the context switch
+ *    program header data.
+ * -# If #CONFIG_NVGPU_DEBUGGER is defined and 'cde' is true, enable CDE for the
+ *    context switch program.
+ * -# If #CONFIG_NVGPU_SET_FALCON_ACCESS_MAP is defined, set the private access
+ *    map configuration mode and address for the context switch program.
+ * -# If #CONFIG_NVGPU_HAL_NON_FUSA is defined, disable verification features for
+ *    the context switch program.
+ * -# If #CONFIG_NVGPU_DEBUGGER is defined, set the PMU options for boost clock
+ *    frequencies if the corresponding operation is available.
+ * -# Set the patch count and address for the context switch program.
+ * -# If #CONFIG_NVGPU_DEBUGGER is defined, set the performance monitoring mode
+ *    and pointer for the context switch program.
  *
- * Local golden image copy is saved while creating first graphics context
- * buffer. Subsequent graphics contexts can be initialized by loading
- * golden image into new context with this function.
+ * @param [in]  g                       Pointer to the GPU driver structure.
+ * @param [in]  gr_ctx                  Pointer to the graphics context structure.
+ * @param [in]  mappings                Pointer to the graphics context mappings.
+ * @param [in]  local_golden_image      Pointer to the local golden context image.
+ * @param [in]  cde                     Boolean flag for conditional dynamic
+ *                                      evaluation (ignored in this function).
+ *
+ * @return None.
  */
 void nvgpu_gr_ctx_load_golden_ctx_image(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx,
@@ -320,6 +345,24 @@ void nvgpu_gr_ctx_patch_write_end(struct gk20a *g,
  *
  * This function must be preceded by #nvgpu_gr_ctx_patch_write_begin()
  * and succeeded by #nvgpu_gr_ctx_patch_write_end().
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if patching is enabled.
+ * -# If patching is enabled, proceed with the following steps:
+ *    -# Verify that the graphics context pointer is not NULL.
+ *    -# Get the pointer to the patch context memory from the graphics context.
+ *    -# Calculate the current patch slot based on the data count and the
+ *       number of slots required per entry.
+ *    -# Calculate the maximum patch slot based on the size of the patch context
+ *       memory and the number of slots required per entry.
+ *    -# Verify that the current patch slot does not exceed the maximum patch
+ *       slot.
+ *    -# Write the address to the calculated patch slot in the patch context
+ *       memory.
+ *    -# Write the data to the next patch slot in the patch context memory.
+ *    -# Increment the data count in the patch context.
+ * -# If patching is not enabled, write the data directly to the hardware
+ *    register at the given address.
  */
 void nvgpu_gr_ctx_patch_write(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx,
@@ -383,14 +426,25 @@ bool nvgpu_gr_ctx_check_valid_preemption_mode(struct gk20a *g,
 		u32 graphics_preempt_mode, u32 compute_preempt_mode);
 
 /**
- * @brief Write preemption modes in graphics context image.
+ * @brief Set the preemption modes in the graphics context.
  *
- * @param g [in]		Pointer to GPU driver struct.
- * @param gr_ctx [in]		Pointer to graphics context struct.
+ * This function configures the graphics and compute preemption modes based on
+ * the settings in the provided graphics context structure. It writes the
+ * preemption mode settings to the graphics context memory.
  *
- * This function writes graphics/compute preemption modes into graphics
- * context image. Preemption mode values are taken from #nvgpu_gr_ctx
- * structure.
+ * The steps performed by the function are as follows:
+ * -# Retrieve the pointer to the graphics context memory.
+ * -# If GFxP graphics preemption is enabled, set the graphics preemption mode
+ *    to GFxP using set_graphics_preemption_mode_gfxp().
+ * -# If CILP compute preemption is enabled, set the compute preemption mode
+ *    to CILP using set_compute_preemption_mode_cilp().
+ * -# If CTA compute preemption is enabled, set the compute preemption mode
+ *    to CTA using set_compute_preemption_mode_cta().
+ *
+ * @Param [in] g - Pointer to the GPU driver structure.
+ * @Param [in] gr_ctx - Pointer to the graphics context structure.
+ *
+ * There is no return value for this function.
  */
 void nvgpu_gr_ctx_set_preemption_modes(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx);
@@ -435,9 +489,30 @@ void nvgpu_gr_ctx_free_ctx_buffers(struct gk20a *g,
  * @param desc [in]		Pointer to context descriptor struct.
  * @param ctx [in]		Pointer to graphics context struct.
  *
- * This function allocates all TSG specific GR context buffers.
+ * This function allocates all TSG specific GR context buffers based on the
+ * sizes specified in the graphics context descriptor. It also handles the
+ * allocation of preemption buffers for GFXP mode if required. If the
+ * allocation fails for any buffer, it frees all previously allocated context
+ * buffers.
  *
- * @return 0 in case of success, < 0 in case of failure.
+ * The steps performed by the function are as follows:
+ * -# Check if the size of the main graphics context buffer is set, return
+ *    error if not set.
+ * -# Iterate over each context buffer type defined by #NVGPU_GR_CTX_COUNT.
+ * -# For each buffer type, check if the size is non-zero and the memory is not
+ *    already valid.
+ * -# If the above condition is true, allocate system memory for the context
+ *    buffer.
+ * -# If memory allocation fails, free all allocated context buffers and return
+ *    error.
+ * -# If the graphics context is not marked as initialized, set the context ID
+ *    as invalid.
+ * -# Return 0 to indicate success.
+ *
+ * @return 0 if all context buffers are allocated successfully.
+ * @return -EINVAL if the main graphics context buffer size is not set.
+ * @return Non-zero error code if memory allocation fails for any buffer.
+ *
  */
 int nvgpu_gr_ctx_alloc_ctx_buffers(struct gk20a *g,
 	struct nvgpu_gr_ctx_desc *desc,
@@ -461,42 +536,76 @@ int nvgpu_gr_ctx_alloc_ctx_preemption_buffers(struct gk20a *g,
 #endif
 
 /**
- * @brief Initialize mapping flags for GR context buffers.
+ * @brief Initialize mapping flags for graphics context buffers.
  *
- * @param g [in]		Pointer to GPU driver struct.
- * @param ctx [in]		Pointer to graphics context struct.
+ * Sets the mapping flags for all graphics context buffers to cacheable, except
+ * for the main graphics context and patch context buffers, which are set to
+ * non-cacheable.
  *
- * This function initializes cacheability attribute for TSG specific
- * GR context buffers.
+ * The steps performed by the function are as follows:
+ * -# Iterate over each context buffer type defined by #NVGPU_GR_CTX_COUNT.
+ * -# Set the mapping flag for each context buffer to cacheable.
+ * -# Set the mapping flag for the main graphics context buffer to non-cacheable.
+ * -# Set the mapping flag for the patch context buffer to non-cacheable.
+ *
+ * @param [in] g    Pointer to the GPU driver struct.
+ * @param [in] ctx Pointer to the graphics context struct.
+ *
+ * @note This function does not return any value.
  */
 void nvgpu_gr_ctx_init_ctx_buffers_mapping_flags(struct gk20a *g,
 	struct nvgpu_gr_ctx *ctx);
 
 /**
- * @brief Allocate or get GR ctx buffers mappings for a TSG/Subcontext.
+ * @brief Allocate or retrieve existing GR context mappings for a TSG or channel.
  *
- * @param g [in]		Pointer to GPU driver struct.
- * @param tsg [in]		Pointer to TSG struct.
- * @param ch [in]		Pointer to Channel struct.
+ * This function either allocates a new GR context mappings structure or retrieves
+ * an existing one for a given TSG and channel. If subcontexts are supported, it
+ * delegates the operation to nvgpu_tsg_subctx_alloc_or_get_mappings(). Otherwise,
+ * it checks if the mappings already exist and returns them, or creates new mappings
+ * using nvgpu_gr_ctx_mappings_create().
  *
- * This function allocates the mappings struct for TSG/subcontext corresponding
- * to given Channel's VM if not available already else returns the same.
+ * The steps performed by the function are as follows:
+ * -# Check if subcontexts are supported by querying #NVGPU_SUPPORT_TSG_SUBCONTEXTS.
+ *    If supported, delegate to nvgpu_tsg_subctx_alloc_or_get_mappings() and return
+ *    its result.
+ * -# If mappings already exist in the TSG's GR context, return the existing mappings.
+ * -# If no mappings exist, create a new GR context mappings structure using
+ *    nvgpu_gr_ctx_mappings_create().
+ * -# If the creation of the new mappings structure fails, log an error message and
+ *    return NULL.
+ * -# If the creation is successful, assign the new mappings to the TSG's GR context
+ *    and return the new mappings structure.
  *
- * @return mappings struct in case of success, null in case of failure.
+ * @Param [in] g            Pointer to the GPU driver structure.
+ * @Param [in] tsg          Pointer to the TSG structure.
+ * @Param [in] ch           Pointer to the channel structure.
+ *
+ * @return Pointer to the GR context mappings structure on success, or NULL on failure.
  */
 struct nvgpu_gr_ctx_mappings *nvgpu_gr_ctx_alloc_or_get_mappings(struct gk20a *g,
 				struct nvgpu_tsg *tsg, struct nvgpu_channel *ch);
 
 /**
- * @brief Get GR ctx buffers mappings for a TSG or Subcontext corresponding to
- *        a channel.
+ * @brief Retrieve the mappings structure for a TSG or its subcontext.
  *
- * @param tsg [in]		Pointer to TSG struct.
- * @param ch [in]		Pointer to Channel struct.
+ * This function returns the graphics context mappings associated with a TSG.
+ * If subcontexts are supported and enabled, it retrieves the mappings for the
+ * subcontext corresponding to the given channel's VM. Otherwise, it returns
+ * the mappings directly associated with the TSG.
  *
- * This function returns the mappings struct for TSG.
+ * The steps performed by the function are as follows:
+ * -# Check if subcontexts are supported and enabled for the GPU associated
+ *    with the TSG.
+ * -# If subcontexts are supported, retrieve the mappings for the subcontext
+ *    corresponding to the channel's VM using nvgpu_gr_ctx_mappings_get_subctx_mappings().
+ * -# If subcontexts are not supported, return the mappings directly associated
+ *    with the TSG.
  *
- * @return mappings struct.
+ * @param [in] tsg        Pointer to the TSG structure.
+ * @param [in] ch         Pointer to the channel structure.
+ *
+ * @return Pointer to the graphics context mappings structure.
  */
 struct nvgpu_gr_ctx_mappings *nvgpu_gr_ctx_get_mappings(struct nvgpu_tsg *tsg,
 					struct nvgpu_channel *ch);
@@ -559,11 +668,6 @@ void nvgpu_gr_ctx_mark_ctx_initialized(struct nvgpu_gr_ctx *gr_ctx);
 bool nvgpu_gr_ctx_get_ctx_initialized(struct nvgpu_gr_ctx *gr_ctx);
 
 #ifdef CONFIG_NVGPU_CILP
-bool nvgpu_gr_ctx_get_cilp_preempt_pending(struct nvgpu_gr_ctx *gr_ctx);
-
-void nvgpu_gr_ctx_set_cilp_preempt_pending(struct nvgpu_gr_ctx *gr_ctx,
-	bool cilp_preempt_pending);
-
 bool nvgpu_gr_ctx_desc_force_preemption_cilp(
 		struct nvgpu_gr_ctx_desc *gr_ctx_desc);
 #endif /* CONFIG_NVGPU_CILP */
@@ -577,10 +681,49 @@ bool nvgpu_gr_ctx_desc_force_preemption_gfxp(
 #endif /* CONFIG_NVGPU_GFXP */
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+/**
+ * @brief Set the graphics preemption mode in the graphics context structure.
+ *
+ * The function sets the graphics preemption mode for a given graphics context.
+ * The graphics preemption mode determines how graphics workloads can be
+ * preempted to allow for better multitasking and resource sharing on the GPU.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assign the input graphics preemption mode to the graphics preemption mode
+ *    field in the graphics context structure.
+ *
+ * @param [in] gr_ctx               Pointer to the graphics context structure.
+ * @param [in] graphics_preempt_mode The graphics preemption mode to be set.
+ *                                   Allowed values are defined by preemption
+ *                                   mode macros such as
+ *                                   #NVGPU_PREEMPTION_MODE_GRAPHICS_WFI or
+ *                                   #NVGPU_PREEMPTION_MODE_GRAPHICS_GFXP.
+ *
+ * There is no return value for this function.
+ */
 void nvgpu_gr_ctx_init_graphics_preemption_mode(struct nvgpu_gr_ctx *gr_ctx,
 	u32 graphics_preempt_mode);
+
+/**
+ * @brief Retrieve the graphics preemption mode from the graphics context.
+ *
+ * This function returns the current graphics preemption mode set for a given
+ * graphics context. The graphics preemption mode is used to determine how
+ * graphics workloads are managed and preempted on the GPU.
+ *
+ * The steps performed by the function are as follows:
+ * -# Return the value of the graphics preemption mode from the graphics
+ *    context structure.
+ *
+ * @param [in] gr_ctx  Pointer to the graphics context structure from which the
+ *                     graphics preemption mode is retrieved.
+ *
+ * @return The graphics preemption mode currently set in the graphics context.
+ *         The return value is a 32-bit unsigned integer.
+ */
 u32 nvgpu_gr_ctx_get_graphics_preemption_mode(struct nvgpu_gr_ctx *gr_ctx);
 
+#ifdef CONFIG_NVGPU_ZCULL
 void nvgpu_gr_ctx_set_zcull_ctx(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx,
 	u32 mode, u64 gpu_va);
 
@@ -590,7 +733,11 @@ int nvgpu_gr_ctx_init_zcull(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx);
 
 int nvgpu_gr_ctx_zcull_setup(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx,
 	bool set_zcull_ptr);
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
+
+u32 nvgpu_gr_ctx_get_ctx_id(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx);
+u32 nvgpu_gr_ctx_read_ctx_id(struct nvgpu_gr_ctx *gr_ctx);
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 int nvgpu_gr_ctx_alloc_map_pm_ctx(struct gk20a *g,
@@ -601,9 +748,6 @@ int nvgpu_gr_ctx_alloc_map_pm_ctx(struct gk20a *g,
 void nvgpu_gr_ctx_reset_patch_count(struct gk20a *g,
 	struct nvgpu_gr_ctx *gr_ctx);
 void nvgpu_gr_ctx_set_patch_ctx(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx);
-
-u32 nvgpu_gr_ctx_get_ctx_id(struct gk20a *g, struct nvgpu_gr_ctx *gr_ctx);
-u32 nvgpu_gr_ctx_read_ctx_id(struct nvgpu_gr_ctx *gr_ctx);
 
 void nvgpu_gr_ctx_set_pm_ctx_pm_mode(struct nvgpu_gr_ctx *gr_ctx, u32 pm_mode);
 u32 nvgpu_gr_ctx_get_pm_ctx_pm_mode(struct nvgpu_gr_ctx *gr_ctx);
@@ -630,16 +774,158 @@ bool nvgpu_gr_ctx_desc_dump_ctxsw_stats_on_channel_close(
 		struct nvgpu_gr_ctx_desc *gr_ctx_desc);
 #endif
 
+/**
+ * @brief Check if global context buffers are patched.
+ *
+ * This function returns the status indicating whether the global context buffers
+ * have been patched or not.
+ *
+ * The steps performed by the function are as follows:
+ * -# Return the status of global context buffers being patched.
+ *
+ * @param [in] gr_ctx  Pointer to graphics context structure.
+ *                      Range: Valid pointer to nvgpu_gr_ctx.
+ *
+ * @return Boolean status indicating if global context buffers are patched.
+ *         'true' if patched, 'false' otherwise.
+ */
 bool nvgpu_gr_obj_ctx_global_ctx_buffers_patched(struct nvgpu_gr_ctx *gr_ctx);
+
+/**
+ * @brief Set the status of global context buffers being patched.
+ *
+ * This function updates the status indicating whether the global context buffers
+ * have been patched or not in the graphics context structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Update the status of global context buffers being patched in the graphics
+ *    context structure.
+ *
+ * @param [in] gr_ctx   Pointer to graphics context structure.
+ *                      Range: Valid pointer to nvgpu_gr_ctx.
+ * @param [in] patched  Boolean status to set.
+ *                      Range: 'true' if global context buffers are patched,
+ *                             'false' otherwise.
+ */
 void nvgpu_gr_obj_ctx_set_global_ctx_buffers_patched(
 			struct nvgpu_gr_ctx *gr_ctx, bool patched);
+
+/**
+ * @brief Checks if preemption buffers have been patched.
+ *
+ * This function provides a boolean status indicating whether the preemption
+ * buffers within a graphics context structure have been patched. It is a
+ * simple accessor function that returns the value of a member variable within
+ * the graphics context structure.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the value of the 'preempt_buffers_patched' member from the
+ *    graphics context structure.
+ * -# Return the retrieved value.
+ *
+ * @param [in] gr_ctx  Pointer to the graphics context structure.
+ *                      Range: Valid pointer to a nvgpu_gr_ctx structure.
+ *
+ * @return Boolean status indicating if preemption buffers are patched.
+ *         true - if preemption buffers are patched.
+ *         false - if preemption buffers are not patched.
+ */
 bool nvgpu_gr_obj_ctx_preempt_buffers_patched(struct nvgpu_gr_ctx *gr_ctx);
+
+/**
+ * @brief Sets the status of preemption buffers being patched.
+ *
+ * This function updates the graphics context structure to reflect whether the
+ * preemption buffers have been patched. It sets the value of the member
+ * variable indicating the patched status of the preemption buffers.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assign the provided patched status to the 'preempt_buffers_patched'
+ *    member of the graphics context structure.
+ *
+ * @param [in] gr_ctx   Pointer to the graphics context structure.
+ *                      Range: Valid pointer to a nvgpu_gr_ctx structure.
+ * @param [in] patched  Boolean status to set for preemption buffers.
+ *                      Range: true or false.
+ */
 void nvgpu_gr_obj_ctx_set_preempt_buffers_patched(
 			struct nvgpu_gr_ctx *gr_ctx, bool patched);
+
+/**
+ * @brief Checks if default compute registers are patched.
+ *
+ * This function returns a boolean indicating whether the default compute
+ * registers within the graphics context structure have been patched.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the value of the 'default_compute_regs_patched' member from the
+ *    graphics context structure.
+ * -# Return the retrieved value.
+ *
+ * @param [in] gr_ctx  Pointer to the graphics context structure.
+ *                     Range: Valid pointer to a nvgpu_gr_ctx structure.
+ *
+ * @return Boolean status indicating if default compute registers are patched.
+ *         true - if default compute registers are patched.
+ *         false - if default compute registers are not patched.
+ */
 bool nvgpu_gr_obj_ctx_default_compute_regs_patched(struct nvgpu_gr_ctx *gr_ctx);
+
+/**
+ * @brief Sets the status of default compute registers being patched.
+ *
+ * This function updates the graphics context structure to reflect whether the
+ * default compute registers have been patched. It sets the value of the member
+ * variable indicating the patched status of the default compute registers.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assign the provided patched status to the 'default_compute_regs_patched'
+ *    member of the graphics context structure.
+ *
+ * @param [in] gr_ctx   Pointer to the graphics context structure.
+ *                      Range: Valid pointer to a nvgpu_gr_ctx structure.
+ * @param [in] patched  Boolean status to set for default compute registers.
+ *                      Range: true or false.
+ */
 void nvgpu_gr_obj_ctx_set_default_compute_regs_patched(
 			struct nvgpu_gr_ctx *gr_ctx, bool patched);
+
+/**
+ * @brief Checks if default graphics registers are patched.
+ *
+ * This function returns a boolean indicating whether the default graphics
+ * registers within the graphics context structure have been patched.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the value of the 'default_gfx_regs_patched' member from the
+ *    graphics context structure.
+ * -# Return the retrieved value.
+ *
+ * @param [in] gr_ctx  Pointer to the graphics context structure.
+ *                     Range: Valid pointer to a nvgpu_gr_ctx structure.
+ *
+ * @return Boolean status indicating if default graphics registers are patched.
+ *         true - if default graphics registers are patched.
+ *         false - if default graphics registers are not patched.
+ */
 bool nvgpu_gr_obj_ctx_default_gfx_regs_patched(struct nvgpu_gr_ctx *gr_ctx);
+
+/**
+ * @brief Sets the status of default graphics registers being patched.
+ *
+ * This function updates the graphics context structure to reflect whether the
+ * default graphics registers have been patched. It sets the value of the member
+ * variable indicating the patched status of the default graphics registers.
+ *
+ * The steps performed by the function are as follows:
+ * -# Assign the provided patched status to the 'default_gfx_regs_patched'
+ *    member of the graphics context structure.
+ *
+ * @param [in] gr_ctx   Pointer to the graphics context structure.
+ *                      Range: Valid pointer to a nvgpu_gr_ctx structure.
+ * @param [in] patched  Boolean status to set for default graphics registers.
+ *                      Range: true or false.
+ */
 void nvgpu_gr_obj_ctx_set_default_gfx_regs_patched(
 			struct nvgpu_gr_ctx *gr_ctx, bool patched);
 

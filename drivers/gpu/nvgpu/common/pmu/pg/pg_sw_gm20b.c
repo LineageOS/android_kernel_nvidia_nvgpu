@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/gk20a.h>
@@ -223,12 +204,17 @@ int gm20b_pmu_pg_elpg_load_buff(struct gk20a *g, struct nvgpu_pmu *pmu)
 		nvgpu_safe_cast_u32_to_u8(gr_engine_id));
 	pmu->fw->ops.pg_cmd_eng_buf_load_set_buf_idx(&cmd.cmd.pg,
 		PMU_PGENG_GR_BUFFER_IDX_FECS);
+	/*
+	 * on this chip as there is only1 GR instance,
+	 * we need only 1 pg buffer for save/restore reglist
+	 * So use 0th index pg_buf here
+	 */
 	pmu->fw->ops.pg_cmd_eng_buf_load_set_buf_size(&cmd.cmd.pg,
-		nvgpu_safe_cast_u64_to_u16(pmu->pg->pg_buf.size));
+		nvgpu_safe_cast_u64_to_u16(pmu->pg->pg_buf[0U].size));
 	pmu->fw->ops.pg_cmd_eng_buf_load_set_dma_base(&cmd.cmd.pg,
-		u64_lo32(pmu->pg->pg_buf.gpu_va));
+		u64_lo32(pmu->pg->pg_buf[0U].gpu_va));
 	pmu->fw->ops.pg_cmd_eng_buf_load_set_dma_offset(&cmd.cmd.pg,
-		nvgpu_safe_cast_u64_to_u8(pmu->pg->pg_buf.gpu_va & 0xFFU));
+		nvgpu_safe_cast_u64_to_u8(pmu->pg->pg_buf[0U].gpu_va & 0xFFU));
 	pmu->fw->ops.pg_cmd_eng_buf_load_set_dma_idx(&cmd.cmd.pg,
 		PMU_DMAIDX_VIRT);
 
@@ -415,6 +401,16 @@ int gm20b_pmu_pg_aelpg_disable(struct gk20a *g, u8 ctrl_id)
 	return status;
 }
 
+u32 gm20b_pmu_get_pg_buf_gpu_va(struct gk20a *g, struct nvgpu_pmu *pmu,
+		u32 buf_id)
+{
+	u32 data;
+
+	data = u64_lo32(nvgpu_pmu_pg_buf_get_gpu_va(g, pmu, buf_id) >> 8);
+
+	return data;
+}
+
 void nvgpu_gm20b_pg_sw_init(struct gk20a *g,
 		struct nvgpu_pmu_pg *pg)
 {
@@ -442,4 +438,5 @@ void nvgpu_gm20b_pg_sw_init(struct gk20a *g,
 	pg->aelpg_init_and_enable = gm20b_pmu_pg_aelpg_init_and_enable;
 	pg->aelpg_enable = gm20b_pmu_pg_aelpg_enable;
 	pg->aelpg_disable = gm20b_pmu_pg_aelpg_disable;
+	pg->pmu_get_pg_buf_gpu_va = gm20b_pmu_get_pg_buf_gpu_va;
 }

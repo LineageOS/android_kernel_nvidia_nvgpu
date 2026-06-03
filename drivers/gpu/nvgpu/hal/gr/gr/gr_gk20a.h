@@ -1,25 +1,8 @@
-/*
- * GK20A Graphics Engine
- *
- * Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ */
+
+/* GK20A Graphics Engine
  */
 #ifndef GR_GK20A_H
 #define GR_GK20A_H
@@ -40,6 +23,13 @@ enum ctxsw_addr_type;
 
 /* sm */
 bool gk20a_gr_sm_debugger_attached(struct gk20a *g);
+void gr_gk20a_regops_wr_ctx_mem(struct nvgpu_tsg *tsg, struct nvgpu_dbg_reg_op *ctx_op,
+		struct nvgpu_mem *mem, u32 offset, u32 offset_addr);
+void gr_gk20a_regops_rd_ctx_mem(struct nvgpu_tsg *tsg, struct nvgpu_dbg_reg_op *ctx_op,
+		struct nvgpu_mem *mem, u32 offset);
+void gr_gk20a_exec_ctx_ops_resident(struct gk20a *g,
+				struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
+				u32 num_ctx_wr_ops, u32 num_ctx_rd_ops);
 int gr_gk20a_exec_ctx_ops(struct nvgpu_tsg *tsg,
 			  struct nvgpu_dbg_reg_op *ctx_ops, u32 num_ops,
 			  u32 num_ctx_wr_ops, u32 num_ctx_rd_ops,
@@ -122,7 +112,9 @@ int gr_gk20a_find_priv_offset_in_buffer(struct gk20a *g,
 					       u32 addr,
 					       u32 *context_buffer,
 					       u32 context_buffer_size,
-					       u32 *priv_offset);
+					       u32 max_offsets,
+					       u32 *priv_offset,
+					       u32 *num_offsets);
 int gr_gk20a_find_priv_offset_in_ext_buffer(struct gk20a *g,
 						u32 addr,
 						u32 *context_buffer,
@@ -132,5 +124,6 @@ int gr_gk20a_determine_ppc_configuration(struct gk20a *g,
 					u32 *context,
 					u32 *num_ppcs, u32 *ppc_mask,
 					u32 *reg_ppc_count);
+struct nvgpu_channel *gk20a_get_resident_ctx(struct gk20a *g, u32 *tsgid);
 #endif /* CONFIG_NVGPU_DEBUGGER */
 #endif /*__GR_GK20A_H__*/

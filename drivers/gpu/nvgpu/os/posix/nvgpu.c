@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -97,9 +78,14 @@ void nvgpu_kernel_restart(void *cmd)
 }
 #endif
 
-void nvgpu_start_gpu_idle(struct gk20a *g)
+void nvgpu_start_gpu_idle_locked(struct gk20a *g)
 {
 	nvgpu_set_enabled(g, NVGPU_DRIVER_IS_DYING, true);
+}
+
+void nvgpu_start_gpu_idle(struct gk20a *g)
+{
+	nvgpu_start_gpu_idle_locked(g);
 }
 
 int nvgpu_enable_irqs(struct gk20a *g)
@@ -155,31 +141,12 @@ void gk20a_idle(struct gk20a *g)
 static void nvgpu_posix_load_regs(struct gk20a *g)
 {
 	u32 i;
-	int err;
+	int err = 0;
 	struct nvgpu_mock_iospace space;
 	struct nvgpu_posix_io_reg_space *regs;
-	FILE *tegra_name;
-
-	char chip[24];
-
-	memset(chip, 0, sizeof(chip));
-#if defined(__QNX__)
-	tegra_name = popen("uname -m", "r");
-#else
-	tegra_name = popen("cat /proc/device-tree/compatible | cut -d',' -f 5", "r");
-#endif
-
-	while (fgets(chip, sizeof(chip), tegra_name) != NULL) {
-		chip[strcspn(chip, "\n")] = '\0';
-	}
-	pclose(tegra_name);
 
 	for (i = 0; i < MOCK_REGS_LAST; i++) {
-		if ((strcmp(chip, "ARMv8_nVidia-Orin") == 0) || (strcmp(chip, "tegra23x") == 0)) {
-			err = nvgpu_get_mock_reglist_ga10b(g, i, &space);
-		} else {
-			err = nvgpu_get_mock_reglist_gv11b(g, i, &space);
-		}
+		err = nvgpu_get_mock_reglist_ga10b(g, i, &space);
 		if (err) {
 			nvgpu_err(g, "Unknown IO regspace: %d; ignoring.", i);
 			continue;

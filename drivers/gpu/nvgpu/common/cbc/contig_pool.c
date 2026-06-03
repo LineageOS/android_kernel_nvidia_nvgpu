@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/enabled.h>
@@ -31,7 +18,8 @@
 #endif
 
 #else
-#include <tegra-ivc.h>
+#include <tegra-hv-mempool.h>
+#include <sivc.h>
 #endif
 #include <nvgpu/nvgpu_sgt.h>
 
@@ -49,7 +37,7 @@ int nvgpu_cbc_contig_init(struct gk20a *g)
 	int err;
 
 	contig_pool = nvgpu_kzalloc(g, sizeof(*contig_pool));
-	if (!contig_pool) {
+	if (contig_pool == NULL) {
 		nvgpu_set_enabled(g, NVGPU_SUPPORT_COMPRESSION, false);
 		return -ENOMEM;
 	}
@@ -59,7 +47,7 @@ int nvgpu_cbc_contig_init(struct gk20a *g)
 	g->cbc->cbc_contig_mempool = contig_pool;
 	err = nvgpu_dt_read_u32_index(g, "phys_contiguous_mempool",
 			0, &mempool_id);
-	if (err) {
+	if (err != 0) {
 		nvgpu_err(g, "Reading the contig_mempool from dt failed %d", err);
 		goto fail;
 	}
@@ -78,6 +66,12 @@ int nvgpu_cbc_contig_init(struct gk20a *g)
 		goto fail;
 	}
 
+	err = nvgpu_nvlink_prot_update(contig_pool);
+	if (err != 0) {
+		nvgpu_err(g, "nvgpu_nvlink_prot_update failed with err %d", err);
+		goto fail;
+	}
+
 	nvgpu_init_cbc_contig_pa(contig_pool);
 
 	return 0;
@@ -90,6 +84,7 @@ fail:
 
 void nvgpu_cbc_contig_deinit(struct gk20a *g)
 {
+	s32 err;
 	struct nvgpu_contig_cbcmempool *contig_pool;
 	struct nvgpu_mem *mem;
 
@@ -104,8 +99,11 @@ void nvgpu_cbc_contig_deinit(struct gk20a *g)
 				contig_pool->cbc_cpuva);
 	}
 
-	if (contig_pool->cookie) {
-		nvgpu_ivm_mempool_unreserve(contig_pool->cookie);
+	if (contig_pool->cookie != NULL) {
+		err = nvgpu_ivm_mempool_unreserve(contig_pool->cookie);
+		if (err != 0) {
+			nvgpu_err(g, "nvgpu_ivm_mempool_unreserve failed");
+		}
 	}
 
 	nvgpu_kfree(g, contig_pool);

@@ -1,15 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/fuse.h>
 
@@ -47,12 +37,14 @@ int nvgpu_tegra_fuse_read_opt_gpc_disable(struct gk20a *g, u32 *val)
 {
 	return tegra_fuse_readl(FUSE_OPT_GPC_DISABLE_0, val);
 }
-
+#ifdef __KERNEL__
 int nvgpu_tegra_fuse_read_opt_emc_disable(struct gk20a *g, u32 *val)
 {
 	return tegra_fuse_readl(FUSE_OPT_EMC_DISABLE_0, val);
 }
+#endif
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 int nvgpu_tegra_fuse_read_per_device_identifier(struct gk20a *g, u64 *pdi)
 {
 #ifdef CONFIG_NVGPU_NVMEM_FUSE
@@ -75,9 +67,9 @@ int nvgpu_tegra_fuse_read_per_device_identifier(struct gk20a *g, u64 *pdi)
 	return 0;
 #endif
 }
+#endif
 
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
-
 /*
  * Use tegra_fuse_control_read/write() APIs for fuse offsets upto 0x100
  * Use tegra_fuse_readl/writel() APIs for fuse offsets above 0x100

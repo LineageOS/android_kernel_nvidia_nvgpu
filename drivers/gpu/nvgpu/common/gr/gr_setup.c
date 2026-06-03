@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/log.h>
 #include <nvgpu/gk20a.h>
@@ -26,7 +7,7 @@
 #include <nvgpu/gr/ctx_mappings.h>
 #include <nvgpu/gr/subctx.h>
 #include <nvgpu/gr/obj_ctx.h>
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 #include <nvgpu/gr/zcull.h>
 #endif
 #include <nvgpu/gr/setup.h>
@@ -37,7 +18,7 @@
 
 #include "gr_priv.h"
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 static int nvgpu_gr_setup_zcull(struct gk20a *g, struct nvgpu_channel *c,
 				struct nvgpu_gr_ctx *gr_ctx)
 {
@@ -110,7 +91,7 @@ int nvgpu_gr_setup_bind_ctxsw_zcull(struct gk20a *g, struct nvgpu_channel *c,
 	 * and zcull cannot be set per channel. If any channel tries
 	 * to add a second zcull buffer, it will be ignored.
 	 * See Bug 3364302.
-	 * TODO - https://jirasw.nvidia.com/browse/NVGPU-451
+	 * TODO - https:jirasw.nvidia.com/browse/NVGPU-451
 	 * When full subcontext(multiple VA) is supported by TSG
 	 * then each channel can have separate VA address for same
 	 * physical zcull buffer but then zcull va ptr cannot be stored
@@ -156,7 +137,7 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 	struct nvgpu_gr_ctx *gr_ctx;
 	struct nvgpu_tsg *tsg = NULL;
 	int err = 0;
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	struct nvgpu_gr_ctx_mappings *mappings = NULL;
 #ifdef CONFIG_NVGPU_FECS_TRACE
 	struct nvgpu_gr_subctx *gr_subctx = NULL;
@@ -165,6 +146,16 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr,
 		"GR%u: allocate object context for channel %u",
 		gr->instance_id, c->chid);
+
+#ifdef CONFIG_NVGPU_VPR
+	if ((flags & NVGPU_OBJ_CTX_FLAGS_SUPPORT_VPR) != 0U) {
+		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_VPR)) {
+			nvgpu_err(g, "fail");
+			return -EINVAL;
+		}
+		c->vpr = true;
+	}
+#endif
 
 	err = nvgpu_gr_setup_validate_channel_and_class(g, c, class_num);
 	if (err != 0) {
@@ -193,7 +184,7 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 
 	nvgpu_mutex_acquire(&tsg->ctx_init_lock);
 
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	err = nvgpu_tsg_preempt(g, tsg);
 	if (err != 0) {
@@ -241,7 +232,8 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 	nvgpu_gr_ctx_set_tsgid(gr_ctx, tsg->tsgid);
 
 #ifdef CONFIG_NVGPU_FECS_TRACE
-	if (g->ops.gr.fecs_trace.bind_channel && !c->vpr) {
+	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_FECS_CTXSW_TRACE) &&
+	    g->ops.gr.fecs_trace.bind_channel && !c->vpr) {
 		u32 vmid = 0U;
 
 		if (nvgpu_is_enabled(g, NVGPU_SUPPORT_TSG_SUBCONTEXTS)) {
@@ -264,26 +256,9 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 	}
 #endif
 
-#ifdef CONFIG_NVGPU_DEBUGGER
-	if ((g->num_sys_perfmon == 0U) &&
-			(g->ops.perf.get_num_hwpm_perfmon != NULL) &&
-			(err == 0)) {
-		g->ops.perf.get_num_hwpm_perfmon(g, &g->num_sys_perfmon,
-				&g->num_fbp_perfmon, &g->num_gpc_perfmon);
-		nvgpu_log(g, gpu_dbg_gr | gpu_dbg_gpu_dbg,
-			"num_sys_perfmon[%u] num_fbp_perfmon[%u] "
-				"num_gpc_perfmon[%u] ",
-			g->num_sys_perfmon, g->num_fbp_perfmon,
-			g->num_gpc_perfmon);
-		nvgpu_assert((g->num_sys_perfmon != 0U) &&
-			(g->num_fbp_perfmon != 0U) &&
-			(g->num_gpc_perfmon != 0U));
-	}
-#endif
-
 	nvgpu_gr_ctx_mark_ctx_initialized(gr_ctx);
 
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 
@@ -291,7 +266,7 @@ int nvgpu_gr_setup_alloc_obj_ctx(struct nvgpu_channel *c, u32 class_num,
 	return 0;
 
 enable_tsg:
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 out:
@@ -400,7 +375,7 @@ int nvgpu_gr_setup_set_preemption_mode(struct nvgpu_channel *ch,
 
 	nvgpu_mutex_acquire(&tsg->ctx_init_lock);
 
-	g->ops.tsg.disable(tsg);
+	nvgpu_tsg_disable(tsg);
 
 	err = nvgpu_preempt_channel(g, ch);
 	if (err != 0) {
@@ -459,14 +434,14 @@ int nvgpu_gr_setup_set_preemption_mode(struct nvgpu_channel *ch,
 		nvgpu_gr_ctx_patch_write_end(g, gr_ctx, true);
 	}
 
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 
 	return err;
 
 enable_ch:
-	g->ops.tsg.enable(tsg);
+	nvgpu_tsg_enable(tsg);
 	nvgpu_mutex_release(&tsg->ctx_init_lock);
 	return err;
 }

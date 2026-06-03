@@ -1,30 +1,56 @@
-/*
- * Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_NETLIST_H
 #define NVGPU_NETLIST_H
 /**
  * @file
  *
- * common.netlist unit interface
+ * netlist unit interface
+ * @page netlist netlist
+ *
+ * Overview
+ * ========
+ * The |nvgpu-rm| netlist unit provides a set of interfaces to load
+ * context software bundles from netlist image in the file system.
+ *
+ * Data Structures
+ * ===============
+ * The netlist unit exposes following structure to create s/w bundles.
+ *
+ *    + struct netlist_av
+ *    + struct netlist_av64
+ *    + struct netlist_aiv
+ *    + struct netlist_aiv_list
+ *    + struct netlist_av_list
+ *    + struct netlist_av64_list
+ *    + struct netlist_u32_list
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_netlist_init_ctx_vars()
+ *   + nvgpu_netlist_deinit_ctx_vars()
+ *   + nvgpu_netlist_alloc_av_list()
+ *   + nvgpu_netlist_alloc_av64_list()
+ *   + nvgpu_netlist_alloc_aiv_list()
+ *   + nvgpu_netlist_alloc_u32_list()
+ *   + nvgpu_netlist_get_sw_non_ctx_load_av_list()
+ *   + nvgpu_netlist_get_sw_ctx_load_aiv_list()
+ *   + nvgpu_netlist_get_sw_method_init_av_list()
+ *   + nvgpu_netlist_get_sw_bundle_init_av_list()
+ *   + nvgpu_netlist_get_sw_veid_bundle_init_av_list()
+ *   + nvgpu_netlist_get_sw_bundle64_init_av64_list()
+ *   + nvgpu_netlist_get_fecs_inst_count()
+ *   + nvgpu_netlist_get_fecs_data_count()
+ *   + nvgpu_netlist_get_gpccs_inst_count()
+ *   + nvgpu_netlist_get_gpccs_data_count()
+ *   + nvgpu_netlist_get_fecs_inst_list()
+ *   + nvgpu_netlist_get_fecs_data_list()
+ *   + nvgpu_netlist_get_gpccs_inst_list()
+ *   + nvgpu_netlist_get_gpccs_data_list()
  */
 #include <nvgpu/types.h>
 
@@ -46,10 +72,10 @@ struct netlist_av {
 struct netlist_av64 {
 	/** U32 address in av64 structure. */
 	u32 addr;
-	/** Lower u32 value in av64 structure. */
-	u32 value_lo;
 	/** Higher u32 value in av64 structure. */
 	u32 value_hi;
+	/** Lower u32 value in av64 structure. */
+	u32 value_lo;
 };
 /**
  * Description of netlist Address-Index-Value(aiv) structure.
@@ -105,7 +131,8 @@ struct netlist_u32_list {
  *
  * This function allocates memory for netlist unit variables and bundles.
  * Opens netlist ctx firmware file based on firmware definition and loads
- * different bundles into appropriate netlist regions structures.
+ * different bundles into appropriate netlist regions structures using
+ * nvgpu_netlist_init_ctx_vars_fw().
  *
  * @param g [in]		Pointer to GPU driver struct.
  *
@@ -348,14 +375,65 @@ u32 *nvgpu_netlist_get_gpccs_inst_list(struct gk20a *g);
  */
 u32 *nvgpu_netlist_get_gpccs_data_list(struct gk20a *g);
 
+u32 *nvgpu_netlist_get_fecs_manifest_list(struct gk20a *g);
+u32 *nvgpu_netlist_get_gpccs_manifest_list(struct gk20a *g);
+u32 nvgpu_netlist_get_fecs_manifest_count(struct gk20a *g);
+u32 nvgpu_netlist_get_gpccs_manifest_count(struct gk20a *g);
+
+/**
+ * @brief Get non-context local compute load s/w #netlist_av_list bundles from firmware.
+ *
+ * This function returns non-context local compute load s/w bundles #netlist_av_list bundles from
+ * netlist firmware. SW needs to program these bundles to h/w as part
+ * of golden context creation.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ *
+ * @return  Pointer to #netlist_av_list struct.
+ */
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_local_compute_load_av_list(
 							struct gk20a *g);
+
+/**
+ * @brief Get non-context global compute load s/w #netlist_av_list bundles from firmware.
+ *
+ * This function returns non-context global compute load s/w bundles #netlist_av_list bundles from
+ * netlist firmware. SW needs to program these bundles to h/w as part
+ * of golden context creation.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ *
+ * @return  Pointer to #netlist_av_list struct.
+ */
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_global_compute_load_av_list(
 							struct gk20a *g);
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+/**
+ * @brief Get non-context local graphics load s/w #netlist_av_list bundles from firmware.
+ *
+ * This function returns non-context local graphics load s/w bundles #netlist_av_list bundles from
+ * netlist firmware. SW needs to program these bundles to h/w as part
+ * of golden context creation.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ *
+ * @return  Pointer to #netlist_av_list struct.
+ */
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_local_gfx_load_av_list(
 							struct gk20a *g);
+
+/**
+ * @brief Get non-context global graphics load s/w #netlist_av_list bundles from firmware.
+ *
+ * This function returns non-context global graphics load s/w bundles #netlist_av_list bundles from
+ * netlist firmware. SW needs to program these bundles to h/w as part
+ * of golden context creation.
+ *
+ * @param g [in]		Pointer to GPU driver struct.
+ *
+ * @return  Pointer to #netlist_av_list struct.
+ */
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_global_gfx_load_av_list(
 							struct gk20a *g);
 #endif /* CONFIG_NVGPU_GRAPHICS */
@@ -381,6 +459,7 @@ struct netlist_aiv_list *nvgpu_netlist_get_fbp_router_ctxsw_regs(
 struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_ctxsw_regs(
 							struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_ltc_ctxsw_regs(struct gk20a *g);
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lrcc_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_pm_fbpa_ctxsw_regs(struct gk20a *g);
 struct netlist_aiv_list *nvgpu_netlist_get_perf_sys_router_ctxsw_regs(
 							struct gk20a *g);
@@ -410,11 +489,15 @@ void nvgpu_netlist_set_fecs_inst_count(struct gk20a *g, u32 count);
 void nvgpu_netlist_set_fecs_data_count(struct gk20a *g, u32 count);
 void nvgpu_netlist_set_gpccs_inst_count(struct gk20a *g, u32 count);
 void nvgpu_netlist_set_gpccs_data_count(struct gk20a *g, u32 count);
+void nvgpu_netlist_set_fecs_manifest_count(struct gk20a *g, u32 count);
+void nvgpu_netlist_set_gpccs_manifest_count(struct gk20a *g, u32 count);
 
 struct netlist_u32_list *nvgpu_netlist_get_fecs_inst(struct gk20a *g);
 struct netlist_u32_list *nvgpu_netlist_get_fecs_data(struct gk20a *g);
 struct netlist_u32_list *nvgpu_netlist_get_gpccs_inst(struct gk20a *g);
 struct netlist_u32_list *nvgpu_netlist_get_gpccs_data(struct gk20a *g);
+struct netlist_u32_list *nvgpu_netlist_get_fecs_manifest(struct gk20a *g);
+struct netlist_u32_list *nvgpu_netlist_get_gpccs_manifest(struct gk20a *g);
 
 void nvgpu_netlist_vars_set_dynamic(struct gk20a *g, bool set);
 void nvgpu_netlist_vars_set_buffer_size(struct gk20a *g, u32 size);

@@ -1,17 +1,5 @@
-/*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_PCI_H
 #define NVGPU_PCI_H
@@ -23,5 +11,6 @@ void nvgpu_pci_exit(void);
 static inline int nvgpu_pci_init(void) { return 0; }
 static inline void nvgpu_pci_exit(void) {}
 #endif
-
+void nvgpu_pci_flr(struct gk20a *g);
+void nvgpu_pci_pm_deinit(struct pci_dev *pdev);
 #endif

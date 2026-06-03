@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2019, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/bitops.h>
@@ -55,7 +36,7 @@ void gk20a_comptaglines_free(struct gk20a_comptag_allocator *allocator,
 			     u32 offset, u32 len)
 {
 	/* number zero is reserved; bitmap base is 1 */
-	u32 addr = offset - 1U;
+	u32 addr = nvgpu_safe_sub_u32(offset, 1U);
 
 	if (allocator->size == 0UL) {
 		return;
@@ -80,7 +61,7 @@ int gk20a_comptag_allocator_init(struct gk20a *g,
 	 * 0th comptag is special and is never used. The base for this bitmap
 	 * is 1, and its size is one less than the size of comptag store.
 	 */
-	size--;
+	size = nvgpu_safe_sub_u64(size, 1UL);
 	allocator->bitmap = nvgpu_vzalloc(g,
 					  BITS_TO_LONGS(size) * sizeof(long));
 	if (allocator->bitmap == NULL) {

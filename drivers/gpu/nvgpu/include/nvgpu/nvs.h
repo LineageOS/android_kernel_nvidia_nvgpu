@@ -1,27 +1,80 @@
-/*
- * Copyright (c) 2021-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_NVS_H
 #define NVGPU_NVS_H
+
+/**
+ * @file
+ * @page nvs_sched_common nvs_scheduler
+ *
+ *
+ * Introduction
+ * ============
+ * GPU domain scheduling provides a mechanism to implement temporal isolation
+ * between sets of GPU time-slice groups. This is achieved by assigning every
+ * GPU time-slice group to a scheduling domain and providing a mechanism to
+ * control which domain is active at any given time. Domains and control fifo
+ * are created/destroyed during init/deinit state on user request via the
+ * devctls commands - @ref devctl_asil_b
+ *
+ * igpu_safety_scheduler also responsible for runlist submits on user's request.
+ * nvgpu-rm loads igpu_safety_scheduler firmware onto the GSP microcontroller.
+ * Refer @ref igpu_safety_scheduler for more details.
+ *
+ * Design
+ * ======
+ * Refer detail design at GIZA:NvGPU/SWAD/gpu-domain-scheduling
+ *
+ * External APIs
+ * ===============================================
+ *    + nvgpu_nvs_init()
+ *    + nvgpu_nvs_remove_support()
+ *    + nvgpu_nvs_open()
+ *    + nvgpu_nvs_add_domain()
+ *    + nvgpu_nvs_domain_by_id_locked()
+ *    + nvgpu_nvs_get_shadow_domain_locked()
+ *    + nvgpu_nvs_domain_by_id()
+ *    + nvgpu_nvs_domain_by_name()
+ *    + nvgpu_nvs_domain_get()
+ *    + nvgpu_nvs_domain_put()
+ *    + nvgpu_nvs_del_domain()
+ *    + nvgpu_nvs_domain_count()
+ *    + nvgpu_nvs_domain_get_name()
+ *    + nvgpu_nvs_get_log()
+ *    + nvgpu_nvs_print_domain()
+ *    + nvgpu_nvs_gsp_get_runlist_domain_info()
+ *    + nvgpu_nvs_get_gsp_domain_info()
+ *    + nvgpu_nvs_gsp_usr_domain_present()
+ *    + nvgpu_nvs_ctrl_fifo_reset_exclusive_user()
+ *    + nvgpu_nvs_ctrl_fifo_reserve_exclusive_user()
+ *    + nvgpu_nvs_ctrl_fifo_user_exists()
+ *    + nvgpu_nvs_ctrl_fifo_is_exclusive_user()
+ *    + nvgpu_nvs_ctrl_fifo_add_user()
+ *    + nvgpu_nvs_ctrl_fifo_user_is_active()
+ *    + nvgpu_nvs_ctrl_fifo_remove_user()
+ *    + nvgpu_nvs_ctrl_fifo_create()
+ *    + nvgpu_nvs_ctrl_fifo_destroy()
+ *    + nvgpu_nvs_ctrl_fifo_idle()
+ *    + nvgpu_nvs_ctrl_fifo_unidle()
+ *    + nvgpu_nvs_ctrl_fifo_is_busy()
+ *    + nvgpu_nvs_ctrl_fifo_get_queue()
+ *    + nvgpu_nvs_ctrl_fifo_get_capabilities()
+ *    + nvgpu_nvs_buffer_is_sendq_valid()
+ *    + nvgpu_nvs_buffer_is_receiveq_valid()
+ *    + nvgpu_nvs_buffer_is_eventq_valid()
+ *    + nvgpu_nvs_buffer_alloc()
+ *    + nvgpu_nvs_buffer_free()
+ *    + nvgpu_nvs_ctrl_fifo_lock_queues()
+ *    + nvgpu_nvs_ctrl_fifo_unlock_queues()
+ *    + nvgpu_nvs_ctrl_fifo_queue_has_subscribed_users()
+ *    + nvgpu_nvs_ctrl_fifo_user_subscribe_queue()
+ *    + nvgpu_nvs_ctrl_fifo_user_unsubscribe_queue()
+ *    + nvgpu_nvs_ctrl_fifo_user_is_subscribed_to_queue()
+ *    + nvgpu_nvs_ctrl_fifo_erase_all_queues()
+ *    + nvgpu_nvs_ctrl_fifo_erase_queue_locked()
+ */
 
 #ifdef CONFIG_NVS_PRESENT
 #include <nvs/domain.h>
@@ -148,7 +201,6 @@ struct nvgpu_nvs_domain {
 	 * ioctl layer and a TSG putting a ref does not result in domain deletion.
 	 */
 	u32 ref;
-
 	/**
 	 * Userspace API on the device nodes.
 	 */
@@ -298,7 +350,8 @@ struct nvgpu_nvs_ctrl_queue {
 	u8				mask;
 	u8				ref;
 	enum nvgpu_nvs_ctrl_queue_direction		queue_direction;
-	void (*free)(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue);
+	void (*free_queue)(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue,
+			   bool is_abrupt_close);
 };
 
 #ifdef CONFIG_NVS_PRESENT
@@ -316,28 +369,41 @@ struct nvgpu_nvs_ctrl_queue {
 int nvgpu_nvs_init(struct gk20a *g);
 
 /**
- * @brief Initialize NVS metadata and setup shadow domain.
+ * @brief Initialize the NVS for the GPU.
  *
- * The initialization is done under a critical section defined by a global
- * scheduling lock.
+ * The function performs initialization of the NVS by allocating and setting up
+ * the scheduler structure, creating a control FIFO, and generating a shadow
+ * domain. It also handles the resumption from a low power state (railgate) by
+ * re-adding the shadow domain for GSP (GPU Scheduler Processor) based
+ * scheduling if enabled.
  *
- * 1) Initialize the metadata required for NVS subject to whether
- *    the flag NVGPU_SUPPORT_NVS_CTRL_FIFO is supported. Return early,
- *    if the metadata is already initialized.
- * 2) Initialize NVS's internal ID counter used for tracking Domain IDs.
- * 3) Construct the Control-Fifo master structure and store it as part
- *    of \a g->sched_ctrl_fifo.
- * 4) Construct a global list for storing domains and initialize the counters
- *    associated with it.
- * 5) Generate the global Shadow Domain. The ID of the shadow domain is set to U64_MAX
- *    as well as timeslice set to 100U * NSEC_PER_MSEC. Ensure the Shadow Domain
- *    is linked with the corresponding Shadow Runlist Domains.
+ * The steps performed by the function are as follows:
+ * -# Acquire the scheduler mutex using nvgpu_mutex_acquire() to ensure exclusive access
+ *    to the scheduler during initialization.
+ * -# If the scheduler is already initialized, it indicates resuming from
+ *    railgate. In this case, if GSP scheduling is supported and enabled, using
+ *    nvgpu_gsp_nvs_add_domain() add the shadow domain for GSP scheduling and release
+ *    the mutex using nvgpu_mutex_release().
+ * -# If the scheduler is not initialized, allocate memory for the scheduler
+ *    structure using nvgpu_kzalloc().
+ * -# Initialize the domain ID counter to zero using nvgpu_atomic64_set() and using
+ *    nvgpu_smp_wmb() write memory barrier to ensure the write is seen by other processors.
+ * -# If NVS is supported and enabled, create the control FIFO for NVS using nvgpu_nvs_ctrl_fifo_create().
+ * -# Using nvgpu_kzalloc() allocate memory for the NVS scheduler within the scheduler structure.
+ * -# Using nvs_sched_create() create the NVS scheduler and generate the shadow domain
+ *    using nvgpu_nvs_gen_shadow_domain().
+ * -# Using nvgpu_mutex_release() release the scheduler mutex and return success
+ *    if all steps are completed without errors.
+ * -# If any step fails, perform cleanup by freeing allocated memory using nvgpu_kfree(),
+ *    destroying the control FIFO using nvgpu_nvs_ctrl_fifo_destroy() if created,
+ *    and releasing the scheduler mutex using nvgpu_mutex_release().
  *
- * @param g [in] The GPU super structure. Function does not perform any
- *	validation of the parameter.
+ * @param [in] g - The GPU super structure.
  *
- * @retval 0 on success.
- * @retval ENOMEM Failed to allocate enough memory.
+ * @return 0 on success, indicating NVS is initialized or resumed properly.
+ * @return -ENOMEM if memory allocation fails at any step.
+ * @return Error code from nvgpu_gsp_nvs_add_domain() or nvgpu_nvs_gen_shadow_domain()
+ *         if those operations fail.
  */
 int nvgpu_nvs_open(struct gk20a *g);
 
@@ -353,6 +419,28 @@ int nvgpu_nvs_open(struct gk20a *g);
  *	validation of the parameter.
  */
 void nvgpu_nvs_remove_support(struct gk20a *g);
+
+
+/**
+ * @brief Retrieves the latest log event from the NVS scheduler.
+ *
+ * This function fetches the most recent log event from the NVS scheduler and
+ * provides the timestamp and message associated with the event. If there is no
+ * event, it sets the timestamp to 0 and the message to NULL.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call nvs_log_get() to retrieve the latest log event from the NVS scheduler.
+ * -# If the retrieved event indicates that there is no event, set the timestamp
+ *    to 0 and the message to NULL, then return from the function.
+ * -# If there is an event, call nvs_log_event_string() to convert the event
+ *    identifier to a human-readable message.
+ * -# Set the output message pointer to the human-readable message.
+ * -# Set the output timestamp to the timestamp of the event.
+ *
+ * @Param [in]  g          The GPU super structure which contains the NVS scheduler.
+ * @Param [out] timestamp  Pointer to store the timestamp of the log event.
+ * @Param [out] msg        Pointer to store the message string of the log event.
+ */
 void nvgpu_nvs_get_log(struct gk20a *g, s64 *timestamp, const char **msg);
 
 /**
@@ -365,62 +453,79 @@ void nvgpu_nvs_get_log(struct gk20a *g, s64 *timestamp, const char **msg);
 u32 nvgpu_nvs_domain_count(struct gk20a *g);
 
 /**
- * @brief Erase a domain metadata corresponding to a given domain id.
+ * @brief Deletes an NVS domain by its ID.
  *
- * The removal of the metedata is done under a critical section defined by a global
- * scheduling lock.
+ * This function attempts to delete an NVS domain specified by its domain ID.
+ * It ensures that the domain is not in use by checking its reference count.
+ * If the domain is in use or does not exist, appropriate errors are returned.
+ * Otherwise, the domain is unlinked from the runlists, its memory is freed,
+ * and it is removed from the scheduler's domain list.
  *
- * 1) Check if dom_id is valid i.e. a valid domain metadata(struct nvgpu_nvs_domain) exists.
- * 2) Check if the domain's reference counter is not one to ensure no existing
- *    user exists.
- * 3) Unlink the RL domain metadata corresponding to this domain metadata.
- * 4) Free RL domain metadata specific memory.
- * 5) Set NVS's active domain to the next domain, if no other domain exists,
- *    set the shadow domain as the active domain.
- * 6) Unlink strut nvgpu_nvs_domain and its corresponding nvs_domain
- * 7) Free domain metadata(struct nvgpu_nvs_domain).
+ * The steps performed by the function are as follows:
+ * -# Acquire the scheduler mutex using nvgpu_mutex_acquire() to ensure exclusive access to the scheduler.
+ * -# Attempt to retrieve the NVS domain by its ID using nvgpu_nvs_domain_by_id_locked().
+ * -# If the domain does not exist, log the error and set the return value to -ENOENT.
+ * -# If the domain's reference count is not 1, log the error and set the return value to -EBUSY.
+ * -# If GSP scheduling is supported and enabled, attempt to delete the domain using
+ *    nvgpu_gsp_nvs_delete_domain().
+ * -# Unlink the domain from the runlists using nvgpu_nvs_unlink_rl_domains().
+ * -# Free the runlist domain memory using nvgpu_nvs_delete_rl_domain_mem().
+ * -# Set the domain's reference count to 0.
+ * -# If the domain being deleted is the active domain, find the next domain in the list or
+ *    set the active domain to the shadow domain if it is the only domain.
+ * -# Unlink and destroy the domain using nvs_domain_unlink_and_destroy().
+ * -# Using nvgpu_kfree() free the memory allocated for the domain's runlist domains array
+ *    and the domain itself.
+ * -# Release the scheduler mutex using nvgpu_mutex_release().
+ * -# Return the error code, if any.
  *
- * @param g [in] The GPU super structure. Function does not perform any
- *	validation of the parameter.
- * @param dom_id Domain Id for which the domain needs to be erased.
+ * @Param [in] g       The GPU super structure which contains the scheduler.
+ * @Param [in] dom_id  The ID of the domain to be deleted.
  *
- * @retval 0 on success.
- * @retval ENOENT if domain doesn't exist.
- * @retval EBUSY If domain is already being used i.e domain's reference
- *         counter is not 1.
+ * @return 0 on successful deletion, -ENOENT if the domain does not exist, or -EBUSY if the
+ *         domain is still in use.
  */
 int nvgpu_nvs_del_domain(struct gk20a *g, u64 dom_id);
 
 /**
- * @brief Create Domain Metadata and Link with RL domain
+ * @brief Adds a new domain to the NVS scheduler with specified parameters.
  *
- * The initialization is done under a critical section defined by a global
- * scheduling lock.
+ * This function creates a new NVS domain with the given name, timeslice, and
+ * preempt grace period. It allocates memory for the domain, links it with
+ * runlist domains, and attaches it to the NVS scheduler. If GSP scheduling is
+ * supported and enabled, it also sends the domain information to GSP.
  *
- * 1) Verify if name already doesn't exist, otherwise return failure.
- * 2) Generate a struct nvgpu_nvs_domain, an internal struct nvs_domain,
- *    add their corresponding linkages. i.e. associate nvgpu_nvs_domain
- *    as a priv of nvs_domain and set nvs_domain as the parent of nvgpu_nvs_domain.
- * 3) Increment the global domain ID counter and set the domain's ID to the same.
- * 4) Set the corresponding timeslice and preempt_grace values.
- * 5) Create a struct nvgpu_runlist_domain corresponding to each engines and associate
- *    them with the above struct nvgpu_nvs_domain.
- * 6) Link the struct nvs_domain in a global list.
- * 7) Set the struct nvgpu_nvs_domain's address to pdomain.
+ * The steps performed by the function are as follows:
+ * -# Validate the input parameters 'name' and 'pdomain' for NULL pointers.
+ * -# Validate the domain name string using nvgpu_string_validate().
+ * -# Acquire the scheduler mutex using nvgpu_mutex_acquire() to ensure exclusive
+ *    access to the scheduler during domain addition.
+ * -# Check if a domain with the given name already exists using nvs_domain_by_name().
+ * -# Generate a new NVS domain with a unique ID using nvgpu_nvs_gen_domain() and
+ *    nvgpu_nvs_new_id().
+ * -# Create runlist domain memory for the new NVS domain using
+ *    nvgpu_nvs_create_rl_domain_mem().
+ * -# Link the new NVS domain with its corresponding runlist domains using
+ *    nvgpu_nvs_link_rl_domains().
+ * -# Attach the new NVS domain to the NVS scheduler using nvs_domain_scheduler_attach().
+ * -# If GSP scheduling is supported and enabled, send the domain information to GSP
+ *    using nvgpu_gsp_nvs_add_domain().
+ * -# Set the output parameter 'pdomain' to the address of the new NVS domain.
+ * -# Release the scheduler mutex using nvgpu_mutex_release().
+ * -# Return the error code if any step fails, otherwise return 0 indicating success.
  *
- * @param g [in] The GPU super structure. Function does not perform any
- *	validation of the parameter.
- * @param name [in] Name of the domain. Must not be NULL and must not already exist.
- * @param timeslice [in] The default timeslice of the Domain. Function does not perform any
- *	validation of the parameter.
- * @param preempt_grace [in] The default preempt_grace of the Domain. Function does not perform any
- *	validation of the parameter.
- * @param pdomain [out] Placeholder for returning the constructed Domain pointer. Must be non NULL.
+ * @Param [in] g - The GPU super structure.
+ * @Param [in] name - The name of the domain to be added.
+ * @Param [in] timeslice - The timeslice for the domain.
+ * @Param [in] preempt_grace - The preempt grace period for the domain.
+ * @Param [out] pdomain - Pointer to the location where the address of the new
+ *                        NVS domain will be stored.
  *
- * @retval 0 on success.
- * @retval EINVAL name is NULL or pdomain is NULL.
- * @retval EEXIST If name already exists
- * @retval ENOMEM Memory allocation failure
+ * @return 0 on success, indicating the domain was added successfully.
+ * @return -EINVAL if 'name' or 'pdomain' is NULL.
+ * @return -EEXIST if a domain with the given name already exists.
+ * @return -ENOMEM if memory allocation for the domain fails.
+ * @return Error code from nvgpu_gsp_nvs_add_domain() if sending domain info to GSP fails.
  */
 int nvgpu_nvs_add_domain(struct gk20a *g, const char *name, u64 timeslice,
 			 u64 preempt_grace, struct nvgpu_nvs_domain **pdomain);
@@ -534,9 +639,32 @@ void nvgpu_nvs_ctrl_fifo_unlock_queues(struct gk20a *g);
 #ifdef CONFIG_KMD_SCHEDULING_WORKER_THREAD
 void nvgpu_nvs_worker_pause(struct gk20a *g);
 void nvgpu_nvs_worker_resume(struct gk20a *g);
-#endif
-
 bool nvgpu_nvs_ctrl_fifo_is_enabled(struct gk20a *g);
+#endif
+/**
+ * @brief Creates and initializes a control-fifo structure for NVS domain.
+ *
+ * This function allocates memory for a new control-fifo structure, initializes
+ * its members, and returns a pointer to the newly created structure. It sets
+ * up the necessary locks and lists to manage exclusive and non-exclusive users
+ * of the control-fifo.
+ *
+ * The steps performed by the function are as follows:
+ * -# Allocate memory for the control-fifo structure using nvgpu_kzalloc().
+ * -# If memory allocation fails, return NULL.
+ * -# Assign the GPU structure pointer to the control-fifo structure.
+ * -# Set the scheduler implementation hardware to #NVGPU_NVS_DOMAIN_SCHED_GSP.
+ * -# Initialize the spinlock for user access control using nvgpu_spinlock_init().
+ * -# Initialize the mutex for queue access control using nvgpu_mutex_init().
+ * -# Initialize the list node for exclusive users using nvgpu_init_list_node().
+ * -# Initialize the list node for non-exclusive users using nvgpu_init_list_node().
+ * -# Return a pointer to the newly created control-fifo structure.
+ *
+ * @param [in] g The GPU super structure.
+ *
+ * @return Pointer to the newly created control-fifo structure on success.
+ * @return NULL if memory allocation fails.
+ */
 struct nvgpu_nvs_domain_ctrl_fifo *nvgpu_nvs_ctrl_fifo_create(struct gk20a *g);
 
 /**
@@ -759,9 +887,54 @@ int nvgpu_nvs_ctrl_fifo_scheduler_handle_requests(struct gk20a *g);
  */
 bool nvgpu_nvs_buffer_is_valid(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *buf);
 
+/**
+ * @brief Check if the send queue of the NVS domain control FIFO is valid.
+ *
+ * The function 'nvgpu_nvs_buffer_is_sendq_valid' checks the validity of the send queue
+ * within the NVS domain control FIFO structure associated with a given GPU instance.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the pointer to the NVS domain control FIFO structure from the GPU instance.
+ * -# Call 'nvgpu_nvs_buffer_is_valid()' to check the validity of the send queue.
+ *
+ * @param [in] g The GPU instance structure.
+ *
+ * @return True if the send queue is valid, false otherwise.
+ */
 bool nvgpu_nvs_buffer_is_sendq_valid(struct gk20a *g);
+
+/**
+ * @brief Check if the receive queue of the NVS domain control FIFO is valid.
+ *
+ * The function 'nvgpu_nvs_buffer_is_receiveq_valid' checks the validity of the receive queue
+ * within the NVS domain control FIFO structure associated with a given GPU instance.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the pointer to the NVS domain control FIFO structure from the GPU instance.
+ * -# Call 'nvgpu_nvs_buffer_is_valid()' to check the validity of the receive queue.
+ *
+ * @param [in] g The GPU instance structure.
+ *
+ * @return True if the receive queue is valid, false otherwise.
+ */
 bool nvgpu_nvs_buffer_is_receiveq_valid(struct gk20a *g);
+
+/**
+ * @brief Check if the event queue of the NVS domain control FIFO is valid.
+ *
+ * The function 'nvgpu_nvs_buffer_is_eventq_valid' checks the validity of the event queue
+ * within the NVS domain control FIFO structure associated with a given GPU instance.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the pointer to the NVS domain control FIFO structure from the GPU instance.
+ * -# Call 'nvgpu_nvs_buffer_is_valid()' to check the validity of the event queue.
+ *
+ * @param [in] g The GPU instance structure.
+ *
+ * @return True if the event queue is valid, false otherwise.
+ */
 bool nvgpu_nvs_buffer_is_eventq_valid(struct gk20a *g);
+
 /**
  * @brief Allocate DMA memory for shared queues.
  *
@@ -793,9 +966,10 @@ int nvgpu_nvs_buffer_alloc(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
  * @param sched_ctrl[In] Pointer to the master structure for control-fifo.
  *                       Must not be NULL.
  * @param buf[In] Input Queue buffer. Must not be NULL.
+ * @param is_abrupt_close[In] Flag to indicate abrupt closing
  */
 void nvgpu_nvs_buffer_free(struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl,
-		struct nvgpu_nvs_ctrl_queue *buf);
+		struct nvgpu_nvs_ctrl_queue *buf, bool is_abrupt_close);
 
 /**
  * @brief Check whether queue has any active users.
@@ -852,8 +1026,10 @@ bool nvgpu_nvs_ctrl_fifo_user_is_subscribed_to_queue(struct nvs_domain_ctrl_fifo
  * @param g [in] The GPU super structure. Function does not perform any
  *	validation of the parameter.
  * @param queue[In] Input Queue buffer. Must not be NULL.
+ * @param is_abrupt_close[In] Flag to indicate abrupt closing
  */
-void nvgpu_nvs_ctrl_fifo_erase_queue_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue);
+void nvgpu_nvs_ctrl_fifo_erase_queue_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *queue,
+	bool is_abrupt_close);
 
 /**
  * @brief Erase all queues within the control-fifo structure.
@@ -876,6 +1052,27 @@ void nvgpu_nvs_ctrl_fifo_erase_all_queues(struct gk20a *g);
  */
 struct nvgpu_nvs_domain *
 nvgpu_nvs_get_shadow_domain_locked(struct gk20a *g);
+
+/**
+ * @brief Retrieves the NVS domain associated with a given domain ID.
+ *
+ * This function searches for an NVS domain by its unique identifier within the
+ * NVS scheduler's list of domains. It assumes that the caller has already
+ * acquired the necessary locks to ensure thread-safe access to the scheduler.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the NVS scheduler from the GPU super structure.
+ * -# Using nvs_domain_for_each() iterate over each domain in the NVS scheduler's list of domains.
+ * -# For each domain, retrieve the NVS domain structure from the private data.
+ * -# Compare the domain ID of the current NVS domain with the input domain ID.
+ * -# If a match is found, return the pointer to the matching NVS domain.
+ * -# If no match is found after iterating through all domains, return NULL.
+ *
+ * @Param [in] g - The GPU super structure.
+ * @Param [in] domain_id - The unique identifier of the domain to find.
+ *
+ * @return Pointer to the NVS domain if found, otherwise NULL.
+ */
 struct nvgpu_nvs_domain *nvgpu_nvs_domain_by_id_locked(struct gk20a *g, u64 domain_id);
 
 #else
@@ -925,14 +1122,87 @@ static inline struct nvgpu_nvs_domain *nvgpu_nvs_domain_by_id_locked(struct gk20
 #endif
 
 #ifdef CONFIG_NVGPU_GSP_SCHEDULER
+/**
+ * @brief Retrieves information about a specific runlist domain.
+ *
+ * This function provides the IOVA address, aperture, and number of entries for a
+ * runlist domain identified by the NVS domain ID and index. It handles the special
+ * case of the shadow domain separately.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the NVS domain ID corresponds to the shadow domain. If it does,
+ *    retrieve the shadow domain using nvgpu_nvs_get_shadow_domain_locked() and
+ *    runlist domain using nvgpu_runlist_get_shadow_domain().
+ *    If the shadow domain is not found, log an error and set the return value to -ENXIO.
+ * -# If the NVS domain ID does not correspond to the shadow domain, retrieve the
+ *    NVS domain by its ID using nvgpu_nvs_domain_by_id_locked(). If the domain is
+ *    not found, log an error and set the return value to -ENXIO.
+ * -# Retrieve the runlist domain using the index if it's not the shadow domain.
+ *    If the runlist domain is not found, log an error and set the return value to -ENXIO.
+ * -# Retrieve the IOVA address of the runlist domain's memory using nvgpu_mem_get_addr().
+ * -# Retrieve the aperture of the runlist domain's memory using gops_runlist.get_runlist_aperture().
+ * -# Retrieve the count of entries in the runlist domain's memory.
+ * -# Return the error code, if any.
+ *
+ * @Param [in]  g                The GPU super structure which contains the NVS scheduler.
+ * @Param [in]  nvgpu_domain_id  The ID of the NVS domain to retrieve information for.
+ * @Param [out] num_entries      Pointer to store the number of entries in the runlist domain.
+ * @Param [out] runlist_iova     Pointer to store the IOVA address of the runlist domain's memory.
+ * @Param [out] aperture         Pointer to store the aperture of the runlist domain's memory.
+ * @Param [in]  index            The index of the runlist domain within the NVS domain.
+ *
+ * @return 0 on success, -ENXIO if the NVS domain or runlist domain is not found.
+ */
 s32 nvgpu_nvs_gsp_get_runlist_domain_info(struct gk20a *g, u64 nvgpu_domain_id, u32 *num_entries,
 	u64 *runlist_iova, u32 *aperture, u32 index);
+
+/**
+ * @brief Retrieves domain ID and timeslice information for a given NVS domain.
+ *
+ * This function fetches the domain ID and timeslice in nanoseconds for the NVS
+ * domain specified by the NVS domain ID. It handles the special case of the
+ * shadow domain separately.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the NVS domain ID corresponds to the shadow domain. If it does,
+ *    retrieve the shadow domain using nvgpu_nvs_get_shadow_domain_locked().
+ * -# If the NVS domain ID does not correspond to the shadow domain, retrieve the
+ *    NVS domain by its ID using nvgpu_nvs_domain_by_id_locked().
+ * -# If the NVS domain is not found, log an error and set the return value to -ENXIO.
+ * -# Retrieve the lower 32 bits of the NVS domain ID and store it in the output
+ *    parameter for the domain ID.
+ * -# Cast the timeslice from u64 to u32 safely using nvgpu_safe_cast_u64_to_u32()
+ *    and store it in the output parameter for the timeslice in nanoseconds.
+ * -# Return the error code, if any.
+ *
+ * @Param [in]  g                The GPU super structure which contains the NVS scheduler.
+ * @Param [in]  nvgpu_domain_id  The ID of the NVS domain to retrieve information for.
+ * @Param [out] domain_id        Pointer to store the domain ID.
+ * @Param [out] timeslice_ns     Pointer to store the timeslice in nanoseconds.
+ *
+ * @return 0 on success, -ENXIO if the NVS domain is not found.
+ */
 s32 nvgpu_nvs_get_gsp_domain_info(struct gk20a *g, u64 nvgpu_domain_id,
 		u32 *domain_id, u32 *timeslice_ns);
 #endif
 #ifdef CONFIG_NVS_PRESENT
-/* function to chech if user domain are present or only shadow domain
- * exists if domain_list::nr = 0 if only shadow domain is present */
+/**
+ * @brief Checks if any user NVS domains are present in the scheduler.
+ *
+ * This function determines whether there are any user NVS domains present
+ * by checking the domain count in the NVS scheduler. If the count is greater
+ * than zero, it indicates that user domains are present.
+ *
+ * The steps performed by the function are as follows:
+ * -# Call nvs_domain_count() to get the count of NVS domains in the scheduler.
+ * -# If the count is greater than zero, set the return value to true, indicating
+ *    that user domains are present.
+ * -# Return the boolean value indicating the presence of user domains.
+ *
+ * @Param [in] g  The GPU super structure which contains the NVS scheduler.
+ *
+ * @return true if user NVS domains are present, false otherwise.
+ */
 bool nvgpu_nvs_gsp_usr_domain_present(struct gk20a *g);
 #endif
 #endif

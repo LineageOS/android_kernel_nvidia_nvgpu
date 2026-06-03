@@ -1,24 +1,7 @@
-/*
- * Copyright (c) 2016-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_PMUIF_BOARDOBJ_H
 #define NVGPU_PMUIF_BOARDOBJ_H
 
@@ -40,14 +23,17 @@
 #define CTRL_BOARDOBJGRP_TYPE_INVALID			0x00U
 #define CTRL_BOARDOBJGRP_TYPE_E32			0x01U
 #define CTRL_BOARDOBJGRP_TYPE_E255			0x02U
+#define CTRL_BOARDOBJGRP_TYPE_E2048                     0x03U
 
 #define CTRL_BOARDOBJGRP_E32_MAX_OBJECTS		32U
 #define CTRL_BOARDOBJGRP_E255_MAX_OBJECTS		255U
 
+#define CTRL_BOARDOBJGRP_E2048_MAX_OBJECTS              2048U
 #define CTRL_BOARDOBJ_MAX_BOARD_OBJECTS                                        \
 	CTRL_BOARDOBJGRP_E32_MAX_OBJECTS
 
 #define CTRL_BOARDOBJ_IDX_INVALID			255U
+#define CTRL_BOARDOBJ_IDX_INVALID_16BIT		0xFFFFU
 
 #define CTRL_BOARDOBJGRP_MASK_MASK_ELEMENT_BIT_SIZE	32U
 
@@ -82,6 +68,11 @@ struct ctrl_boardobjgrp_mask_e255 {
 	u32 data_e255[7];
 };
 
+struct ctrl_boardobjgrp_mask_e2048 {
+	struct ctrl_boardobjgrp_mask super;
+	u32 data_e2048[63];
+};
+
 struct ctrl_boardobjgrp_super {
 	struct ctrl_boardobjgrp_mask obj_mask;
 };
@@ -92,6 +83,10 @@ struct ctrl_boardobjgrp_e32 {
 
 struct  CTRL_boardobjgrp_e255 {
 	struct ctrl_boardobjgrp_mask_e255 obj_mask;
+};
+
+struct ctrl_boardobjgrp_e2048 {
+	struct ctrl_boardobjgrp_mask_e2048 obj_mask;
 };
 
 struct ctrl_boardobjgrp {
@@ -140,6 +135,11 @@ struct nv_pmu_boardobjgrp_e32 {
 struct nv_pmu_boardobjgrp_e255 {
 	struct nv_pmu_boardobjgrp_super super;
 	struct ctrl_boardobjgrp_mask_e255 obj_mask;
+};
+
+struct nv_pmu_boardobjgrp_e2048 {
+	struct nv_pmu_boardobjgrp_super super;
+	struct ctrl_boardobjgrp_mask_e2048 obj_mask;
 };
 
 struct nv_pmu_boardobj_cmd_grp_payload {
@@ -228,6 +228,18 @@ struct nv_pmu_boardobj_msg {
 #define NV_PMU_BOARDOBJ_GRP_SET_MAKE_E255(_eng, _class)                        \
 	NV_PMU_BOARDOBJ_GRP_SET_MAKE(_eng, _class,                             \
 	CTRL_BOARDOBJGRP_E255_MAX_OBJECTS)
+
+/*
+ * Macro generating structures describing classes which implement
+ * NV_PMU_BOARDOBJGRP_E255 via the NV_PMU_BOARDBOBJ_CMD_GRP SET interface.
+ *
+ * @para    _eng    Name of implementing engine in which this structure is
+ * found.
+ * @param   _class  Class ID of Objects within Board Object Group.
+ */
+#define NV_PMU_BOARDOBJ_GRP_SET_MAKE_E2048(_eng, _class)                        \
+	NV_PMU_BOARDOBJ_GRP_SET_MAKE(_eng, _class,                             \
+	CTRL_BOARDOBJGRP_E2048_MAX_OBJECTS)
 
 /*
  * Macro generating structures for querying dynamic state for classes which

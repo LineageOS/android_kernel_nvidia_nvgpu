@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 #include <nvs/nvs_sched.h>
@@ -39,9 +20,9 @@ struct nvs_domain *nvs_domain_create(struct nvs_sched *sched,
 		return NULL;
 	}
 
-	nvs_memset(dom, 0, sizeof(*dom));
+	(void)nvs_memset(dom, 0, sizeof(*dom));
 
-	strncpy(dom->name, name, sizeof(dom->name) - 1);
+	(void)strncpy(dom->name, name, sizeof(dom->name) - 1U);
 	dom->timeslice_ns     = timeslice;
 	dom->preempt_grace_ns = preempt_grace;
 	dom->priv             = priv;
@@ -73,7 +54,8 @@ void nvs_domain_scheduler_attach(struct nvs_sched *sched, struct nvs_domain *dom
 	 * domain we are done. Otherwise use the last pointer to quickly
 	 * append the domain.
 	 */
-	dlist->nr++;
+
+	dlist->nr = nvgpu_safe_add_u32(dlist->nr, 1U);
 	if (dlist->domains == NULL) {
 		dlist->domains = dom;
 		dlist->last    = dom;
@@ -111,7 +93,9 @@ static void nvs_domain_unlink(struct nvs_sched *sched,
 		return;
 	}
 
-	nvs_domain_for_each(sched, tmp) {
+	tmp = sched->domain_list->domains;
+
+	while (tmp != NULL) {
 		/*
 		 * If tmp's next pointer is dom, then we take tmp and have it
 		 * skip over dom. But also don't forget to handle last; if dom
@@ -124,23 +108,26 @@ static void nvs_domain_unlink(struct nvs_sched *sched,
 			}
 			return;
 		}
+
+		tmp = tmp->next;
 	}
 }
 
 void nvs_domain_destroy(struct nvs_sched *sched,
 			struct nvs_domain *dom)
 {
-	nvs_memset(dom, 0, sizeof(*dom));
+	(void)nvs_memset(dom, 0, sizeof(*dom));
 	nvs_free(sched, dom);
 }
 
 void nvs_domain_unlink_and_destroy(struct nvs_sched *sched,
 			struct nvs_domain *dom)
 {
-	nvs_log_event(sched, NVS_EV_REMOVE_DOMAIN, 0);
+	nvs_log_event_func(sched, NVS_EV_REMOVE_DOMAIN, 0);
 
 	nvs_domain_unlink(sched, dom);
-	sched->domain_list->nr--;
+
+	sched->domain_list->nr = nvgpu_safe_sub_u32(sched->domain_list->nr, 1U);
 
 	nvs_domain_destroy(sched, dom);
 }

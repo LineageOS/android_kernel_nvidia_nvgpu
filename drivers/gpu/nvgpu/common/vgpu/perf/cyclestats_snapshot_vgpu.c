@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/nvgpu_ivm.h>
 #include <nvgpu/vgpu/vgpu.h>
@@ -38,6 +19,10 @@ int vgpu_css_init(struct gk20a *g)
 	struct tegra_hv_ivm_cookie *cookie;
 	u32 mempool;
 	int err;
+
+	if (priv->css_cookie != NULL) {
+		return 0; /* already initialized */
+	}
 
 	err = nvgpu_dt_read_u32_index(g, "mempool-css", 1, &mempool);
 	if (err) {
@@ -142,11 +127,11 @@ int vgpu_css_flush_snapshots(struct nvgpu_channel *ch,
 	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_CYCLESTATS_SNAPSHOT;
 	msg.handle = vgpu_get_handle(g);
 	p = &msg.params.cyclestats_snapshot;
-	p->handle = ch->virt_ctx;
+	p->handle = (u64)ch->cs_client;
 	p->subcmd = TEGRA_VGPU_CYCLE_STATS_SNAPSHOT_CMD_FLUSH;
 	p->buf_info = (uintptr_t)data->hw_get - (uintptr_t)data->hw_snapshot;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	err = (err || msg.ret) ? -1 : 0;
 
@@ -156,10 +141,9 @@ int vgpu_css_flush_snapshots(struct nvgpu_channel *ch,
 	return err;
 }
 
-static int vgpu_css_attach(struct nvgpu_channel *ch,
+static int vgpu_css_attach(struct gk20a *g,
 		struct gk20a_cs_snapshot_client *cs_client)
 {
-	struct gk20a *g = ch->g;
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_channel_cyclestats_snapshot_params *p =
 				&msg.params.cyclestats_snapshot;
@@ -169,11 +153,11 @@ static int vgpu_css_attach(struct nvgpu_channel *ch,
 
 	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_CYCLESTATS_SNAPSHOT;
 	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
+	p->handle = (u64)cs_client;
 	p->subcmd = TEGRA_VGPU_CYCLE_STATS_SNAPSHOT_CMD_ATTACH;
 	p->perfmon_count = cs_client->perfmon_count;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g, "failed");
@@ -184,10 +168,9 @@ static int vgpu_css_attach(struct nvgpu_channel *ch,
 	return err;
 }
 
-int vgpu_css_detach(struct nvgpu_channel *ch,
+int vgpu_css_detach(struct gk20a *g,
 		struct gk20a_cs_snapshot_client *cs_client)
 {
-	struct gk20a *g = ch->g;
 	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_channel_cyclestats_snapshot_params *p =
 				&msg.params.cyclestats_snapshot;
@@ -197,12 +180,12 @@ int vgpu_css_detach(struct nvgpu_channel *ch,
 
 	msg.cmd = TEGRA_VGPU_CMD_CHANNEL_CYCLESTATS_SNAPSHOT;
 	msg.handle = vgpu_get_handle(g);
-	p->handle = ch->virt_ctx;
+	p->handle = (u64)cs_client;
 	p->subcmd = TEGRA_VGPU_CYCLE_STATS_SNAPSHOT_CMD_DETACH;
 	p->perfmon_start = cs_client->perfmon_start;
 	p->perfmon_count = cs_client->perfmon_count;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err ? err : msg.ret;
 	if (err) {
 		nvgpu_err(g, "failed");
@@ -211,16 +194,16 @@ int vgpu_css_detach(struct nvgpu_channel *ch,
 	return err;
 }
 
-int vgpu_css_enable_snapshot_buffer(struct nvgpu_channel *ch,
+int vgpu_css_enable_snapshot_buffer(struct gk20a *g,
 				struct gk20a_cs_snapshot_client *cs_client)
 {
 	int ret;
 
-	ret = vgpu_css_attach(ch, cs_client);
+	ret = vgpu_css_attach(g, cs_client);
 	if (ret) {
 		return ret;
 	}
 
-	ret = vgpu_css_init_snapshot_buffer(ch->g);
+	ret = vgpu_css_init_snapshot_buffer(g);
 	return ret;
 }

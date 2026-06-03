@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #include <nvgpu/gk20a.h>
 #include <nvgpu/falcon.h>
 
@@ -46,10 +27,6 @@ void tu104_falcon_engine_dependency_ops(struct nvgpu_falcon *flcn)
 		flcn_eng_dep_ops->copy_to_emem = g->ops.sec2.sec2_copy_to_emem;
 		flcn_eng_dep_ops->copy_from_emem =
 						g->ops.sec2.sec2_copy_from_emem;
-		break;
-	case FALCON_ID_NVENC:
-		flcn_eng_dep_ops->setup_bootstrap_config =
-			g->ops.nvenc.setup_boot_config;
 		break;
 	default:
 		flcn_eng_dep_ops->reset_eng = NULL;
@@ -79,12 +56,12 @@ void tu104_falcon_sw_init(struct nvgpu_falcon *flcn)
 		flcn->is_interrupt_enabled = true;
 		break;
 	case FALCON_ID_NVDEC:
-		flcn->flcn_base = g->ops.nvdec.base_addr();
+		flcn->flcn_base = g->ops.nvdec.base_addr(0);
 		flcn->is_falcon_supported = true;
 		flcn->is_interrupt_enabled = true;
 		break;
 	case FALCON_ID_NVENC:
-		flcn->flcn_base = g->ops.nvenc.base_addr();
+		flcn->flcn_base = g->ops.nvenc.base_addr(0);
 		flcn->is_falcon_supported = true;
 		flcn->is_interrupt_enabled = true;
 		break;

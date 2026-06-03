@@ -1,25 +1,5 @@
-/*
- * Tegra GPU Virtualization Interfaces to Server
- *
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef TEGRA_VGPU_H
@@ -28,9 +8,7 @@
 #include <nvgpu/types.h>
 #include <nvgpu/ecc.h>	/* For NVGPU_ECC_STAT_NAME_MAX_SIZE */
 
-#ifdef CONFIG_NVGPU_NEXT
-#include <tegra_vgpu_next.h>
-#endif
+#include <nvgpu/channel.h>
 
 enum {
 	TEGRA_VGPU_MODULE_GPU = 0,
@@ -82,7 +60,7 @@ enum {
 	TEGRA_VGPU_CMD_TSG_PREEMPT = 54,
 	TEGRA_VGPU_CMD_TSG_SET_TIMESLICE = 55,
 	TEGRA_VGPU_CMD_TSG_SET_RUNLIST_INTERLEAVE = 56,
-	TEGRA_VGPU_CMD_CHANNEL_FORCE_RESET = 57,
+	TEGRA_VGPU_CMD_TSG_FORCE_RESET = 57,
 	TEGRA_VGPU_CMD_CHANNEL_ENABLE = 58,
 	TEGRA_VGPU_CMD_READ_PTIMER = 59,
 	TEGRA_VGPU_CMD_SET_POWERGATE = 60,
@@ -127,6 +105,28 @@ enum {
 	TEGRA_VGPU_CMD_FB_VAB_DUMP_CLEAR = 99,
 	TEGRA_VGPU_CMD_FB_VAB_RELEASE = 100,
 	TEGRA_VGPU_CMD_L2_SECTOR_PROMOTION = 101,
+	TEGRA_VGPU_CMD_VF_REG_OPS = 102,
+	TEGRA_VGPU_CMD_VF_ENABLE_RUNLIST = 103,
+	TEGRA_VGPU_CMD_VF_SET_MMU_NACK_PENDING = 104,
+	TEGRA_VGPU_CMD_VF_SUSPEND_CONTEXTS = 105,
+	TEGRA_VGPU_CMD_VF_CHANNEL_READ_STATE = 106,
+	TEGRA_VGPU_CMD_VF_CHANNEL_ENABLE = 107,
+	TEGRA_VGPU_CMD_VF_CHANNEL_DISABLE = 108,
+	TEGRA_VGPU_CMD_VF_CHANNEL_CLEAR = 109,
+	TEGRA_VGPU_CMD_VF_CHANNEL_FORCE_CTX_RELOAD = 110,
+	TEGRA_VGPU_CMD_VF_GET_GOLDEN_IMAGE = 111,
+	TEGRA_VGPU_CMD_VF_SUBMIT_RUNLIST = 112,
+	TEGRA_VGPU_CMD_VF_CHANNEL_RESET_FAULTED = 113,
+	TEGRA_VGPU_CMD_VF_HANDLE_FAULT = 114,
+	TEGRA_VGPU_CMD_TSG_ENABLE = 115,
+	TEGRA_VGPU_CMD_TSG_DISABLE = 116,
+	TEGRA_VGPU_CMD_VF_PROF_RESET_PM_TRIGGER_MASK = 117,
+	TEGRA_VGPU_CMD_VF_PROF_ENABLE_PM_TRIGGER = 118,
+	TEGRA_VGPU_CMD_VF_PROF_BIND_UNBIND = 119,
+	TEGRA_VGPU_CMD_VF_SET_HS_CREDITS = 120,
+	TEGRA_VGPU_CMD_VF_PERF_INST_BLOCK_MGMT = 121,
+	TEGRA_VGPU_CMD_VF_RESET_STREAMING = 122,
+	TEGRA_VGPU_CMD_DUMMY = 0xffffffff,
 };
 
 struct tegra_vgpu_connect_params {
@@ -310,6 +310,16 @@ struct tegra_vgpu_reg_ops_params {
 	u32 flags;
 };
 
+struct tegra_vf_regop_offset {
+	u16 regop_idx;
+	u8 buffer_type;
+	u8 num_offsets;
+	struct {
+		u32 offset;
+		u32 offset_addr;
+	} offsets[];
+};
+
 struct tegra_vgpu_channel_priority_params {
 	u64 handle;
 	u32 priority;
@@ -383,7 +393,7 @@ struct tegra_vgpu_tsg_bind_unbind_channel_params {
 	u32 runlist_id;
 };
 
-struct tegra_vgpu_tsg_preempt_params {
+struct tegra_vgpu_tsg_params {
 	u32 runlist_id;
 	u32 tsg_id;
 };
@@ -440,7 +450,7 @@ struct tegra_vgpu_set_sm_exception_type_mask_params {
 };
 
 /* TEGRA_VGPU_MAX_ENGINES must be equal or greater than num_engines */
-#define TEGRA_VGPU_MAX_ENGINES			6
+#define TEGRA_VGPU_MAX_ENGINES			14
 struct tegra_vgpu_engines_info {
 	u32 num_engines;
 	struct engineinfo {
@@ -457,10 +467,11 @@ struct tegra_vgpu_engines_info {
 	} info[TEGRA_VGPU_MAX_ENGINES];
 };
 
-#define TEGRA_VGPU_MAX_GPC_COUNT 2U
-#define TEGRA_VGPU_MAX_TPC_COUNT_PER_GPC 4U
+#define TEGRA_VGPU_MAX_GPC_COUNT 3U
+#define TEGRA_VGPU_MAX_TPC_COUNT_PER_GPC 5U
 #define TEGRA_VGPU_MAX_PES_COUNT_PER_GPC 3U
 #define TEGRA_VGPU_L2_EN_MASK 32U
+#define TEGRA_VGPU_MAX_FBP_COUNT 4U
 
 struct tegra_vgpu_constants_params {
 	u32 arch;
@@ -498,6 +509,19 @@ struct tegra_vgpu_constants_params {
 			* TEGRA_VGPU_MAX_GPC_COUNT];
 	u32 pes_tpc_mask[TEGRA_VGPU_MAX_PES_COUNT_PER_GPC
 			* TEGRA_VGPU_MAX_GPC_COUNT];
+	u32 gpc_pes_mask_physical[TEGRA_VGPU_MAX_GPC_COUNT];
+	struct {
+		/** Logical GPC Id which is used to access GPC registers. */
+		u32 logical_id;
+		/** Physical GPC Id. */
+		u32 physical_id;
+		/** GPC group Id. */
+		u32 gpcgrp_id;
+	} gpc[TEGRA_VGPU_MAX_GPC_COUNT];
+	/* fbp physical id to logical id mapping */
+	u32 fbp_physical_id_map[TEGRA_VGPU_MAX_FBP_COUNT];
+	/* fbp logical id to local id mapping */
+	u32 fbp_mappings[TEGRA_VGPU_MAX_FBP_COUNT];
 	u32 hwpm_ctx_size;
 	u8 force_preempt_mode;
 	u8 can_set_clkrate;
@@ -513,6 +537,8 @@ struct tegra_vgpu_constants_params {
 	/** Max SM configuration count. */
 	u32 max_sm_diversity_config_count;
 	u64 per_device_identifier;
+	u32 max_rop_per_gpc;
+	u32 phy_gpc_rop_mask[TEGRA_VGPU_MAX_GPC_COUNT];
 };
 
 enum {
@@ -554,12 +580,14 @@ struct tegra_vgpu_prof_mgt_params {
 	u32 reservation_id;
 	u32 pm_resource;
 	u32 scope;
+	u32 pma_channel_id;
 };
 
 struct tegra_vgpu_perfbuf_mgt_params {
 	u64 vm_handle;
 	u64 offset;
 	u32 size;
+	u32 pma_channel_id;
 };
 
 enum {
@@ -587,6 +615,7 @@ struct tegra_vgpu_vsms_mapping_entry {
 	u32 tpc_index;
 	u32 sm_index;
 	u32 global_tpc_index;
+	u32 virtual_gpc_index;
 };
 
 struct tegra_vgpu_alloc_ctx_header_params {
@@ -625,6 +654,7 @@ struct tegra_vgpu_fb_set_mmu_debug_mode_params {
 struct tegra_vgpu_gr_set_mmu_debug_mode_params {
 	u64 ch_handle;
 	u8 enable;
+	u8 enable_gcc;
 };
 
 struct tegra_vgpu_l2_max_ways_evict_last_params {
@@ -635,10 +665,11 @@ struct tegra_vgpu_l2_max_ways_evict_last_params {
 enum {
 	TEGRA_VGPU_PROF_BIND_HWPM = 0,
 	TEGRA_VGPU_PROF_UNBIND_HWPM = 1,
-	TEGRA_VGPU_PROF_BIND_HWPM_STREAMOUT = 2,
+	TEGRA_VGPU_PROF_BIND_STREAMOUT = 2,
 	TEGRA_VGPU_PROF_UNBIND_HWPM_STREAMOUT = 3,
 	TEGRA_VGPU_PROF_BIND_SMPC = 4,
 	TEGRA_VGPU_PROF_UNBIND_SMPC = 5,
+	TEGRA_VGPU_PROF_BIND_HES_CWD = 6,
 };
 
 struct tegra_vgpu_prof_bind_unbind_params {
@@ -649,11 +680,17 @@ struct tegra_vgpu_prof_bind_unbind_params {
 	u32 pma_buffer_size;
 	u64 pma_buffer_va;
 	u64 pma_bytes_available_buffer_va;
+	u32 reservation_id;
+	u32 gr_instance_id;
+	u32 mode;
+	u32 pma_channel_id;
+	bool is_ctx_resident;
 };
 
 struct tegra_vgpu_perf_update_get_put_params {
 	u64 bytes_consumed;
 	u64 put_ptr;
+	u32 pma_channel_id;
 	u8 update_available_bytes;
 	u8 overflowed;
 };
@@ -683,6 +720,88 @@ struct tegra_vgpu_fb_vab_dump_and_clear_params {
 struct tegra_vgpu_l2_sector_promotion_params {
 	u32 tsg_id;
 	u32 policy;
+};
+
+struct tegra_vgpu_vf_enable_runlist_params {
+	u32 virt_runlist_id;
+};
+
+struct tegra_vgpu_vf_mmu_nack_pending_params {
+	u32 gr_instance_id;
+	u32 gr_ctx_id;
+	bool handled;
+};
+
+struct tegra_vgpu_vf_suspend_contexts {
+	u32 num_tsgs;
+	u32 resident_tsgid;
+};
+
+struct tegra_vgpu_vf_ch_state_params {
+	u16 virt_runlist_id;
+	u16 virt_chid;
+	struct nvgpu_channel_hw_state state;
+};
+
+struct tegra_vgpu_vf_ch_params {
+	u16 virt_runlist_id;
+	u16 virt_chid;
+};
+
+struct tegra_vgpu_vf_golden_image_params {
+	u32 size;
+};
+
+struct tegra_vgpu_vf_runlist_params {
+	u16 virt_runlist_id;
+	u64 iova;
+	u32 length;
+	u32 offset;
+};
+
+struct tegra_vgpu_vf_fault_params {
+	u32 virt_runlist_id;
+	u32 tsgid;
+};
+
+struct tegra_vgpu_tsg_enable_disable {
+	u32 tsg_id;
+};
+
+struct tegra_vgpu_vf_reset_pm_trigger_mask {
+	u32 pma_channel_id;
+	u32 reservation_id;
+	u32 gr_instance_id;
+};
+
+struct tegra_vgpu_vf_enable_pm_trigger {
+	u32 gr_instance_id;
+	u32 pma_channel_id;
+	u32 reservation_id;
+};
+
+struct tegra_vgpu_vf_set_hs_credits {
+	u32 gr_instance_id;
+	u32 pma_channel_id;
+	u32 chiplet_type;
+	u32 chiplet_local_index;
+	u32 num_credits;
+};
+
+enum {
+	TEGRA_VGPU_VF_PROF_PERF_INST_BLOCK_INIT = 0,
+	TEGRA_VGPU_VF_PROF_PERF_INST_BLOCK_DEINIT,
+};
+
+struct tegra_vgpu_vf_perf_inst_block {
+	u32 iova;
+	u32 pma_channel_id;
+	u32 mode;
+	u32 aperture;
+};
+
+struct tegra_vgpu_vf_reset_streaming {
+	u32 pma_channel_id;
 };
 
 struct tegra_vgpu_cmd_msg {
@@ -721,7 +840,7 @@ struct tegra_vgpu_cmd_msg {
 		struct tegra_vgpu_tsg_bind_unbind_channel_params tsg_bind_unbind_channel;
 		struct tegra_vgpu_tsg_open_rel_params tsg_open;
 		struct tegra_vgpu_tsg_open_rel_params tsg_release;
-		struct tegra_vgpu_tsg_preempt_params tsg_preempt;
+		struct tegra_vgpu_tsg_params tsg;
 		struct tegra_vgpu_tsg_timeslice_params tsg_timeslice;
 		struct tegra_vgpu_tsg_runlist_interleave_params tsg_interleave;
 		struct tegra_vgpu_read_ptimer_params read_ptimer;
@@ -757,9 +876,21 @@ struct tegra_vgpu_cmd_msg {
 		struct tegra_vgpu_alloc_obj_ctx_params alloc_obj_ctx;
 		struct tegra_vgpu_preemption_mode_params preemption_mode;
 		struct tegra_vgpu_l2_sector_promotion_params l2_promotion;
-#ifdef CONFIG_NVGPU_NEXT
-		TEGRA_VGPU_PARAMS_NEXT
-#endif
+		struct tegra_vgpu_vf_enable_runlist_params vf_enable_runlist;
+		struct tegra_vgpu_vf_mmu_nack_pending_params vf_mmu_nack_pending;
+		struct tegra_vgpu_vf_suspend_contexts vf_suspend_contexts;
+		struct tegra_vgpu_vf_ch_state_params vf_ch_state;
+		struct tegra_vgpu_vf_ch_params vf_ch;
+		struct tegra_vgpu_vf_golden_image_params vf_golden_image;
+		struct tegra_vgpu_vf_runlist_params vf_runlist;
+		struct tegra_vgpu_vf_fault_params vf_fault;
+		struct tegra_vgpu_tsg_enable_disable tsg_enable;
+		struct tegra_vgpu_tsg_enable_disable tsg_disable;
+		struct tegra_vgpu_vf_reset_pm_trigger_mask reset_pm_trigger_mask;
+		struct tegra_vgpu_vf_enable_pm_trigger enable_pm_trigger;
+		struct tegra_vgpu_vf_set_hs_credits set_hs_credit;
+		struct tegra_vgpu_vf_perf_inst_block inst_block_mgmt;
+		struct tegra_vgpu_vf_reset_streaming reset_streaming;
 		char padding[184];
 	} params;
 };
@@ -778,15 +909,13 @@ enum {
 	TEGRA_VGPU_GR_INTR_FIRMWARE_METHOD = 7,
 	TEGRA_VGPU_GR_INTR_EXCEPTION = 8,
 	TEGRA_VGPU_GR_INTR_SEMAPHORE = 9,
-	TEGRA_VGPU_FIFO_INTR_PBDMA = 10,
 	TEGRA_VGPU_FIFO_INTR_CTXSW_TIMEOUT = 11,
-	TEGRA_VGPU_FIFO_INTR_MMU_FAULT = 12,
 	TEGRA_VGPU_GR_INTR_SM_EXCEPTION = 16,
 };
 
 struct tegra_vgpu_gr_intr_info {
 	u32 type;
-	u32 chid;
+	u32 tsgid;
 };
 
 struct tegra_vgpu_gr_nonstall_intr_info {
@@ -795,7 +924,7 @@ struct tegra_vgpu_gr_nonstall_intr_info {
 
 struct tegra_vgpu_fifo_intr_info {
 	u32 type;
-	u32 chid;
+	u32 tsgid;
 };
 
 struct tegra_vgpu_fifo_nonstall_intr_info {
@@ -817,8 +946,7 @@ struct tegra_vgpu_fecs_trace_event_info {
 #define TEGRA_VGPU_CHANNEL_EVENT_ID_MAX 6
 struct tegra_vgpu_channel_event_info {
 	u32 event_id;
-	u32 is_tsg;
-	u32 id; /* channel id or tsg id */
+	u32 tsgid;
 };
 
 struct tegra_vgpu_sm_esr_info {
@@ -829,6 +957,7 @@ struct tegra_vgpu_sm_esr_info {
 	u64 hww_warp_esr_pc;
 	u32 hww_global_esr_report_mask;
 	u32 hww_warp_esr_report_mask;
+	u32 hww_cga_esr;
 };
 
 struct tegra_vgpu_semaphore_wakeup {
@@ -842,6 +971,24 @@ struct tegra_vgpu_channel_cleanup {
 struct tegra_vgpu_channel_set_error_notifier {
 	u32 chid;
 	u32 error;
+};
+
+struct tegra_vgpu_tsg_set_error_notifier {
+	u32 tsgid;
+	u32 error;
+};
+
+struct tegra_vf_tsg_set_unserviceable {
+	u32 tsgid;
+};
+
+struct tegra_vf_runlist_disabled {
+	u32 runlist_id;
+	u32 tsgid;
+};
+
+struct tegra_vf_cilp_save_completed {
+	u32 tsgid;
 };
 
 enum {
@@ -860,6 +1007,11 @@ enum {
 	TEGRA_VGPU_EVENT_SEMAPHORE_WAKEUP = 5,
 	TEGRA_VGPU_EVENT_CHANNEL_CLEANUP = 6,
 	TEGRA_VGPU_EVENT_SET_ERROR_NOTIFIER = 7,
+	TEGRA_VGPU_EVENT_TSG_SET_ERROR_NOTIFIER = 8,
+	TEGRA_VF_EVENT_TSG_SET_UNSERVICEABLE = 9,
+	TEGRA_VF_EVENT_RUNLIST_DISABLED_FOR_RC = 10,
+	TEGRA_VF_EVENT_RUNLIST_DISABLED_FOR_CILP = 11,
+	TEGRA_VF_EVENT_CILP_SAVE_COMPLETED = 12,
 };
 
 struct tegra_vgpu_intr_msg {
@@ -877,6 +1029,10 @@ struct tegra_vgpu_intr_msg {
 		struct tegra_vgpu_semaphore_wakeup sem_wakeup;
 		struct tegra_vgpu_channel_cleanup ch_cleanup;
 		struct tegra_vgpu_channel_set_error_notifier set_error_notifier;
+		struct tegra_vgpu_tsg_set_error_notifier tsg_set_error_notifier;
+		struct tegra_vf_tsg_set_unserviceable tsg_set_unserviceable;
+		struct tegra_vf_runlist_disabled runlist_disabled;
+		struct tegra_vf_cilp_save_completed cilp_save_completed;
 		char padding[32];
 	} info;
 };

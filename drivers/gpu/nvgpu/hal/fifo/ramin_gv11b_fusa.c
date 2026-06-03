@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2015-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2015-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/nvgpu_mem.h>
 #include <nvgpu/io.h>
@@ -85,8 +66,8 @@ void gv11b_ramin_set_subctx_pdb_info(struct gk20a *g,
 			add ? "add" : "remove", subctx_id,
 			format_word, pdb_addr_hi);
 
-	subctx_pdb_map[subctx_id * 4U] = format_word;
-	subctx_pdb_map[(subctx_id * 4U) + 1U] = pdb_addr_hi;
+	subctx_pdb_map[nvgpu_safe_mult_u32(subctx_id, 4U)] = format_word;
+	subctx_pdb_map[nvgpu_safe_add_u32(nvgpu_safe_mult_u32(subctx_id, 4U), 1U)] = pdb_addr_hi;
 }
 
 void gv11b_ramin_init_subctx_pdb_map(struct gk20a *g,
@@ -109,7 +90,12 @@ void gv11b_ramin_init_subctx_valid_mask(struct gk20a *g,
 	u32 id;
 
 	for (id = 0U; id < max_subctx_count; id += 32U) {
-		u32 subctx_mask = ((u32 *)valid_subctx_mask)[id / 32U];
+		u64 temp;
+		u32 subctx_mask;
+
+		/* MISRA 11.3 forbids to convert one pointer type to another */
+		temp = (u64)valid_subctx_mask;
+		subctx_mask = ((u32 *)temp)[id / 32U];
 
 		nvgpu_mem_wr32(g, inst_block,
 				ram_in_sc_pdb_valid_long_w(id), subctx_mask);
@@ -124,9 +110,9 @@ void gv11b_ramin_init_subctx_pdb(struct gk20a *g,
 		struct nvgpu_mem *inst_block, u32 *subctx_pdb_map)
 {
 	u32 max_subctx_count = g->ops.gr.init.get_max_subctx_count();
-	u32 size = max_subctx_count * 4U * 4U;
+	u32 size = nvgpu_safe_mult_u32(max_subctx_count, 4U * 4U);
 
-	nvgpu_mem_wr_n(g, inst_block, ram_in_sc_page_dir_base_vol_w(0) * 4U,
+	nvgpu_mem_wr_n(g, inst_block, ram_in_sc_page_dir_base_vol_w(0U) * 4U,
 		subctx_pdb_map, size);
 }
 

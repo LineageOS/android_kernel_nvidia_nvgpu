@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/channel.h>
 #include <nvgpu/runlist.h>
@@ -44,7 +25,7 @@ int ga10b_fifo_reschedule_preempt_next(struct nvgpu_channel *ch,
 	struct gk20a *g = ch->g;
 	struct nvgpu_runlist *runlist = ch->runlist;
 	u32 fecsstat0 = 0, fecsstat1 = 0;
-	u32 preempt_id;
+	u32 preempt_id, runlist_preempt_reg;
 	u32 preempt_type = 0;
 	u32 i = 0U, eng_bitmask = 0U;
 	const struct nvgpu_device *dev;
@@ -64,8 +45,10 @@ int ga10b_fifo_reschedule_preempt_next(struct nvgpu_channel *ch,
 		return 0;
 	}
 
+	runlist_preempt_reg = g->ops.fifo.get_runlist_preempt_reg();
+
 	if (wait_preempt) {
-		u32 val = nvgpu_runlist_readl(g, runlist, runlist_preempt_r());
+		u32 val = nvgpu_runlist_readl(g, runlist, runlist_preempt_reg);
 
 		if ((val & runlist_preempt_runlist_preempt_pending_true_f()) ||
 			(val & runlist_preempt_tsg_preempt_pending_true_f()) !=
@@ -107,7 +90,7 @@ int ga10b_fifo_reschedule_preempt_next(struct nvgpu_channel *ch,
 		engine_status.reg_data, fecsstat1,
 		g->ops.gr.falcon.read_fecs_ctxsw_mailbox(g,
 			NVGPU_GR_FALCON_FECS_CTXSW_MAILBOX0),
-		nvgpu_runlist_readl(g, runlist, runlist_preempt_r());
+		nvgpu_runlist_readl(g, runlist, runlist_preempt_reg));
 #endif
 	if (wait_preempt) {
 		if (g->ops.fifo.is_preempt_pending(g, runlist->id, preempt_id,

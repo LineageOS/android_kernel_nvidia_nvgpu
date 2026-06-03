@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/errata.h>
@@ -27,13 +8,16 @@
 #include <nvgpu/bug.h>
 #include <nvgpu/errno.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/string.h>
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/gr/gr_instances.h>
 #include <nvgpu/gr/config.h>
 #include <nvgpu/gr/gr_intr.h>
 #ifdef CONFIG_NVGPU_GRAPHICS
 #include <nvgpu/gr/zbc.h>
+#ifdef CONFIG_NVGPU_ZCULL
 #include <nvgpu/gr/zcull.h>
+#endif
 #endif
 #include <nvgpu/netlist.h>
 #include <nvgpu/gr/gr_falcon.h>
@@ -52,9 +36,10 @@
 #include <nvgpu/grmgr.h>
 
 #include "gr_priv.h"
-#ifndef CONFIG_NVGPU_NON_FUSA
-#include "gr/obj_ctx_priv.h"
+#if !defined(CONFIG_NVGPU_NON_FUSA) || defined (CONFIG_NVGPU_DEBUGGER)
+#include "common/gr/obj_ctx_priv.h"
 #endif
+#include "gr_config_priv.h"
 
 static int gr_alloc_global_ctx_buffers(struct gk20a *g, struct nvgpu_gr *gr)
 {
@@ -68,7 +53,8 @@ static int gr_alloc_global_ctx_buffers(struct gk20a *g, struct nvgpu_gr *gr)
 	 * Allocate BUNDLE_CB, PAGEPOOL, ATTRIBUTE_CB and RTV_CB
 	 * if 2D/3D/I2M classes(graphics) are supported.
 	 */
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		size = g->ops.gr.init.get_global_ctx_cb_buffer_size(g);
 		nvgpu_log(g, gpu_dbg_info | gpu_dbg_gr,
 			"cb_buffer_size : %d", size);
@@ -141,9 +127,14 @@ static int gr_alloc_global_ctx_buffers(struct gk20a *g, struct nvgpu_gr *gr)
 	return 0;
 }
 
-u32 nvgpu_gr_get_no_of_sm(struct gk20a *g)
+u32 nvgpu_gr_get_no_of_sm(struct gk20a *g, u32 instance_id)
 {
-	return nvgpu_gr_config_get_no_of_sm(g->gr->config);
+	u32 gr_instance_id  = nvgpu_grmgr_get_gr_instance_id(g, instance_id);
+	struct nvgpu_gr *gr;
+
+	gr = &g->gr[gr_instance_id];
+
+	return nvgpu_gr_config_get_no_of_sm(gr->config);
 }
 
 u32 nvgpu_gr_gpc_offset(struct gk20a *g, u32 gpc)
@@ -194,12 +185,25 @@ static void disable_gr_interrupts(struct gk20a *g)
 	g->ops.gr.intr.enable_exceptions(g, g->gr->config, false);
 
 	/** Disable interrupts at MC level */
-	nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR,
-					NVGPU_CIC_INTR_DISABLE);
+	if (nvgpu_gin_is_present(g)) {
+		const struct nvgpu_device *dev = NULL;
+
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_GRAPHICS) {
+			nvgpu_gin_stall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR,
+					dev->inst_id, NVGPU_GIN_INTR_DISABLE);
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
-	nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR,
-					   NVGPU_CIC_INTR_DISABLE);
+			nvgpu_gin_nonstall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR,
+					dev->inst_id, NVGPU_GIN_INTR_DISABLE);
 #endif
+		}
+	} else {
+		nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR,
+				NVGPU_CIC_INTR_DISABLE);
+#ifdef CONFIG_NVGPU_NONSTALL_INTR
+		nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR,
+				NVGPU_CIC_INTR_DISABLE);
+#endif
+	}
 }
 
 int nvgpu_gr_suspend(struct gk20a *g)
@@ -247,7 +251,8 @@ static int gr_init_setup_hw(struct gk20a *g, struct nvgpu_gr *gr)
 
 	g->ops.gr.init.gpc_mmu(g);
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		g->ops.gr.init.pes_vsc_stream(g);
 	}
 
@@ -274,11 +279,14 @@ static int gr_init_setup_hw(struct gk20a *g, struct nvgpu_gr *gr)
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
+#ifdef CONFIG_NVGPU_ZCULL
 		err = nvgpu_gr_zcull_init_hw(g, gr->zcull, gr->config);
 		if (err != 0) {
 			goto out;
 		}
+#endif
 
 		nvgpu_gr_zbc_load_table(g, gr->zbc);
 
@@ -339,10 +347,14 @@ static void gr_remove_support(struct gk20a *g)
 		nvgpu_gr_ctx_desc_free(g, gr->gr_ctx_desc);
 		gr->gr_ctx_desc = NULL;
 
-	#ifdef CONFIG_NVGPU_DEBUGGER
-		nvgpu_gr_hwpm_map_deinit(g, gr->hwpm_map);
-		gr->hwpm_map = NULL;
-	#endif
+#ifdef CONFIG_NVGPU_DEBUGGER
+		if (g->support_gpu_tools) {
+			nvgpu_gr_hwpm_map_deinit(g, gr->hwpm_map);
+			gr->hwpm_map = NULL;
+		}
+		nvgpu_gr_pri_address_buffer_deinit(g, gr->pri_addr_map);
+		gr->pri_addr_map = NULL;
+#endif
 
 		nvgpu_gr_obj_ctx_deinit(g, gr->golden_image);
 		gr->golden_image = NULL;
@@ -401,6 +413,7 @@ static int gr_init_config(struct gk20a *g, struct nvgpu_gr *gr)
 	if (gr->config == NULL) {
 		return -ENOMEM;
 	}
+	gr->config->is_gfx_capable = gr->is_support_gfx;
 
 	nvgpu_log(g, gpu_dbg_info | gpu_dbg_gr, "bundle_cb_default_size: %d",
 		g->ops.gr.init.get_bundle_cb_default_size(g));
@@ -445,8 +458,17 @@ int nvgpu_gr_init_ctx_bufs(struct gk20a *g, struct nvgpu_gr *gr)
 		goto clean_up;
 	}
 
+	if (g->ops.grmgr.setup_ltc_partition != NULL) {
+		err = g->ops.grmgr.setup_ltc_partition(g, gr->syspipe_id);
+		if (err != 0) {
+			err = -ENOMEM;
+			goto clean_up;
+		}
+	}
+
 #ifdef CONFIG_NVGPU_GFXP
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_gr_ctx_set_size(gr->gr_ctx_desc,
 			NVGPU_GR_CTX_PREEMPT_CTXSW,
 			nvgpu_gr_falcon_get_preempt_image_size(gr->falcon));
@@ -511,10 +533,18 @@ static int gr_init_setup_sw(struct gk20a *g, struct nvgpu_gr *gr)
 	}
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-	err = nvgpu_gr_hwpm_map_init(g, &gr->hwpm_map,
-			nvgpu_gr_falcon_get_pm_ctxsw_image_size(gr->falcon));
+	if (g->support_gpu_tools) {
+		err = nvgpu_gr_hwpm_map_init(g, &gr->hwpm_map,
+				nvgpu_gr_falcon_get_pm_ctxsw_image_size(gr->falcon));
+		if (err != 0) {
+			nvgpu_err(g, "hwpm_map init failed");
+			goto clean_up;
+		}
+	}
+
+	err = nvgpu_gr_init_pri_address_buffer(g, &gr->pri_addr_map);
 	if (err != 0) {
-		nvgpu_err(g, "hwpm_map init failed");
+		nvgpu_err(g, "Failed to initialize pri addr buf structs");
 		goto clean_up;
 	}
 #endif
@@ -525,18 +555,21 @@ static int gr_init_setup_sw(struct gk20a *g, struct nvgpu_gr *gr)
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		err = nvgpu_gr_config_init_map_tiles(g, gr->config);
 		if (err != 0) {
 			goto clean_up;
 		}
 
+#ifdef CONFIG_NVGPU_ZCULL
 		err = nvgpu_gr_zcull_init(g, &gr->zcull,
 				nvgpu_gr_falcon_get_zcull_image_size(gr->falcon),
 				gr->config);
 		if (err != 0) {
 			goto clean_up;
 		}
+#endif
 
 		err = nvgpu_gr_zbc_init(g, &gr->zbc);
 		if (err != 0) {
@@ -544,7 +577,9 @@ static int gr_init_setup_sw(struct gk20a *g, struct nvgpu_gr *gr)
 		}
 	} else {
 		gr->zbc = NULL;
+#ifdef CONFIG_NVGPU_ZCULL
 		gr->zcull = NULL;
+#endif
 	}
 #endif /* CONFIG_NVGPU_GRAPHICS */
 
@@ -609,16 +644,65 @@ out:
 
 static int gr_init_prepare_hw(struct gk20a *g)
 {
+	s32 err;
+
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, " ");
 
 	/** Enable interrupts at MC level */
-	nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
-#ifdef CONFIG_NVGPU_NONSTALL_INTR
-	nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
-#endif
+	if (nvgpu_gin_is_present(g)) {
+		const struct nvgpu_device *dev = NULL;
 
-	return nvgpu_gr_exec_with_ret_for_each_instance(g,
+		nvgpu_device_for_each(g, dev, NVGPU_DEVTYPE_GRAPHICS) {
+			nvgpu_gin_stall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR,
+					dev->inst_id, NVGPU_GIN_INTR_ENABLE);
+#ifdef CONFIG_NVGPU_NONSTALL_INTR
+			nvgpu_gin_nonstall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR,
+					dev->inst_id, NVGPU_GIN_INTR_ENABLE);
+#endif
+		}
+	} else {
+		nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+#ifdef CONFIG_NVGPU_NONSTALL_INTR
+		nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+#endif
+	}
+
+	err = nvgpu_gr_exec_with_ret_for_each_instance(g,
 			gr_init_prepare_hw_impl(g));
+	if (err != 0) {
+		nvgpu_err(g, "gr_init_prepare_hw_impl failed");
+	}
+	return err;
+}
+
+static s32 gr_set_engine_reset(struct gk20a *g,
+		const struct nvgpu_device *dev, bool assert_reset)
+{
+	s32 err = 0;
+
+	if (assert_reset) {
+		if (g->ops.gr.init.set_engine_reset != NULL) {
+			g->ops.gr.init.set_engine_reset(g, true);
+		} else {
+			err = g->ops.mc.enable_dev(g, dev, false);
+		}
+
+		if (g->ops.gr.init.set_gpcs_reset != NULL) {
+			g->ops.gr.init.set_gpcs_reset(g, true);
+		}
+	} else {
+		if (g->ops.gr.init.set_gpcs_reset != NULL) {
+			g->ops.gr.init.set_gpcs_reset(g, false);
+		}
+
+		if (g->ops.gr.init.set_engine_reset != NULL) {
+			g->ops.gr.init.set_engine_reset(g, false);
+		} else {
+			err = g->ops.mc.enable_dev(g, dev, true);
+		}
+	}
+
+	return err;
 }
 
 static int gr_reset_engine(struct gk20a *g)
@@ -634,25 +718,15 @@ static int gr_reset_engine(struct gk20a *g)
 	nvgpu_log(g, gpu_dbg_gr, "Reset GR%u", cur_gr_instance_id);
 
 	/* Reset GR engine: Disable then enable GR engine */
-	err = g->ops.mc.enable_dev(g, dev, false);
+	err = gr_set_engine_reset(g, dev, true);
 	if (err != 0) {
-		nvgpu_log(g, gpu_dbg_info, "Device reset_id:%u disable failed",
-			dev->reset_id);
+		nvgpu_log(g, gpu_dbg_info, "GR reset assert failed");
 		return err;
 	}
 
-	if (g->ops.gr.init.reset_gpcs != NULL) {
-		err = g->ops.gr.init.reset_gpcs(g);
-		if (err != 0) {
-			nvgpu_err(g, "Reset gpcs failed");
-			return err;
-		}
-	}
-
-	err = g->ops.mc.enable_dev(g, dev, true);
+	err = gr_set_engine_reset(g, dev, false);
 	if (err != 0) {
-		nvgpu_log(g, gpu_dbg_info, "Device reset_id:%u enable failed",
-			dev->reset_id);
+		nvgpu_log(g, gpu_dbg_info, "GR reset deassert failed");
 		return err;
 	}
 
@@ -721,6 +795,9 @@ int nvgpu_gr_enable_hw(struct gk20a *g)
 static int nvgpu_gr_enable_hw_for_instance(struct gk20a *g)
 {
 	int err;
+	const struct nvgpu_device *dev =
+		nvgpu_device_get(g, NVGPU_DEVTYPE_GRAPHICS,
+				nvgpu_gr_get_syspipe_id(g, g->mig.cur_gr_instance));
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "Enable GR%u HW",
 		nvgpu_gr_get_cur_instance_id(g));
@@ -737,10 +814,19 @@ static int nvgpu_gr_enable_hw_for_instance(struct gk20a *g)
 	nvgpu_cg_elcg_disable_no_wait(g);
 
 	/** Enable interrupts at MC level */
-	nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+	if (nvgpu_gin_is_present(g)) {
+		nvgpu_gin_stall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR, dev->inst_id,
+				NVGPU_GIN_INTR_ENABLE);
 #ifdef CONFIG_NVGPU_NONSTALL_INTR
-	nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+		nvgpu_gin_nonstall_unit_config(g, NVGPU_GIN_INTR_UNIT_GR, dev->inst_id,
+				NVGPU_GIN_INTR_ENABLE);
 #endif
+	} else {
+		nvgpu_cic_mon_intr_stall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+#ifdef CONFIG_NVGPU_NONSTALL_INTR
+		nvgpu_cic_mon_intr_nonstall_unit_config(g, NVGPU_CIC_INTR_UNIT_GR, NVGPU_CIC_INTR_ENABLE);
+#endif
+	}
 
 	err = gr_init_prepare_hw_impl(g);
 	if (err != 0) {
@@ -803,7 +889,7 @@ int nvgpu_gr_reset(struct gk20a *g)
 
 #ifdef CONFIG_NVGPU_POWER_PG
 	if (g->can_elpg) {
-		err = nvgpu_gr_falcon_bind_fecs_elpg(g);
+		err = nvgpu_gr_falcon_bind_fecs_elpg(g, gr->instance_id);
 		if (err != 0) {
 			nvgpu_err(g, "nvgpu_gr_falcon_bind_fecs_elpg failed");
 			return err;
@@ -814,6 +900,18 @@ int nvgpu_gr_reset(struct gk20a *g)
 	nvgpu_cg_init_gr_load_gating_prod(g);
 
 	nvgpu_cg_elcg_enable_no_wait(g);
+
+#ifdef CONFIG_NVGPU_DEBUGGER
+	/*
+	 * The GR engine may have been in the middle of processing an SM exception
+	 * and waiting for CILP save when the engine was reset. Reset the broadcast
+	 * STOP_TRIGGER flag and clear the CILP pending flag for subsequent SM
+	 * exceptions.
+	 */
+	gr->can_broadcast_stop_trigger = true;
+	gr->cilp_preempt_pending = false;
+	gr->cilp_preempt_pending_tsgid = 0U;
+#endif
 
 	/* GR is inialized, signal possible waiters */
 	g->gr->initialized = true;
@@ -873,7 +971,7 @@ static int gr_init_ctxsw_falcon_support(struct gk20a *g, struct nvgpu_gr *gr)
 
 static int gr_init_support_impl(struct gk20a *g)
 {
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "Init support for GR%u", gr->instance_id);
@@ -914,11 +1012,12 @@ static int gr_init_support_impl(struct gk20a *g)
 
 #ifdef CONFIG_NVGPU_POWER_PG
 	if (g->can_elpg) {
-		err = nvgpu_gr_falcon_bind_fecs_elpg(g);
+		err = nvgpu_gr_falcon_bind_fecs_elpg(g, gr->instance_id);
 		if (err != 0) {
 			return err;
 		}
 	}
+
 #endif
 
 	err = gr_init_setup_sw(g, gr);
@@ -938,7 +1037,7 @@ static int gr_init_support_impl(struct gk20a *g)
 
 static void gr_init_support_finalize(struct gk20a *g)
 {
-	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr((g));
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_gr, "Finalize support for GR%u",
 		gr->instance_id);
@@ -1013,7 +1112,26 @@ int nvgpu_gr_alloc(struct gk20a *g)
 
 		nvgpu_log(g, gpu_dbg_gr, "GR instance %u attached to GR syspipe %u",
 				i, gr->syspipe_id);
+		gr->enabled_gr_class_flags = nvgpu_kzalloc(g,
+				BITS_TO_LONGS(U32(NVGPU_MAX_ENABLED_GR_CLASS_BITS)) *
+				sizeof(unsigned long));
+		if (gr->enabled_gr_class_flags == NULL) {
+			nvgpu_err(g, "failed to init enabled_gr_class_flags");
+			err = -ENOMEM;
+			goto fail;
+		}
 
+#ifdef CONFIG_NVGPU_GRAPHICS
+		if ((strcmp(g->name, "gm20b") != 0)) {
+			nvgpu_set_gr_class_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL, true, i);
+		}
+#endif
+#ifdef CONFIG_NVGPU_GFXP
+		if ((strcmp(g->name, "gm20b") != 0)) {
+			nvgpu_set_gr_class_enabled(g, NVGPU_SUPPORT_PREEMPTION_GFXP, true, i);
+		}
+#endif
+		gr->is_support_gfx = nvgpu_grmgr_get_support_gfx(g, i);
 		gr->falcon = nvgpu_gr_falcon_init_support(g);
 		if (gr->falcon == NULL) {
 			nvgpu_err(g, "failed to init gr falcon");
@@ -1029,7 +1147,15 @@ int nvgpu_gr_alloc(struct gk20a *g)
 		}
 
 		gr->g = g;
-		nvgpu_cond_init(&gr->init_wq);
+		gr->fecs_flcn = &g->fecs_flcn;
+		gr->gpccs_flcn = &g->gpccs_flcn;
+		g->is_gr_inited = true;
+		err = nvgpu_cond_init(&gr->init_wq);
+		if (err != 0) {
+			nvgpu_err(g, "workqueue init failed\n");
+			goto fail;
+		}
+
 #ifdef CONFIG_NVGPU_NON_FUSA
 		nvgpu_gr_override_ecc_val(gr, g->fecs_feature_override_ecc_val);
 #endif
@@ -1037,6 +1163,11 @@ int nvgpu_gr_alloc(struct gk20a *g)
 		nvgpu_mutex_init(&gr->ctxsw_disable_mutex);
 		gr->ctxsw_disable_count = 0;
 #endif
+#if defined(CONFIG_NVGPU_DEBUGGER)
+		gr->can_broadcast_stop_trigger = true;
+#endif
+		nvgpu_mutex_init(&gr->pending_mmu_nack_mutex);
+		gr->pending_mmu_nack_ctx_id = 0U;
 	}
 
 	/*
@@ -1084,19 +1215,33 @@ void nvgpu_gr_free(struct gk20a *g)
 		gr->intr = NULL;
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+		if (gr->enabled_gr_class_flags != NULL) {
+			nvgpu_kfree(g, gr->enabled_gr_class_flags);
+		}
 		nvgpu_gr_zbc_deinit(g, gr->zbc);
-		nvgpu_gr_zcull_deinit(g, gr->zcull);
 		gr->zbc = NULL;
+#ifdef CONFIG_NVGPU_ZCULL
+		nvgpu_gr_zcull_deinit(g, gr->zcull);
 		gr->zcull = NULL;
+#endif
 #endif /* CONFIG_NVGPU_GRAPHICS */
 	}
 
+	g->is_gr_inited = false;
 	nvgpu_kfree(g, g->gr);
 	g->gr = NULL;
 }
 
 u32 nvgpu_gr_get_syspipe_id(struct gk20a *g, u32 gr_instance_id)
 {
+	/**
+	 * TODO: Need to be called after gr_init.
+	 * http://nvbugs/4127277
+	 */
+	if (!g->is_gr_inited) {
+		return gr_instance_id;
+	}
+
 	return g->gr[gr_instance_id].syspipe_id;
 }
 
@@ -1231,11 +1376,11 @@ bool nvgpu_gr_is_tpc_addr(struct gk20a *g, u32 addr)
 	u32 tpc_in_gpc_shared_base =
 		nvgpu_get_litter_value(g, GPU_LIT_TPC_IN_GPC_SHARED_BASE);
 	bool is_tpc_addr_shared = ((addr >= tpc_in_gpc_shared_base) &&
-			(addr < (tpc_in_gpc_shared_base + tpc_in_gpc_stride)));
+			(addr < (nvgpu_safe_add_u32(tpc_in_gpc_shared_base, tpc_in_gpc_stride))));
 
 	return (((addr >= tpc_in_gpc_base) &&
-		(addr < (tpc_in_gpc_base +
-			(num_tpc_per_gpc * tpc_in_gpc_stride)))) ||
+		(addr < (nvgpu_safe_add_u32(tpc_in_gpc_base,
+			nvgpu_safe_mult_u32(num_tpc_per_gpc, tpc_in_gpc_stride))))) ||
 		is_tpc_addr_shared);
 }
 
@@ -1252,13 +1397,14 @@ u32 nvgpu_gr_get_tpc_num(struct gk20a *g, u32 addr)
 	for (i = 0; i < num_tpcs; i++) {
 		start = tpc_in_gpc_base + (i * tpc_in_gpc_stride);
 		if ((addr >= start) &&
-		    (addr < (start + tpc_in_gpc_stride))) {
+		    (addr < (nvgpu_safe_add_u32(start, tpc_in_gpc_stride)))) {
 			return i;
 		}
 	}
 	return 0;
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 void nvgpu_gr_init_reset_enable_hw_non_ctx_local(struct gk20a *g)
 {
 	u32 i = 0U;
@@ -1275,7 +1421,8 @@ void nvgpu_gr_init_reset_enable_hw_non_ctx_local(struct gk20a *g)
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		for (i = 0U; i < sw_non_ctx_local_gfx_load->count; i++) {
 			nvgpu_writel(g, sw_non_ctx_local_gfx_load->l[i].addr,
 				sw_non_ctx_local_gfx_load->l[i].value);
@@ -1302,7 +1449,8 @@ void nvgpu_gr_init_reset_enable_hw_non_ctx_global(struct gk20a *g)
 	}
 
 #ifdef CONFIG_NVGPU_GRAPHICS
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		for (i = 0U; i < sw_non_ctx_global_gfx_load->count; i++) {
 			nvgpu_writel(g, sw_non_ctx_global_gfx_load->l[i].addr,
 				sw_non_ctx_global_gfx_load->l[i].value);
@@ -1311,4 +1459,164 @@ void nvgpu_gr_init_reset_enable_hw_non_ctx_global(struct gk20a *g)
 #endif
 
 	return;
+}
+
+bool nvgpu_is_gr_class_enabled(struct gk20a *g, u32 flag, u32 gr_instance_id)
+{
+	struct nvgpu_gr *gr = NULL;
+
+	gr = &g->gr[gr_instance_id];
+	if (flag < NVGPU_MAX_ENABLED_GR_CLASS_BITS) {
+		return nvgpu_test_bit(flag, gr->enabled_gr_class_flags);
+	} else {
+		return 0;
+	}
+}
+
+void nvgpu_set_gr_class_enabled(struct gk20a *g, u32 flag, bool state, u32 gr_instance_id)
+{
+	struct nvgpu_gr *gr = NULL;
+
+	gr = &g->gr[gr_instance_id];
+	if (flag >= NVGPU_MAX_ENABLED_GR_CLASS_BITS) {
+		return;
+	}
+	if (state) {
+		nvgpu_set_bit(flag, gr->enabled_gr_class_flags);
+	} else {
+		nvgpu_clear_bit(flag, gr->enabled_gr_class_flags);
+	}
+}
+
+#ifdef CONFIG_NVGPU_DEBUGGER
+int nvgpu_gr_search_pri_addr_map(struct gk20a *g,
+		struct nvgpu_priv_addr_map *p_map, u32 addr, u32 max_offsets,
+		u32 *priv_offset, u32 *num_offsets)
+{
+	u32 end;
+	u32 start;
+	u32 mid;
+	u32 count = p_map->num_entries;
+	u32 slice_start;
+	u32 slice_end;
+	bool is_slice_identical;
+	u32 i;
+
+	start = 0;
+	end = count - 1;
+	while (start < end) {
+		mid = start + ((end - start + 1) / 2);
+		if (addr < p_map->map[mid].addr) {
+			end = mid - 1;
+		} else {
+			start = mid;
+		}
+	}
+
+	/*
+	 * It is not really an error if the address is not found in the pri
+	 * amap. Register could be part of hwpm map.
+	 * (check hal - get_pm_ctx_buffer_offsets)
+	 */
+	if (p_map->map[end].addr != addr) {
+		nvgpu_log(g, gpu_dbg_prof | gpu_dbg_hwpm,
+				"Addr 0x%08x not found in the pri map", addr);
+		return -1;
+	}
+
+	/*
+	 * end now points to the index of an entry that matches the addr.
+	 * However, there could be duplicate addresses on both sides of this
+	 * entry in the sorted addr map. Find the start and end of this slice.
+	 */
+	slice_start = end;
+	slice_end = end + 1;
+	while ((slice_start != 0) && (p_map->map[slice_start - 1].addr == addr)) {
+		slice_start--;
+	}
+	while ((slice_end != max_offsets) && (p_map->map[slice_end].addr == addr)) {
+		slice_end++;
+	}
+
+	/*
+	 * Before GA10B, both SM broadcast and unicast registers were on the
+	 * TPC list. Because the SM broadcast registers get split into unicast
+	 * registers, the SM unicast registers can appear twice in the PRI
+	 * address buffer, though with identical offsets. If the offsets found
+	 * in the slice are the same, we collapse them into one offset.
+	 */
+	is_slice_identical = true;
+	for (i = slice_start; i < slice_end - 1; i++) {
+		if (p_map->map[i].offset != p_map->map[i+1].offset) {
+			is_slice_identical = false;
+		break;
+		}
+	}
+	if (is_slice_identical) {
+		slice_end = slice_start + 1;
+	}
+
+	*num_offsets = slice_end - slice_start;
+	for (i = 0; i < *num_offsets; i++) {
+		priv_offset[i] = p_map->map[slice_start + i].offset;
+	}
+
+	return 0;
+}
+#endif
+
+static void nvgpu_gr_set_mmu_nack_pending_for_instance(struct gk20a *g,
+		u32 ctx_id, bool *handled)
+{
+	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
+
+	nvgpu_mutex_acquire(&gr->pending_mmu_nack_mutex);
+
+	/*
+	 * Check that the faulty context is still on the engine in case we are
+	 * called from the MMU fault handler. In the case of SR-IOV virtualization,
+	 * MMU faults are delivered to the VF and handling may be delayed for an
+	 * indeterminite amount of time. It's possible that the engine has been
+	 * reset and has started running a new context by the time the VF handles
+	 * the MMU fault.
+	 */
+	if (g->ops.gr.falcon.get_current_ctx_id(g) != ctx_id) {
+		*handled = true;
+		goto out;
+	}
+
+	/* The faulty context is still on the engine. The GR ISR and MMU fault ISR
+	 * may be racing to handle the fault. Check whether the fault has already
+	 * been claimed. If so, the caller need not continue with fault recovery.
+	 */
+	if (gr->pending_mmu_nack_ctx_id == ctx_id) {
+		*handled = true;
+		goto out;
+	}
+
+	/*
+	 * The faulty context is still on the engine and has not yet been claimed. Mark
+	 * the context as claimed and indicate to the caller that it should proceed with
+	 * recovery.
+	 */
+	gr->pending_mmu_nack_ctx_id = ctx_id;
+	*handled = false;
+
+out:
+	nvgpu_mutex_release(&gr->pending_mmu_nack_mutex);
+}
+
+bool nvgpu_gr_set_mmu_nack_pending(struct gk20a *g, u32 gr_instance_id,
+		u32 ctx_id)
+{
+	bool handled = false;
+
+	if (g->ops.gr.set_mmu_nack_pending != NULL) {
+		return g->ops.gr.set_mmu_nack_pending(g, gr_instance_id, ctx_id);
+	}
+
+	nvgpu_gr_exec_for_instance(g, gr_instance_id,
+			nvgpu_gr_set_mmu_nack_pending_for_instance(g, ctx_id, &handled));
+
+	return handled;
 }

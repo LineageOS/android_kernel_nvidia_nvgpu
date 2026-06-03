@@ -1,26 +1,5 @@
-/*
- * GA10B FUSE
- *
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/fuse.h>
@@ -114,10 +93,12 @@ u32 ga10b_fuse_status_opt_tpc_gpc(struct gk20a *g, u32 gpc)
 	return nvgpu_readl(g, fuse_status_opt_tpc_gpc_r(gpc));
 }
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 void ga10b_fuse_ctrl_opt_tpc_gpc(struct gk20a *g, u32 gpc, u32 val)
 {
 	nvgpu_writel(g, fuse_ctrl_opt_tpc_gpc_r(gpc), val);
 }
+#endif
 
 u32 ga10b_fuse_status_opt_pes_gpc(struct gk20a *g, u32 gpc)
 {
@@ -139,15 +120,18 @@ u32 ga10b_fuse_opt_sm_ttu_en(struct gk20a *g)
 	return nvgpu_readl(g, fuse_opt_sm_ttu_en_r());
 }
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 void ga10b_fuse_write_feature_override_ecc(struct gk20a *g, u32 val)
 {
 	nvgpu_writel(g, fuse_feature_override_ecc_r(), val);
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 void ga10b_fuse_write_feature_override_ecc_1(struct gk20a *g, u32 val)
 {
 	nvgpu_writel(g, fuse_feature_override_ecc_1_r(), val);
 }
+#endif
 
 static void ga10b_fuse_read_feature_override_ecc_1(struct gk20a *g,
 			struct nvgpu_fuse_feature_override_ecc *ecc_feature)
@@ -248,6 +232,7 @@ int ga10b_fuse_read_per_device_identifier(struct gk20a *g, u64 *pdi)
 	return 0;
 }
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 u32 ga10b_fuse_status_opt_emc(struct gk20a *g)
 {
 	u32 fuse_val = 0;
@@ -273,6 +258,7 @@ u32 ga10b_fuse_status_opt_emc(struct gk20a *g)
 #endif
 	return fuse_val;
 }
+#endif
 
 u32 ga10b_fuse_opt_sec_debug_en(struct gk20a *g)
 {
@@ -365,16 +351,18 @@ int ga10b_fuse_check_priv_security(struct gk20a *g)
 static void check_and_update_fuse_settings(struct gk20a *g, u32 fuse,
 	u32 falcon_feature, unsigned long *fuse_settings)
 {
-	nvgpu_readl(g, fuse) ?
-		nvgpu_set_bit(falcon_feature, fuse_settings) :
+	if (((nvgpu_readl(g, fuse)) != 0U)) {
+		nvgpu_set_bit(falcon_feature, fuse_settings);
+	} else {
 		nvgpu_clear_bit(falcon_feature, fuse_settings);
+	}
 }
 
 int ga10b_fetch_falcon_fuse_settings(struct gk20a *g, u32 falcon_id,
 		unsigned long *fuse_settings)
 {
 	int err = 0;
-
+	unsigned int val = 0;
 	switch (falcon_id) {
 	case FALCON_ID_PMU:
 	case FALCON_ID_PMU_NEXT_CORE:
@@ -416,13 +404,19 @@ int ga10b_fetch_falcon_fuse_settings(struct gk20a *g, u32 falcon_id,
 		 * Bit[0] for AES; Bit[1] for PKC. When this fuse is not blown,
 		 * both AES and PKC are enabled
 		 */
-		nvgpu_readl(g, fuse_pkc_pmu_algo_dis_r()) & AES_ALGO ?
-			nvgpu_set_bit(AES_ALGO_DIS, fuse_settings) :
+		val = nvgpu_readl(g, fuse_pkc_pmu_algo_dis_r());
+		if ((val & AES_ALGO) == AES_ALGO) {
+			nvgpu_set_bit(AES_ALGO_DIS, fuse_settings);
+		} else {
 			nvgpu_clear_bit(AES_ALGO_DIS, fuse_settings);
+			}
 
-		nvgpu_readl(g, fuse_pkc_pmu_algo_dis_r()) & PKC_ALGO ?
-			nvgpu_set_bit(PKC_ALGO_DIS, fuse_settings) :
+		val = nvgpu_readl(g, fuse_pkc_gsp_algo_dis_r());
+		if ((val & PKC_ALGO) == PKC_ALGO) {
+			nvgpu_set_bit(PKC_ALGO_DIS, fuse_settings);
+		} else {
 			nvgpu_clear_bit(PKC_ALGO_DIS, fuse_settings);
+		}
 
 		break;
 	case FALCON_ID_GSPLITE:
@@ -464,13 +458,19 @@ int ga10b_fetch_falcon_fuse_settings(struct gk20a *g, u32 falcon_id,
 		 * Bit[0] for AES; Bit[1] for PKC. When this fuse is not blown,
 		 * both AES and PKC are enabled
 		 */
-		nvgpu_readl(g, fuse_pkc_gsp_algo_dis_r()) & AES_ALGO ?
-			nvgpu_set_bit(AES_ALGO_DIS, fuse_settings) :
+		val = nvgpu_readl(g, fuse_pkc_gsp_algo_dis_r());
+		if	((val & AES_ALGO) == AES_ALGO) {
+			nvgpu_set_bit(AES_ALGO_DIS, fuse_settings);
+		} else {
 			nvgpu_clear_bit(AES_ALGO_DIS, fuse_settings);
+		}
 
-		nvgpu_readl(g, fuse_pkc_gsp_algo_dis_r()) & PKC_ALGO ?
-			nvgpu_set_bit(PKC_ALGO_DIS, fuse_settings) :
+		val = nvgpu_readl(g, fuse_pkc_gsp_algo_dis_r());
+		if ((val & PKC_ALGO) == PKC_ALGO) {
+			nvgpu_set_bit(PKC_ALGO_DIS, fuse_settings);
+		} else {
 			nvgpu_clear_bit(PKC_ALGO_DIS, fuse_settings);
+		}
 		break;
 	default:
 		err = -EINVAL;

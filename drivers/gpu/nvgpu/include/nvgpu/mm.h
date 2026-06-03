@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_MM_H
@@ -25,7 +7,7 @@
 
 /**
  * @file
- * @page unit-mm Unit MM
+ * @page common.mm common.mm
  *
  * Overview
  * ========
@@ -115,6 +97,10 @@
  * Resource utilization
  * --------------------
  *
+ * This unit and its sub-units are used to manage memory allocations for the GPU.
+ * It is designed to allocate memory regions as requested by upper layers in an
+ * efficient way and report failures when appropriate to upper layers.
+ *
  * External APIs
  * -------------
  *
@@ -198,6 +184,37 @@ enum nvgpu_flush_op {
 	 * Clear the Compression Bit Cache memory.
 	 */
 	NVGPU_FLUSH_CBC_CLEAN,
+};
+
+/**
+ * The perfbuf defines the virtual memory allocated and initialized for CBlock
+ * and also holds the details of channels' window of vm for buffer mapping.
+ */
+struct perfbuf {
+	/**
+	 * Pointer to the virtual memory allocated intialized for the cblock
+	 */
+	struct vm_gk20a *vm;
+	/**
+	 * inst_block defines abstracted GPU accessible memory regions.
+	 */
+	struct nvgpu_mem inst_block;
+	/**
+	 * Array of gpu_vas for pma_bytes_available_buffer.
+	 * Indexed with channel index.
+	 */
+	u64 *pma_bytes_available_buffer_gpu_va;
+	/**
+	 * Array of gpu_vas for pma_buffer. Indexed with channel index.
+	 */
+	u64 *pma_buffer_gpu_va;
+	/**
+	 * Refcount for the vm usage. max value of this will be no of channels
+	 * per cblock.
+	 */
+	nvgpu_atomic_t buf_refcount;
+
+	struct nvgpu_mutex lock;
 };
 
 /**
@@ -290,14 +307,16 @@ struct mm_gk20a {
 	 * This structure describes the Performance buffer memory information
 	 * which is used by GPU Profiler.
 	 *
+	 * One perfbuf instance is allocated per cblock unit.
+	 *
 	 * @ingroup MM_CLIENT_MEMORY_INFORMATION_FORMAT_2
 	 */
-	struct {
-		struct vm_gk20a *vm;
-		struct nvgpu_mem inst_block;
-		u64 pma_bytes_available_buffer_gpu_va;
-		u64 pma_buffer_gpu_va;
-	} perfbuf;
+	struct perfbuf *perfbuf;
+
+	/**
+	 * Number of the entries into the perfbuf
+	 */
+	u32 num_of_perfbuf;
 
 	/**
 	 * This structure describes the Color Decompression engine
@@ -340,7 +359,7 @@ struct mm_gk20a {
 	struct mmu_fault_info fault_info[NVGPU_MMU_FAULT_TYPE_NUM];
 	/** Lock to serialize Hub isr Operations. */
 	struct nvgpu_mutex hub_isr_mutex;
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
 	/**
 	 * Separate function to cleanup the CE since it requires a channel to
 	 * be closed which must happen before fifo cleanup.
@@ -454,6 +473,12 @@ struct mm_gk20a {
 		nvgpu_atomic64_t bytes_pending;
 	} vidmem;
 #endif
+
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+	struct {
+		u32 ce_ctx_id;
+	} cbc;
+#endif
 	/** GMMU debug write buffer. */
 	struct nvgpu_mem mmu_wr_mem;
 	/** GMMU debug read buffer. */
@@ -506,9 +531,31 @@ static inline u64 nvgpu_gmmu_va_small_page_limit(void)
 	return ((u64)SZ_1G * 56U);
 }
 
-#ifdef CONFIG_NVGPU_DGPU
-void nvgpu_init_mm_ce_context(struct gk20a *g);
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
+int nvgpu_init_mm_ce_context_find_gfx_gpu_instance(struct gk20a *g, u32 *gpu_instance_id);
+int nvgpu_init_mm_ce_context(struct gk20a *g, u32 gr_instance_id);
 #endif
+
+/**
+ * @brief Initialize the virtual memory (VM) for the Copy Engine (CE).
+ *
+ * This function sets up the virtual memory for the CE, including calculating the
+ * user and kernel space sizes and initializing the VM with the appropriate big
+ * page size.
+ *
+ * The steps performed by the function are as follows:
+ * -# Retrieve the GPU context from the memory management structure using 'gk20a_from_mm()'.
+ * -# Get the default big page size from the GPU operations using 'gops_mm_gmmu.get_default_big_page_size()'.
+ * -# Obtain the default user and kernel virtual address space sizes using 'gops_mm.get_default_va_sizes()'.
+ * -# Initialize the CE VM using 'nvgpu_vm_init()' with the calculated big page size, user size, and kernel size.
+ *    If the VM initialization fails, return -ENOMEM.
+ * -# If the VM initialization is successful, return 0 indicating success.
+ *
+ * @param [in]  mm  The memory management structure.
+ *
+ * @return 0 on success, or -ENOMEM if VM initialization fails.
+ */
+int nvgpu_init_ce_vm(struct mm_gk20a *mm);
 
 /**
  * @brief All memory requests made by the GPU (with a few exceptions) are
@@ -633,6 +680,19 @@ void nvgpu_free_inst_block(struct gk20a *g, struct nvgpu_mem *inst_block);
  * - CPU polling timeout during FB or L2 flush operation (-EBUSY).
  */
 int nvgpu_mm_suspend(struct gk20a *g);
+
+/**
+ * @brief Get the default huge page size in bytes.
+ *
+ * @param g	[in]	The GPU.
+ *
+ * Default huge page size:
+ *  - Not all platform supports huge page size.
+ *
+ * @return Valid huge page size if huge page is supported.
+ * @return 0 if huge page is not supported.
+ */
+u32 nvgpu_mm_get_default_huge_page_size(struct gk20a *g);
 
 /**
  * @brief Get the default big page size in bytes.

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ENGINE_H
@@ -33,12 +15,41 @@
 struct gk20a;
 struct nvgpu_device;
 
-/** @cond DOXYGEN_SHOULD_SKIP_THIS */
+/**
+ * PBDMA engine instance 0.
+ */
 #define ENGINE_PBDMA_INSTANCE0 0U
 
+/**
+ * @brief Initialize additional device information for a given device.
+ *
+ * This function is responsible for initializing the Parallel Data Mover (PBDMA)
+ * information for a specific device. It checks if the platform is post-ga10b
+ * and if so, it retrieves the PBDMA information using the device's runlist
+ * priority base address. It validates that at least one PBDMA instance is
+ * associated with the device and updates the device's PBDMA ID with this
+ * information.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the platform is pre-ga10b by verifying if the function pointer
+ *    gops_runlist.get_engine_id_from_rleng_id() is NULL. If it is NULL, the function
+ *    returns success as no further initialization is required.
+ * -# Retrieve the PBDMA information for the device using the runlist priority
+ *    base address by calling gops_runlist.get_pbdma_info().
+ * -# Validate that the first PBDMA instance (instance 0) is valid by checking
+ *    if its ID is not equal to #NVGPU_INVALID_PBDMA_ID. If it is invalid,
+ *    log an error and return -EINVAL.
+ * -# Update the device's PBDMA ID with the ID of the first PBDMA instance.
+ * -# Return success.
+ *
+ * @param [in]  g        The GPU driver struct.
+ * @param [in]  dev      The device whose additional information is to be initialized.
+ *
+ * @return 0 upon success.
+ * @return -EINVAL if the PBDMA information is invalid.
+ */
 int nvgpu_engine_init_one_dev_extra(struct gk20a *g,
 		const struct nvgpu_device *dev);
-/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
 
 /**
  * Invalid engine id value.
@@ -98,7 +109,7 @@ enum nvgpu_fifo_engine nvgpu_engine_enum_from_dev(struct gk20a *g,
  * @param engine_id [in]	Active (h/w) Engine id.
  *
  * If #engine_id is one of the supported h/w engine ids, get pointer to
- * #nvgpu_engine_info from an array of structures that is indexed by h/w
+ * #nvgpu_device from an array of structures that is indexed by h/w
  * engine id.
  *
  * @return Pointer to #nvgpu_device.
@@ -127,7 +138,8 @@ const struct nvgpu_device *nvgpu_engine_get_active_eng_info(
 bool nvgpu_engine_check_valid_id(struct gk20a *g, u32 engine_id);
 /**
  * @brief Get h/w engine id based on engine's instance identification number
- *        #NVGPU_ENGINE_GR engine enum type.
+ *        #NVGPU_ENGINE_GR engine enum type using nvgpu_device_get() with device type
+ *        #NVGPU_DEVTYPE_GRAPHICS.
  *
  * @param g [in]		The GPU driver struct.
  * @param inst_id [in]		Engine's instance identification number.
@@ -143,7 +155,7 @@ u32 nvgpu_engine_get_gr_id_for_inst(struct gk20a *g, u32 inst_id);
  *
  * @param g [in]		The GPU driver struct.
  *
- * Call #nvgpu_engine_get_ids to get first available #NVGPU_ENGINE_GR
+ * Call nvgpu_engine_get_gr_id_for_inst() to get first available #NVGPU_ENGINE_GR
  * engine enum type.
  *
  * @return First available h/w engine id for #NVGPU_ENGINE_GR engine enum type.
@@ -243,112 +255,107 @@ void nvgpu_engine_reset(struct gk20a *g, u32 engine_id);
 #endif
 /**
  * @brief Get runlist id for the last available #NVGPU_ENGINE_ASYNC_CE
- *         engine enum type.
+ *        engine enum type that is bound to the specified GPU instance
+ *        id.
  *
- * @param g [in]		The GPU driver struct.
+ * @param g [in]		            The GPU driver struct.
+ * @param gpu_instance_id [in]		The GPU instance id.
+ * @param ce_runlist_id [out]		The CE runlist id.
  *
- * - Call #nvgpu_engine_get_gr_runlist_id to get runlist id for the first
- *   available #NVGPU_ENGINE_GR engine type.
- * - Get #nvgpu_engine_info.runlist_id for last available #NVGPU_ENGINE_ASYNC_CE
- *   engine enum type.
- *   - Get pointer to #nvgpu_engine_info for each of #nvgpu_fifo.num_engines.
- *   - Get #nvgpu_engine_info.runlist_id for the #nvgpu_engine_info.engine_enum
- *     type matching with #NVGPU_ENGINE_ASYNC_CE.
+ * - Obtain gpu_instance object based on the gpu_instance_id.
+ * - Loop in reverse through all Logical Copy Engine (LCE) that is
+ *   assigned to the specified GPU instance.
+ * - Find the first LCE with type #NVGPU_ENGINE_ASYNC_CE, write out
+ *   its runlist id into ce_runlist_id and return 0 for success.
+ * - If not LCE is found, return -ENOENT to indicate that no LCE
+ *   is found.
  *
- * @return #nvgpu_engine_info.runlist_id for the last available
- *         #NVGPU_ENGINE_ASYNC_CE engine enum type.
- * @retval Return value of #nvgpu_engine_get_gr_runlist_id if #g is NULL.
- * @retval Return value of #nvgpu_engine_get_gr_runlist_id if
- *         #NVGPU_ENGINE_ASYNC_CE engine enum type is not available.
- * @retval Return value of #nvgpu_engine_get_gr_runlist_id if
- *         #nvgpu_fifo.num_engines is 0.
+ * @retval Return value 0 on success.
+ * @retval Return value -ENOENT on failure.
  */
-u32 nvgpu_engine_get_fast_ce_runlist_id(struct gk20a *g);
+int nvgpu_engine_get_fast_ce_runlist_id(struct gk20a *g, u32 gpu_instance_id, u32 *ce_runlist_id);
+
 /**
- * @brief Get runlist id for the first available #NVGPU_ENGINE_GR engine enum
- *        type.
+ * @brief Retrieves the runlist ID for the graphics engine.
  *
- * @param g [in]		The GPU driver struct.
+ * This function obtains the device information for the graphics engine and returns
+ * the associated runlist ID. If no graphics device is found, it returns an invalid
+ * runlist ID.
  *
- * - Get h/w engine id for the first available #NVGPU_ENGINE_GR engine enum
- *   type.
- * -- Get #nvgpu_engine_info for the first available gr engine id.
- * -- Get #nvgpu_engine_info.runlist_id for first available gr engine id.
+ * The steps performed by the function are as follows:
+ * -# Retrieve the device information for the first graphics engine instance using
+ *    nvgpu_device_get().
+ * -# Check if the retrieved device information is valid.
+ * -# If the device information is not valid, return an invalid runlist ID.
+ * -# If the device information is valid, return the runlist ID associated with
+ *    the graphics engine.
  *
- * @return #nvgpu_engine_info.runlist_id for the first available gr engine id.
- * @retval U32_MAX if #NVGPU_ENGINE_GR engine enum type is not available.
- * @retval U32_MAX if pointer to #nvgpu_engine_info for the first available
- *         gr h/w engine id is NULL.
+ * @param [in] g  Pointer to the GPU driver struct.
+ *
+ * @return Runlist ID of the graphics engine.
+ * @return #NVGPU_INVALID_RUNLIST_ID if no graphics device is found.
  */
 u32 nvgpu_engine_get_gr_runlist_id(struct gk20a *g);
 /**
- * @brief Get runlist id for the first available #NVGPU_ENGINE_NVENC engine enum
+ * @brief Get runlist id for the given instance of #NVGPU_ENGINE_NVENC engine enum
  *        type.
  *
  * @param g [in]		The GPU driver struct.
+ * @param inst_id [in]		NVENC engine's instance id
  *
- * - Get h/w engine id for the first available #NVGPU_ENGINE_NVENC engine enum
- *   type.
- * -- Get #nvgpu_engine_info for the first available nvenc engine id.
- * -- Get #nvgpu_engine_info.runlist_id for first available nvenc engine id.
+ * -- Get #nvgpu_device for the requested instance of nvenc engine id.
+ * -- Return #nvgpu_device.runlist_id for the same.
  *
- * @return #nvgpu_engine_info.runlist_id for the first available nvenc engine id.
- * @retval U32_MAX if #NVGPU_ENGINE_NVENC engine enum type is not available.
- * @retval U32_MAX if pointer to #nvgpu_engine_info for the first available
- *         nvenc h/w engine id is NULL.
+ * @return #nvgpu_device.runlist_id for the given instance of nvenc engine id.
+ * @retval NVGPU_INVALID_RUNLIST_ID if #nvgpu_device is not available for the nvenc
+ *         instance.
  */
-u32 nvgpu_engine_get_nvenc_runlist_id(struct gk20a *g);
+u32 nvgpu_engine_get_nvenc_runlist_id(struct gk20a *g, u32 inst_id);
 /**
- * @brief Get runlist id for the first available #NVGPU_ENGINE_OFA engine enum
+ * @brief Get runlist id for the given instance of #NVGPU_ENGINE_OFA engine enum
  *        type.
  *
  * @param g [in]		The GPU driver struct.
+ * @param inst_id [in]		OFA engine's instance id
  *
- * - Get h/w engine id for the first available #NVGPU_ENGINE_OFA engine enum
- *   type.
- * -- Get #nvgpu_engine_info for the first available ofa engine id.
- * -- Get #nvgpu_engine_info.runlist_id for first available ofa engine id.
+ * -- Get #nvgpu_device for the requested instance of ofa engine id.
+ * -- Return #nvgpu_device.runlist_id for the same.
  *
- * @return #nvgpu_engine_info.runlist_id for the first available ofa engine id.
- * @retval U32_MAX if #NVGPU_ENGINE_OFA engine enum type is not available.
- * @retval U32_MAX if pointer to #nvgpu_engine_info for the first available
- *         ofa h/w engine id is NULL.
+ * @return #nvgpu_device.runlist_id for the given instance of ofa engine id.
+ * @retval NVGPU_INVALID_RUNLIST_ID if #nvgpu_device is not available for the ofa
+ *         instance.
  */
-u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g);
+u32 nvgpu_engine_get_ofa_runlist_id(struct gk20a *g, u32 inst_id);
 /**
- * @brief Get runlist id for the first available #NVGPU_ENGINE_NVDEC engine enum
+ * @brief Get runlist id for the given instance of #NVGPU_ENGINE_NVDEC engine enum
  *        type.
  *
  * @param g [in]		The GPU driver struct.
+ * @param inst_id [in]		NVDEC engine's instance id
  *
- * - Get h/w engine id for the first available #NVGPU_ENGINE_NVDEC engine enum
- *   type.
- * -- Get #nvgpu_engine_info for the first available nvdec engine id.
- * -- Get #nvgpu_engine_info.runlist_id for first available nvdec engine id.
+ * -- Get #nvgpu_device for the requested instance of nvdec engine id.
+ * -- Return #nvgpu_device.runlist_id for the same.
  *
- * @return #nvgpu_engine_info.runlist_id for the first available nvdec engine id.
- * @retval U32_MAX if #NVGPU_ENGINE_NVDEC engine enum type is not available.
- * @retval U32_MAX if pointer to #nvgpu_engine_info for the first available
- *         nvdec h/w engine id is NULL.
+ * @return #nvgpu_device.runlist_id for the given instance of nvdec engine id.
+ * @retval NVGPU_INVALID_RUNLIST_ID if #nvgpu_device is not available for the nvdec
+ *         instance.
  */
-u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g);
+u32 nvgpu_engine_get_nvdec_runlist_id(struct gk20a *g, u32 inst_id);
 /**
- * @brief Get runlist id for the first available #NVGPU_ENGINE_NVJPG engine enum
+ * @brief Get runlist id for the given instance of #NVGPU_ENGINE_NVJPG engine enum
  *        type.
  *
  * @param g [in]		The GPU driver struct.
+ * @param inst_id [in]		NVJPG engine's instance id
  *
- * - Get h/w engine id for the first available #NVGPU_ENGINE_NVJPG engine enum
- *   type.
- * -- Get #nvgpu_engine_info for the first available nvjpg id.
- * -- Get #nvgpu_engine_info.runlist_id for first available nvjpg engine id.
+ * -- Get #nvgpu_device for the requested instance of nvjpg engine id.
+ * -- Return #nvgpu_device.runlist_id for the same.
  *
- * @return #nvgpu_engine_info.runlist_id for the first available nvjpg engine id.
- * @retval U32_MAX if #NVGPU_ENGINE_NVJPG engine enum type is not available.
- * @retval U32_MAX if pointer to #nvgpu_engine_info for the first available
- *         nvjpg h/w engine id is NULL.
+ * @return #nvgpu_device.runlist_id for the given instance of nvjpg engine id.
+ * @retval NVGPU_INVALID_RUNLIST_ID if #nvgpu_device is not available for the nvjpg
+ *         instance.
  */
-u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g);
+u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g, u32 inst_id);
 /**
  * @brief Check if runlist id corresponds to runlist id of one of the
  *        engine ids supported by h/w.
@@ -357,11 +364,11 @@ u32 nvgpu_engine_get_nvjpg_runlist_id(struct gk20a *g);
  * @param runlist_id [in]	Runlist id.
  *
  * Check if #runlist_id corresponds to runlist id of one of the engine
- * ids supported by h/w by checking #nvgpu_engine_info for each of
+ * ids supported by h/w by checking #nvgpu_device for each of
  * #nvgpu_fifo.num_engines engines.
  *
  * @return True if #runlist_id is valid.
- * @return False if #nvgpu_engine_info is NULL for all the engine ids starting
+ * @return False if #nvgpu_device is NULL for all the engine ids starting
  *         with 0 upto #nvgpu_fifo.num_engines or #runlist_id did not match with
  *         any of the runlist ids of engine ids supported by h/w.
  */
@@ -374,22 +381,41 @@ bool nvgpu_engine_is_valid_runlist_id(struct gk20a *g, u32 runlist_id);
  * @param runlist_id [in]	Runlist id.
  *
  * Check if #runlist_id corresponds to runlist id of one of the multimedia engines
- * supported by h/w, by checking #nvgpu_engine_info for each of the supported
+ * supported by h/w, by checking #nvgpu_device for each of the supported
  * multimedia engines in #nvgpu_fifo.num_engines engines.
  *
  * @return True if #runlist_id is valid.
- * @return False if #nvgpu_engine_info is NULL for all multimedia engines starting
+ * @return False if #nvgpu_device is NULL for all multimedia engines starting
  *         with 0 up to #nvgpu_fifo.num_engines or #runlist_id did not match with
  *         any of the runlist ids of multimedia engine ids supported by h/w.
  */
 bool nvgpu_engine_is_multimedia_runlist_id(struct gk20a *g, u32 runlist_id);
+/**
+ * @brief Check if the given runlist id belongs to one of the multimedia engines
+ *        supported by the h/w and return the respective multimedia id.
+ *
+ * @param g [in]		The GPU driver struct.
+ * @param runlist_id [in]	Runlist id.
+ *
+ * Check if #runlist_id corresponds to runlist id of one of the multimedia engines
+ * supported by h/w, by checking #nvgpu_device for each of the supported
+ * multimedia engines in #nvgpu_fifo.num_engines engines and return the matching
+ * multimedia id.
+ *
+ * @return Valid multimedia id corresponding to #runlist_id.
+ * @retval Invalid multimedia id, #NVGPU_MULTIMEDIA_ENGINE_MAX,
+ *         if #nvgpu_device is NULL for all multimedia engines starting
+ *         with 0 up to #NVGPU_MULTIMEDIA_ENGINE_MAX-1 or #runlist_id did not match with
+ *         any of the runlist ids of multimedia engine ids supported by h/w.
+ */
+u32 nvgpu_engine_multimedia_id_from_runlist(struct gk20a *g, u32 runlist_id);
 /**
  * @brief Get mmu fault id for the engine id.
  *
  * @param g [in]		The GPU driver struct.
  * @param engine_id [in]	Engine id.
  *
- * Get pointer to #nvgpu_engine_info for the #engine_id. Use this pointer to
+ * Get pointer to #nvgpu_device for the #engine_id. Use this pointer to
  * get mmu fault id for the #engine_id.
  *
  * @return Mmu fault id for #engine_id.
@@ -403,12 +429,12 @@ u32 nvgpu_engine_id_to_mmu_fault_id(struct gk20a *g, u32 engine_id);
  * @param fault_id [in]		Mmu fault id.
  *
  * Check if #fault_id corresponds to fault id of one of the active engine
- * ids supported by h/w by checking #nvgpu_engine_info for each of
+ * ids supported by h/w by checking #nvgpu_device for each of
  * #nvgpu_fifo.num_engines engines.
  *
  * @return Valid engine id corresponding to #fault_id.
  * @retval Invalid engine id, #NVGPU_INVALID_ENG_ID if pointer to
- *         #nvgpu_engine_info is NULL for the  engine ids starting with
+ *         #nvgpu_device is NULL for the  engine ids starting with
  *         0 upto #nvgpu_fifo.num_engines or
  *         #fault_id did not match with any of the fault ids of h/w engine ids.
  */
@@ -418,30 +444,28 @@ u32 nvgpu_engine_mmu_fault_id_to_engine_id(struct gk20a *g, u32 fault_id);
  * recovery is not supported in the safety build.
  */
 u32 nvgpu_engine_get_mask_on_id(struct gk20a *g, u32 id, bool is_tsg);
+
 /**
- * @brief Read device info h/w registers to get engine info.
+ * @brief Initializes the engine information for the GPU.
  *
- * @param f [in]	Pointer to #nvgpu_fifo struct.
+ * This function sets up the engine information by iterating over all graphics
+ * devices and initializing each one. It also initializes the copy engine info
+ * by calling a specific function from the GPU operations structure.
  *
- * - Get device info related info for h/w engine enum type,
- *   #NVGPU_DEVTYPE_GRAPHICS.
- * - Get PBDMA id serving the runlist id of the h/w engine enum type,
- *   #NVGPU_DEVTYPE_GRAPHICS.
- * - Get s/w defined engine enum type for the h/w engine enum type read
- *   from device info registers.
- * - Initialize #nvgpu_fifo.engine_info and #nvgpu_fifo.active_engines_list
- *   with the data from local device info struct and also initialize s/w
- *   variable.
- *   #nvgpu_fifo.num_engines that is used to count total number of valid h/w
- *   engine ids read from device info h/w registers.
- * - Call function to initialize CE engine info.
+ * The steps performed by the function are as follows:
+ * -# Set the number of engines to zero.
+ * -# Iterate over each graphics device:
+ *    -# Call 'nvgpu_engine_init_one_dev()' to initialize the engine information
+ *       for the current device.
+ *    -# If an error occurs during the initialization of a device, return the
+ *       error code immediately.
+ * -# After all graphics devices are initialized, call gops_engine.init_ce_info() from the
+ *    GPU operations structure to initialize the copy engine information.
+ * -# Return zero to indicate success.
  *
- * @return 0 upon success.
- * @retval -EINVAL if call to function to get device info related info for
- *         h/w engine enum type, #NVGPU_DEVTYPE_GRAPHICS returned failure.
- * @retval -EINVAL if call to function to get pbdma id for runlist id of
- *         h/w engine enum type, #NVGPU_DEVTYPE_GRAPHICS returned failure.
- * @retval Return value of function called to initialize CE engine info.
+ * @param [in] f  Pointer to the GPU FIFO struct containing engine information.
+ *
+ * @return Zero on success, or a negative error code on failure.
  */
 int nvgpu_engine_init_info(struct nvgpu_fifo *f);
 
@@ -493,9 +517,10 @@ u32 nvgpu_engine_mmu_fault_id_to_veid(struct gk20a *g, u32 mmu_fault_id,
  * @param veid [in,out]		Pointer to store veid.
  * @param pbdma_id [in,out]	Pointer to store pbdma id.
  *
- * Calls function to get h/w engine id and veid for given #mmu_fault_id.
- * If h/w (active) engine id is not #INVAL_ID, call function to get pbdma id for
- * the engine having fault id as #mmu_fault_id.
+ * Calls function nvgpu_engine_mmu_fault_id_to_eng_id_and_veid() to get h/w engine id and veid for
+ * given #mmu_fault_id.
+ * If h/w (active) engine id is not #INVAL_ID, call function to get pbdma id for the engine having
+ * fault id as #mmu_fault_id. Otherwise, set pbdma id as #INVAL_ID.
  *
  * @return Updated #engine_id, #veid and #pbdma_id pointers
  */
@@ -513,4 +538,21 @@ void nvgpu_engine_mmu_fault_id_to_eng_ve_pbdma_id(struct gk20a *g,
  */
 void nvgpu_engine_remove_one_dev(struct nvgpu_fifo *f,
 		const struct nvgpu_device *dev);
+
+/**
+ * @brief halt engines in the GPU.
+ *
+ * @param g [in]		The GPU driver struct.
+ *
+ * - For each supported FIFO engine, call respective hal to halt the
+ *   engine.
+ * - In case ctxsw fails to halt, error is returned to the caller.
+ *   In that case, other engines are halted. On reloading the driver
+ *   ctxsw reset will not work though.
+ *
+ * @return 0 upon success.
+ * @retval < 0 if call to halt GR ctxsw fails.
+ */
+int nvgpu_halt_engines(struct gk20a *g);
+
 #endif /*NVGPU_ENGINE_H*/

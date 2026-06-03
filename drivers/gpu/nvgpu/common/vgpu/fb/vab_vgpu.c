@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/string.h>
 #include <nvgpu/gk20a.h>
@@ -36,15 +17,13 @@ int vgpu_fb_vab_reserve(struct gk20a *g, u32 vab_mode, u32 num_range_checkers,
 	struct tegra_vgpu_fb_vab_reserve_params *p = &msg.params.fb_vab_reserve;
 	int err;
 	void *oob;
-	void *oob_handle;
 	size_t size, oob_size;
+	int ivc;
 
-	oob_handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD, &oob, &oob_size);
-	if (!oob_handle) {
-		return -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, &oob, &oob_size);
+	if (ivc < 0) {
+		return ivc;
 	}
-
 	size = sizeof(*vab_range_checker) * num_range_checkers;
 	if (oob_size < size) {
 		err = -ENOMEM;
@@ -57,7 +36,7 @@ int vgpu_fb_vab_reserve(struct gk20a *g, u32 vab_mode, u32 num_range_checkers,
 	p->num_range_checkers = num_range_checkers;
 
 	nvgpu_memcpy((u8 *)oob, (u8 *)vab_range_checker, size);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 
 	err = err != 0 ? err : msg.ret;
 	if (err != 0) {
@@ -65,7 +44,7 @@ int vgpu_fb_vab_reserve(struct gk20a *g, u32 vab_mode, u32 num_range_checkers,
 	}
 
 done:
-	vgpu_ivc_oob_put_ptr(oob_handle);
+	vgpu_comm_free_ivc(g, ivc);
     return err;
 }
 
@@ -77,13 +56,12 @@ int vgpu_fb_vab_dump_and_clear(struct gk20a *g, u8 *user_buf,
 			&msg.params.fb_vab_dump_and_clear;
 	int err;
 	void *oob;
-	void *oob_handle;
 	size_t oob_size;
+	int ivc;
 
-	oob_handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-			TEGRA_VGPU_QUEUE_CMD, &oob, &oob_size);
-	if (!oob_handle) {
-		return -EINVAL;
+	ivc = vgpu_comm_alloc_ivc_oob(g, &oob, &oob_size);
+	if (ivc < 0) {
+		return ivc;
 	}
 
 	if (oob_size < user_buf_size) {
@@ -95,7 +73,7 @@ int vgpu_fb_vab_dump_and_clear(struct gk20a *g, u8 *user_buf,
 	msg.handle = vgpu_get_handle(g);
 	p->user_buf_size = user_buf_size;
 
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 
 	err = err != 0 ? err : msg.ret;
 	if (err == 0) {
@@ -105,7 +83,7 @@ int vgpu_fb_vab_dump_and_clear(struct gk20a *g, u8 *user_buf,
 	}
 
 done:
-	vgpu_ivc_oob_put_ptr(oob_handle);
+	vgpu_comm_free_ivc(g, ivc);
 	return err;
 }
 
@@ -116,7 +94,7 @@ int vgpu_fb_vab_release(struct gk20a *g)
 
 	msg.cmd = TEGRA_VGPU_CMD_FB_VAB_RELEASE;
 	msg.handle = vgpu_get_handle(g);
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	err = err != 0 ? err : msg.ret;
 	if (err != 0) {
 		nvgpu_err(g, "fb vab release failed err %d", err);

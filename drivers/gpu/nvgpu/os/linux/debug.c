@@ -1,18 +1,5 @@
-/*
- * Copyright (C) 2017-2023, NVIDIA Corporation.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include "debug_cde.h"
 #include "debug_fifo.h"
@@ -28,33 +15,24 @@
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 #include "debug_gsp.h"
 #endif
+#include "debug_multimedia.h"
+#include "debug_boot_time.h"
+#include "debug_c2c.h"
 #include "os_linux.h"
 #include "platform_gk20a.h"
 
 #include <nvgpu/gk20a.h>
+#include <nvgpu/power_features/cg.h>
 #include <nvgpu/power_features/pg.h>
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/tsg.h>
 
 #include <linux/debugfs.h>
-#include <linux/seq_file.h>
 #include <linux/uaccess.h>
 
 #include <nvgpu/debug.h>
 
 unsigned int gk20a_debug_trace_cmdbuf;
-
-static inline void gk20a_debug_write_printk(void *ctx, const char *str)
-{
-	struct gk20a *g = ctx;
-
-	nvgpu_dbg_dump_impl(g, str);
-}
-
-static inline void gk20a_debug_write_to_seqfile(void *ctx, const char *str)
-{
-	seq_printf((struct seq_file *)ctx, "%s\n", str);
-}
 
 void gk20a_debug_output(struct nvgpu_debug_context *o, const char *fmt, ...)
 {
@@ -95,6 +73,26 @@ void gk20a_gr_debug_dump(struct gk20a *g)
 	gk20a_gr_dump_regs(g, &o);
 }
 
+static int gk20a_fecs_gr_dump_regs(struct gk20a *g,
+		struct nvgpu_debug_context *o)
+{
+	if (g->ops.gr.dump_fecs_gr_regs)
+		nvgpu_pg_elpg_protected_call(g,
+			g->ops.gr.dump_fecs_gr_regs(g, o));
+
+	return 0;
+}
+
+void gk20a_fecs_gr_debug_dump(struct gk20a *g)
+{
+	struct nvgpu_debug_context o = {
+		.fn = gk20a_debug_write_printk,
+		.ctx = g,
+	};
+
+	gk20a_fecs_gr_dump_regs(g, &o);
+}
+
 static int gk20a_gr_debug_show(struct seq_file *s, void *unused)
 {
 	struct device *dev = s->private;
@@ -116,6 +114,16 @@ static int gk20a_gr_debug_show(struct seq_file *s, void *unused)
 	gk20a_idle(g);
 
 	return 0;
+}
+
+void nvgpu_multimedia_debug_dump(struct gk20a *g, const struct nvgpu_device *dev)
+{
+	struct nvgpu_debug_context o = {
+		.fn = gk20a_debug_write_printk,
+		.ctx = g,
+	};
+
+	(void) nvgpu_multimedia_debug_common(g, dev, &o);
 }
 
 void gk20a_debug_dump(struct gk20a *g)
@@ -257,10 +265,10 @@ static int railgate_residency_show(struct seq_file *s, void *data)
 
 	seq_printf(s, "Time with Rails Gated: %lu ms\n"
 			"Time with Rails UnGated: %lu ms\n"
-			"Total railgating cycles: %lu\n",
+			"Total railgating cycles: %llu\n",
 			total_rail_gate_time_ms,
 			total_rail_ungate_time_ms,
-			g->pstats.railgating_cycle_count - 1);
+			g->pstats.railgating_cycle_count - 1ULL);
 	return 0;
 
 }
@@ -277,6 +285,28 @@ static const struct file_operations railgate_residency_fops = {
 	.release	= single_release,
 };
 
+static int railgate_transitions_show(struct seq_file *s, void *data)
+{
+	struct gk20a *g = s->private;
+
+	seq_printf(s, "%llu\n",
+		nvgpu_safe_sub_u64(g->pstats.railgating_cycle_count, 1ULL));
+
+	return 0;
+}
+
+static int railgate_transitions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, railgate_transitions_show, inode->i_private);
+}
+
+static const struct file_operations railgate_transitions_fops = {
+	.open		= railgate_transitions_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 static int gk20a_railgating_debugfs_init(struct gk20a *g)
 {
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
@@ -288,10 +318,139 @@ static int gk20a_railgating_debugfs_init(struct gk20a *g)
 						&railgate_residency_fops);
 		if (!d)
 			return -ENOMEM;
+
+		d = debugfs_create_file(
+			"railgate_transitions", S_IRUGO|S_IWUSR, l->debugfs, g,
+						&railgate_transitions_fops);
+		if (!d)
+			return -ENOMEM;
 	}
+	return 0;
+}
+
+static int elcg_residency_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 elcg_residency;
+
+	elcg_residency = nvgpu_cg_get_elcg_residency(g);
+
+	seq_printf(s, "Sub Feature ID : %#X\nResidency : %u\n",
+			g->elcg_ctrl->sub_feature_id,
+			elcg_residency);
 
 	return 0;
 }
+
+static int elcg_residency_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, elcg_residency_show, inode->i_private);
+}
+
+static const struct file_operations elcg_residency_fops = {
+	.open		= elcg_residency_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int elcg_entry_count_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 elcg_entry_count;
+
+	elcg_entry_count = nvgpu_cg_get_elcg_entry_count(g);
+
+	seq_printf(s, "Sub Feature ID : %#X\nEntry Count : %u\n",
+			g->elcg_ctrl->sub_feature_id,
+			elcg_entry_count);
+
+	return 0;
+}
+
+static int elcg_entry_count_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, elcg_entry_count_show, inode->i_private);
+}
+
+static const struct file_operations elcg_entry_count_fops = {
+	.open		= elcg_entry_count_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int lpwr_residency_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	struct lpwr_mon_params *lpwr_mon = &g->pmu->lpwr_mon;
+	u32 lpwr_residency;
+
+	lpwr_residency = nvgpu_pg_get_lpwr_lp_residency(g);
+
+	seq_printf(s, "LPWR_MON Index : %d\nResidency : %u\n",
+			lpwr_mon->lpwr_mon_index,
+			lpwr_residency);
+
+	return 0;
+}
+
+static int lpwr_residency_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, lpwr_residency_show, inode->i_private);
+}
+
+static const struct file_operations lpwr_residency_fops = {
+	.open		= lpwr_residency_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int sysclk_slowdown_entry_count_show(struct seq_file *s, void *data)
+{
+	struct device *dev = s->private;
+	struct gk20a *g = gk20a_get_platform(dev)->g;
+	u32 sysclk_slowdown_entry_count;
+	int err;
+
+	err = gk20a_busy(g);
+	if (err)
+		return err;
+
+	err = nvgpu_pmu_wait_pg_ready(g, g->pmu);
+	if (err != 0) {
+		nvgpu_err(g, "ELPG not booted yet, can't process RPCs");
+		return 0;
+	}
+
+	sysclk_slowdown_entry_count = nvgpu_cg_get_sysclk_slowdown_entry_count(g);
+
+	seq_printf(s,
+			"SYSCLK Slowdown Entry Count : %u\n", sysclk_slowdown_entry_count);
+
+	gk20a_idle(g);
+
+	return 0;
+}
+
+static int sysclk_slowdown_entry_count_open(struct inode *inode,
+							struct file *file)
+{
+	return single_open(file, sysclk_slowdown_entry_count_show,
+							inode->i_private);
+}
+
+static const struct file_operations sysclk_slowdown_entry_count_fops = {
+	.open		= sysclk_slowdown_entry_count_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 static ssize_t timeouts_enabled_read(struct file *file,
 			char __user *user_buf, size_t count, loff_t *ppos)
 {
@@ -510,6 +669,18 @@ void gk20a_debug_init(struct gk20a *g, const char *debugfs_symlink)
 	debugfs_create_bool("runlist_interleave", S_IRUGO|S_IWUSR, l->debugfs,
 			    &g->runlist_interleave);
 
+	debugfs_create_file("elcg_residency", S_IRUGO, l->debugfs,
+		dev, &elcg_residency_fops);
+
+	debugfs_create_file("elcg_entry_count", S_IRUGO, l->debugfs,
+		dev, &elcg_entry_count_fops);
+
+	debugfs_create_file("lpwr_residency", S_IRUGO, l->debugfs,
+		dev, &lpwr_residency_fops);
+
+	debugfs_create_file("sysclk_slowdown_entry_count", S_IRUGO, l->debugfs,
+		dev, &sysclk_slowdown_entry_count_fops);
+
 	gr_gk20a_debugfs_init(g);
 #ifndef CONFIG_NVGPU_EMB_LINUX_PROD_BUILD
 	gk20a_pmu_debugfs_init(g);
@@ -535,6 +706,11 @@ void gk20a_debug_init(struct gk20a *g, const char *debugfs_symlink)
 #ifdef CONFIG_NVGPU_GSP_STRESS_TEST
 	nvgpu_gsp_debugfs_init(g);
 #endif
+	nvgpu_multimedia_debugfs_init(g);
+
+	nvgpu_boot_time_debugfs_init(g);
+
+	nvgpu_c2c_debugfs_init(g);
 }
 
 void gk20a_debug_deinit(struct gk20a *g)

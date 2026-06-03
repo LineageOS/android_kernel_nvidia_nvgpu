@@ -1,17 +1,5 @@
-/*
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef __NVGPU_IOCTL_CTRL_H__
 #define __NVGPU_IOCTL_CTRL_H__
@@ -60,11 +48,11 @@ int nvgpu_gpu_get_share_token(struct gk20a *g,
 			      u64 source_device_instance_id,
 			      u64 target_device_instance_id,
 			      struct nvgpu_tsg *tsg,
-			      u64 *share_token);
+			      u64 *token);
 int nvgpu_gpu_revoke_share_token(struct gk20a *g,
 				 u64 source_device_instance_id,
 				 u64 target_device_instance_id,
-				 u64 share_token,
+				 u64 token,
 				 struct nvgpu_tsg *tsg);
 int nvgpu_gpu_tsg_revoke_share_tokens(struct gk20a *g,
 				      u64 source_device_instance_id,
@@ -73,7 +61,15 @@ int nvgpu_gpu_tsg_revoke_share_tokens(struct gk20a *g,
 struct nvgpu_tsg *nvgpu_gpu_open_tsg_with_share_token(struct gk20a *g,
 				 u64 source_device_instance_id,
 				 u64 target_device_instance_id,
-				 u64 share_token);
+				 u64 token);
+void nvgpu_gpu_encode_share_token(struct gk20a *g,
+				  u64 source_device_instance_id,
+				  u64 token, size_t share_token_sz,
+				  u8 *share_token);
+void nvgpu_gpu_decode_share_token(struct gk20a *g,
+				  u8 *share_token,
+				  size_t share_token_sz,
+				  u64 *source_device_instance_id, u64 *token);
 #endif
 
 #endif

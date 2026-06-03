@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2018-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/io_usermode.h>
@@ -156,6 +137,7 @@ void nvgpu_usermode_writel(struct gk20a *g, u32 r, u32 v)
 	callbacks->usermode_writel(g, &access);
 }
 
+#ifdef __NVGPU_UNIT_TEST__
 u32 nvgpu_os_readl(uintptr_t addr)
 {
 	struct gk20a *g = nvgpu_posix_current_device();
@@ -171,7 +153,10 @@ u32 nvgpu_os_readl(uintptr_t addr)
 	default:
 		BUG();
 	}
+
+	return 0;
 }
+#endif
 
 void nvgpu_os_writel(u32 v, uintptr_t addr)
 {
@@ -191,10 +176,12 @@ void nvgpu_os_writel(u32 v, uintptr_t addr)
 	}
 }
 
+#ifdef CONFIG_NVGPU_DGPU
 void nvgpu_os_writel_relaxed(u32 v, uintptr_t addr)
 {
 	nvgpu_os_writel(v, addr);
 }
+#endif
 
 void nvgpu_posix_io_init_reg_space(struct gk20a *g)
 {

@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/types.h>
 #include <nvgpu/gk20a.h>
@@ -69,7 +50,7 @@ void ga10b_ltc_set_zbc_depth_entry(struct gk20a *g, u32 depth_val, u32 index)
 #endif
 
 #ifdef CONFIG_NVGPU_DEBUGGER
-u32 ga10b_ltc_pri_shared_addr(struct gk20a *g, u32 addr)
+int ga10b_ltc_pri_shared_addr(struct gk20a *g, u32 addr, u32 *ltc_shared_addr)
 {
 	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
 	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
@@ -79,6 +60,11 @@ u32 ga10b_ltc_pri_shared_addr(struct gk20a *g, u32 addr)
 	u32 ltc_addr = addr & ltc_addr_mask;
 	u32 lts_addr = ltc_addr & lts_addr_mask;
 
-	return ltc_shared_base + lts_addr;
+	if (nvgpu_safe_add_u32_return(ltc_shared_base, lts_addr, ltc_shared_addr) == false) {
+		nvgpu_err(g, "buffer overflow");
+		return -EOVERFLOW;
+	}
+
+	return 0;
 }
 #endif

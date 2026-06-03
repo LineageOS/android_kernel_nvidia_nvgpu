@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 /*
  * Function/Macro naming determines intended use:
@@ -69,8 +51,10 @@
 #define ram_in_big_page_size_128kb_f()                                    (0x0U)
 #define ram_in_big_page_size_64kb_f()                                   (0x800U)
 #define ram_in_page_dir_base_lo_f(v)                ((U32(v) & 0xfffffU) << 12U)
+#define ram_in_page_dir_base_lo_v(r)                   (((r) >> 12U) & 0xfffffU)
 #define ram_in_page_dir_base_lo_w()                                       (128U)
 #define ram_in_page_dir_base_hi_f(v)              ((U32(v) & 0xffffffffU) << 0U)
+#define ram_in_page_dir_base_hi_v(r)                 (((r) >> 0U) & 0xffffffffU)
 #define ram_in_page_dir_base_hi_w()                                       (129U)
 #define ram_in_engine_fw_magic_value_w()                                  (131U)
 #define ram_in_engine_fw_magic_value_engine_fw_magic_value_v()     (0xcafeca11U)
@@ -83,11 +67,17 @@
 #define ram_in_engine_wfi_mode_virtual_v()                         (0x00000001U)
 #define ram_in_engine_wfi_target_w()                                      (132U)
 #define ram_in_engine_wfi_ptr_lo_f(v)               ((U32(v) & 0xfffffU) << 12U)
+#define ram_in_engine_wfi_ptr_lo_v(r)                  (((r) >> 12U) & 0xfffffU)
+#define ram_in_engine_wfi_ptr_lo_w()                                      (132U)
 #define ram_in_engine_wfi_ptr_hi_f(v)                   ((U32(v) & 0xffU) << 0U)
+#define ram_in_engine_wfi_ptr_hi_v(r)                      (((r) >> 0U) & 0xffU)
 #define ram_in_engine_wfi_ptr_hi_w()                                      (133U)
 #define ram_in_engine_wfi_veid_f(v)                     ((U32(v) & 0x3fU) << 0U)
+#define ram_in_engine_wfi_veid_v(r)                        (((r) >> 0U) & 0x3fU)
 #define ram_in_engine_wfi_veid_w()                                        (134U)
+#define ram_in_eng_method_buffer_addr_lo_v(r)        (((r) >> 0U) & 0xffffffffU)
 #define ram_in_eng_method_buffer_addr_lo_w()                              (136U)
+#define ram_in_eng_method_buffer_addr_hi_v(r)           (((r) >> 0U) & 0x1ffffU)
 #define ram_in_eng_method_buffer_addr_hi_w()                              (137U)
 #define ram_in_sc_pdb_valid_long_w(i)\
 		(166ULL + (((i)*1ULL)/32ULL))
@@ -109,9 +99,15 @@
 		((U32(v) & 0x1U) << (10U + (i)*0U))
 #define ram_in_sc_big_page_size_f(v, i)\
 		((U32(v) & 0x1U) << (11U + (i)*0U))
+#define ram_in_sc_page_dir_base_hi_v(r, i)\
+		(((r) >> (0U + (i)*0U)) & 0xffffffffU)
 #define ram_in_sc_page_dir_base_hi_w(i)\
 		(169U + (((i)*128U)/32U))
 #define ram_in_sc_page_dir_base_lo_0_f(v)           ((U32(v) & 0xfffffU) << 12U)
+#define ram_in_sc_page_dir_base_lo_0_v(r)              (((r) >> 12U) & 0xfffffU)
+#define ram_in_sc_page_dir_base_lo_0_w()                                  (168U)
+#define ram_in_sc_page_dir_base_lo_v(r, i)\
+			(((r) >> (12U + (i)*0U)) & 0xfffffU)
 #define ram_in_base_shift_v()                                      (0x0000000cU)
 #define ram_in_alloc_size_v()                                      (0x00001000U)
 #define ram_fc_size_val_v()                                        (0x00000200U)
@@ -163,13 +159,18 @@
 #define ram_rl_entry_chan_userd_ptr_lo_f(v)         ((U32(v) & 0xffffffU) << 8U)
 #define ram_rl_entry_chan_userd_ptr_hi_f(v)       ((U32(v) & 0xffffffffU) << 0U)
 #define ram_rl_entry_chid_f(v)                         ((U32(v) & 0xfffU) << 0U)
+#define ram_rl_entry_chid_v(r)                            (((r) >> 0U) & 0xfffU)
 #define ram_rl_entry_chan_inst_ptr_lo_f(v)          ((U32(v) & 0xfffffU) << 12U)
 #define ram_rl_entry_chan_inst_ptr_hi_f(v)        ((U32(v) & 0xffffffffU) << 0U)
 #define ram_rl_entry_tsg_timeslice_scale_f(v)           ((U32(v) & 0xfU) << 16U)
+#define ram_rl_entry_tsg_timeslice_scale_v(r)              (((r) >> 16U) & 0xfU)
 #define ram_rl_entry_tsg_timeslice_timeout_f(v)        ((U32(v) & 0xffU) << 24U)
+#define ram_rl_entry_tsg_timeslice_timeout_v(r)           (((r) >> 24U) & 0xffU)
 #define ram_rl_entry_tsg_length_f(v)                    ((U32(v) & 0xffU) << 0U)
+#define ram_rl_entry_tsg_length_v(r)                       (((r) >> 0U) & 0xffU)
 #define ram_rl_entry_tsg_length_max_v()                            (0x00000080U)
 #define ram_rl_entry_tsg_tsgid_f(v)                    ((U32(v) & 0xfffU) << 0U)
+#define ram_rl_entry_tsg_tsgid_v(r)                       (((r) >> 0U) & 0xfffU)
 #define ram_rl_entry_chan_userd_ptr_align_shift_v()                (0x00000008U)
 #define ram_rl_entry_chan_inst_ptr_align_shift_v()                 (0x0000000cU)
 #endif

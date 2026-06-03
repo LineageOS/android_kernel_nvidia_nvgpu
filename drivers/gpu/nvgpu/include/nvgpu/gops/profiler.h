@@ -1,68 +1,72 @@
-/*
- * Copyright (c) 2020-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_GOPS_PROFILER_H
 #define NVGPU_GOPS_PROFILER_H
 
 #ifdef CONFIG_NVGPU_PROFILER
 struct gops_pm_reservation {
-	int (*acquire)(struct gk20a *g, u32 reservation_id,
+	int (*acquire)(struct gk20a *g, u32 gpu_instance_id, u32 reservation_id,
 		enum nvgpu_profiler_pm_resource_type pm_resource,
 		enum nvgpu_profiler_pm_reservation_scope scope,
-		u32 vmid);
-	int (*release)(struct gk20a *g, u32 reservation_id,
+		u32 vmid, u32 *pma_channel_id);
+	int (*release)(struct gk20a *g, u32 gpu_instance_id, u32 reservation_id,
 		enum nvgpu_profiler_pm_resource_type pm_resource,
-		u32 vmid);
-	void (*release_all_per_vmid)(struct gk20a *g, u32 vmid);
+		u32 vmid, u32 pma_channel_id);
+	void (*release_all_per_vmid)(struct gk20a *g, u32 gpu_instance_id, u32 vmid);
 };
 struct gops_profiler {
 	int (*bind_hwpm)(struct gk20a *g,
 			u32 gr_instance_id,
 			bool is_ctxsw,
-			struct nvgpu_tsg *tsg);
+			struct nvgpu_tsg *tsg, bool streamout,
+			u32 reservation_id);
 	int (*unbind_hwpm)(struct gk20a *g,
 			u32 gr_instance_id,
 			bool is_ctxsw,
 			struct nvgpu_tsg *tsg);
-	int (*bind_hwpm_streamout)(struct gk20a *g,
+	int (*bind_pma_streamout)(struct gk20a *g,
 			u32 gr_instance_id,
-			bool is_ctxsw,
-			struct nvgpu_tsg *tsg,
+			u32 pma_channel_id,
 			u64 pma_buffer_va,
 			u32 pma_buffer_size,
-			u64 pma_bytes_available_buffer_va);
-	int (*unbind_hwpm_streamout)(struct gk20a *g,
+			u64 pma_bytes_available_buffer_va,
+			u32 reservation_id);
+	int (*unbind_pma_streamout)(struct gk20a *g,
 			u32 gr_instance_id,
+			u32 pma_channel_id,
 			bool is_ctxsw,
 			struct nvgpu_tsg *tsg,
 			void *pma_bytes_available_buffer_cpuva,
-			bool smpc_reserved);
+			u32 reservation_id);
 	int (*bind_smpc)(struct gk20a *g,
 			u32 gr_instance_id,
 			bool is_ctxsw,
-			struct nvgpu_tsg *tsg);
+			struct nvgpu_tsg *tsg,
+			u32 reservation_id);
 	int (*unbind_smpc)(struct gk20a *g,
 			u32 gr_instance_id,
 			bool is_ctxsw,
-			struct nvgpu_tsg *tsg);
+			struct nvgpu_tsg *tsg,
+			u32 reservation_id);
+	void (*bind_hes_cwd)(struct gk20a *g, u32 gr_instance_id,
+			u32 reservation_id, u32 pma_channel_id);
+	int (*unbind_hes_cwd)(struct gk20a *g,
+			u32 gr_instance_id,
+			bool is_ctxsw);
+	void (*bind_ccuprof)(struct gk20a *g, u32 gr_instance_id,
+			u32 reservation_id, u32 pma_channel_id);
+	int (*unbind_ccuprof)(struct gk20a *g,
+			u32 gr_instance_id,
+			bool is_ctxsw);
+	u32 (*get_hs_credit_per_gpc_chiplet)(struct gk20a *g);
+	u32 (*get_hs_credit_per_fbp_chiplet)(struct gk20a *g);
+	u32 (*get_hs_credit_per_sys_pipe_for_profiling)(struct gk20a *g);
+	u32 (*get_hs_credit_per_sys_pipe_for_hes)(struct gk20a *g);
+	void (*set_hs_credit_per_chiplet)(struct gk20a *g, u32 gr_instance_id,
+			u32 pma_channel_id, u32 chiplet_type,
+			u32 chiplet_local_index, u32 num_of_credits);
 };
 #endif
 

@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2014-2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_BIOS_H
@@ -39,10 +21,16 @@ enum {
 
 enum {
 	CLOCKS_TABLE = 2,
-	CLOCK_PROGRAMMING_TABLE,
+	CLOCK_PROGRAMMING_TABLE, // in newer VBIOS this is VF Rel Table
+	VF_RELATIONSHIP = 3,
 	FLL_TABLE,
 	VIN_TABLE,
-	FREQUENCY_CONTROLLER_TABLE
+	FREQUENCY_CONTROLLER_TABLE,
+	CLOCK_ENUM_TABLE,
+	CLOCK_REGIM_TABLE,
+	CLOCK_PROP_TOP_TABLE,
+	CLOCK_PROP_TOP_REL_TABLE,
+	CLOCK_VF_TUPLE_TABLE
 };
 
 enum {
@@ -89,6 +77,22 @@ struct bit_token {
 	(type)x;							\
 })
 
+struct vbios_clock_programming_ptrs_2x {
+	u32 pll_info_table_ptr;
+	u32 vbe_mode_pclk_table_ptr;
+	u32 clocks_table_ptr;
+	u32 clock_programming_table_ptr;
+	u32 nafll_table_ptr;
+	u32 adc_table_ptr;
+	u32 controllers_table_ptr;
+	u32 clock_enum_table_ptr;
+	u32 clock_prop_regime_table_ptr;
+	u32 clock_prop_topology_table_ptr;
+	u32 clock_prop_topology_relationship_table_ptr;
+	u32 clocks_vf_tuple_table_ptr;
+	u32 boot_clocks_table;
+} __attribute__((packed));
+
 struct fll_descriptor_header {
 	u8 version;
 	u8 size;
@@ -133,6 +137,141 @@ struct fll_descriptor_entry_10 {
 
 #define NV_FLL_DESC_LUT_PARAMS_HYSTERISIS_THRESHOLD_MASK 0x3CU
 #define NV_FLL_DESC_LUT_PARAMS_HYSTERISIS_THRESHOLD_SHIFT 2U
+
+#define FLL_DESCRIPTOR_HEADER_20_SIZE_7		7U
+#define FLL_DESCRIPTOR_HEADER_20_VERSION	0x20U
+
+struct fll_descriptor_header_20 {
+	u8 version;
+	u8 header_size;
+	u8 entry_size;
+	u8 entry_count;
+	u8 fll_dev_id;
+	u16 freq_margin_vfe_idx;
+} __attribute__((packed));
+
+#define NV_FLL_DEVICE_TABLE_HAL_V3_GB20Y	0x2U
+
+#define FLL_DESCRIPTOR_ENTRY_20_SIZE		13U
+
+struct fll_descriptor_entry_20 {
+	u8 fll_device_type;
+	u8 clk_domain;
+	u8 adc_idx;
+	u32 fll_params;
+	u32 dvco_params;
+	u16 ffr_cutoff_freq_mhz;
+} __attribute__((packed));
+
+#define FLL_DEVICE_TYPE_DISABLED		0U
+#define FLL_DEVICE_TYPE_V35				0x01U
+#define FLL_DEVICE_TYPE_V35_SECURE_V10	0x02U
+
+#define NV_FLL_DESC_V20_FLL_PARAMS_MDIV_MASK	0x3FU
+#define NV_FLL_DESC_V20_FLL_PARAMS_MDIV_SHIFT	0U
+
+#define NV_FLL_DESC_V20_FLL_PARAMS_PDIV_REF_CLK_F_MHZ_MASK	0xFFFF0000U
+#define NV_FLL_DESC_V20_FLL_PARAMS_PDIV_REF_CLK_F_MHZ_SHIFT	16U
+
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_MIN_VFE_IDX_MASK		0xFFFFU
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_MIN_VFE_IDX_SHIFT		0U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_SKIP_PLDIV_MASK			0x40000000U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_SKIP_PLDIV_SHIFT		30U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_SKIP_PLDIV_NO			0U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_SKIP_PLDIV_YES			0x1U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_ACCURACY_MASK			0x80000000U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_ACCURACY_SHIFT		31U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_ACCURACY_SW			0U
+#define NV_FLL_DESC_V20_DVCO_PARAMS_F_ACCURACY_HW			0x1U
+
+#define NV_ADC_DESCRIPTOR_20_HEADER_VERSION					0x20U
+#define NV_ADC_DESCRIPTOR_20_HEADER_SIZE					0x1CU
+
+struct adc_descriptor_header_20 {
+	u8 version;
+	u8 header_size;
+	u8 entry_size;
+	u8 entry_count;
+	u8 adc_id_hal;
+	u32 adc_param0;
+	u8 cal_invalid_fuse_rev_mask;
+	u8 low_temp_err_invalid_fuse_rev_mask;
+	u8 high_temp_err_invalid_fuse_rev_mask;
+	s8 low_temperature;
+	s8 high_temperature;
+	s8 ref_temperature;
+	u32 low_volt;
+	u32 high_volt;
+	u32 ref_volt;
+	u8 temperature_vfe_var_idx;
+} __attribute__((packed));
+
+#define NV_ADC_DEVICE_TABLE_HAL_V7_GB20Y			0x6U
+#define NV_ADC_PARAM0_PWR_DOWN_ENABLE_MASK			0x1U
+#define NV_ADC_PARAM0_PWR_DOWN_ENABLE_SHIFT			0U
+#define NV_ADC_PARAM0_PWR_DOWN_ENABLE_NO			0U
+#define NV_ADC_PARAM0_PWR_DOWN_ENABLE_YES			1U
+
+#define NV_ADC_PARAM0_OFFSET_MASK					0xFEU
+#define NV_ADC_PARAM0_OFFSET_SHIFT					1U
+#define NV_ADC_PARAM0_GAIN_MASK						0x1F00U
+#define NV_ADC_PARAM0_GAIN_SHIFT					8U
+#define NV_ADC_PARAM0_COARSE_OFFSET_MASK			0x1E000U
+#define NV_ADC_PARAM0_COARSE_OFFSET_SHIFT			13U
+
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MIN_MASK	0x7E0000U
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MIN_SHIFT	17U
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MIN_MSB		22U
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MAX_MASK	0x1F800000U
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MAX_SHIFT	23U
+#define NV_ADC_PARAM0_CORRECTION_OFFSET_MAX_MSB		28U
+
+#define NV_ADC_PARAM0_COARSE_GAIN_MASK				0xE0000000U
+#define NV_ADC_PARAM0_COARSE_GAIN_SHIFT				29U
+
+#define NV_ADC_DESCRIPTOR_ENTRY_20_SIZE_03			0x3
+#define NV_ADC_DESCRIPTOR_ENTRY_20_SIZE_25			0x19
+
+struct adc_descriptor_entry_20 {
+	u8 adc_device_type;
+	u8 volt_domain_vbios;
+	u8 flags;
+	/*
+	 * params not used for adc_device type of
+	 * NV_ADC_DEVICE_TYPE_V30
+	 */
+	u16 param0;
+	u32 param1;
+	u32 param2;
+	u32 param3;
+	u32 param4;
+	u32 param5;
+} __attribute__((packed));
+
+#define NV_ADC_DEVICE_2X_TYPE_DISABLED			0U
+#define NV_ADC_DEVICE_2X_TYPE_V30				0x01U
+#define NV_ADC_DEVICE_2X_TYPE_V30_ISINK_V10		0x02U
+
+/* Define the ADC IDs used for GB20Y VBIOS */
+#define NV_ADC_DEVICE_ID_SYS				0x0U
+#define NV_ADC_DEVICE_ID_GPC				0x1U
+#define NV_ADC_DEVICE_ID_INVALID			0xFFU
+
+#define NV_ADC_FLAG_OP_MODE_MASK			0x3U
+#define NV_ADC_FLAG_OP_MODE_SHIFT			0U
+#define NV_ADC_FLAG_OP_MODE_HW				0U
+#define NV_ADC_FLAG_OP_MODE_SW				0x1U
+#define NV_ADC_FLAG_OP_MODE_MIN				0x2U
+#define NV_ADC_FLAG_DYNAMIC_CAL_MASK		0x4U
+#define NV_ADC_FLAG_DYNAMIC_CAL_SHIFT		2U
+#define NV_ADC_FLAG_DYNAMIC_CAL_DISABLED	0U
+#define NV_ADC_FLAG_DYNAMIC_CAL_ENABLED		1U
+#define NV_ADC_FLAG_DEVINIT_ENABLE_MASK		0x8U
+#define NV_ADC_FLAG_DEVINIT_ENABLE_SHIFT	3U
+#define NV_ADC_FLAG_DEVINIT_ENABLE_NO		0U
+#define NV_ADC_FLAG_DEVINIT_ENABLE_YES		1U
+
+#define NV_VIN_DESCRIPTOR_10_HEADER_VERSION	0x10U
 
 struct vin_descriptor_header_10 {
 	u8 version;
@@ -187,6 +326,21 @@ struct vbios_clocks_table_35_header {
 	u16 reference_window;
 } __attribute__((packed));
 
+#define VBIOS_CLOCKS_TABLE_5x_HEADER_SIZE_13  0x0DU
+#define VBIOS_CLOCKS_TABLE_5X_HEADER_VERSION  0x50U
+struct vbios_clocks_table_5x_header {
+	u8 version;
+	u8 header_size;
+	u8 base_entry_size;
+	u8 base_entry_count;
+	u8 vf_item_entry_size;
+	u8 vf_item_entry_count;
+	u8 clocks_hal;
+	u16 clock_counter_sample_period;
+	u16 fmon_ref_window;
+	u16 xbar_boost_vfe_idx;
+} __attribute__((packed));
+
 #define VBIOS_CLOCKS_TABLE_35_ENTRY_SIZE_11                                0x0BU
 struct vbios_clocks_table_35_entry {
 	u8 flags0;
@@ -196,16 +350,32 @@ struct vbios_clocks_table_35_entry {
 	u16 param3;
 } __attribute__((packed));
 
+#define VBIOS_CLOCKS_TABLE_5x_ENTRY_SIZE_15                                0x0FU
+struct vbios_clocks_table_5x_entry {
+	u8 flags0;
+	u16 param0;
+	u32 param1;
+	u16 param2;
+	u16 param3;
+	u32 param4;
+} __attribute__((packed));
+
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_MASK                   0x1FU
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_SHIFT                     0U
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_FIXED                  0x00U
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_MASTER                 0x01U
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_FLAGS0_USAGE_SLAVE                  0x02U
 
+#define NV_VBIOS_CLOCKS_TABLE_5X_ENTRY_FLAGS0_USAGE_PROG_LOGICAL           0x01U
+#define NV_VBIOS_CLOCKS_TABLE_5X_ENTRY_FLAGS0_USAGE_PROG_PHYSICAL          0x02U
+
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_FIRST_MASK 0xFFU
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_FIRST_SHIFT   0U
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_LAST_MASK 0xFF00U
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM0_PROG_CLK_PROG_IDX_LAST_SHIFT 0x08U
+
+#define NV_VBIOS_CLOCKS_TABLE_50_ENTRY_PARAM1_FIXED_FREQUENCY_MHZ_MASK   0xFFFFU
+#define NV_VBIOS_CLOCKS_TABLE_50_ENTRY_PARAM1_FIXED_FREQUENCY_MHZ_SHIFT       0U
 
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_FIXED_FREQUENCY_MHZ_MASK   0xFFFFU
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_FIXED_FREQUENCY_MHZ_SHIFT       0U
@@ -213,7 +383,7 @@ struct vbios_clocks_table_35_entry {
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MIN_MHZ_SHIFT 0U
 
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MAX_MHZ_MASK 0xFFFF0000U
-#define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MAX_MHZ_SHIFT 0U
+#define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_MASTER_FREQ_OC_DELTA_MAX_MHZ_SHIFT 16U
 
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_SLAVE_MASTER_DOMAIN_MASK      0xFU
 #define NV_VBIOS_CLOCKS_TABLE_1X_ENTRY_PARAM1_SLAVE_MASTER_DOMAIN_SHIFT       0U
@@ -235,10 +405,259 @@ struct vbios_clocks_table_35_entry {
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM2_PROG_POST_VOLT_ORDERING_IDX_MASK 0xF0U
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM2_PROG_POST_VOLT_ORDERING_IDX_SHIFT 4U
 
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM2_GRD_FREQUENCY_OFFSET_MASK       0xFFFFU
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM2_GRD_FREQUENCY_OFFSET_SHIFT       0U
+
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM3_CLK_MONITOR_THRESHOLD_MIN_MASK  0xFFU
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM3_CLK_MONITOR_THRESHOLD_MIN_SHIFT 0U
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM3_CLK_MONITOR_THRESHOLD_MAX_MASK  0xFF00U
 #define NV_VBIOS_CLOCKS_TABLE_35_ENTRY_PARAM3_CLK_MONITOR_THRESHOLD_MAX_SHIFT 0x08U
+
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_PRE_VOLT_ORDERING_IDX_MASK    0x3FU
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_PRE_VOLT_ORDERING_IDX_SHIFT   0U
+
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_POST_VOLT_ORDERING_IDX_MASK   0x3C0U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_PROG_POST_VOLT_ORDERING_IDX_SHIFT  0x6U
+
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_FBVDD_DATA_SUPPORT_MASK            0x400U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_FBVDD_DATA_SUPPORT_SHIFT           10U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_FBVDD_DATA_SUPPORT_NO              0U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM3_FBVDD_DATA_SUPPORT_YES             1U
+
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MIN_MASK     0xFFFFU
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MIN_SHIFT    0U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MAX_MASK     0xFFFF0000U
+#define NV_VBIOS_CLOCKS_TABLE_5x_ENTRY_PARAM4_CLK_MONITOR_THRESHOLD_MAX_SHIFT    16U
+
+#define VBIOS_CLOCK_ENUM_TABLE_VERSION_10						0x10
+#define VBIOS_CLOCK_ENUM_TABLE_10_HEADER_SIZE_04				0x04
+
+struct vbios_clk_enum_table_v10_header {
+	u8 version;
+	u8 header_size;
+	u8 entry_size;
+	u8 entry_count;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_SIZE_05					0x05
+
+struct vbios_clk_enum_table_v10_entry {
+	u8 flags0;
+	u16 freq_min_mhz;
+	u16 freq_max_mhz;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_TYPE_MASK					0x0FU
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_TYPE_SHIFT					0x00U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_TYPE_DISABLED				0x00U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_TYPE_1X						0x01U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_OVOC_ENABLED_MASK			0x10U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_OVOC_ENABLED_SHIFT			0x04U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_OVOC_ENABLED_FALSE			0x00U
+#define VBIOS_CLOCK_ENUM_TABLE_10_ENTRY_FLAGS0_OVOC_ENABLED_TRUE			0x01U
+
+/*
+ * Clock VF Relationship Table 2.0 Header Structure
+ */
+#define VBIOS_CLOCK_VF_REL_TABLE_VERSION_50						0x50
+#define VBIOS_CLOCK_VF_REL_TABLE_20_HEADER_SIZE_08				0x08
+
+struct vbios_clock_vf_rel_table_20_header {
+	u8 version;
+	u8 header_size;
+	u8 entry_size;
+	u8 entry_count;
+	u8 secondary_entry_size;
+	u8 secondary_entry_count;
+	u8 vf_entry_size_sec;
+	u8 vf_entry_count_sec;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_SIZE_23                          0x17
+
+struct vbios_clock_vf_rel_table_20_entry {
+	u8 flags0;
+	u16 freq_max_mhz;
+	u16 primary_vfe_idx;
+	u16 safe_vf_curve_tuple_idx;
+	u16 vf_tuple_idx_first;
+	u16 vf_tuple_idx_last;
+	u32 param0;
+	u32 param1;
+	u16 param2;
+	u16 param3;
+} __attribute__((packed));
+
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_MASK              0x0FU
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_SHIFT             0x00U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_DISABLED          0x00U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_RATIO_VOLT        0x01U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_RATIO_FREQ        0x02U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_TYPE_TABLE_FREQ        0x03U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_OVOC_ENABLED_MASK      0x10U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_OVOC_ENABLED_SHIFT     0x04U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_RATIO_VOLT_VF_GENERATION_METHOD_MASK   0x20U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_ENTRY_FLAGS0_RATIO_VOLT_VF_GENERATION_METHOD_SHIFT  0x05U
+
+
+#define VBIOS_CLOCK_VF_REL_TABLE_20_SECONDARY_ENTRY_SIZE_03                0x03U
+/*
+ * Clock VF Relationship Table 2.0 Secondary Entry Structure
+ */
+struct vbios_clock_vf_rel_table_20_secondary_entry {
+	u8 clk_dom_idx;	// clock domain index
+	u16 param0;		// Type-specific parameter
+} __attribute__((packed));
+
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_SECONDARY_ENTRY_PARAM0_RATIO_RATIO_MASK     0x00ffU
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_SECONDARY_ENTRY_PARAM0_RATIO_RATIO_SHIFT    0U
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_SECONDARY_ENTRY_PARAM0_TABLE_FREQ_MASK      0xffffU
+#define NV_VBIOS_CLOCK_VF_REL_TABLE_20_SECONDARY_ENTRY_PARAM0_TABLE_FREQ_SHIFT     0U
+
+#define VBIOS_CLOCK_VF_REL_TABLE_20_VF_ENTRY_SEC_SIZE_04                   0x04U
+#define VBIOS_CLOCK_VF_REL_TABLE_20_VF_ENTRY_SEC_SIZE_06                   0x06U
+/*
+ * Clock VF Relationship Table 2.0 secondary VF Entry Structure
+ */
+struct vbios_clock_vf_rel_table_20_vf_entry_sec {
+	u16 secondaryVfeIdx;  // VFE Equation Index of the Secondary VF Curve
+	u16 param0;           // Type-specific parameter word 0
+	u16 param1;           // Type-specific parameter word 1
+} __attribute__((packed));
+
+/*
+ * Clock Propagation Regime Table.
+ */
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_HAL_REGIME_ID_MAX                    0x32U
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_NUM_HALS                             0x02U
+
+/*
+ * Structure representing the HAL enumeration of all CLK_DOMAINs
+ * from the Clock Propagation Table.
+ */
+struct vbios_clock_prop_regime_table_hal {
+	u8 regimeHal;
+	u8 regimeId[VBIOS_CLOCK_PROP_REGIME_TABLE_HAL_REGIME_ID_MAX];
+} __attribute__((packed));
+
+/*
+ * Clock Propagation Regime Table 1.0 Header Structure
+ */
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_VERSION_10                          0x10U
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_HEADER_SIZE_05                   0x05U
+struct vbios_clock_prop_regime_table_10_header {
+	u8 version;
+	u8 header_size;
+	u8 regimeHal;
+	u8 entry_size;
+	u8 entry_count;
+} __attribute__((packed));
+
+/*
+ * Clock Propagation Regime Table Entry.
+ */
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_ENTRY_SIZE_05                     0x05U
+struct vbios_clock_prop_regime_table_10_entry {
+	u8 flags0;
+	u32 clkDomainMask;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_ENTRY_FLAGS0_TYPE_MASK			0x0fU
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_ENTRY_FLAGS0_TYPE_SHIFT		0
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_ENTRY_FLAGS0_TYPE_DISABLED		0
+#define VBIOS_CLOCK_PROP_REGIME_TABLE_10_ENTRY_FLAGS0_TYPE_1X			0x01U
+
+
+/*
+ * Clock Propagation Topology Table 1.0 Header Structure
+ */
+#define VBIOS_CLOCK_PROP_TOP_TABLE_VERSION_10                           0x10U
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_SIZE_09                    0x09U
+
+struct vbios_clock_prop_top_table_10_header {
+	u8 version;
+	u8 header_size;
+	u8 top_hal;
+	u8 entry_size;
+	u8 entry_count;
+	u8 flags0;
+	u8 minRatioClkPropTopIdx;
+	u8 maxRatioClkPropTopIdx;
+	u8 searchSpaceHal;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_FLAGS0_USE_HIGHER_ISO_SEC_FMAX_VMIN_MHZ_MASK  0x01U
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_FLAGS0_USE_HIGHER_ISO_SEC_FMAX_VMIN_MHZ_SHIFT    0
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_FLAGS0_USE_HIGHER_ISO_SEC_FMAX_VMIN_MHZ_DISABLED 0
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_FLAGS0_USE_HIGHER_ISO_SEC_FMAX_VMIN_MHZ_ENABLED  1U
+
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_HEADER_FREQUENCY_SEARCH_SPACE_HAL_10   0x00
+
+/*
+ * Clock Propagation Topology Table 1.0 Entry Structure
+ */
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_ENTRY_SIZE_17                          0x11U
+#define VBIOS_CLOCK_PROP_TOP_TABLE_10_CLK_PROP_REL_MASK_ARRAY_SIZE           0x04U
+
+struct vbios_clock_prop_top_table_10_entry {
+	u8 flags0;
+	u32 clkPropRelMask[VBIOS_CLOCK_PROP_TOP_TABLE_10_CLK_PROP_REL_MASK_ARRAY_SIZE];
+} __attribute__((packed));
+
+#define NV_VBIOS_CLOCK_PROP_TOP_TABLE_10_ENTRY_FLAGS0_TYPE_MASK            0x0fU
+#define NV_VBIOS_CLOCK_PROP_TOP_TABLE_10_ENTRY_FLAGS0_TYPE_SHIFT           0
+#define NV_VBIOS_CLOCK_PROP_TOP_TABLE_10_ENTRY_FLAGS0_TYPE_DISABLED        0x00
+#define NV_VBIOS_CLOCK_PROP_TOP_TABLE_10_ENTRY_FLAGS0_TYPE_1X              0x01U
+
+/*
+ * Clock Propagation Topology Relationship Table 1.0 Header Structure
+ */
+#define VBIOS_CLOCK_PROP_TOP_REL_TABLE_VERSION_10                            0x10
+#define VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_HEADER_SIZE_06                     0x06
+
+struct vbios_clock_prop_top_rel_table_10_header {
+	u8 version;
+	u8 header_size;
+	u8 entry_size;
+	u8 entry_count;
+	u8 table_array_entry_size;
+	u8 table_array_entry_count;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_TABLE_REL_ARR_ENTRY_SIZE_04                   0x04
+
+struct vbios_clock_prop_top_rel_table_10_table_rel_arr_entry {
+	u16 freqMHzSrc;
+	u16 freqMHzDst;
+} __attribute__((packed));
+
+#define VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_SIZE_05                                 0x05
+
+struct vbios_clock_prop_top_rel_table_10_entry {
+	u8 flags0;
+	u8 clkDomainIdxSrc;
+	u8 clkDomainIdxDst;
+	u16 param0;
+} __attribute__((packed));
+
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_MASK                     0x0fU
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_SHIFT                    0
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_DISABLED                 0x00
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_1X_RATIO                 0x01
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_1X_TABLE                 0x02
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_1X_VOLT                  0x03
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_1X_VFE                   0x04
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_TYPE_1X_VOLT_MULTI_RAIL       0x05
+
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_BIDIRECTIONAL_REL_MASK        0x80U
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_BIDIRECTIONAL_REL_SHIFT       8
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_BIDIRECTIONAL_REL_ENABLED     0x00
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_FLAGS0_BIDIRECTIONAL_REL_DISABLED    0x01
+
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_PARAM0_RATIO_RATIO_MASK              0x0ffffU
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_PARAM0_RATIO_RATIO_SHIFT             0
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_PARAM0_VOLT_RAIL_IDX_MASK            0x00ffU
+#define NV_VBIOS_CLOCK_PROP_TOP_REL_TABLE_10_ENTRY_PARAM0_VOLT_RAIL_IDX_SHIFT           0
 
 #define VBIOS_CLOCK_PROGRAMMING_TABLE_1X_HEADER_SIZE_08                    0x08U
 #define VBIOS_CLOCK_PROGRAMMING_TABLE_1X_HEADER_VERSION                    0x10U
@@ -348,11 +767,17 @@ struct vbios_vfe_3x_header_struct {
 	u8 polling_periodms;
 	u8 vfe_var_rppm_entry_count;
 	u8 vfe_equ_rppm_entry_count;
+	u8 flags;
+	u8 vfe_equ_entry_count_hi8bytes;
+	u8 vfe_param_entry_size;
+	u16 vfe_param_entry_count;
 } __attribute__((packed));
 
 #define VBIOS_VFE_3X_HEADER_SIZE_09                                     0x09U
+#define VBIOS_VFE_3X_HEADER_SIZE_0E					0x0EU
 
-#define VBIOS_VFE_3X_VAR_ENTRY_SIZE_19                                     0x19U
+#define VBIOS_VFE_3X_VAR_ENTRY_SIZE_19                                  0x19U
+#define VBIOS_VFE_3X_VAR_ENTRY_SIZE_1D					0x1DU
 struct vbios_vfe_3x_var_entry_struct {
 	u8 type;
 	u32 out_range_min;
@@ -361,16 +786,22 @@ struct vbios_vfe_3x_var_entry_struct {
 	u32 param1;
 	u32 param2;
 	u32 param3;
+	u32 param4;
 } __attribute__((packed));
 
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DISABLED                               0x00U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_FREQUENCY                       0x01U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_VOLTAGE                         0x02U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_TEMP                     0x03U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE                     0x04U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_PRODUCT                        0x05U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_SUM                            0x06U
-#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_CALLER_SPECIFIED                0x07U
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DISABLED                                0x00
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_FREQUENCY                        0x01
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_VOLTAGE                          0x02
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_TEMP                      0x03
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE                      0x04
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_PRODUCT                         0x05
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_DERIVED_SUM                             0x06
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_CALLER_SPECIFIED                 0x07
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_GLOBALLY_SPECIFIED               0x08
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE_20                   0x09
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_FUSE_MULTI_DIE            0x0A
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_POWER_CHANNEL             0x0B
+#define VBIOS_VFE_3X_VAR_ENTRY_TYPE_SINGLE_SENSED_TEMP_MULTI_DIE            0x0C
 
 #define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE_MASK 0x1U
 #define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SFREQ_CLK_DOMAIN_IS_AVAILABLE_SHIFT 0
@@ -433,7 +864,148 @@ struct vbios_vfe_3x_var_entry_struct {
 #define VBIOS_VFE_3X_VAR_ENTRY_PAR1_SSFUSE_HW_CORRECTION_OFFSET_MASK 0xFFFFFFFFU
 #define VBIOS_VFE_3X_VAR_ENTRY_PAR1_SSFUSE_HW_CORRECTION_OFFSET_SHIFT 0U
 
-#define VBIOS_VFE_3X_EQU_ENTRY_SIZE_18                                     0x18U
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO                                        0x00  // SPEEDO value
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_VERSION                                0x01  // SPEEDO_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ                                          0x02  // IDDQ value for voltage rail 0
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ_VERSION                                  0x03  // IDDQ_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_IDDQ_1                                        0x04  // IDDQ value for voltage rail 1
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOARD_BINNING                                 0x05  // Speedo value for BOARD_BINNING
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOARD_BINNING_VERSION                         0x06  // BOARD_BINNING_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN                                     0x07  // SRAM_VMIN
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_VERSION                             0x08  // SRAM_VMIN_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOOT_VMIN_NVVDD                               0x09  // NVVDD Boot Vmin
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_VCM_OFFSET                                   0x0A  // ISENSE_VCM_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFF_GAIN                                    0x0B  // ISENSE_DIFFERENTIAL_GAIN
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFF_OFFSET                                  0x0C  // ISENSE_DIFFERENTIAL_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_CALIBRATION_VERSION                          0x0D  // ISENSE_CALIBRATION_VERSION This is a common version for the 3
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA                                               0x0E  // KAPPA - Will link to fuse opt_kappa_info
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_VERSION                                       0x0F  // KAPPA_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_1                                      0x10  // SPEEDO_1
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_VERSION                                         0x11  // Fuse OPT_CPM_REV
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_0                                               0x12  // Fuse OPT_CPM0
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_1                                               0x13  // Fuse OPT_CPM1
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_CPM_2                                               0x14  // Fuse OPT_CPM2
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_VCM_COARSE_OFFSET                            0x15  // ISENSE_VCM_COARSE_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_BOOT_VMIN_MSVDD                               0x16  // MSVDD Boot Vmin
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_VALID                                         0x17  // KAPPA fuse
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_IDDQ_NVVDD                                          0x18  // NVVDD IDDQ
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_IDDQ_MSVDD                                          0x19  // MSVDD IDDQ
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SPEEDO_2                                      0x1A  // SPEEDO_2
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_OC_BIN                                              0x1B  // OC_BIN
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_LV_FMAX_KNOB                                        0x1C  // LV_FMAX_KNOB
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_MV_FMAX_KNOB                                        0x1D  // MV_FMAX_KNOB
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_HV_FMAX_KNOB                                        0x1E  // HV_FMAX_KNOB
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PSTATE_VMIN_KNOB                                    0x1F  // PSTATE_VMIN_KNOB
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_ISENSE_DIFFERENTIAL_COARSE_GAIN                     0x20  // ISENSE_DIFFERENTIAL_COARSE_GRAIN
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_FMAX_KNOB_REV                                    0x21  // VB_FMAX_KNOB_REV
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA0                                        0x22  // VB_ATEKAPPA0
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA1                                        0x23  // VB_ATEKAPPA1
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA2                                        0x24  // VB_ATEKAPPA2
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA_VALID                                   0x25  // VB_ATEKAPPA_VALID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VB_ATEKAPPA_REV                                     0x26  // VB_ATEKAPPA_REV
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_BI_DONE                                             0x27  // BI_DONE
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP1_NVVDD                       0x28  // STRAP_SRAM_VMIN_HVA_CP1_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP2_NVVDD                       0x29  // STRAP_SRAM_VMIN_HVA_CP2_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD                   0x2A  // STRAP_SRAM_VMIN_NATURAL_CP1_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD                   0x2B  // STRAP_SRAM_VMIN_NATURAL_CP2_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP1_NVVDD                       0x2C  // STRAP_SRAM_VMIN_LVA_CP1_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP2_NVVDD                       0x2D  // STRAP_SRAM_VMIN_LVA_CP2_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_STRAP_SRAM_VMAX_HVA_NVVDD                     0x2E  // STRAP_STRAP_SRAM_VMAX_HVA_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_NATURAL_NVVDD                       0x2F  // STRAP_SRAM_VMAX_NATURAL_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_LVA_NVVDD                           0x30  // STRAP_SRAM_VMAX_LVA_NVVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP1_MSVDD                       0x31  // STRAP_SRAM_VMIN_HVA_CP1_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_HVA_CP2_MSVDD                       0x32  // STRAP_SRAM_VMIN_HVA_CP2_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD                   0x33  // STRAP_SRAM_VMIN_NATURAL_CP1_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD                   0x34  // STRAP_SRAM_VMIN_NATURAL_CP2_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP1_MSVDD                       0x35  // STRAP_SRAM_VMIN_LVA_CP1_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMIN_LVA_CP2_MSVDD                       0x36  // STRAP_SRAM_VMIN_LVA_CP2_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_HVA_MSVDD                           0x37  // STRAP_SRAM_VMAX_HVA_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_NATURAL_MSVDD                       0x38  // STRAP_SRAM_VMAX_NATURAL_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_STRAP_SRAM_VMAX_LVA_MSVDD                           0x39  // STRAP_SRAM_VMAX_LVA_MSVDD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_HI_SLOPE                                    0x3A  // UVD_CAL_HI_SLOPE
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_HI_INTERCEPT                                0x3B  // UVD_CAL_HI_INTERCEPT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_MID_SLOPE                                   0x3C  // UVD_CAL_MID_SLOPE
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_MID_INTERCEPT                               0x3D  // UVD_CAL_MID_INTERCEPT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_LO_SLOPE                                    0x3E  // UVD_CAL_LO_SLOPE
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_LO_INTERCEPT                                0x3F  // UVD_CAL_LO_INTERCEPT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_UVD_CAL_FUSE_REV                                    0x40  // UVD_CAL_FUSE_REV
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_RC_OFFSET                                      0x41  // VMIN_RC_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_RC_OFFSET                                      0x42  // VMAX_RC_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_POWER_RATIO                                         0x43  // POWER_RATIO
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_POWER_RATIO_VERSION                                 0x44  // POWER_RATIO_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_BLT_OFFSET                                     0x45  // VMIN_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_BLT_OFFSET                                     0x46  // VMAX_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_BLT_OFFSET                                    0x47  // KAPPA_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_BLT_OFFSET                                      0x48  // GPC_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_XBAR_BLT_OFFSET                                     0x49  // XBAR_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_NVD_BLT_OFFSET                                      0x4A  // NVD_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_SYS_BLT_OFFSET                                      0x4B  // SYS_BLT_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_SLT_MAX_OFFSET                                 0x4C  // VMIN_SLT_MAX_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMIN_SLT_MIN_OFFSET                                 0x4D  // VMIN_SLT_MIN_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_SLT_MAX_OFFSET                                 0x4E  // VMAX_SLT_MAX_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_VMAX_SLT_MIN_OFFSET                                 0x4F  // VMAX_SLT_MIN_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_SLT_MAX_OFFSET                                0x50  // KAPPA_SLT_MAX_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_KAPPA_SLT_MIN_OFFSET                                0x51  // KAPPA_SLT_MIN_OFFSET
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PER_PART_POWER_LIMITS_VERSION                       0x52  // PER_PART_POWER_LIMITS_VERSION
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP    0x53  // PER_PART_POWER_LIMITS_TGP_OFFSET_MULTIPLIER_STEP
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_SRAM_VMAX_BIN_REV                                   0x54  // SRAM_VMAX_BIN_REV
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_COLD                              0x55  // GPC_SRAM_HVA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_HOT                               0x56  // GPC_SRAM_HVA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMIN_MID                               0x57  // GPC_SRAM_HVA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_COLD                              0x58  // GPC_SRAM_LVA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_HOT                               0x59  // GPC_SRAM_LVA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_LVA_VMIN_MID                               0x5A  // GPC_SRAM_LVA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_COLD                               0x5B  // GPC_SRAM_NA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_HOT                                0x5C  // GPC_SRAM_NA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMIN_MID                                0x5D  // GPC_SRAM_NA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_COLD                              0x5E  // GPM_SRAM_HVA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_HOT                               0x5F  // GPM_SRAM_HVA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMIN_MID                               0x60  // GPM_SRAM_HVA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_COLD                              0x61  // GPM_SRAM_LVA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_HOT                               0x62  // GPM_SRAM_LVA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_LVA_VMIN_MID                               0x63  // GPM_SRAM_LVA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_COLD                               0x64  // GPM_SRAM_NA_VMIN_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_HOT                                0x65  // GPM_SRAM_NA_VMIN_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMIN_MID                                0x66  // GPM_SRAM_NA_VMIN_MID
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_WA_VMAX_COLD                               0x67  // GPC_SRAM_WA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_WA_VMAX_HOT                                0x68  // GPC_SRAM_WA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_WA_VMAX_COLD                               0x69  // GPM_SRAM_WA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_WA_VMAX_HOT                                0x6A  // GPM_SRAM_WA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMAX_COLD                              0x6B  // GPM_SRAM_HVA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMAX_COLD                               0x6C  // GPC_SRAM_NA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMAX_HOT                                0x6D  // GPM_SRAM_NA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMAX_COLD                              0x6E  // GPC_SRAM_HVA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_NA_VMAX_HOT                                0x6F  // GPC_SRAM_NA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_HVA_VMAX_HOT                               0x70  // GPM_SRAM_HVA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPM_SRAM_NA_VMAX_COLD                               0x71  // GPM_SRAM_NA_VMAX_COLD
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_GPC_SRAM_HVA_VMAX_HOT                               0x72  // GPC_SRAM_HVA_VMAX_HOT
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_ID_INVALID                             0xFF
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_MASK 0xFF0000U
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_SHIFT 16U
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_USE_DEFAULT_ON_VER_CHECK_FAIL_MASK 0x1000000U
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_USE_DEFAULT_ON_VER_CHECK_FAIL_SHIFT 24U
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_USE_DEFAULT_ON_VER_CHECK_FAIL_YES   \
+	                                                                        0x00000001
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_USE_DEFAULT_ON_VER_CHECK_FAIL_NO    \
+	                                                                        0x00000000
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_FUSE_VALUE_SIGNED_INTEGER_MASK 0x2000000U
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_FUSE_VALUE_SIGNED_INTEGER_SHIFT 25U
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_FUSE_VALUE_SIGNED_INTEGER_FALSE     \
+	                                                                        0x00000000
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_FUSE_VALUE_SIGNED_INTEGER_TRUE      \
+	                                                                        0x00000001
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_MODE_MASK 0x4000000U
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_MODE_SHIFT 26U
+
+#define VBIOS_VFE_3X_VAR_ENTRY_PAR0_SSFUSE20_EXPECTED_VER_MODE_SINGLE   0x00000000
+
+#define VBIOS_VFE_3X_EQU_ENTRY_SIZE_19                                     0x19U
 
 struct vbios_vfe_3x_equ_entry_struct {
 	u8 type;
@@ -445,6 +1017,7 @@ struct vbios_vfe_3x_equ_entry_struct {
 	u32 param1;
 	u32 param2;
 	u8 param3;
+	u8 equ_idx_next_high_8bits;
 } __attribute__((packed));
 
 
@@ -455,6 +1028,7 @@ struct vbios_vfe_3x_equ_entry_struct {
 #define VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_FXP                          0x04U
 #define VBIOS_VFE_3X_EQU_ENTRY_TYPE_MINMAX_FXP                             0x05U
 #define VBIOS_VFE_3X_EQU_ENTRY_TYPE_EQUATION_SCALAR                        0x06U
+#define VBIOS_VFE_3X_EQU_ENTRY_TYPE_QUADRATIC_N                            0x07U
 
 #define VBIOS_VFE_3X_EQU_ENTRY_IDX_INVALID                                 0xFFU
 
@@ -528,7 +1102,23 @@ struct vbios_vfe_3x_equ_entry_struct {
 #define VFIELD_ID_STRAP_IDDQ                    0x09U
 #define VFIELD_ID_STRAP_IDDQ_1                  0x0BU
 
-#define VFIELD_REG_HEADER_SIZE 3U
+#define VFIELD_REG_HEADER_SIZE 			0x03U
+
+
+#define VBIOS_VFE_3X_HEADER_FLAGS_16BIT_VFE_EQU_ENABLED                     0:0 // Indicates whether VBIOS has 16-bit VFE EQU index support.
+#define VBIOS_VFE_3X_HEADER_FLAGS_16BIT_VFE_EQU_ENABLED_YES                  1U // VBIOS has 16-bit VFE EQU index.
+#define VBIOS_VFE_3X_HEADER_FLAGS_16BIT_VFE_EQU_ENABLED_NO                   0U // VBIOS has 8-bit VFE EQU index.
+#define VBIOS_VFE_3X_PARAM_ENTRY_SIZE_05                                    0x05
+#define VBIOS_VFE_3X_PARAM_ENTRY_TYPE_DISABLED                              0x00
+#define VBIOS_VFE_3X_PARAM_ENTRY_TYPE_LITERAL_CONSTANT                      0x01
+#define VBIOS_VFE_3X_PARAM_ENTRY_TYPE_VAR_IDX                               0x02
+#define VBIOS_VFE_3X_PARAM_ENTRY_TYPE_EQU_IDX                               0x03
+
+#define VBIOS_VFE_3X_PARAM_ENTRY_VALUE_VAR_IDX_MASK                         0xFF
+#define VBIOS_VFE_3X_PARAM_ENTRY_VALUE_VAR_IDX_SHIFT                        0U
+#define VBIOS_VFE_3X_PARAM_ENTRY_VALUE_EQU_IDX_MASK                         0xFFFF
+#define VBIOS_VFE_3X_PARAM_ENTRY_VALUE_EQU_IDX_SHIFT                        0U
+
 struct vfield_reg_header {
 	u8 version;
 	u8 entry_size;
@@ -648,6 +1238,76 @@ struct vbios_pstate_entry_6x {
 
 #define VBIOS_PERFLEVEL_SKIP_ENTRY					0xFFU
 
+#define VBIOS_PSTATE_TABLE_VERSION_7X		        0x70U
+#define VBIOS_PSTATE_HEADER_7X_SIZE_14		        0x0EU
+
+struct vbios_pstate_header_7x {
+	u8 version;
+	u8 header_size;
+	u8 base_entry_size;
+	u8 base_entry_count;
+	u8 clock_entry_size;
+	u8 clock_entry_count;
+	u8 flags0;
+	u8 initial_pstate;
+	u8 cpi_features;
+	u8 tFAW_max_offset;
+	u32 min_dram_frequency;
+} __attribute__((packed));
+
+#define VBIOS_PSTATE_7X_FLAGS0_PSTATES_MASK                0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_PSTATES_SHIFT               0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_PSTATES_NOT_REQUIRED        0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_PSTATES_REQUIRED            0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_ARBITER_LOCK_MASK           0x2U
+#define VBIOS_PSTATE_7X_FLAGS0_ARBITER_LOCK_SHIFT          0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_ARBITER_LOCK_DISABLED       0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_ARBITER_LOCK_ENABLED        0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SAFE_OVERRIDE_MASK     0x4U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SAFE_OVERRIDE_SHIFT    0x2U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SAFE_OVERRIDE_DISABLED 0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SAFE_OVERRIDE_ENABLED  0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_DYNAMIC_MCLK_LIMIT_MASK     0x8U
+#define VBIOS_PSTATE_7X_FLAGS0_DYNAMIC_MCLK_LIMIT_SHIFT    0x3U
+#define VBIOS_PSTATE_7X_FLAGS0_DYNAMIC_MCLK_LIMIT_DISABLED 0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_DYNAMIC_MCLK_LIMIT_ENABLED  0x1U
+
+#define VBIOS_PSTATE_CLOCK_ENTRY_7X_SIZE_6                        6U
+#define VBIOS_PSTATE_BASE_ENTRY_7X_SIZE_5                         5U
+#define VBIOS_PSTATE_CLOCK_ENTRY_7X_COUNT                         10U
+
+struct vbios_pstate_entry_clock_7x {
+	u16 nom_frequency;
+	u16 min_frequency;
+	u16 max_frequency;
+} __attribute__((packed));
+
+struct vbios_pstate_entry_7x {
+	u8 pstate_level;	// 0x00 = P15 -- 0x0F = P0, 0xFF = Skip Entry
+	u8 flags0;
+	u8 lpwr_entry_idx;
+	u8 pcie_idx;
+	u8 nvlink_idx;
+	struct vbios_pstate_entry_clock_7x
+		nvgpu_clockEntry[PERF_CLK_DOMAINS_IDX_MAX];
+} __attribute__((packed));
+
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_MASK                           0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SHIFT                          0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_SAFE                           0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_CUDA_NOT_SAFE                       0x1U
+
+#define VBIOS_PSTATE_7X_FLAGS0_OVOC_MASK                           0x2U
+#define VBIOS_PSTATE_7X_FLAGS0_OVOC_SHIFT                          0x1U
+#define VBIOS_PSTATE_7X_FLAGS0_OVOC_DISABLED                       0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_OVOC_ENABLED                        0x1U
+
+#define VBIOS_PSTATE_7X_FLAGS0_POWER_EFFICIENCY_CAP_MASK           0x4U
+#define VBIOS_PSTATE_7X_FLAGS0_POWER_EFFICIENCY_CAP_SHIFT          0x2U
+#define VBIOS_PSTATE_7X_FLAGS0_POWER_EFFICIENCY_CAP_DISABLED       0x0U
+#define VBIOS_PSTATE_7X_FLAGS0_POWER_EFFICIENCY_CAP_ENABLED        0x1U
+
+
 #define VBIOS_MEMORY_CLOCK_HEADER_11_VERSION				0x11U
 
 #define VBIOS_MEMORY_CLOCK_HEADER_11_0_SIZE				16U
@@ -687,7 +1347,6 @@ struct vbios_memory_clock_base_entry_11 {
 } __attribute__((packed));
 
 /* Script Pointer Index */
-/* #define VBIOS_MEMORY_CLOCK_BASE_ENTRY_11_FLAGS1_SCRIPT_INDEX		3:2*/
 #define VBIOS_MEMORY_CLOCK_BASE_ENTRY_11_FLAGS1_SCRIPT_INDEX_MASK	0xcU
 #define VBIOS_MEMORY_CLOCK_BASE_ENTRY_11_FLAGS1_SCRIPT_INDEX_SHIFT	2U
 /* #define VBIOS_MEMORY_CLOCK_BASE_ENTRY_12_FLAGS2_CMD_SCRIPT_INDEX	1:0*/
@@ -877,6 +1536,62 @@ struct vbios_voltage_rail_table_1x_entry {
 	u8 volt_scale_exp_pwr_equ_idx;
 } __attribute__((packed));
 
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_FLAGS_TYPE_MASK				0x1FU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_FLAGS_TYPE_SHIFT				0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM3_REL_LIMIT_VFE_EQU_IDX_MASK		0xFFFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM3_REL_LIMIT_VFE_EQU_IDX_SHIFT		0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM3_ALT_REL_LIMIT_VFE_EQU_IDX_MASK 	0xFFFF0000U
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM3_ALT_REL_LIMIT_VFE_EQU_IDX_SHIFT	16U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM4_OV_LIMIT_VFE_EQU_IDX_MASK		0xFFFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM4_OV_LIMIT_VFE_EQU_IDX_SHIFT		0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM4_VMIN_LIMIT_VFE_EQU_IDX_MASK		0xFFFF0000U
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM4_VMIN_LIMIT_VFE_EQU_IDX_SHIFT		16U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM5_BA_SCALING_PWR_EQN_IDX_MASK		0xFFFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM5_BA_SCALING_PWR_EQN_IDX_SHIFT		0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM5_LEAKAGE_PWR_EQU_IDX_MASK		0xFFFF0000U
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM5_LEAKAGE_PWR_EQU_IDX_SHIFT		16U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM6_BOOT_VOLTAGE_UV_MASK			0xFFFFFFFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM6_BOOT_VOLTAGE_UV_SHIFT			0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM8_BOOT_VOLT_VFE_EQU_IDX_MASK		0xFFFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM8_BOOT_VOLT_VFE_EQU_IDX_SHIFT		0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM8_VOLT_MARGIN_LIMIT_VFE_EQU_IDX_MASK	0xFFFF0000U
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM8_VOLT_MARGIN_LIMIT_VFE_EQU_IDX_SHIFT	16U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM9_BOOT_VOLT_FUSE_ID_MASK 		0xFFU
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM9_BOOT_VOLT_FUSE_ID_SHIFT		0U
+
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM9_DYNAMIC_PWR_EQU_IDX_MASK		0xFFFF00U
+#define NV_VBIOS_VOLT_RAIL_TABLE_3X_ENTRY_PARAM9_DYNAMIC_PWR_EQU_IDX_SHIFT		8U
+
+struct vbios_voltage_rail_table_3x_entry {
+	u8 flags;
+	u32 param0;
+	u32 param1;
+	u32 param2;
+	u32 param3;
+	u32 param4;
+	u32 param5;
+	u32 param6;
+	u32 param7;
+	u32 param8;
+	u32 param9;
+	u32 param10;
+	u32 param11;
+	u32 param12;
+	u32 param13;
+	u32 param14;
+	u32 param15;
+} __attribute__((packed));
+
 /* Voltage Device Table */
 struct vbios_voltage_device_table_1x_header {
 	u8 version;
@@ -894,6 +1609,9 @@ struct vbios_voltage_device_table_1x_entry {
 	u32 param2;
 	u32 param3;
 	u32 param4;
+	u32 param5;
+	u16 power_up_settle_time_us;
+	u16 power_down_settle_time_us;
 } __attribute__((packed));
 
 #define NV_VBIOS_VOLTAGE_DEVICE_1X_ENTRY_TYPE_INVALID		0x00U
@@ -940,6 +1658,14 @@ struct vbios_voltage_device_table_1x_entry {
 		U32(GENMASK(31, 24))
 #define NV_VBIOS_VDT_1X_ENTRY_PARAM4_PSV_RSVD_SHIFT	24U
 
+#define NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_VOLTAGE_EN_GPIO_FUNC_MASK \
+		U32(GENMASK(7, 0))
+#define NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_VOLTAGE_EN_GPIO_FUNC_SHIFT \
+		0U
+#define NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_GATE_VOLTAGE_UV_MASK 	\
+		U32(GENMASK(31, 8))
+#define NV_VBIOS_VDT_1X_ENTRY_PARAM5_PSV_GATE_VOLTAGE_UV_SHIFT 	8U
+
 /* Voltage Policy Table */
 struct vbios_voltage_policy_table_1x_header {
 	u8 version;
@@ -962,6 +1688,14 @@ struct vbios_voltage_policy_table_1x_entry {
 #define NV_VBIOS_VOLTAGE_POLICY_1X_ENTRY_TYPE_SR_MULTI_STEP		0x02U
 #define NV_VBIOS_VOLTAGE_POLICY_1X_ENTRY_TYPE_SR_SINGLE_STEP		0x03U
 #define NV_VBIOS_VOLTAGE_POLICY_1X_ENTRY_TYPE_SINGLE_RAIL_MULTI_STEP	0x04U
+
+#define NV_VBIOS_VOLTAGE_POLICY_2X_ENTRY_TYPE_INVALID			0xFF
+#define NV_VBIOS_VOLTAGE_POLICY_2X_ENTRY_TYPE_DUAL_DIE_MULTI_RAIL	0x00
+#define NV_VBIOS_VOLTAGE_POLICY_2X_ENTRY_TYPE_MULTI_RAIL		0x01
+#define NV_VBIOS_VOLTAGE_POLICY_2X_ENTRY_TYPE_DUAL_DIE_SINGLE_RAIL	0x02
+#define NV_VBIOS_VOLTAGE_POLICY_2X_ENTRY_TYPE_SINGLE_RAIL		0x03
+
+#define NV_VBIOS_VOLTAGE_POLICY_2X_PERF_CHANGE_SEQ_POLICY_ID		0x00
 
 #define NV_VBIOS_VPT_ENTRY_PARAM0_SINGLE_RAIL_VOLT_DOMAIN_MASK \
 		U32(GENMASK(7, 0))
@@ -1056,6 +1790,337 @@ struct therm_channel_1x_entry {
 
 #define NV_VBIOS_THERM_CHANNEL_1X_ENTRY_PARAM1_DEVICE_PROVIDER_INDEX_MASK  0xFFU
 #define NV_VBIOS_THERM_CHANNEL_1X_ENTRY_PARAM1_DEVICE_PROVIDER_INDEX_SHIFT    0U
+
+/*!
+ * Thermal Channel Table 2.X
+ */
+#define VBIOS_THERM_CHANNEL_VERSION_2X                                      0x20U
+
+#define VBIOS_THERM_CHANNEL_2X_HEADER_SIZE_02                               0x02
+#define VBIOS_THERM_CHANNEL_2X_HEADER_SIZE_09                               0x09U
+
+#define NV_VBIOS_CH_TYPE(halNum, type)  NV_VBIOS_THERM_CHANNEL_2X_HAL_##halNum##_CH_TYPE_##type
+#define NV_NVGPU_CH_TYPE(type)             NV2080_CTRL_THERMAL_THERM_CHANNEL_TYPE_##type
+
+/*!
+ * @brief Helper macros to define VBIOS and provider mapping related info
+ */
+#define NV_VBIOS_PROV_MAPPING(devClass, mappingName)        NV_VBIOS_THERM_DEVICE_2X_ENTRY_##devClass##_PROV_MAPPING_##mappingName
+#define NV_NVGPU_PROV_MAPPING(devClass, mappingName)           NV2080_CTRL_THERMAL_THERM_DEVICE_##devClass##_PROV_MAPPING_##mappingName
+#define NV_NVGPU_PROV_MAPPING_NUM_PROV(devClass, mappingName)  NV2080_CTRL_THERMAL_THERM_DEVICE_##devClass##_PROV_MAPPING_##mappingName##__NUM_PROVS
+
+// Enumerations of the Therm device ID HALs, as specified in the Thermal
+// device table header. This determines -
+// - Thermal device type for given entry
+// - Which device is exposed over I2CS
+//
+// See Thermal Device Table 2.0 spec for more details.
+//
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEFAULT             0x0
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_GB20Y               0x1
+#define NV_VBIOS_THERM_DEVICE_2X_HAL__COUNT                0x2
+
+// Common device type for HALs
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_DEV_TYPE_NOT_ASSIGNED              0xFF
+// Device type for HAL_0_DEFAULT
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE__COUNT                  0x02
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_DEVICE_2X_HAL_DEV_TYPE_NOT_ASSIGNED
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEFAULT             0x0
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_GB20Y               0x1
+#define NV_VBIOS_THERM_DEVICE_2X_HAL__COUNT                0x2
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_ENTRY_COUNT           0x3
+
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_DEV_TYPE_NOT_ASSIGNED              0xFF
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE__COUNT                  0x02
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_DEVICE_2X_HAL_DEV_TYPE_NOT_ASSIGNED
+// in NV_VBIOS_THERM_DEVICE_2X_HAL_ENTRY_COUNT.
+// In other word, NV_VBIOS_THERM_DEVICE_2X_HAL_0_DEV_TYPE__COUNT should be less
+// than or equal to NV_VBIOS_THERM_DEVICE_2X_HAL_ENTRY_COUNT.
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_DEV_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_DEV_TYPE_GPU_OFFSET_MAX_SECURE   0x01
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_DEV_TYPE_GPU_AVG                 0x02
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_DEV_TYPE__COUNT                  0x03
+#define NV_VBIOS_THERM_DEVICE_2X_HAL_1_DEV_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_DEVICE_2X_HAL_DEV_TYPE_NOT_ASSIGNED
+
+#define NV2080_CTRL_THERMAL_THERM_DEVICE_TYPE_GPU_OFFSET_MAX            0x00U
+#define NV2080_CTRL_THERMAL_THERM_DEVICE_TYPE_GPU_OFFSET_MAX_SECURE     0x01U
+#define NV2080_CTRL_THERMAL_THERM_DEVICE_TYPE_GPU_AVG                   0x02U
+#define NV2080_CTRL_THERMAL_THERM_DEVICE_TYPE__COUNT                    0x03U
+#define NV2080_CTRL_THERMAL_THERM_DEVICE_TYPE_NOT_ASSIGNED              0xFFU
+struct therm_channel_2x_header
+{
+    u8 version;                // Thermal Channel Table version
+    u8 header_size;            // Size of Thermal Channel Table in bytes
+    u8 table_entry_size;       // Size of each Thermal Channel Table entry in bytes
+    u8 num_table_entries;      // Number of Thermal Channel entries
+    u8 typeHAL;                // Specifies the list of enumerants to use when interpreting the channel entries
+    u16 pmuMonSamplingNormalMs; // PMU Monitor Normal Sampling Period (ms)
+    u16 pmuMonSamplingSleepMs;  // PMU Monitor Sleep Sampling Period (ms)
+}__attribute__((packed));
+
+#define VBIOS_THERM_CHANNEL_2X_ENTRY_SIZE_0E                        0x0E
+struct therm_channel_2x_entry
+{
+    u8 class_id; // Thermal Channel Class
+    u8 flags;   // Class specific flags
+    u32 param0;  // Class-specific Parameter0
+    u32 param1;  // Class-specific Parameter1
+    u32 param2;  // Class-specific Parameter2
+}__attribute__((packed));
+
+// Thermal Channel class
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_CLASS_INVALID               0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_CLASS_PROVIDER_V10          0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_CLASS_DEBUG_V10             0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_CLASS_AGGREGATION_V10       0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_CLASS_ESTIMATION_V10        0x04
+
+//
+// Common Flag fields for all classes
+// [0:0] : Temperature Scaling support for channel
+// [1:1] : Temperature Bounding support for channel
+// [2:2] : SW TempSim support for channel.
+//
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SCALING               0:0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SCALING_DISABLED      0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SCALING_ENABLED       0x1
+/* Explicit mask and shift definitions for SCALING flag bit field */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SCALING_MASK          0x1
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SCALING_SHIFT         0
+
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_BOUNDS                1:1
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_BOUNDS_DISABLED       0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_BOUNDS_ENABLED        0x1
+/* Explicit mask and shift definitions for BOUNDS flag bit field */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_BOUNDS_MASK           0x2
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_BOUNDS_SHIFT          1
+
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SW_TEMP_SIM_DISABLED  0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SW_TEMP_SIM_ENABLED   0x1
+/* Explicit mask and shift definitions for SW_TEMP_SIM flag bit field */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SW_TEMP_SIM_MASK      0x04
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_SW_TEMP_SIM_SHIFT     2
+
+//
+// Aggregation class specific flags
+// [5:3] : Aggregation Mode - MAX, AVG
+//
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_AGGREGATION_MODE_MAX  0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_AGGREGATION_MODE_AVG  0x1
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_AGGREGATION_MODE_MASK 0x38
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_AGGREGATION_MODE_SHIFT 3
+
+//
+// Estimation class specific flags
+// [5:3] : Estimation Mode - SUM, DIFF
+//
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_ESTIMATION_MODE_SUM   0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_ESTIMATION_MODE_DIFF  0x1
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_ESTIMATION_MODE_MASK  0x38
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_FLAGS_ESTIMATION_MODE_SHIFT 3
+
+/* Explicit mask and shift definitions for PROVIDER_V10 class bit fields */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_PROVIDER_DEV_INDEX_MASK    0xFF
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_PROVIDER_DEV_INDEX_SHIFT   0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_PROVIDER_PROV_INDEX_MASK   0xFF00
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_PROVIDER_PROV_INDEX_SHIFT  8
+
+/* Explicit mask and shift definitions for DEBUG_V10 class bit fields */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_DEV_INDEX_MASK       0xFF
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_DEV_INDEX_SHIFT      0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_PROV_INDEX_START_MASK 0xFF00
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_PROV_INDEX_START_SHIFT 8
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_PROV_INDEX_END_MASK  0xFF0000
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_DEBUG_PROV_INDEX_END_SHIFT 16
+
+/* Explicit mask and shift definitions for AGGREGATION_V10 class bit fields */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_DEV_INDEX_MASK 0xFF
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_DEV_INDEX_SHIFT 0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_PROV_INDEX_START_MASK 0xFF00
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_PROV_INDEX_START_SHIFT 8
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_PROV_INDEX_END_MASK 0xFF0000
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_PROV_INDEX_END_SHIFT 16
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_NEXT_CHANNEL_MASK 0xFF000000
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_AGGREGATION_NEXT_CHANNEL_SHIFT 24
+
+/* Explicit mask and shift definitions for ESTIMATION_V10 class bit fields */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_ESTIMATION_CHANNEL_1_MASK  0xFF
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_ESTIMATION_CHANNEL_1_SHIFT 0
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_ESTIMATION_CHANNEL_2_MASK  0xFF00
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM0_ESTIMATION_CHANNEL_2_SHIFT 8
+
+//
+// Common fields for Parameter1
+//
+// [15:0]  : Temperature scaling slope in SFXP8.8 format
+// [31:16] : Temperature scaling offset in SFXP8.8 format
+//
+// Define MASK and SHIFT based on NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_SLOPE (15:0)
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_SLOPE_MASK 0xFFFFU
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_SLOPE_SHIFT 0
+
+            // Define MASK and SHIFT based on NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_OFFSETSW (31:16)
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_OFFSETSW_MASK 0xFFFFU
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM1_SCALING_OFFSETSW_SHIFT 16
+//
+// Common fields for Parameter2
+//
+// [15:0]  : Temperature bound floor in SFXP11.5 format
+// [31:16] : Temperature bound ceil in SFXP11.5 format
+//
+
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_FLOOR_MASK     0xFFFFU
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_FLOOR_SHIFT    0
+
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_CEIL_MASK      0xFFFFU
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_CEIL_SHIFT     16
+
+/* Aliases for TEMP_MIN and TEMP_MAX for backward compatibility */
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MIN             NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_FLOOR
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MIN_MASK        NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_FLOOR_MASK
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MIN_SHIFT       NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_FLOOR_SHIFT
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MAX             NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_CEIL
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MAX_MASK        NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_CEIL_MASK
+#define NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_TEMP_MAX_SHIFT       NV_VBIOS_THERM_CHANNEL_2X_ENTRY_PARAM2_BOUND_CEIL_SHIFT
+
+//
+// Enumerations of the Therm Channel ID HALs, as specified in the Thermal
+// Channel table header. This determines -
+// - Thermal Channel type for given entry
+// - Thermal channel visibility
+//
+// See Thermal channel Table 2.0 spec for more details.
+//
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_DEFAULT             0x0
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_GB20Y_MULTI_DIE     0x1
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_GB20Y_SINGLE_DIE    0x2
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_GB20Y               0x3
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_GB20Y               0x4
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL__COUNT                0x5
+
+// Total number of entries having valid HAL data from VBIOS
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT           0x12
+
+// Structure saving HAL related information
+typedef const struct
+{
+    u8 halId;       // HAL ID NV_VBIOS_THERM_CHANNEL_2X_HAL_<xyz>
+    u8 numEntries;  // Total number of entries in HALs. This should be less than
+                      // or equal to NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT
+    struct
+    {
+        u8   vbiosChType; // Channel type NV_VBIOS_THERM_CHANNEL_2X_HAL_<i>_CH_TYPE_<xyz>
+        u8   ChType;      // Channel type NV2080_CTRL_THERMAL_THERM_CHANNEL_TYPE_<xyz>
+        bool bPublicVisibility; // Defines whether this channel visible to public In-Band as well as Out-Of-Band Interfaces.
+    } channelEntry[NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT];
+} NV_VBIOS_THERM_CHANNEL_2X_HAL;
+
+// Common Channel type for HALs
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED              0xFF
+
+// Channel type for HAL_0_DEFAULT
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE_MEM_MAX                 0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE__COUNT                  0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED
+//
+// If you happen to add any more channel types here, make sure it is accounted
+// in NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+// In other word, NV_VBIOS_THERM_CHANNEL_2X_HAL_0_CH_TYPE__COUNT should be less
+// than or equal to NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+//
+// Don't delete this comment.
+//
+
+// Channel type for HAL_1_GB20Y_MULTI_DIE
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_MEM_MAX                 0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_GPC_OFFSET_MAX          0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_HBI_OFFSET_MAX          0x04
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_NVL_OFFSET_MAX          0x05
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_OFFSET_MAX         0x06
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_AVG                0x07
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_MIN                0x08
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_GPC_OFFSET_MAX     0x09
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_GPC_AVG            0x0A
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE0_GPC_MIN            0x0B
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_OFFSET_MAX         0x0C
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_AVG                0x0D
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_MIN                0x0E
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_GPC_OFFSET_MAX     0x0F
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_GPC_AVG            0x10
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_DIE1_GPC_MIN            0x11
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE__COUNT                  0x12
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED
+//
+// If you happen to add any more channel types here, make sure it is accounted
+// in NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+// In other word, NV_VBIOS_THERM_CHANNEL_2X_HAL_1_CH_TYPE__COUNT should be less
+// than or equal to NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+//
+// Don't delete this comment.
+//
+
+// Channel type for HAL_2_GB20Y_SINGLE_DIE
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_MEM_MAX                 0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_GPC_OFFSET_MAX          0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_HBI_OFFSET_MAX          0x04
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_NVL_OFFSET_MAX          0x05
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_GPC_AVG                 0x06
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_GPC_MIN                 0x07
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE__COUNT                  0x08
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED
+//
+// If you happen to add any more channel types here, make sure it is accounted
+// in NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+// In other word, NV_VBIOS_THERM_CHANNEL_2X_HAL_2_CH_TYPE__COUNT should be less
+// than or equal to NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+//
+// Don't delete this comment.
+//
+
+// Channel type for HAL_3
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_GPU_AVG                 0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_MEM_MAX                 0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_GPC_OFFSET_MAX          0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_GPC_AVG                 0x04
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_GPC_MIN                 0x05
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_SYS_OFFSET_MAX          0x06
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_SYS_AVG                 0x07
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_SYS_MIN                 0x08
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE__COUNT                  0x09
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED
+//
+// If you happen to add any more channel types here, make sure it is accounted
+// in NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+// In other word, NV_VBIOS_THERM_CHANNEL_2X_HAL_3_CH_TYPE__COUNT should be less
+// than or equal to NV_VBIOS_THERM_CHANNEL_2X_HAL_ENTRY_COUNT.
+//
+// Don't delete this comment.
+//
+
+// Channel type for HAL_4
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPU_OFFSET_MAX          0x00
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPU_OFFSET_MAX_SECURE   0x01
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPU_AVG                 0x02
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPC_OFFSET_MAX          0x03
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPC_AVG                 0x04
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPC_MIN                 0x05
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_SYS_OFFSET_MAX          0x06
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_SYS_AVG                 0x07
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_SYS_MIN                 0x08
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_GPU_MIN                 0x09
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE__COUNT                  0x0A
+#define NV_VBIOS_THERM_CHANNEL_2X_HAL_4_CH_TYPE_NOT_ASSIGNED            NV_VBIOS_THERM_CHANNEL_2X_HAL_CH_TYPE_NOT_ASSIGNED
 
 /* Frequency Controller Table */
 struct vbios_fct_1x_header {

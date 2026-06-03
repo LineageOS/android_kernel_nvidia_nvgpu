@@ -264,7 +264,8 @@ static struct dma_buf *nvgpu_nvs_buf_export_dmabuf(struct nvgpu_nvs_ctrl_queue *
 	return dma_buf_export(&exp_info);
 }
 
-static void nvgpu_nvs_destroy_buf_linux_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *buf)
+static void nvgpu_nvs_destroy_buf_linux_locked(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *buf,
+		bool is_abrupt_flag)
 {
 	struct nvgpu_nvs_domain_ctrl_fifo *sched_ctrl = g->sched_ctrl_fifo;
 	struct nvgpu_nvs_linux_buf_priv *priv;
@@ -273,7 +274,7 @@ static void nvgpu_nvs_destroy_buf_linux_locked(struct gk20a *g, struct nvgpu_nvs
 
 	nvs_release_user_mappings_locked(g, priv);
 
-	nvgpu_nvs_buffer_free(sched_ctrl, buf);
+	nvgpu_nvs_buffer_free(sched_ctrl, buf, is_abrupt_flag);
 	nvgpu_kfree(g, priv);
 
 	nvgpu_put(g);
@@ -357,12 +358,12 @@ int nvgpu_nvs_alloc_and_get_buf(struct gk20a *g, struct nvgpu_nvs_ctrl_queue *bu
 	}
 
 	buf->priv = priv;
-	buf->free = nvgpu_nvs_destroy_buf_linux_locked;
+	buf->free_queue = nvgpu_nvs_destroy_buf_linux_locked;
 
 	return 0;
 fail:
 	nvgpu_kfree(g, priv);
-	nvgpu_nvs_buffer_free(sched_ctrl, buf);
+	nvgpu_nvs_buffer_free(sched_ctrl, buf, false);
 
 	nvgpu_put(g);
 

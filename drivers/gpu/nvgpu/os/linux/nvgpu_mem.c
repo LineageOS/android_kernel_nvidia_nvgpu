@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/dma.h>
 #include <nvgpu/gmmu.h>
@@ -53,7 +40,7 @@ static u64 __nvgpu_sgl_phys(struct gk20a *g, void *sgl)
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
 	u64 ipa = sg_phys((struct scatterlist *)sgl);
 
-	if (platform->phys_addr)
+	if ((!nvgpu_iommuable(g)) && (platform->phys_addr))
 		return platform->phys_addr(g, ipa, NULL);
 
 	return ipa;
@@ -238,6 +225,11 @@ static u64 nvgpu_mem_linux_sgl_length(void *sgl)
 	return (u64)((struct scatterlist *)sgl)->length;
 }
 
+static u64 nvgpu_mem_linux_sgl_dma_length(void *sgl)
+{
+	return (u64)sg_dma_len((struct scatterlist *)sgl);
+}
+
 static u64 nvgpu_mem_linux_sgl_gpu_addr(struct gk20a *g,
 					void *sgl,
 					struct nvgpu_gmmu_attrs *attrs)
@@ -270,13 +262,25 @@ static void nvgpu_mem_linux_sgl_free(struct gk20a *g, struct nvgpu_sgt *sgt)
 	nvgpu_kfree(g, sgt);
 }
 
-static const struct nvgpu_sgt_ops nvgpu_linux_sgt_ops = {
+static const struct nvgpu_sgt_ops nvgpu_linux_sgt_iommu_off_ops = {
 	.sgl_next      = nvgpu_mem_linux_sgl_next,
 	.sgl_phys      = nvgpu_mem_linux_sgl_phys,
 	.sgl_ipa       = nvgpu_mem_linux_sgl_ipa,
 	.sgl_ipa_to_pa = nvgpu_mem_linux_sgl_ipa_to_pa,
 	.sgl_dma       = nvgpu_mem_linux_sgl_dma,
 	.sgl_length    = nvgpu_mem_linux_sgl_length,
+	.sgl_gpu_addr  = nvgpu_mem_linux_sgl_gpu_addr,
+	.sgt_iommuable = nvgpu_mem_linux_sgt_iommuable,
+	.sgt_free      = nvgpu_mem_linux_sgl_free,
+};
+
+static const struct nvgpu_sgt_ops nvgpu_linux_sgt_iommu_on_ops = {
+	.sgl_next      = nvgpu_mem_linux_sgl_next,
+	.sgl_phys      = nvgpu_mem_linux_sgl_phys,
+	.sgl_ipa       = nvgpu_mem_linux_sgl_ipa,
+	.sgl_ipa_to_pa = nvgpu_mem_linux_sgl_ipa_to_pa,
+	.sgl_dma       = nvgpu_mem_linux_sgl_dma,
+	.sgl_length    = nvgpu_mem_linux_sgl_dma_length,
 	.sgl_gpu_addr  = nvgpu_mem_linux_sgl_gpu_addr,
 	.sgt_iommuable = nvgpu_mem_linux_sgt_iommuable,
 	.sgt_free      = nvgpu_mem_linux_sgl_free,
@@ -314,7 +318,13 @@ struct nvgpu_sgt *nvgpu_linux_sgt_create(struct gk20a *g, struct sg_table *sgt)
 	nvgpu_log(g, gpu_dbg_sgl, "Making Linux SGL!");
 
 	nvgpu_sgt->sgl = (void *)linux_sgl;
-	nvgpu_sgt->ops = &nvgpu_linux_sgt_ops;
+
+	if ((nvgpu_is_enabled(g, NVGPU_MM_USE_PHYSICAL_SG) ||
+	    !nvgpu_iommuable(g))) {
+		nvgpu_sgt->ops = &nvgpu_linux_sgt_iommu_off_ops;
+	} else {
+		nvgpu_sgt->ops = &nvgpu_linux_sgt_iommu_on_ops;
+	}
 
 	return nvgpu_sgt;
 }
@@ -323,4 +333,27 @@ struct nvgpu_sgt *nvgpu_sgt_os_create_from_mem(struct gk20a *g,
 					       struct nvgpu_mem *mem)
 {
 	return nvgpu_linux_sgt_create(g, mem->priv.sgt);
+}
+
+int nvgpu_sgt_os_init_mem_from_iova(struct gk20a *g, struct nvgpu_mem *mem,
+			u64 syncpt_addr, u64 nr_pages)
+{
+	int err = 0;
+	struct scatterlist *sg = NULL;
+
+	mem->priv.sgt = nvgpu_kzalloc(g, sizeof(struct sg_table));
+	if (mem->priv.sgt == NULL) {
+		return -ENOMEM;
+	}
+	err = sg_alloc_table(mem->priv.sgt, 1, GFP_KERNEL);
+	if (err) {
+		nvgpu_kfree(g, mem->priv.sgt);
+		return -ENOMEM;
+	}
+	sg = mem->priv.sgt->sgl;
+	sg_init_table(sg, 1);
+	sg_dma_address(sg) = syncpt_addr;
+	sg_dma_len(sg) = nr_pages;
+	mem->aperture = APERTURE_SYSMEM;
+	return 0;
 }

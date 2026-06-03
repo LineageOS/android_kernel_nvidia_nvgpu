@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GOPS_MM_H
@@ -98,6 +80,11 @@ struct gops_mm_mmu_fault {
 	 *
 	 */
 	void (*parse_mmu_fault_info)(struct mmu_fault_info *mmufault);
+
+	/**
+	 * @brief HAL to return mmu engine id value for CE0.
+	 */
+	u32 (*mmu_eng_id_ce0_val)(void);
 };
 
 /**
@@ -121,6 +108,18 @@ struct gops_mm_cache {
 	int (*fb_flush)(struct gk20a *g);
 
 	/**
+	 * @brief HAL to flush the frame buffer memory.
+	 *
+	 * @param g [in]	The GPU.
+	 * @param timeout [in]	Timeout.
+	 *
+	 * Flush the frame buffer memory. This is the helper function to
+	 * fb_flush.
+	 *
+	 */
+	void (*token_based_fb_flush)(struct gk20a *g, struct nvgpu_timeout *timeout);
+
+	/**
 	 * @brief HAL to invalidate the L2.
 	 *
 	 * @param g [in]	The GPU.
@@ -132,6 +131,18 @@ struct gops_mm_cache {
 	 * Note: It does not return error. But CPU polling can timeout.
 	 */
 	void (*l2_invalidate)(struct gk20a *g);
+
+	/**
+	 * @brief HAL to invalidate the L2.
+	 *
+	 * @param g [in]	The GPU.
+	 *
+	 * Invalidate the L2:
+	 * - This is the helper function to l2_invalidate.
+	 *
+	 * Note: It does not return error. But CPU polling can timeout.
+	 */
+	void (*token_based_l2_invalidate_locked)(struct gk20a *g);
 
 	/**
 	 * @brief HAL to flush and invalidate the L2 and fb.
@@ -153,6 +164,20 @@ struct gops_mm_cache {
 	 *   (-EBUSY).
 	 */
 	int (*l2_flush)(struct gk20a *g, bool invalidate);
+
+	/**
+	 * @brief HAL to flush and invalidate the L2 and fb.
+	 *
+	 * @param g          [in]	The GPU.
+	 * @param timeout    [in]	Timeout.
+	 *
+	 * Flush and invalidate the L2 and fb:
+	 * - This is the helper function to l2_flush.
+	 *
+	 * @return 0 in case of success, < 0 in case of failure.
+	 */
+	int (*token_based_l2_flush)(struct gk20a *g, struct nvgpu_timeout *timeout);
+
 #ifdef CONFIG_NVGPU_COMPRESSION
 	/**
 	 * @brief HAL to flush Compression Bit Cache memory.
@@ -167,6 +192,18 @@ struct gops_mm_cache {
 	 * Note: It does not return error. But CPU polling can timeout.
 	 */
 	void (*cbc_clean)(struct gk20a *g);
+
+	/**
+	 * @brief HAL to flush the frame buffer memory.
+	 *
+	 * @param g [in]        The GPU.
+	 * @param timeout [in]  Timeout.
+	 *
+	 * This is the helper function to clean L2 comptags.
+	 *
+	 */
+	void (*token_based_cbc_clean)(struct gk20a *g, struct nvgpu_timeout *timeout);
+
 #endif
 };
 
@@ -302,7 +339,7 @@ struct gops_mm_gmmu {
 	 * - Invalidates the GPU TLB, #gm20b_fb_tlb_invalidate() does
 	 *   the tlb invalidate.
 	 */
-	void (*unmap)(struct vm_gk20a *vm,
+	int (*unmap)(struct vm_gk20a *vm,
 				u64 vaddr,
 				u64 size,
 				u32 pgsz_idx,
@@ -340,6 +377,19 @@ struct gops_mm_gmmu {
 	 * @return 0 if big page support is disabled.
 	 */
 	u32 (*get_default_big_page_size)(void);
+
+	/**
+	 * @brief HAL to get the default huge page size in bytes.
+	 *
+	 * @param g [in]	The GPU.
+	 *
+	 * Default huge page size:
+	 *  - Not all platform supports huge page size.
+	 *
+	 * @return Valid huge page size if huge page is supported.
+	 * @return 0 if huge page support is not supported.
+	 */
+	u32 (*get_default_huge_page_size)(void);
 
 	/**
 	 * @brief HAL to get the iommu physical bit position.
@@ -522,7 +572,7 @@ struct gops_mm {
 	 *
 	 * @return size in bytes.
 	 */
-	u32 (*bar2_vm_size)(struct gk20a *g);
+	int (*bar2_vm_size)(struct gk20a *g, u32 *buffer_size);
 
 	/**
 	 * @brief HAL to initialize the BAR2 virtual memory.

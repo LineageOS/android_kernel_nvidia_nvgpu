@@ -1,26 +1,5 @@
-/*
- * Virtualized GPU Memory Management
- *
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/dma.h>
@@ -28,6 +7,7 @@
 #include <nvgpu/gk20a.h>
 #include <nvgpu/channel.h>
 #include <nvgpu/nvgpu_sgt.h>
+#include <nvgpu/ce_app.h>
 
 #include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/vgpu.h>
@@ -38,6 +18,7 @@
 static int vgpu_init_mm_setup_sw(struct gk20a *g)
 {
 	struct mm_gk20a *mm = &g->mm;
+	int err;
 
 	nvgpu_log_fn(g, " ");
 
@@ -58,7 +39,55 @@ static int vgpu_init_mm_setup_sw(struct gk20a *g)
 		       (int)(mm->channel.user_size >> 20),
 		       (int)(mm->channel.kernel_size >> 20));
 
+	if (g->ops.mm.init_bar2_vm != NULL) {
+		err = g->ops.mm.init_bar2_vm(g);
+		if (err != 0) {
+			return err;
+		}
+	}
+
+#ifdef CONFIG_NVGPU_COMPRESSION_RAW
+	mm->cbc.ce_ctx_id = NVGPU_CE_INVAL_CTX_ID;
+	err = nvgpu_init_ce_vm(mm);
+	if (err != 0) {
+		nvgpu_err(g, "nvgpu_init_ce_vm failed");
+		return err;
+	}
+#endif
+
+	if (g->ops.mm.mmu_fault.setup_sw != NULL) {
+		err = g->ops.mm.mmu_fault.setup_sw(g);
+		if (err != 0) {
+			return err;
+		}
+	}
+
 	mm->sw_ready = true;
+
+	return 0;
+}
+
+static int vgpu_init_mm_setup_hw(struct gk20a *g)
+{
+	struct mm_gk20a *mm = &g->mm;
+	int err = 0;
+
+	nvgpu_log_fn(g, " ");
+
+	if (g->ops.fb.init_hw != NULL) {
+		g->ops.fb.init_hw(g);
+	}
+
+	if (g->ops.bus.bar2_bind != NULL) {
+		err = g->ops.bus.bar2_bind(g, &mm->bar2.inst_block);
+		if (err != 0) {
+			return err;
+		}
+	}
+
+	if (g->ops.mm.mmu_fault.setup_hw != NULL) {
+		g->ops.mm.mmu_fault.setup_hw(g);
+	}
 
 	return 0;
 }
@@ -74,10 +103,15 @@ int vgpu_init_mm_support(struct gk20a *g)
 		return err;
 	}
 
+	err = vgpu_init_mm_setup_hw(g);
+	if (err) {
+		return err;
+	}
+
 	return err;
 }
 
-void vgpu_locked_gmmu_unmap(struct vm_gk20a *vm,
+int vgpu_locked_gmmu_unmap(struct vm_gk20a *vm,
 				u64 vaddr,
 				u64 size,
 				u32 pgsz_idx,
@@ -99,7 +133,7 @@ void vgpu_locked_gmmu_unmap(struct vm_gk20a *vm,
 	p->gpu_va = vaddr;
 	p->size = size;
 	p->pgsz_idx = pgsz_idx;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	if (err || msg.ret) {
 		nvgpu_err(g, "failed to update gmmu ptes on unmap");
 	}
@@ -108,6 +142,8 @@ void vgpu_locked_gmmu_unmap(struct vm_gk20a *vm,
 		nvgpu_vm_free_va(vm, vaddr, pgsz_idx);
 	}
 	/* TLB invalidate handled on server side */
+
+	return err;
 }
 
 int vgpu_vm_bind_channel(struct vm_gk20a *vm,
@@ -125,7 +161,7 @@ int vgpu_vm_bind_channel(struct vm_gk20a *vm,
 	msg.handle = vgpu_get_handle(ch->g);
 	p->as_handle = vm->handle;
 	p->chan_handle = ch->virt_ctx;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 
 	if (err || msg.ret) {
 		ch->vm = NULL;
@@ -139,16 +175,17 @@ int vgpu_vm_bind_channel(struct vm_gk20a *vm,
 	return err;
 }
 
-static int vgpu_cache_maint(u64 handle, u8 op)
+static int vgpu_cache_maint(struct gk20a *g, u8 op)
 {
 	struct tegra_vgpu_cmd_msg msg;
+	u64 handle = vgpu_get_handle(g);
 	struct tegra_vgpu_cache_maint_params *p = &msg.params.cache_maint;
 	int err;
 
 	msg.cmd = TEGRA_VGPU_CMD_CACHE_MAINT;
 	msg.handle = handle;
 	p->op = op;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 	return err;
 }
@@ -158,7 +195,7 @@ int vgpu_mm_fb_flush(struct gk20a *g)
 
 	nvgpu_log_fn(g, " ");
 
-	return vgpu_cache_maint(vgpu_get_handle(g), TEGRA_VGPU_FB_FLUSH);
+	return vgpu_cache_maint(g, TEGRA_VGPU_FB_FLUSH);
 }
 
 void vgpu_mm_l2_invalidate(struct gk20a *g)
@@ -166,7 +203,7 @@ void vgpu_mm_l2_invalidate(struct gk20a *g)
 
 	nvgpu_log_fn(g, " ");
 
-	(void) vgpu_cache_maint(vgpu_get_handle(g), TEGRA_VGPU_L2_MAINT_INV);
+	(void) vgpu_cache_maint(g, TEGRA_VGPU_L2_MAINT_INV);
 }
 
 int vgpu_mm_l2_flush(struct gk20a *g, bool invalidate)
@@ -181,7 +218,7 @@ int vgpu_mm_l2_flush(struct gk20a *g, bool invalidate)
 		op =  TEGRA_VGPU_L2_MAINT_FLUSH;
 	}
 
-	return vgpu_cache_maint(vgpu_get_handle(g), op);
+	return vgpu_cache_maint(g, op);
 }
 
 int vgpu_mm_tlb_invalidate(struct gk20a *g, struct nvgpu_mem *pdb)
@@ -204,7 +241,7 @@ void vgpu_mm_mmu_set_debug_mode(struct gk20a *g, bool enable)
 	msg.cmd = TEGRA_VGPU_CMD_SET_MMU_DEBUG_MODE;
 	msg.handle = vgpu_get_handle(g);
 	p->enable = (u32)enable;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv(g, &msg);
 	WARN_ON(err || msg.ret);
 }
 #endif
@@ -240,17 +277,19 @@ u64 vgpu_locked_gmmu_map(struct vm_gk20a *vm,
 {
 	int err = 0;
 	struct gk20a *g = gk20a_from_vm(vm);
-	struct tegra_vgpu_cmd_msg msg;
+	struct tegra_vgpu_cmd_msg msg = {};
 	struct tegra_vgpu_as_map_ex_params *p = &msg.params.as_map_ex;
 	struct tegra_vgpu_mem_desc *mem_desc;
 	u32 page_size  = vm->gmmu_page_sizes[pgsz_idx];
 	u64 buffer_size = NVGPU_ALIGN(size, SZ_4K);
 	u64 space_to_skip = buffer_offset;
 	u32 mem_desc_count = 0, i;
-	void *handle = NULL;
+	u64 compression_page_size = g->ops.fb.compression_page_size(g);
 	size_t oob_size;
 	u8 prot;
 	void *sgl;
+	int ivc = -1;
+	bool allocated_vma = false;
 
 	nvgpu_log_fn(g, " ");
 
@@ -270,24 +309,24 @@ u64 vgpu_locked_gmmu_map(struct vm_gk20a *vm,
 		return 0;
 	}
 
-	(void) memset(&msg, 0, sizeof(msg));
-
 	/* Allocate (or validate when map_offset != 0) the virtual address. */
 	if (!map_offset) {
-		map_offset = nvgpu_vm_alloc_va(vm, size, pgsz_idx);
+		map_offset = nvgpu_vm_alloc_va(vm, size, pgsz_idx, ctag_offset != 0U,
+			compression_page_size);
 		if (!map_offset) {
 			nvgpu_err(g, "failed to allocate va space");
 			err = -ENOMEM;
 			goto fail;
 		}
+		allocated_vma = true;
 	}
 
-	handle = vgpu_ivc_oob_get_ptr(vgpu_ivc_get_server_vmid(),
-					TEGRA_VGPU_QUEUE_CMD,
-					(void **)&mem_desc, &oob_size);
-	if (!handle) {
-		err = -EINVAL;
-		goto fail;
+	ivc = vgpu_comm_alloc_ivc_oob(g, (void **)&mem_desc, &oob_size);
+	if (ivc < 0) {
+		if (allocated_vma) {
+			nvgpu_vm_free_va(vm, map_offset, pgsz_idx);
+		}
+		return ivc;
 	}
 	sgl = sgt->sgl;
 
@@ -362,18 +401,18 @@ u64 vgpu_locked_gmmu_map(struct vm_gk20a *vm,
 	p->prot = prot;
 	p->ctag_offset = ctag_offset;
 	p->clear_ctags = clear_ctags;
-	err = vgpu_comm_sendrecv(&msg, sizeof(msg), sizeof(msg));
+	err = vgpu_comm_sendrecv_locked(g, ivc, &msg);
 	if (err || msg.ret) {
 		goto fail;
 	}
 
 	/* TLB invalidate handled on server side */
 
-	vgpu_ivc_oob_put_ptr(handle);
+	vgpu_comm_free_ivc(g, ivc);
 	return map_offset;
 fail:
-	if (handle) {
-		vgpu_ivc_oob_put_ptr(handle);
+	if (ivc != -1) {
+		vgpu_comm_free_ivc(g, ivc);
 	}
 	nvgpu_err(g, "Failed: err=%d, msg.ret=%d", err, msg.ret);
 	nvgpu_err(g,

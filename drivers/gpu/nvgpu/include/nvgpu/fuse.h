@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_FUSE_H
 #define NVGPU_FUSE_H
@@ -25,6 +7,47 @@
  * @file
  *
  * Interface for fuse ops.
+ * @page fuse fuse
+ *
+ * Overview
+ * ========
+ *
+ * The |nvgpu-rm| fuse unit provides a set of interfaces to read or write
+ * various fuse registers of SoC of GPU. The fuse unit initialization part is
+ * responsible for:
+ *
+ * - Fetching iGPU specific fuse IO region from Device Tree
+ * - Mapping fuse IO region in |nvgpu-rm| address space
+ * - Un-mapping fuse IO region from |nvgpu-rm| address space
+ *
+ * Once the fuse unit is successfully initialized, it facilitates reads and
+ * writes of FUSEs. Any failure in fuse unit initialization is reported as
+ * an error to the init unit.
+ *
+ * Static Design
+ * =============
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_rmos_tegra_fuse_init()
+ *   + nvgpu_rmos_tegra_fuse_deinit()
+ *   + nvgpu_tegra_fuse_write_bypass()
+ *   + nvgpu_tegra_fuse_write_access_sw()
+ *   + nvgpu_tegra_fuse_write_opt_gpu_tpc0_disable()
+ *   + nvgpu_tegra_fuse_write_opt_gpu_tpc1_disable()
+ *   + nvgpu_tegra_fuse_read_gcplex_config_fuse()
+ *
+ * Following are the functions exposed as callbacks.
+ *   + gops_fuse.check_priv_security
+ *   + gops_fuse.fuse_ctrl_opt_tpc_gpc
+ *   + gops_fuse.fuse_opt_priv_sec_en
+ *   + gops_fuse.fuse_status_opt_fbio
+ *   + gops_fuse.fuse_status_opt_fbp
+ *   + gops_fuse.fuse_status_opt_tpc_gpc
+ *   + gops_fuse.is_opt_ecc_enable
+ *   + gops_fuse.is_opt_feature_override_disable
+ *   + gops_fuse.read_gcplex_config_fuse
+ *
  */
 
 struct gk20a;
@@ -116,8 +139,11 @@ int nvgpu_tegra_fuse_read_opt_gpc_disable(struct gk20a *g, u32 *val);
  * @return 0 on success or negative value on failure.
  *
  */
+#ifdef __KERNEL__
 int nvgpu_tegra_fuse_read_opt_emc_disable(struct gk20a *g, u32 *val);
+#endif
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA)
 /**
  * @brief - Reads the per-device identifier fuses.
  *
@@ -129,9 +155,9 @@ int nvgpu_tegra_fuse_read_opt_emc_disable(struct gk20a *g, u32 *val);
  * @return 0 on success
  */
 int nvgpu_tegra_fuse_read_per_device_identifier(struct gk20a *g, u64 *pdi);
+#endif
 
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
-
 /**
  * @brief -  Write Fuse bypass register which controls fuse bypass.
  *

@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2016-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #include <asm/barrier.h>
 #include <linux/wait.h>
 #include <linux/uaccess.h>
@@ -435,7 +422,7 @@ long gk20a_sched_dev_ioctl(struct file *filp, unsigned int cmd,
 	unsigned long arg)
 {
 	struct gk20a *g = filp->private_data;
-	u8 buf[NVGPU_SCHED_IOCTL_MAX_ARG_SIZE];
+	void *buf = NULL;
 	int err = 0;
 
 	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_sched, "nr=%d", _IOC_NR(cmd));
@@ -446,10 +433,16 @@ long gk20a_sched_dev_ioctl(struct file *filp, unsigned int cmd,
 		(_IOC_SIZE(cmd) > NVGPU_SCHED_IOCTL_MAX_ARG_SIZE))
 		return -EINVAL;
 
-	(void) memset(buf, 0, sizeof(buf));
+	buf = nvgpu_kzalloc(g, NVGPU_SCHED_IOCTL_MAX_ARG_SIZE);
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
 	if (_IOC_DIR(cmd) & _IOC_WRITE) {
-		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd)))
-			return -EFAULT;
+		if (copy_from_user(buf, (void __user *)arg, _IOC_SIZE(cmd))) {
+			err = -EFAULT;
+			goto cleanup;
+                }
 	}
 
 	nvgpu_speculation_barrier();
@@ -511,6 +504,8 @@ long gk20a_sched_dev_ioctl(struct file *filp, unsigned int cmd,
 			err = -EFAULT;
 	}
 
+cleanup:
+	nvgpu_kfree(g, buf);
 	return err;
 }
 

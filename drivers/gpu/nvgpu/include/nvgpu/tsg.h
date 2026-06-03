@@ -1,24 +1,7 @@
-/*
- * Copyright (c) 2014-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
+
 #ifndef NVGPU_TSG_H
 #define NVGPU_TSG_H
 /**
@@ -53,6 +36,7 @@
 struct gk20a;
 struct nvgpu_channel;
 struct nvgpu_gr_ctx;
+struct nvgpu_gr_isr_data;
 struct nvgpu_multimedia_ctx;
 struct nvgpu_channel_hw_state;
 struct nvgpu_profiler_object;
@@ -71,6 +55,7 @@ struct nvgpu_tsg_sm_error_state {
 	u64 hww_warp_esr_pc;
 	u32 hww_global_esr_report_mask;
 	u32 hww_warp_esr_report_mask;
+	u32 hww_cga_esr;
 };
 
 /**
@@ -186,6 +171,15 @@ struct nvgpu_tsg {
 	struct nvgpu_mutex event_id_list_lock;
 #endif
 
+	/*
+	 * The associated GPU instance id for the TSG object.
+	 *
+	 * The GPU instance id can be used to determine the GPU instance
+	 * under MIG. The GPU instance id is always 0 when MIG is not
+	 * enabled.
+	 */
+	u32 gpu_instance_id;
+
 #ifdef CONFIG_NVGPU_TSG_SHARING
 	/**
 	 * List of devices sharing this TSG (Opened TSG directly or through
@@ -266,7 +260,7 @@ struct nvgpu_tsg {
 	/*
 	 * A TSG keeps a ref to its scheduling domain so that active domains can't be deleted.
 	 */
-	struct nvgpu_nvs_domain *nvs_domain;
+	struct nvgpu_nvs_domain *nvs_domain_ptr;
 
 	/** tgid (OS specific) of the process that openend the TSG. */
 
@@ -288,7 +282,10 @@ struct nvgpu_tsg {
 	bool abortable;
 
 	/** MMU debug mode enabled if mmu_debug_mode_refcnt > 0 */
-	u32  mmu_debug_mode_refcnt;
+	nvgpu_atomic_t mmu_debug_mode_refcnt;
+
+	/** MMU debug GCC mode enabled if mmu_debug_gcc_mode_refcnt > 0 */
+	nvgpu_atomic_t  mmu_debug_gcc_mode_refcnt;
 
 	/** ERRBAR enabled if sched_exit_wait_for_errbar_refcnt > 0 */
 	nvgpu_atomic_t sched_exit_wait_for_errbar_refcnt;
@@ -310,6 +307,13 @@ struct nvgpu_tsg {
 	/** Pointer of profiler object to which this TSG is bound */
 	struct nvgpu_profiler_object *prof;
 #endif
+
+	/** To track TSG enable/disable. */
+	u32 disable_count;
+
+	/** To track CILP preemption save completion. */
+	nvgpu_atomic_t cilp_save_cmpl;
+	bool is_shadow_cleared;
 };
 
 #ifdef CONFIG_NVGPU_TSG_SHARING
@@ -333,12 +337,11 @@ struct nvgpu_tsg_ctrl_dev_node {
  * - Validate the VM. Since single VM supported for a TSG now, if
  *   different VM is specified than already assigned to the TSG
  *   then return -EINVAL.
- * - If sync subcontext requested, allocate if available and set the
- *   flag #sync_veid.
- * - If async subcontext requested, allocate if available from the
- *   bitmap #async_veids. If async VEIDs are not available and sync
- *   VEID is available then allocate sync subcontext by setting the
- *   flag #sync_veid.
+ * - If sync subcontext requested, allocate using nvgpu_tsg_create_sync_subcontext() if available
+ *   else return error.
+ * - If async subcontext requested, allocate using nvgpu_tsg_create_async_subcontext() if
+ *   available else return error.
+ * - Set TSG's subctx_vms for veid index to passed vm.
  *
  * @return 0 in case of success, < 0 in case of failure.
  * @retval -EINVAL if invalid VM.
@@ -424,12 +427,18 @@ int nvgpu_tsg_validate_ch_subctx_vm(struct gk20a *g,
  * @retval -EINVAL if there is no SM.
  * @retval -ENOMEM if not enough memory is available.
  */
-int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid);
+int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid,
+		u32 instance_id);
 /**
  * @brief Open and initialize unused TSG
  *
  * @param g [in]		The GPU driver struct.
  * @param pid [in]		The PID of the process.
+ * @param instance_id[in]	Instance id if MIG is enabled.
+ * 				Default instance id is Zero for non-MIG
+ * 				mode. If MIG is enabled it will be the
+ * 				GPU instance id derived from cdev private
+ * 				struture.
  *
  * - Acquire unused TSG.
  * - Set s/w context of the acquired TSG.
@@ -440,7 +449,8 @@ int nvgpu_tsg_open_common(struct gk20a *g, struct nvgpu_tsg *tsg, pid_t pid);
  *         context failed, release acquired TSG back to the pool of unused
  *         TSGs.
  */
-struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid);
+struct nvgpu_tsg *nvgpu_tsg_open(struct gk20a *g, pid_t pid,
+		u32 instance_id);
 
 /**
  * @brief Clean up resources used by tsg. This is needed for releasing TSG.
@@ -525,9 +535,43 @@ struct nvgpu_tsg *nvgpu_tsg_from_ch(struct nvgpu_channel *ch);
  * @param tsg [in]		Pointer to TSG struct.
  *
  * Disable all the channels bound to a TSG so that h/w scheduler does not
- * schedule these channels.
+ * schedule these channels. For each call, with the lock
+ * #nvgpu_tsg.ch_list_lock held, increment the #nvgpu_tsg.disable_count
+ * by one.
  */
 void nvgpu_tsg_disable(struct nvgpu_tsg *tsg);
+
+/**
+ * @brief Enable all the channels bound to a TSG.
+ *
+ * @param tsg [in]		Pointer to TSG struct.
+ *
+ * Enable all the channels bound to a TSG conditionally. Condition being:
+ * #nvgpu_tsg.disable_count is zero. With #nvgpu_tsg.ch_list_lock held,
+ * check if #nvgpu_tsg.disable_count:
+ * - Is already zero (TSG is already enabled) ? then do nothing.
+ * - Else, decrement the #nvgpu_tsg.disable_count by one.
+ *   If it becomes zero, then enable all the channels bound the TSG.
+ *   If it is still greater than zero, then do not enable the channels
+ *   bound to this TSG.
+ */
+void nvgpu_tsg_enable(struct nvgpu_tsg *tsg);
+
+/**
+ * @brief Enable the TSG once after CILP preemption save.
+ *
+ * @param tsg [in]		Pointer to TSG struct.
+ *
+ * There is a specific case when SM exception with ESR error causes CILP
+ * preemption. After CILP preemption save is complete, the TSG is in disabled
+ * state. This interface when called checks if the CILP preemption save is
+ * completed and the TSG is in disabled state, if yes, then
+ * decrement the #nvgpu_tsg.disable_count by one.
+ * - If it becomes zero, then enable all the channels bound the TSG.
+ * - If it is still greater than zero, then do not enable the channels
+ *   bound to this TSG.
+ */
+void nvgpu_tsg_enable_for_cilp_cmpl(struct nvgpu_tsg *tsg);
 
 /**
  * @brief Bind a channel to the TSG.
@@ -657,8 +701,8 @@ int nvgpu_tsg_unbind_channel(struct nvgpu_tsg *tsg, struct nvgpu_channel *ch,
  *
  * @param ch [in]		Pointer to the Channel struct.
  *
- * Refer section "SCG, PBDMA, and CILP Rules" from https://p4viewer.nvidia.com/
- * /get//hw/doc/gpu/volta/volta/design/Functional_Descriptions/
+ * Refer section "SCG, PBDMA, and CILP Rules" from https:p4viewer.nvidia.com/
+ * /get/hw/doc/gpu/volta/volta/design/Functional_Descriptions/
  * /Volta_Subcontexts_Functional_Description.docx.
  *
  * @return 0 in case of success, < 0 in case of failure.
@@ -670,8 +714,8 @@ int nvgpu_tsg_validate_class_veid_pbdma(struct nvgpu_channel *ch);
  *
  * @param ch [in]		Pointer to the Channel struct.
  *
- * Refer section "SCG, PBDMA, and CILP Rules" from https://p4viewer.nvidia.com/
- * /get//hw/doc/gpu/volta/volta/design/Functional_Descriptions/
+ * Refer section "SCG, PBDMA, and CILP Rules" from https:p4viewer.nvidia.com/
+ * /get/hw/doc/gpu/volta/volta/design/Functional_Descriptions/
  * /Volta_Subcontexts_Functional_Description.docx.
  *
  * @return 0 in case of success, < 0 in case of failure.
@@ -722,19 +766,19 @@ void nvgpu_tsg_unbind_channel_ctx_reload_check(struct nvgpu_tsg *tsg,
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_CONTROL
 int nvgpu_tsg_force_reset_ch(struct nvgpu_channel *ch,
 				u32 err_code, bool verbose);
-void nvgpu_tsg_post_event_id(struct nvgpu_tsg *tsg,
+void nvgpu_tsg_post_event_id(struct gk20a *g, u32 gfid, u32 tsgid,
 			     enum nvgpu_event_id_type event_id);
 #endif
 /**
  * @brief Set mmu fault error notifier for all the channels bound to a TSG.
  *
  * @param g [in]		The GPU driver struct.
- * @param tsg [in]		Pointer to TSG struct.
+ * @param gfid [in]		gfid of the TSG.
+ * @param tsgid [in]		Id of the TSG.
  *
  * Set mmu fault error notifier for all the channels bound to the TSG.
  */
-void nvgpu_tsg_set_ctx_mmu_error(struct gk20a *g,
-		struct nvgpu_tsg *tsg);
+void nvgpu_tsg_set_ctx_mmu_error(struct gk20a *g, u32 gfid, u32 tsgid);
 
 /**
  * @brief Mark error for all the referenceable channels of tsg's channel list.
@@ -758,7 +802,7 @@ void nvgpu_tsg_set_ctx_mmu_error(struct gk20a *g,
 bool nvgpu_tsg_mark_error(struct gk20a *g, struct nvgpu_tsg *tsg);
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
-bool nvgpu_tsg_check_ctxsw_timeout(struct nvgpu_tsg *tsg,
+bool nvgpu_tsg_check_ctxsw_timeout(struct gk20a *g, u32 tsgid,
 		bool *debug_dump, u32 *ms);
 #endif
 #ifdef CONFIG_NVGPU_CHANNEL_TSG_SCHEDULING
@@ -806,7 +850,8 @@ int nvgpu_tsg_alloc_sm_error_states_mem(struct gk20a *g,
  *        list as unserviceable.
  *
  * @param g [in]		The GPU driver struct.
- * @param tsg [in]		Pointer to TSG struct.
+ * @param gfid [in]		gfid of the TSG.
+ * @param tsgid [in]		Id of the TSG.
  *
  * The channels are set unserviceable to convey that an uncorrectable
  * error has occurred on the channel. It is not possible to take more
@@ -821,7 +866,7 @@ int nvgpu_tsg_alloc_sm_error_states_mem(struct gk20a *g,
  * - Release #nvgpu_tsg.ch_list_lock of the tsg.
  *
  */
-void nvgpu_tsg_set_unserviceable(struct gk20a *g, struct nvgpu_tsg *tsg);
+void nvgpu_tsg_set_unserviceable(struct gk20a *g, u32 gfid, u32 tsgid);
 
 /**
  * @brief Release waiters for all the referenceable channels of tsg's
@@ -845,13 +890,14 @@ void nvgpu_tsg_wakeup_wqs(struct gk20a *g, struct nvgpu_tsg *tsg);
 
 /** @brief store error info for SM error state
  *
- * @param tsg [in]		Pointer to the TSG struct.
+ * @param isr_data [in]		gr interrupt data.
  * @param sm_id [in]	index of SM
  * @param hww_global_esr [in]	hww_global_esr reg value
  * @param hww_warp_esr [in]	hww_warp_esr register value
  * @param hww_warp_esr_pc [in]	PC value of hww_warp_esr
  * @param hww_global_esr_report_mask [in]	hww_global_esr_report_mask
  * @param hww_warp_esr_report_mask [in]	hww_warp_esr_report_mask
+ * @param hww_cga_esr [in]	hww_cga_esr reg value
  *
  * Allocate zero initialized memory to #nvgpu_tsg_sm_error_state, which stores
  * SM errors for all the SMs supported by h/w.
@@ -862,9 +908,10 @@ void nvgpu_tsg_wakeup_wqs(struct gk20a *g, struct nvgpu_tsg *tsg);
  * @retval -ENOMEM if memory could not be allocated to store
  *         SM error states.
  */
-int nvgpu_tsg_store_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id,
-		u32 hww_global_esr, u32 hww_warp_esr, u64 hww_warp_esr_pc,
-		u32 hww_global_esr_report_mask, u32 hww_warp_esr_report_mask);
+int nvgpu_tsg_store_sm_error_state(struct gk20a *g, struct nvgpu_gr_isr_data *isr_data,
+		u32 sm_id, u32 hww_global_esr, u32 hww_warp_esr, u64 hww_warp_esr_pc,
+		u32 hww_global_esr_report_mask, u32 hww_warp_esr_report_mask,
+		u32 hww_cga_esr, u32 instance_id);
 
 /**
  * @brief retrieve pointer to nvgpu_tsg_get_sm_error_state
@@ -880,7 +927,7 @@ int nvgpu_tsg_store_sm_error_state(struct nvgpu_tsg *tsg, u32 sm_id,
  * @retval pointer to a constant struct nvgpu_tsg_sm_error_state
  */
 const struct nvgpu_tsg_sm_error_state *nvgpu_tsg_get_sm_error_state(
-		struct nvgpu_tsg *tsg, u32 sm_id);
+		struct nvgpu_tsg *tsg, u32 sm_id, u32 instance_id);
 
 #ifdef CONFIG_NVGPU_DEBUGGER
 int nvgpu_tsg_set_sm_exception_type_mask(struct nvgpu_channel *ch,
@@ -900,6 +947,13 @@ struct gk20a_event_id_data {
 	struct nvgpu_cond event_id_wq;
 	struct nvgpu_mutex lock;
 	struct nvgpu_list_node event_id_node;
+
+	/**
+	 * Any operating system specific data. For instance,
+	 * on qnx, for flushing tsg event data of a specific
+	 * tsg userctx while closing tsg.
+	 */
+	void *os_priv;
 };
 
 static inline struct gk20a_event_id_data *
@@ -914,13 +968,14 @@ gk20a_event_id_data_from_event_id_node(struct nvgpu_list_node *node)
  * @brief Set error notifier for all the channels bound to a TSG.
  *
  * @param g [in]		The GPU driver struct.
- * @param tsg [in]		Pointer to TSG struct.
+ * @param gfid [in]		gfid of tsg.
+ * @param tsgid [in]		Id of the TSG.
  * @param error_notifier [in]	Error notifier defined by s/w.
  *
  * For each channel bound to given TSG, set given error notifier.
  * See include/nvgpu/error_notifier.h.
  */
-void nvgpu_tsg_set_error_notifier(struct gk20a *g, struct nvgpu_tsg *tsg,
+void nvgpu_tsg_set_error_notifier(struct gk20a *g, u32 gfid, u32 tsgid,
 		u32 error_notifier);
 
 #ifdef CONFIG_NVGPU_KERNEL_MODE_SUBMIT
@@ -961,10 +1016,10 @@ void nvgpu_tsg_abort(struct gk20a *g, struct nvgpu_tsg *tsg, bool preempt);
  * For chips that do not support these h/w bits, just return. Also return if
  * #tsg input param is NULL.
  */
-void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg,
-		bool eng, bool pbdma);
+void nvgpu_tsg_reset_faulted_eng_pbdma(struct gk20a *g, struct nvgpu_tsg *tsg);
 #ifdef CONFIG_NVGPU_DEBUGGER
 int nvgpu_tsg_set_mmu_debug_mode(struct nvgpu_channel *ch, bool enable);
+int nvgpu_tsg_set_mmu_debug_gcc_mode(struct nvgpu_channel *ch, bool enable);
 int nvgpu_tsg_set_sched_exit_wait_for_errbar(struct nvgpu_channel *ch, bool enable);
 #endif
 

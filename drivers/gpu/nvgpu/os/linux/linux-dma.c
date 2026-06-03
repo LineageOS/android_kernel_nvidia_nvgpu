@@ -664,6 +664,13 @@ bool nvgpu_iommuable(struct gk20a *g)
 	 */
 	if (iommu_get_domain_for_dev(dev) == NULL)
 		return false;
+	/*
+	 * On platform supporting serial ats aka non-pasid ats, if it is set disabled
+	 * for debug, then nvgpu is non-iommuable
+	 */
+	if (g->ops.fb.serial_ats_ctrl &&
+	    !nvgpu_is_enabled(g, NVGPU_MM_SUPPORT_NONPASID_ATS))
+		return false;
 #endif
 
 	return true;

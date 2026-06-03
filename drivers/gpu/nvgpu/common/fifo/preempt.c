@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/soc.h>
 #include <nvgpu/gk20a.h>
@@ -34,13 +15,16 @@
 #ifdef CONFIG_NVGPU_LS_PMU
 #include <nvgpu/pmu/mutex.h>
 #endif
+#ifdef CONFIG_NVGPU_GSP_SCHEDULER_VM
+#include <nvgpu/gsp_vm_scheduler.h>
+#endif
 
 u32 nvgpu_preempt_get_timeout(struct gk20a *g)
 {
 	return g->ctxsw_timeout_period_ms;
 }
 
-int nvgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid)
+int nvgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid, u32 gfid)
 {
 	struct nvgpu_runlist *runlist;
 	int ret = 0;
@@ -51,12 +35,18 @@ int nvgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid)
 	u32 token = PMU_INVALID_MUTEX_OWNER_ID;
 	int mutex_ret = 0;
 #endif
+	(void)gfid;
 
 	nvgpu_log_fn(g, "tsgid: %d", tsgid);
 
 	if (runlist_id == INVAL_ID) {
 		return 0;
 	}
+
+	/* WAR for bug 4984159: GSP scheduler tsg preemption cuasing BAR2 MMU fault
+	 * on nvrm_gpu_tests, so directly use native path. Scheduler will add back the
+	 * scheduler path.
+	 */
 
 	runlist = g->fifo.runlists[runlist_id];
 
@@ -118,7 +108,7 @@ int nvgpu_fifo_preempt_tsg(struct gk20a *g, u32 runlist_id, u32 tsgid)
 			"ctxsw timeout will trigger recovery if needed",
 			tsgid);
 		} else {
-			nvgpu_rc_preempt_timeout(g, &g->fifo.tsg[tsgid]);
+			nvgpu_rc_preempt_timeout(g, runlist_id, tsgid);
 		}
 	}
 	return ret;
@@ -138,20 +128,21 @@ int nvgpu_preempt_channel(struct gk20a *g, struct nvgpu_channel *ch)
 	return err;
 }
 
+#ifdef CONFIG_NVGPU_RECOVERY
 /* called from rc */
 int nvgpu_preempt_poll_tsg_on_pbdma(struct gk20a *g,
-		struct nvgpu_tsg *tsg)
+		u32 runlist_id, u32 tsgid)
 {
 	unsigned long runlist_served_pbdmas;
 	unsigned long pbdma_id_bit;
-	u32 tsgid, pbdma_id;
+	u32 pbdma_id;
+	struct nvgpu_runlist *runlist = g->fifo.runlists[runlist_id];
 
 	if (g->ops.fifo.preempt_poll_pbdma == NULL) {
 		return 0;
 	}
 
-	tsgid = tsg->tsgid;
-	runlist_served_pbdmas = tsg->runlist->pbdma_bitmask;
+	runlist_served_pbdmas = runlist->pbdma_bitmask;
 
 	for_each_set_bit(pbdma_id_bit, &runlist_served_pbdmas,
 			 nvgpu_get_litter_value(g, GPU_LIT_HOST_NUM_PBDMA)) {
@@ -168,6 +159,7 @@ int nvgpu_preempt_poll_tsg_on_pbdma(struct gk20a *g,
 	}
 	return 0;
 }
+#endif
 
 /*
  * This should be called with runlist_lock held for all the

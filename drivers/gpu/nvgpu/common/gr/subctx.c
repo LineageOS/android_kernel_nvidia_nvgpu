@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/tsg_subctx.h>
@@ -103,11 +84,15 @@ void nvgpu_gr_subctx_free(struct gk20a *g,
 	struct vm_gk20a *vm,
 	bool unmap)
 {
-	struct nvgpu_gr_subctx *gr_subctx =
-			nvgpu_tsg_subctx_get_gr_subctx(subctx);
+	struct nvgpu_gr_subctx *gr_subctx;
 
 	nvgpu_log(g, gpu_dbg_gr, " ");
 
+	if (subctx == NULL) {
+		return;
+	}
+
+	gr_subctx = nvgpu_tsg_subctx_get_gr_subctx(subctx);
 	if (gr_subctx == NULL) {
 		return;
 	}
@@ -136,6 +121,8 @@ void nvgpu_gr_subctx_load_ctx_header(struct gk20a *g,
 	struct nvgpu_mem *ctxheader = &subctx->ctx_header;
 	u64 gpu_va;
 
+	(void)gr_ctx;
+
 	gpu_va = nvgpu_gr_ctx_mappings_get_ctx_va(mappings, NVGPU_GR_CTX_CTX);
 
 #ifdef CONFIG_NVGPU_SET_FALCON_ACCESS_MAP
@@ -148,7 +135,7 @@ void nvgpu_gr_subctx_load_ctx_header(struct gk20a *g,
 	g->ops.gr.ctxsw_prog.set_patch_addr(g, ctxheader,
 		nvgpu_gr_ctx_mappings_get_ctx_va(mappings, NVGPU_GR_CTX_PATCH_CTX));
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 	g->ops.gr.ctxsw_prog.set_zcull_ptr(g, ctxheader,
 		nvgpu_gr_ctx_get_zcull_ctx_va(gr_ctx));
 #endif
@@ -163,6 +150,7 @@ struct nvgpu_mem *nvgpu_gr_subctx_get_ctx_header(struct nvgpu_gr_subctx *subctx)
 	return &subctx->ctx_header;
 }
 
+#ifdef CONFIG_NVGPU_GFXP
 struct nvgpu_gr_ctx_mappings *nvgpu_gr_subctx_get_mappings(
 				struct nvgpu_gr_subctx *subctx)
 {
@@ -172,18 +160,18 @@ struct nvgpu_gr_ctx_mappings *nvgpu_gr_subctx_get_mappings(
 
 	return subctx->mappings;
 }
+#endif
 
-#ifdef CONFIG_NVGPU_GRAPHICS
+#if defined(CONFIG_NVGPU_GRAPHICS) && defined(CONFIG_NVGPU_ZCULL)
 void nvgpu_gr_subctx_zcull_setup(struct gk20a *g, struct nvgpu_gr_subctx *subctx,
 		struct nvgpu_gr_ctx *gr_ctx)
 {
 
 	nvgpu_log_fn(g, " ");
-
 	g->ops.gr.ctxsw_prog.set_zcull_ptr(g, &subctx->ctx_header,
 		nvgpu_gr_ctx_get_zcull_ctx_va(gr_ctx));
 }
-#endif /* CONFIG_NVGPU_GRAPHICS */
+#endif /* CONFIG_NVGPU_GRAPHICS && CONFIG_NVGPU_ZULL */
 
 #ifdef CONFIG_NVGPU_GFXP
 void nvgpu_gr_subctx_set_preemption_buffer_va(struct gk20a *g,

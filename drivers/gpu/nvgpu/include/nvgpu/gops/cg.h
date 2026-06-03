@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 #ifndef NVGPU_GOPS_CG_H
 #define NVGPU_GOPS_CG_H
@@ -47,6 +29,7 @@ struct gops_cg {
 	void (*slcg_ltc_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_perf_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_priring_load_gating_prod)(struct gk20a *g, bool prod);
+	void (*slcg_fbhub_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_pmu_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_therm_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_xbar_load_gating_prod)(struct gk20a *g, bool prod);
@@ -60,11 +43,14 @@ struct gops_cg {
 	void (*blcg_ltc_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*blcg_pmu_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*blcg_xbar_load_gating_prod)(struct gk20a *g, bool prod);
+	void (*blcg_fbhub_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*blcg_hshub_load_gating_prod)(struct gk20a *g, bool prod);
+	void (*blcg_ctrl_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_runlist_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*blcg_runlist_load_gating_prod)(struct gk20a *g, bool prod);
+#ifdef CONFIG_NVGPU_NON_FUSA
 	void (*flcg_perf_load_gating_prod)(struct gk20a *g, bool prod);
-
+#endif
 	/* Ring station slcg prod gops */
 	void (*slcg_rs_ctrl_fbp_load_gating_prod)(struct gk20a *g, bool prod);
 	void (*slcg_rs_ctrl_gpc_load_gating_prod)(struct gk20a *g, bool prod);
@@ -78,6 +64,27 @@ struct gops_cg {
 	void (*slcg_ctrl_load_gating_prod)(struct gk20a *g, bool prod);
 
 	void (*slcg_gsp_load_gating_prod)(struct gk20a *g, bool prod);
+
+	/* SLCG and BLCG prod values for Multimedia Engines */
+	void (*slcg_nvenc_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*slcg_ofa_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*slcg_nvdec_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*slcg_nvjpg_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*blcg_nvenc_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*blcg_ofa_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*blcg_nvdec_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+	void (*blcg_nvjpg_load_gating_prod)(struct gk20a *g, u32 inst_id,
+			bool prod);
+
+	void (*slcg_xal_ep_load_gating_prod)(struct gk20a *g, bool prod);
+	void (*blcg_xal_ep_load_gating_prod)(struct gk20a *g, bool prod);
 
 	void (*elcg_ce_load_gating_prod)(struct gk20a *g, bool prod);
 	/** @endcond DOXYGEN_SHOULD_SKIP_THIS */

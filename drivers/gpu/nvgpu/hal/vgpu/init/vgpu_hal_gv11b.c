@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include "hal/bus/bus_gk20a.h"
 #include "hal/bus/bus_gm20b.h"
@@ -175,9 +156,7 @@ static int vgpu_gv11b_init_gpu_characteristics(struct gk20a *g)
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_USERMODE_SUBMIT, true);
 #ifdef CONFIG_NVGPU_GRAPHICS
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_SCG, true);
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_ZBC_STENCIL, true);
 #endif
-	nvgpu_set_enabled(g, NVGPU_SUPPORT_PREEMPTION_GFXP, true);
 	nvgpu_set_enabled(g, NVGPU_SUPPORT_SET_CTX_MMU_DEBUG_MODE, true);
 
 	return 0;
@@ -357,6 +336,8 @@ static const struct gops_gr_zcull vgpu_gv11b_ops_gr_zcull = {
 #ifdef CONFIG_NVGPU_DEBUGGER
 static const struct gops_gr_hwpm_map vgpu_gv11b_ops_gr_hwpm_map = {
 	.align_regs_perf_pma = gv100_gr_hwpm_map_align_regs_perf_pma,
+	.add_ctxsw_buffer_gpc_perf_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
+	.add_ctxsw_buffer_pm_ucgpc_entries_to_map = gv100_hwpm_map_add_gpc_perf_entries_to_map,
 };
 #endif
 
@@ -477,6 +458,7 @@ static const struct gops_gr vgpu_gv11b_ops_gr = {
 	.is_etpc_addr = gv11b_gr_pri_is_etpc_addr,
 	.egpc_etpc_priv_addr_table = gv11b_gr_egpc_etpc_priv_addr_table,
 	.get_egpc_base = gv11b_gr_get_egpc_base,
+	.get_egpc_shared_base = gv11b_gr_get_egpc_shared_base,
 	.get_egpc_etpc_num = gv11b_gr_get_egpc_etpc_num,
 	.is_egpc_addr = gv11b_gr_pri_is_egpc_addr,
 	.decode_egpc_addr = gv11b_gr_decode_egpc_addr,
@@ -512,8 +494,10 @@ static const struct gops_fb vgpu_gv11b_ops_fb = {
 	.compressible_page_size = gp10b_fb_compressible_page_size,
 	.compression_align_mask = gm20b_fb_compression_align_mask,
 #endif
+#ifdef CONFIG_NVGPU_VPR
 	.vpr_info_fetch = NULL,
 	.dump_vpr_info = NULL,
+#endif
 	.dump_wpr_info = NULL,
 	.read_wpr_info = NULL,
 #ifdef CONFIG_NVGPU_DEBUGGER
@@ -721,8 +705,8 @@ static const struct gops_tsg vgpu_gv11b_ops_tsg = {
 	.remove_subctx_channel_hw = NULL,
 	.init_eng_method_buffers = NULL,
 	.deinit_eng_method_buffers = NULL,
-	.enable = gv11b_tsg_enable,
-	.disable = nvgpu_tsg_disable,
+	.enable = vgpu_tsg_enable,
+	.disable = vgpu_tsg_disable,
 	.bind_channel = vgpu_tsg_bind_channel,
 	.bind_channel_eng_method_buffers = NULL,
 	.unbind_channel = vgpu_tsg_unbind_channel,
@@ -754,6 +738,8 @@ static const struct gops_netlist vgpu_gv11b_ops_netlist = {
 };
 
 static const struct gops_mm_mmu_fault vgpu_gv11b_ops_mm_mmu_fault = {
+	.setup_sw = NULL,
+	.setup_hw = NULL,
 	.info_mem_destroy = gv11b_mm_mmu_fault_info_mem_destroy,
 };
 
@@ -786,7 +772,7 @@ static const struct gops_mm vgpu_gv11b_ops_mm = {
 	.is_bar1_supported = gv11b_mm_is_bar1_supported,
 	.init_inst_block = gv11b_mm_init_inst_block,
 	.init_inst_block_core = gv11b_mm_init_inst_block_core,
-	.init_bar2_vm = gp10b_mm_init_bar2_vm,
+	.init_bar2_vm = NULL,
 	.remove_bar2_vm = gp10b_mm_remove_bar2_vm,
 	.bar1_map_userd = NULL,
 	.vm_as_alloc_share = vgpu_vm_as_alloc_share,
@@ -956,8 +942,8 @@ static const struct gops_pm_reservation vgpu_gv11b_ops_pm_reservation = {
 static const struct gops_profiler vgpu_gv11b_ops_profiler = {
 	.bind_hwpm = vgpu_profiler_bind_hwpm,
 	.unbind_hwpm = vgpu_profiler_unbind_hwpm,
-	.bind_hwpm_streamout = vgpu_profiler_bind_hwpm_streamout,
-	.unbind_hwpm_streamout = vgpu_profiler_unbind_hwpm_streamout,
+	.bind_pma_streamout = vgpu_profiler_bind_pma_streamout,
+	.unbind_pma_streamout = vgpu_profiler_unbind_pma_streamout,
 	.bind_smpc = vgpu_profiler_bind_smpc,
 	.unbind_smpc = vgpu_profiler_unbind_smpc,
 };
@@ -1033,6 +1019,7 @@ static const struct gops_top vgpu_gv11b_ops_top = {
 	.get_max_ltc_per_fbp = vgpu_gr_get_max_ltc_per_fbp,
 	.get_max_lts_per_ltc = vgpu_gr_get_max_lts_per_ltc,
 	.parse_next_device = vgpu_top_parse_next_dev,
+	.get_expected_chip_info_cfg_version = NULL,
 };
 
 static const struct gops_grmgr vgpu_gv11b_ops_grmgr = {

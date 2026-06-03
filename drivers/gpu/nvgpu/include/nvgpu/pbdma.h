@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_PBDMA_COMMON_H
@@ -47,29 +29,25 @@ struct nvgpu_pbdma_info {
 	/** The ID of the i'th PBDMA that runs channels on this runlist */
 	u32 pbdma_id[PBDMA_PER_RUNLIST_SIZE];
 };
-/** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+/** @endcond */
 
 /**
- * @brief Initialize PBDMA software context
+ * @brief Set up the PBDMA software context.
  *
- * @param g [in]		The GPU driver struct for which to initialize
- *				PBDMA software context.
+ * This function initializes the PBDMA software context by setting up interrupt
+ * descriptors. The steps involved are:
+ * -# Call the function nvgpu_pbdma_init_intr_descs() to initialize PBDMA interrupt
+ *    descriptors.
+ * -# Return 0 indicating success.
  *
- * Gets number of PBDMAs and builds a map of runlists that will be serviced
- * by those PBDMAs.
+ * @param [in] g  The GPU driver struct for which to set up the PBDMA software context.
  *
- * @return 0 in case of success, < 0 in case of failure.
- * @retval -ENOMEM in case there is not enough memory available.
+ * @return 0 indicating success.
  */
 int nvgpu_pbdma_setup_sw(struct gk20a *g);
 
 /**
- * @brief Clean up PBDMA software context
- *
- * @param g [in]		The GPU driver struct using PBDMA software
- *				context.
- *
- * Cleans up PBDMA software context and related resources.
+ * @brief the function does nothing
  */
 void nvgpu_pbdma_cleanup_sw(struct gk20a *g);
 

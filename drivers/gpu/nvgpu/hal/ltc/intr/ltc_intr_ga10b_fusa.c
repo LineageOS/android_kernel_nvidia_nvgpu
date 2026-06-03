@@ -1,32 +1,12 @@
-/*
- * GA10B LTC INTR
- *
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/io.h>
 #include <nvgpu/gk20a.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/nvgpu_err.h>
 #include <nvgpu/utils.h>
+#include <nvgpu/nvgpu_init.h>
 
 #include "ltc_intr_ga10b.h"
 
@@ -62,13 +42,16 @@ void ga10b_ltc_intr_write_intr3(struct gk20a *g, u32 reg_val)
 	nvgpu_writel(g, ltc_ltcs_ltss_intr3_r(), reg_val);
 }
 
-static void ga10b_ltc_intr1_configure(struct gk20a *g)
+void ga10b_ltc_intr1_configure(struct gk20a *g)
 {
 	u32 reg;
 
 	/* Enable ltc interrupts indicating illegal activity */
 	reg = g->ops.ltc.intr.read_intr1(g);
 
+	/*IDLE_ERROR_IQ - unused in HWW, hence disabled*/
+	reg = set_field(reg, ltc_ltcs_ltss_intr_en_idle_error_iq_m(),
+		ltc_ltcs_ltss_intr_en_idle_error_iq_disabled_f());
 	/*
 	 * IDLE_ERROR_CBC - flag if cbc gets a request while slcg clock is
 	 * disabled
@@ -91,6 +74,13 @@ static void ga10b_ltc_intr1_configure(struct gk20a *g)
 		ltc_ltcs_ltss_intr_en_idle_error_dstg_enabled_f());
 
 	/*
+	 * BLOCKLINEAR_CB - indicates that a valid evict_last entry is accessed
+	 * by a block linear transaction
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr_en_blocklinear_cb_m(),
+		ltc_ltcs_ltss_intr_en_blocklinear_cb_disabled_f());
+
+	/*
 	 * EVICTED_CB - indicates that a CB was demoted.
 	 * Normally this should not happen because the CBs should be flushed
 	 * during context switch and/or invalidated when no longer used.
@@ -108,11 +98,19 @@ static void ga10b_ltc_intr1_configure(struct gk20a *g)
 		ltc_ltcs_ltss_intr_en_illegal_atomic_enabled_f());
 
 	/*
+	 * ATOMIC_TO_Z - atomic to packing Z or S8
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr_en_atomic_to_z_m(),
+		ltc_ltcs_ltss_intr_en_atomic_to_z_disabled_f());
+
+	/*
 	 * BLKACTIVITY_ERR - internal error in power sensing block activity
-	 * monitor
+	 * monitor.
+	 *
+	 * Note: Disabled because it is a notification interrupt.
 	 */
 	reg = set_field(reg, ltc_ltcs_ltss_intr_en_blkactivity_err_m(),
-		ltc_ltcs_ltss_intr_en_blkactivity_err_enabled_f());
+		ltc_ltcs_ltss_intr_en_blkactivity_err_disabled_f());
 
 	/*
 	 * ILLEGAL_COMPSTAT_ACCESS - indicates that some memory access
@@ -122,25 +120,41 @@ static void ga10b_ltc_intr1_configure(struct gk20a *g)
 	reg = set_field(reg, ltc_ltcs_ltss_intr_en_illegal_compstat_access_m(),
 		ltc_ltcs_ltss_intr_en_illegal_compstat_access_enabled_f());
 
+	/*
+	 * ECC_SEC_ERROR: now reported as ECC DSTG corrected errors
+	 * ECC_DED ERROR: now reported as ECC DSTG uncorrected errors
+	 *
+	 * Note: SEC_ERROR and DED_ERROR bits are unused in ga10b, ga100.
+	 * INTR_EN_ECC_SEC_ERROR and INTR_EN_ECC_DED_ERROR priv regs no
+	 * longer control enabling/disabling SEC/DED error interrupt.
+	 * These are now ECC fuse controlled.
+	 *
+	 * INTR_DEBUG is unused and is disabled in HW,
+	 * hence not disabled explicitly in SW.
+	 */
+
+	/*
+	 * ILLEGAL_ROP_ACCESS field is only valid for ga100, it is depricated in
+	 * ga10x and beyond. Hence it is disabled.
+	*/
+	reg = set_field(reg, ltc_ltcs_ltss_intr_en_illegal_rop_access_m(),
+		ltc_ltcs_ltss_intr_en_illegal_rop_access_disabled_f());
+
+	/*
+	 * ILLEGAL_COMPSTAT is a debug interrupt and has now been deprecated,
+	 * hence disabled.
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr_en_illegal_compstat_m(),
+		ltc_ltcs_ltss_intr_en_illegal_compstat_disabled_f());
+
 	g->ops.ltc.intr.write_intr1(g, reg);
 
 	/* Read back register for write synchronization */
 	reg = g->ops.ltc.intr.read_intr1(g);
 
-#ifdef CONFIG_NVGPU_NON_FUSA
-	/* illegal_compstat interrupts can be also controlled through
-	 * debug_fs, so enable/disable based on g->ltc_intr_en_illegal_compstat
-	 * settings
-	 */
-	if (g->ops.ltc.intr.en_illegal_compstat != NULL) {
-		g->ops.ltc.intr.en_illegal_compstat(g,
-					g->ltc_intr_en_illegal_compstat);
-	}
-#endif
 }
 
-/* LTC interrupts included in intr2 are not used for ga10b */
-static void ga10b_ltc_intr2_configure(struct gk20a *g)
+void ga10b_ltc_intr2_configure(struct gk20a *g)
 {
 	u32 reg;
 
@@ -150,92 +164,6 @@ static void ga10b_ltc_intr2_configure(struct gk20a *g)
 	 * TRDONE_INVALID_TDTAG - The tdtag for a transdone does not match any
 	 * valid L2 tag (subid/tdtag) for outstanding requests/transdones.
 	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_m(),
-		ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_enabled_f());
-
-	/*
-	 * UNEXPECTED_TRDONE - Transdone is unexpected response type. The tdtag
-	 * received matches a L2 tag (subid) of a non-cache coherent request
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_unexpected_trdone_m(),
-		ltc_ltcs_ltss_intr2_en_unexpected_trdone_enabled_f());
-
-	/*
-	 * RWC_UPG_UNEXPECTED_TRDONE_DATA - Transdone.D is an unexpected
-	 * response type for a read.rwc/upgrade. The tdtag received matches a
-	 * tag (tdtag) of an oustanding transdone for a cache coherent
-	 * read.rwc/upgrade
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_m(),
-		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_enabled_f());
-
-	/*
-	 * RWC_UPG_UNEXPECTED_TRDONE_CANCEL - Transdone.cancel is an unexpected
-	 * response type for read.rwc/upgrade. The tdtag matches a tag (tdtag)
-	 * of a cache coherent read.rwc/upgrade
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_m(),
-		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_enabled_f());
-
-	/*
-	 * PRBRS_INVALID_SUBID - The subid of a probe response does not match
-	 * any tag (subid/tdtag) from L2 that has an outstanding requests'
-	 * response
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_m(),
-		ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_enabled_f());
-
-	/*
-	 * UNEXPECTED_PRBRS - Probe Reponse is an unexpected response type. The
-	 * subid received matches a tag (subid/tdtag) of a non-probe
-	 * request/transdone from L2
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_unexpected_prbrs_m(),
-		ltc_ltcs_ltss_intr2_en_unexpected_prbrs_enabled_f());
-
-	/*
-	 * PRBIN_UNEXPECTED_PRBRS - PrbRsp.I.ND is expected given that Prb.I.ND
-	 * is outstanding for a given address (128B granularity)
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_m(),
-		ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_enabled_f());
-
-	/*
-	 * PRBIMO_UNEXPECTED_PRBRS - PrbRsp.I is expected given that there is an
-	 * outstanding probe.I.MO for a given address
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_m(),
-		ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_enabled_f());
-
-	/*
-	 * PRBX_MISSING_DATA - For PrbRsp.X should receive data beats (32B) for
-	 * all the probed sectors to a given address
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbx_missing_data_m(),
-		ltc_ltcs_ltss_intr2_en_prbx_missing_data_enabled_f());
-
-	/*
-	 * PRBX_UNEXPECTED_DATA - For PrbRsp.X should not receive data beats
-	 * (32B) for non probed sectors to a given address
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_m(),
-		ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_enabled_f());
-
-	/*
-	 * PRBRS_UNEXPECTED_PA7 - pa7 in probe response (based on mask) for a
-	 * given subid should correspond to pa7 of the probe
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_m(),
-		ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_enabled_f());
-
-	/*
-	 * TRDONE_UNEXPECTED_PA7 - pa7 in downgrade trasndone (based on mask)
-	 * for a given subid should correspond to pa7 of the downgrade
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_m(),
-		ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_enabled_f());
 
 	/*
 	 * SYSFILL_BYPASS_INVALID_SUBID - The subid for a sysmem fill response
@@ -255,6 +183,102 @@ static void ga10b_ltc_intr2_configure(struct gk20a *g)
 		ltc_ltcs_ltss_intr2_en_unexpected_sysfill_bypass_m(),
 		ltc_ltcs_ltss_intr2_en_unexpected_sysfill_bypass_enabled_f());
 
+		/*
+	 * Note: Following LTC interrupts included in intr2 are not used for
+	 * ga10b, hence disabled.
+	 */
+
+	/*
+	 * TRDONE_INVALID_TDTAG - The tdtag for a transdone does not match any
+	 * valid L2 tag (subid/tdtag) for outstanding requests/transdones.
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_m(),
+		ltc_ltcs_ltss_intr2_en_trdone_invalid_tdtag_disabled_f());
+
+	/*
+	 * UNEXPECTED_TRDONE - Transdone is unexpected response type. The tdtag
+	 * received matches a L2 tag (subid) of a non-cache coherent request
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_unexpected_trdone_m(),
+		ltc_ltcs_ltss_intr2_en_unexpected_trdone_disabled_f());
+
+	/*
+	 * RWC_UPG_UNEXPECTED_TRDONE_DATA - Transdone.D is an unexpected
+	 * response type for a read.rwc/upgrade. The tdtag received matches a
+	 * tag (tdtag) of an oustanding transdone for a cache coherent
+	 * read.rwc/upgrade
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_m(),
+		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_data_disabled_f());
+
+	/*
+	 * RWC_UPG_UNEXPECTED_TRDONE_CANCEL - Transdone.cancel is an unexpected
+	 * response type for read.rwc/upgrade. The tdtag matches a tag (tdtag)
+	 * of a cache coherent read.rwc/upgrade
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_m(),
+		ltc_ltcs_ltss_intr2_en_rwc_upg_unexpected_trdone_cancel_disabled_f());
+
+	/*
+	 * PRBRS_INVALID_SUBID - The subid of a probe response does not match
+	 * any tag (subid/tdtag) from L2 that has an outstanding requests'
+	 * response
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_m(),
+		ltc_ltcs_ltss_intr2_en_prbrs_invalid_subid_disabled_f());
+
+	/*
+	 * UNEXPECTED_PRBRS - Probe Reponse is an unexpected response type. The
+	 * subid received matches a tag (subid/tdtag) of a non-probe
+	 * request/transdone from L2
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_unexpected_prbrs_m(),
+		ltc_ltcs_ltss_intr2_en_unexpected_prbrs_disabled_f());
+
+	/*
+	 * PRBIN_UNEXPECTED_PRBRS - PrbRsp.I.ND is expected given that Prb.I.ND
+	 * is outstanding for a given address (128B granularity)
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_m(),
+		ltc_ltcs_ltss_intr2_en_prbin_unexpected_prbrs_disabled_f());
+
+	/*
+	 * PRBIMO_UNEXPECTED_PRBRS - PrbRsp.I is expected given that there is an
+	 * outstanding probe.I.MO for a given address
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_m(),
+		ltc_ltcs_ltss_intr2_en_prbimo_unexpected_prbrs_disabled_f());
+
+	/*
+	 * PRBX_MISSING_DATA - For PrbRsp.X should receive data beats (32B) for
+	 * all the probed sectors to a given address
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbx_missing_data_m(),
+		ltc_ltcs_ltss_intr2_en_prbx_missing_data_disabled_f());
+
+	/*
+	 * PRBX_UNEXPECTED_DATA - For PrbRsp.X should not receive data beats
+	 * (32B) for non probed sectors to a given address
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_m(),
+		ltc_ltcs_ltss_intr2_en_prbx_unexpected_data_disabled_f());
+
+	/*
+	 * PRBRS_UNEXPECTED_PA7 - pa7 in probe response (based on mask) for a
+	 * given subid should correspond to pa7 of the probe
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_m(),
+		ltc_ltcs_ltss_intr2_en_prbrs_unexpected_pa7_disabled_f());
+
+	/*
+	 * TRDONE_UNEXPECTED_PA7 - pa7 in downgrade trasndone (based on mask)
+	 * for a given subid should correspond to pa7 of the downgrade
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_m(),
+		ltc_ltcs_ltss_intr2_en_trdone_unexpected_pa7_disabled_f());
+
 	/*
 	 * CHECKEDIN_UNEXPECTED_PRBRS - PrbRsp.I.D or PrbRsp.E or PrbRsp.M
 	 * should not be received to a checked-in line (128B), i.e. after a
@@ -262,7 +286,7 @@ static void ga10b_ltc_intr2_configure(struct gk20a *g)
 	 */
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_m(),
-		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_enabled_f());
+		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_prbrs_disabled_f());
 
 	/*
 	 * CHECKEDIN_UNEXPECTED_TRDONE - Downgrade transdone (128B granularity)
@@ -272,7 +296,7 @@ static void ga10b_ltc_intr2_configure(struct gk20a *g)
 	 */
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_m(),
-		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_enabled_f());
+		ltc_ltcs_ltss_intr2_en_checkedin_unexpected_trdone_disabled_f());
 
 	g->ops.ltc.intr.write_intr2(g, reg);
 
@@ -280,25 +304,71 @@ static void ga10b_ltc_intr2_configure(struct gk20a *g)
 	reg = g->ops.ltc.intr.read_intr2(g);
 }
 
-void ga10b_ltc_intr3_configure_extra(struct gk20a *g, u32 *reg)
+void ga10b_ltc_intr3_configure(struct gk20a *g)
 {
-	(void)g;
+	u32 reg;
+
+	reg = g->ops.ltc.intr.read_intr3(g);
 
 	/*
-	 * DTM_KIND_INVALID - If the kind of a comp stat req read or packed
-	 * read is invalid or pitch, the inter3_dtm_kind_invalid interrupt will
-	 * assert if enabled.
+	 * RMWRS_INVALID_SUBID - The subid of a RMW response does not match any
+	 * outstanding request's tag (subid) from L2.
 	 */
-	*reg = set_field(*reg, ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_m(),
-		ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_enabled_f());
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_rmwrs_invalid_subid_m(),
+		ltc_ltcs_ltss_intr3_en_rmwrs_invalid_subid_enabled_f());
 
 	/*
-	 * DTM_COMPTAG_INVALID - If the comptag_vld of a comp stat req read or
-	 * packed read is invalid, the inter3_dtm_comptag_invalid interrupt will
-	 * assert if enabled.
+	 * UNEXPECTED_RMWRS - RMW Reponse is an unexpected response type. The
+	 * subid received matches a tag (subid/tdtag) of a non-RMW request.
 	 */
-	*reg = set_field(*reg, ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_m(),
-		ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_enabled_f());
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_unexpected_rmwrs_m(),
+		ltc_ltcs_ltss_intr3_en_unexpected_rmwrs_enabled_f());
+
+	/*
+	 * Note: The following interrupts are invalid for igpu/ valid for 100 chips
+	 * only, hence disabled.
+	 */
+
+	/*
+	 * CHECKEDOUT_RWC_UPG_UNEXPECTED_NVPORT - RWC/Upgrade to the same 256B
+	 * L2 slice address should have the same nvlink port#.
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_m(),
+		ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_disabled_f());
+
+	/*
+	 * CHECKEDOUT_TRDONE_UNEXPECTED_NVPORT - TrDone to the same 256B L2
+	 * slice address should have the same nvlink port#.
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_m(),
+		ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_disabled_f());
+
+	/*
+	 * CHECKEDOUT_PRBRS_UNEXPECTED_NVPORT - PrbRs to the same 256B L2 slice
+	 * address should have the same nvlink port#.
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_m(),
+		ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_disabled_f());
+
+	/*
+	 * CHECKEDOUT_NINB_NCNP_REQ - NCNP request on NISO-NB received to a 128B
+	 * line that is checked out
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_m(),
+		ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_disabled_f());
+
+	/*
+	 * CHECKEDOUT_CREQ_NCNP_REQ - NCNP request on CREQ received to a 128B
+	 * line that is checked out
+	 */
+	reg = set_field(reg,
+		ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_m(),
+		ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_disabled_f());
+
 
 	/*
 	 * CDCMP_IP_ERROR is the OR of these outputs from the decomprIP:
@@ -315,71 +385,19 @@ void ga10b_ltc_intr3_configure_extra(struct gk20a *g, u32 *reg)
 	 *   comp_stat condition
 	 * - err_vdc_packing -- error in vdc packing. In ga100 we merged this
 	 *   with decompr_64B_fsm_state
+	 *  Note: This interrupt is unused in GA10B, hence disabled.
 	 */
-	*reg = set_field(*reg, ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_m(),
-		ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_enabled_f());
-}
-
-static void ga10b_ltc_intr3_configure(struct gk20a *g)
-{
-	u32 reg;
-
-	reg = g->ops.ltc.intr.read_intr3(g);
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_m(),
+		ltc_ltcs_ltss_intr3_en_cdcmp_ip_error_disabled_f());
 
 	/*
-	 * CHECKEDOUT_RWC_UPG_UNEXPECTED_NVPORT - RWC/Upgrade to the same 256B
-	 * L2 slice address should have the same nvlink port#.
+	 * Note: The following interrupts are notification/ debug interrupts.
+	 * These interrupts are disabled by default in HW, enabled on standard and
+	 * kept disabled on safety.
+	 * Bug 4588286,Bug 4641251
 	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_m(),
-		ltc_ltcs_ltss_intr3_en_checkedout_rwc_upg_unexpected_nvport_enabled_f());
 
-	/*
-	 * CHECKEDOUT_TRDONE_UNEXPECTED_NVPORT - TrDone to the same 256B L2
-	 * slice address should have the same nvlink port#.
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_m(),
-		ltc_ltcs_ltss_intr3_en_checkedout_trdone_unexpected_nvport_enabled_f());
-
-	/*
-	 * CHECKEDOUT_PRBRS_UNEXPECTED_NVPORT - PrbRs to the same 256B L2 slice
-	 * address should have the same nvlink port#.
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_m(),
-		ltc_ltcs_ltss_intr3_en_checkedout_prbrs_unexpected_nvport_enabled_f());
-
-	/*
-	 * CHECKEDOUT_NINB_NCNP_REQ - NCNP request on NISO-NB received to a 128B
-	 * line that is checked out
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_m(),
-		ltc_ltcs_ltss_intr3_en_checkedout_ninb_ncnp_req_enabled_f());
-
-	/*
-	 * CHECKEDOUT_CREQ_NCNP_REQ - NCNP request on CREQ received to a 128B
-	 * line that is checked out
-	 */
-	reg = set_field(reg,
-		ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_m(),
-		ltc_ltcs_ltss_intr3_en_checkedout_creq_ncnp_req_enabled_f());
-
-	/*
-	 * RMWRS_INVALID_SUBID - The subid of a RMW response does not match any
-	 * outstanding request's tag (subid) from L2.
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_rmwrs_invalid_subid_m(),
-		ltc_ltcs_ltss_intr3_en_rmwrs_invalid_subid_enabled_f());
-
-	/*
-	 * UNEXPECTED_RMWRS - RMW Reponse is an unexpected response type. The
-	 * subid received matches a tag (subid/tdtag) of a non-RMW request.
-	 */
-	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_unexpected_rmwrs_m(),
-		ltc_ltcs_ltss_intr3_en_unexpected_rmwrs_enabled_f());
-
+#ifdef CONFIG_NVGPU_NON_FUSA
 	/*
 	 * ILLEGAL_ACCESS_KIND_TYPE1 - A read request kind does not match CBC
 	 * stored kind type1
@@ -404,10 +422,29 @@ static void ga10b_ltc_intr3_configure(struct gk20a *g)
 	reg = set_field(reg,
 		ltc_ltcs_ltss_intr3_en_illegal_access_kind_type2_m(),
 		ltc_ltcs_ltss_intr3_en_illegal_access_kind_type2_enabled_f());
+	/*
+	 * DTM_KIND_INVALID - If the kind of a comp stat req read or packed
+	 * read is invalid or pitch, the inter3_dtm_kind_invalid interrupt will
+	 * assert if enabled.
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_m(),
+		ltc_ltcs_ltss_intr3_en_dtm_kind_invalid_enabled_f());
 
-	if (g->ops.ltc.intr.ltc_intr3_configure_extra != NULL) {
-		g->ops.ltc.intr.ltc_intr3_configure_extra(g, &reg);
-	}
+	/*
+	 * DTM_COMPTAG_INVALID - If the comptag_vld of a comp stat req read or
+	 * packed read is invalid, the inter3_dtm_comptag_invalid interrupt will
+	 * assert if enabled.
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_m(),
+		ltc_ltcs_ltss_intr3_en_dtm_comptag_invalid_enabled_f());
+
+	/*
+	 * VOLATILE_TO_COMPRESSED - A volatile transaction to compressed
+	 * data detected.
+	 */
+	reg = set_field(reg, ltc_ltcs_ltss_intr3_en_volatile_to_compressed_m(),
+		ltc_ltcs_ltss_intr3_en_volatile_to_compressed_enabled_f());
+#endif
 
 	g->ops.ltc.intr.write_intr3(g, reg);
 
@@ -417,36 +454,52 @@ static void ga10b_ltc_intr3_configure(struct gk20a *g)
 
 void ga10b_ltc_intr_configure(struct gk20a *g)
 {
-	ga10b_ltc_intr1_configure(g);
-	ga10b_ltc_intr2_configure(g);
-	ga10b_ltc_intr3_configure(g);
+	if (g->ops.ltc.intr.configure_intr1 != NULL) {
+		g->ops.ltc.intr.configure_intr1(g);
+	}
+
+	if (g->ops.ltc.intr.configure_intr2 != NULL) {
+		g->ops.ltc.intr.configure_intr2(g);
+	}
+
+	if (g->ops.ltc.intr.configure_intr3 != NULL) {
+		g->ops.ltc.intr.configure_intr3(g);
+	}
 }
 
 static void ga10b_ltc_intr_handle_rstg_ecc_interrupts(struct gk20a *g,
 			u32 ltc, u32 slice, u32 ecc_status, u32 ecc_addr,
-			u32 uncorrected_delta)
+			u32 uncorrected_delta, bool *needs_quiesce)
 {
 	bool is_rstg_ecc_addr = (ltc_ltc0_lts0_l2_cache_ecc_address_subunit_v(ecc_addr) ==
 				 ltc_ltc0_lts0_l2_cache_ecc_address_subunit_rstg_v());
 
 	if ((ecc_status & ltc_ltc0_lts0_l2_cache_ecc_status_uncorrected_err_rstg_m()) != 0U) {
-		nvgpu_err(g, "rstg ecc error uncorrected");
+		/* Report fatal err in case of uncorrected and unsupported ECC errors */
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+				GPU_LTC_CACHE_RSTG_CBC_ECC_UNCORRECTED);
 
+		nvgpu_err(g, "rstg ecc error uncorrected");
 		if (!is_rstg_ecc_addr) {
 			nvgpu_log(g, gpu_dbg_intr, "ECC address doesn't belong to RSTG");
-			return;
+			BUG();
 		}
-
 		g->ecc.ltc.rstg_ecc_parity_count[ltc][slice].counter =
 				nvgpu_wrapping_add_u32(
 				g->ecc.ltc.rstg_ecc_parity_count[ltc][slice].counter,
 					uncorrected_delta);
-		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
-				GPU_LTC_CACHE_RSTG_CBC_ECC_UNCORRECTED);
+		*needs_quiesce |= true;
 	}
 
 	if ((ecc_status & ltc_ltc0_lts0_l2_cache_ecc_status_corrected_err_rstg_m()) != 0U) {
-		nvgpu_err(g, "rstg ecc error corrected");
+		nvgpu_err(g, "Unsupported rstg ecc error corrected, "
+					"Treating this as a fatal error!");
+
+		/* Reporting this as fatal error since RSTG ECC corrected
+		 * errors are unsupported. */
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+				GPU_LTC_CACHE_RSTG_CBC_ECC_UNCORRECTED);
+
 		/* This error is not expected to occur in ga10x and hence,
 		 * this scenario is considered as a fatal error.
 		 */
@@ -456,29 +509,37 @@ static void ga10b_ltc_intr_handle_rstg_ecc_interrupts(struct gk20a *g,
 
 static void ga10b_ltc_intr_handle_tstg_ecc_interrupts(struct gk20a *g,
 			u32 ltc, u32 slice, u32 ecc_status, u32 ecc_addr,
-			u32 uncorrected_delta)
+			u32 uncorrected_delta, bool *needs_quiesce)
 {
 	bool is_tstg_ecc_addr = (ltc_ltc0_lts0_l2_cache_ecc_address_subunit_v(ecc_addr) ==
 				 ltc_ltc0_lts0_l2_cache_ecc_address_subunit_tstg_v());
 
 	if ((ecc_status & ltc_ltc0_lts0_l2_cache_ecc_status_uncorrected_err_tstg_m()) != 0U) {
+		/* Report fatal err in case of uncorrected and unsupported ECC errors */
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+				GPU_LTC_CACHE_TSTG_ECC_UNCORRECTED);
 		nvgpu_err(g, "tstg ecc error uncorrected");
-
 		if (!is_tstg_ecc_addr) {
 			nvgpu_log(g, gpu_dbg_intr, "ECC address doesn't belong to TSTG");
-			return;
+			BUG();
 		}
 
 		g->ecc.ltc.tstg_ecc_parity_count[ltc][slice].counter =
 				nvgpu_wrapping_add_u32(
 				g->ecc.ltc.tstg_ecc_parity_count[ltc][slice].counter,
 					uncorrected_delta);
-		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
-				GPU_LTC_CACHE_TSTG_ECC_UNCORRECTED);
+		*needs_quiesce |= true;
 	}
 
 	if ((ecc_status & ltc_ltc0_lts0_l2_cache_ecc_status_corrected_err_tstg_m()) != 0U) {
-		nvgpu_err(g, "tstg ecc error corrected");
+		nvgpu_err(g, "Unsupported tstg ecc error corrected "
+					"Treating this as a fatal error!");
+
+		/* Reporting this as fatal error since TSTG ECC corrected
+		 * errors are unsupported. */
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+				GPU_LTC_CACHE_TSTG_ECC_UNCORRECTED);
+
 		/* This error is not expected to occur in ga10b and hence,
 		 * this scenario is considered as a fatal error.
 		 */
@@ -522,7 +583,7 @@ static bool ga10b_ltc_intr_is_dstg_be_ram(u32 ecc_addr)
 
 static void ga10b_ltc_intr_handle_dstg_ecc_interrupts(struct gk20a *g,
 			u32 ltc, u32 slice, u32 ecc_status, u32 ecc_addr,
-			u32 corrected_delta, u32 uncorrected_delta)
+			u32 corrected_delta, u32 uncorrected_delta, bool *needs_quiesce)
 {
 	bool is_dstg_ecc_addr = (ltc_ltc0_lts0_l2_cache_ecc_address_subunit_v(ecc_addr) ==
 				 ltc_ltc0_lts0_l2_cache_ecc_address_subunit_dstg_v());
@@ -532,7 +593,10 @@ static void ga10b_ltc_intr_handle_dstg_ecc_interrupts(struct gk20a *g,
 
 		if (!is_dstg_ecc_addr) {
 			nvgpu_log(g, gpu_dbg_intr, "ECC address doesn't belong to DSTG");
-			return;
+			/* Report a fatal error if ECC address doesn't belong to DSTG */
+			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+					GPU_LTC_CACHE_DSTG_ECC_UNCORRECTED);
+			BUG();
 		}
 
 		g->ecc.ltc.ecc_sec_count[ltc][slice].counter =
@@ -558,12 +622,14 @@ static void ga10b_ltc_intr_handle_dstg_ecc_interrupts(struct gk20a *g,
 
 	if ((ecc_status & ltc_ltc0_lts0_l2_cache_ecc_status_uncorrected_err_dstg_m()) != 0U) {
 		nvgpu_err(g, "dstg ecc error uncorrected");
-
+		/* Report fatal error in case of uncorrected and unsupported ECC errors */
+		nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
+				GPU_LTC_CACHE_DSTG_ECC_UNCORRECTED);
+		*needs_quiesce |= true;
 		if (!is_dstg_ecc_addr) {
 			nvgpu_log(g, gpu_dbg_intr, "ECC address doesn't belong to DSTG");
-			return;
+			BUG();
 		}
-
 		if (ga10b_ltc_intr_is_dstg_data_bank(ecc_addr)) {
 			nvgpu_err(g, "Double bit error detected in GPU L2!");
 
@@ -571,9 +637,6 @@ static void ga10b_ltc_intr_handle_dstg_ecc_interrupts(struct gk20a *g,
 				nvgpu_wrapping_add_u32(
 					g->ecc.ltc.ecc_ded_count[ltc][slice].counter,
 					uncorrected_delta);
-
-			nvgpu_report_err_to_sdl(g, NVGPU_ERR_MODULE_LTC,
-					GPU_LTC_CACHE_DSTG_ECC_UNCORRECTED);
 		} else if (ga10b_ltc_intr_is_dstg_be_ram(ecc_addr)) {
 			nvgpu_log(g, gpu_dbg_intr, "dstg be ecc error uncorrected");
 
@@ -609,8 +672,8 @@ static void ga10b_ltc_intr_init_counters(struct gk20a *g,
 	}
 }
 
-static void ga10b_ltc_intr3_ecc_interrupts(struct gk20a *g, u32 ltc, u32 slice,
-				u32 offset, u32 ltc_intr3)
+void ga10b_ltc_intr3_ecc_interrupts(struct gk20a *g, u32 ltc, u32 slice,
+				u32 offset, u32 ltc_intr3, bool *needs_quiesce)
 {
 	u32 ecc_status, ecc_addr, corrected_cnt, uncorrected_cnt;
 	u32 corrected_delta, uncorrected_delta;
@@ -686,153 +749,56 @@ static void ga10b_ltc_intr3_ecc_interrupts(struct gk20a *g, u32 ltc, u32 slice,
 
 		ga10b_ltc_intr_handle_rstg_ecc_interrupts(g, ltc, slice,
 						ecc_status, ecc_addr,
-						uncorrected_delta);
+						uncorrected_delta, needs_quiesce);
 
 		ga10b_ltc_intr_handle_tstg_ecc_interrupts(g, ltc, slice,
 						ecc_status, ecc_addr,
-						uncorrected_delta);
+						uncorrected_delta, needs_quiesce);
 
 		ga10b_ltc_intr_handle_dstg_ecc_interrupts(g, ltc, slice,
 						ecc_status, ecc_addr,
-						corrected_delta, uncorrected_delta);
-	}
-}
+						corrected_delta, uncorrected_delta, needs_quiesce);
 
-void ga10b_ltc_intr_handle_lts_intr3_extra(struct gk20a *g, u32 ltc, u32 slice, u32 *reg_value)
-{
-	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
-	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
-
-	u32 offset = nvgpu_safe_add_u32(nvgpu_safe_mult_u32(ltc_stride, ltc),
-					nvgpu_safe_mult_u32(lts_stride, slice));
-	u32 ltc_intr3 = nvgpu_readl(g, nvgpu_safe_add_u32(
-					ltc_ltc0_lts0_intr3_r(), offset));
-
-	if (ltc_intr3 == 0U) {
-		return;
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_dtm_kind_invalid_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d dtm_kind_invalid interrupt",
-			ltc, slice);
-		*reg_value = set_field(*reg_value,
-			ltc_ltcs_ltss_intr3_dtm_kind_invalid_m(),
-			ltc_ltcs_ltss_intr3_dtm_kind_invalid_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_dtm_comptag_invalid_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d dtm_comptag_invalid interrupt",
-			ltc, slice);
-		*reg_value = set_field(*reg_value,
-			ltc_ltcs_ltss_intr3_dtm_comptag_invalid_m(),
-			ltc_ltcs_ltss_intr3_dtm_comptag_invalid_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_cdcmp_ip_error_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d cdcmp_ip_error interrupt",
-			ltc, slice);
-		*reg_value = set_field(*reg_value,
-			ltc_ltcs_ltss_intr3_cdcmp_ip_error_m(),
-			ltc_ltcs_ltss_intr3_cdcmp_ip_error_reset_f());
+		/* Handle errors generated in L2 once parity received from XBAR is verified */
+		if (g->ops.ltc.intr.handle_xbar_intfc_ecc_intr != NULL) {
+			g->ops.ltc.intr.handle_xbar_intfc_ecc_intr(g, ltc, slice,
+						ecc_status, ecc_addr, needs_quiesce);
+		}
 	}
 }
 
 void ga10b_ltc_intr3_interrupts(struct gk20a *g, u32 ltc, u32 slice,
-				u32 ltc_intr3)
+				u32 ltc_intr3, bool *needs_quiesce)
 {
-	u32 reg_value = ltc_intr3;
+	/* Handle Non- ECC fatal errors in LTC_INTR3 */
+	if ((ltc_intr3 & GA10B_FATAL_LTC_NON_ECC_INTR3) != 0U) {
+		nvgpu_err(g, "LTC Uncorrected Error: LTC [%d] Slice [%d] "
+			"ltc_lts_intr3 reg [0x%08x]", ltc, slice, ltc_intr3);
+		/* Report uncorrected LTC errors */
+		if (g->ops.ltc.intr.report_non_ecc_uncorrected_err != NULL) {
+			g->ops.ltc.intr.report_non_ecc_uncorrected_err(g);
+		}
+		*needs_quiesce |= true;
+	}
 
-	if (ltc_intr3 &
-		ltc_ltcs_ltss_intr3_checkedout_rwc_upg_unexpected_nvport_m()) {
+	/*
+	 * Following interrupts are debug interrupts
+	 * that are moved here from API
+	 * ga10b_ltc_intr_handle_lts_intr3_extra
+	 * Log debug interrupts.
+	 */
+
+#ifdef CONFIG_NVGPU_NON_FUSA
+	if ((ltc_intr3 & GA10B_DEBUG_LTC_INTR3) != 0U) {
 		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedout_rwc_upg_unexpected_nvport interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_checkedout_rwc_upg_unexpected_nvport_m(),
-			ltc_ltcs_ltss_intr3_checkedout_rwc_upg_unexpected_nvport_reset_f());
+		"ltc:%d lts:%d LTC debug interrupt, ltc_intr3: 0x%08x",
+		ltc, slice, ltc_intr3);
 	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_checkedout_trdone_unexpected_nvport_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedout_trdone_unexpected_nvport interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_checkedout_trdone_unexpected_nvport_m(),
-			ltc_ltcs_ltss_intr3_checkedout_trdone_unexpected_nvport_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_checkedout_prbrs_unexpected_nvport_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedout_prbrs_unexpected_nvport interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_checkedout_prbrs_unexpected_nvport_m(),
-			ltc_ltcs_ltss_intr3_checkedout_prbrs_unexpected_nvport_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_checkedout_ninb_ncnp_req_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedout_ninb_ncnp_req interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_checkedout_ninb_ncnp_req_m(),
-			ltc_ltcs_ltss_intr3_checkedout_ninb_ncnp_req_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_checkedout_creq_ncnp_req_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedout_creq_ncnp_req interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_checkedout_creq_ncnp_req_m(),
-			ltc_ltcs_ltss_intr3_checkedout_creq_ncnp_req_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d rmwrs_invalid_subid interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_m(),
-			ltc_ltcs_ltss_intr3_rmwrs_invalid_subid_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_unexpected_rmwrs_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d unexpected_rmwrs interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_unexpected_rmwrs_m(),
-			ltc_ltcs_ltss_intr3_unexpected_rmwrs_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_illegal_access_kind_type1_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d illegal_access_kind_type1 interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_illegal_access_kind_type1_m(),
-			ltc_ltcs_ltss_intr3_illegal_access_kind_type1_reset_f());
-	}
-
-	if (ltc_intr3 & ltc_ltcs_ltss_intr3_illegal_access_kind_type2_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d illegal_access_kind_type2 interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr3_illegal_access_kind_type2_m(),
-			ltc_ltcs_ltss_intr3_illegal_access_kind_type2_reset_f());
-	}
-
-	if (g->ops.ltc.intr.isr_extra != NULL) {
-		g->ops.ltc.intr.isr_extra(g, ltc, slice, &reg_value);
-	}
+#endif
 }
 
-void ga10b_ltc_intr_handle_lts_intr3(struct gk20a *g, u32 ltc, u32 slice)
+void ga10b_ltc_intr_handle_lts_intr3(struct gk20a *g, u32 ltc, u32 slice,
+		bool *needs_quiesce)
 {
 	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
 	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
@@ -841,21 +807,49 @@ void ga10b_ltc_intr_handle_lts_intr3(struct gk20a *g, u32 ltc, u32 slice)
 					nvgpu_safe_mult_u32(lts_stride, slice));
 	u32 ltc_intr3 = nvgpu_readl(g, nvgpu_safe_add_u32(
 					ltc_ltc0_lts0_intr3_r(), offset));
-	u32 reg_value = ltc_intr3;
+	u32 ltc_intr3_mask = 0U;
 
-	if (ltc_intr3 == 0U) {
+	ltc_intr3_mask =
+#ifdef CONFIG_NVGPU_NON_FUSA
+			GA10B_DEBUG_LTC_INTR3 |
+#endif
+			GA10B_FATAL_LTC_ECC_INTR3 |
+			GA10B_FATAL_LTC_NON_ECC_INTR3;
+
+	/* LSB 16 bits represent the interrupt status and MSB 16 bits denote
+	 * interrupt enable state. Filter LSB 16 bits to check for actual
+	 * interrupt status.
+	 * Based on HW design, all LTC interrupts can set their corresponding
+	 * status bits but SW can control the propagation of interrupts to
+	 * the CPU using its corresponding LTC_INTR_EN bit.
+	 * Return early if no enabled interrupts are active
+	 * in the intr status bits.
+	 */
+
+	if (((ltc_intr3 & LTC_INTR_RESET_BIT_MASK) &
+			ltc_intr3_mask) == 0U) {
 		return;
 	}
 
-	ga10b_ltc_intr3_ecc_interrupts(g, ltc, slice, offset, ltc_intr3);
-	ga10b_ltc_intr3_interrupts(g, ltc, slice, ltc_intr3);
+
+	nvgpu_log(g, gpu_dbg_intr,
+		"LTC:%d, LTS: %d, LTC_INTR3:0x%x, LTC_INTR3_MASK: 0x%08x",
+		ltc, slice, ltc_intr3, ltc_intr3_mask);
+
+	if (g->ops.ltc.intr.handle_ecc_intr3 != NULL) {
+		g->ops.ltc.intr.handle_ecc_intr3(g, ltc, slice, offset, ltc_intr3,
+			needs_quiesce);
+	}
+
+	ga10b_ltc_intr3_interrupts(g, ltc, slice, ltc_intr3, needs_quiesce);
 
 	/* Reset interrupts */
 	nvgpu_writel(g, nvgpu_safe_add_u32( ltc_ltc0_lts0_intr3_r(), offset),
-			reg_value);
+			ltc_intr3);
 }
 
-void ga10b_ltc_intr_handle_lts_intr2(struct gk20a *g, u32 ltc, u32 slice)
+void ga10b_ltc_intr_handle_lts_intr2(struct gk20a *g, u32 ltc, u32 slice,
+		bool *needs_quiesce)
 {
 	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
 	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
@@ -864,178 +858,46 @@ void ga10b_ltc_intr_handle_lts_intr2(struct gk20a *g, u32 ltc, u32 slice)
 					nvgpu_safe_mult_u32(lts_stride, slice));
 	u32 ltc_intr2 = nvgpu_readl(g, nvgpu_safe_add_u32(
 					ltc_ltc0_lts0_intr2_r(), offset));
-	u32 reg_value = ltc_intr2;
+	u32 ltc_intr2_mask = GA10B_FATAL_LTC_INTR2;
 
-	if (ltc_intr2 == 0U) {
+
+	/* LSB 16 bits represent the interrupt status and MSB 16 bits denote
+	 * interrupt enable state. Filter LSB 16 bits to check for actual
+	 * interrupt status.
+	 * Based on HW design, all LTC interrupts can set their corresponding
+	 * status bits but SW can control the propagation of interrupts to
+	 * the CPU using its corresponding LTC_INTR_EN bit.
+	 * Return early if no enabled interrupts are active
+	 * in the intr status bits.
+	 */
+	if (((ltc_intr2 & LTC_INTR_RESET_BIT_MASK) &
+			ltc_intr2_mask) == 0U) {
 		return;
 	}
 
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_trdone_invalid_tdtag_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d trdone_invalid_tdtag interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_trdone_invalid_tdtag_m(),
-			ltc_ltcs_ltss_intr2_trdone_invalid_tdtag_reset_f());
-	}
+	nvgpu_log(g, gpu_dbg_intr,
+		"LTC:%d, LTS: %d, LTC_INTR2:0x%x, ltc_intr2_mask: 0x%08x",
+		ltc, slice, ltc_intr2, ltc_intr2_mask);
 
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_unexpected_trdone_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d unexpected_trdone interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_unexpected_trdone_m(),
-			ltc_ltcs_ltss_intr2_unexpected_trdone_reset_f());
-	}
+	/* Check for fatal LTC errors */
+	if ((ltc_intr2 & GA10B_FATAL_LTC_INTR2) != 0U) {
+		nvgpu_err(g, "LTC Uncorrected Error: LTC [%d] Slice [%d] "
+			"ltc_lts_intr2 reg [0x%08x]", ltc, slice, ltc_intr2);
 
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_data_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d rwc_upg_unexpected_trdone_data interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_data_m(),
-			ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_data_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_cancel_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d rwc_upg_unexpected_trdone_cancel interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_cancel_m(),
-			ltc_ltcs_ltss_intr2_rwc_upg_unexpected_trdone_cancel_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbrs_invalid_subid_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbrs_invalid_subid interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbrs_invalid_subid_m(),
-			ltc_ltcs_ltss_intr2_prbrs_invalid_subid_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_unexpected_prbrs_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d unexpected_prbrs interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_unexpected_prbrs_m(),
-			ltc_ltcs_ltss_intr2_unexpected_prbrs_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbin_unexpected_prbrs_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbin_unexpected_prbrs interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbin_unexpected_prbrs_m(),
-			ltc_ltcs_ltss_intr2_prbin_unexpected_prbrs_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbimo_unexpected_prbrs_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbimo_unexpected_prbrs interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbimo_unexpected_prbrs_m(),
-			ltc_ltcs_ltss_intr2_prbimo_unexpected_prbrs_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbx_missing_data_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbx_missing_data interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbx_missing_data_m(),
-			ltc_ltcs_ltss_intr2_prbx_missing_data_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbx_unexpected_data_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbx_unexpected_data interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbx_unexpected_data_m(),
-			ltc_ltcs_ltss_intr2_prbx_unexpected_data_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_prbrs_unexpected_pa7_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d prbrs_unexpected_pa7 interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_prbrs_unexpected_pa7_m(),
-			ltc_ltcs_ltss_intr2_prbrs_unexpected_pa7_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_trdone_unexpected_pa7_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d trdone_unexpected_pa7 interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_trdone_unexpected_pa7_m(),
-			ltc_ltcs_ltss_intr2_trdone_unexpected_pa7_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d sysfill_bypass_invalid_subid interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_m(),
-			ltc_ltcs_ltss_intr2_sysfill_bypass_invalid_subid_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_unexpected_sysfill_bypass_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d unexpected_sysfill_bypass interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_unexpected_sysfill_bypass_m(),
-			ltc_ltcs_ltss_intr2_unexpected_sysfill_bypass_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_checkedin_unexpected_prbrs_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedin_unexpected_prbrs interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_checkedin_unexpected_prbrs_m(),
-			ltc_ltcs_ltss_intr2_checkedin_unexpected_prbrs_reset_f());
-	}
-
-	if (ltc_intr2 & ltc_ltcs_ltss_intr2_checkedin_unexpected_trdone_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d checkedin_unexpected_trdone interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr2_checkedin_unexpected_trdone_m(),
-			ltc_ltcs_ltss_intr2_checkedin_unexpected_trdone_reset_f());
+		/* Report uncorrected LTC errors */
+		if (g->ops.ltc.intr.report_non_ecc_uncorrected_err != NULL) {
+			g->ops.ltc.intr.report_non_ecc_uncorrected_err(g);
+		}
+		*needs_quiesce |= true;
 	}
 
 	/* Reset interrupts */
 	nvgpu_writel(g, nvgpu_safe_add_u32( ltc_ltc0_lts0_intr2_r(), offset),
-			reg_value);
+			ltc_intr2);
 }
 
-#ifdef CONFIG_NVGPU_NON_FUSA
-void ga10b_ltc_intr_handle_illegal_compstat(struct gk20a *g, u32 ltc, u32 slice,
-		u32 ltc_intr, u32 *reg_value)
-{
-	if ((ltc_intr & ltc_ltcs_ltss_intr_en_illegal_compstat_enabled_f()) &&
-		(ltc_intr & ltc_ltcs_ltss_intr_illegal_compstat_m())) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d illegal_compstat interrupt",
-			ltc, slice);
-		*reg_value = set_field(*reg_value,
-			ltc_ltcs_ltss_intr_illegal_compstat_m(),
-			ltc_ltcs_ltss_intr_illegal_compstat_reset_f());
-	}
-}
-#endif
-
-void ga10b_ltc_intr_handle_lts_intr(struct gk20a *g, u32 ltc, u32 slice)
+void ga10b_ltc_intr_handle_lts_intr(struct gk20a *g, u32 ltc, u32 slice,
+		bool *needs_quiesce)
 {
 	u32 ltc_stride = nvgpu_get_litter_value(g, GPU_LIT_LTC_STRIDE);
 	u32 lts_stride = nvgpu_get_litter_value(g, GPU_LIT_LTS_STRIDE);
@@ -1044,94 +906,68 @@ void ga10b_ltc_intr_handle_lts_intr(struct gk20a *g, u32 ltc, u32 slice)
 					nvgpu_safe_mult_u32(lts_stride, slice));
 	u32 ltc_intr = nvgpu_readl(g, nvgpu_safe_add_u32(
 					ltc_ltc0_lts0_intr_r(), offset));
-	u32 reg_value = ltc_intr;
+	u32 ltc_intr_mask = GA10B_FATAL_LTC_INTR;
 
-	if (ltc_intr == 0U) {
+	/* LSB 16 bits represent the interrupt status and MSB 16 bits denote
+	 * interrupt enable state. Filter LSB 16 bits to check for actual
+	 * interrupt status.
+	 * Based on HW design, all LTC interrupts can set their corresponding
+	 * status bits but SW can control the propagation of interrupts to
+	 * the CPU using its corresponding LTC_INTR_EN bit.
+	 * Return early if no enabled interrupts are active
+	 * in the intr status bits.
+	 */
+	if (((ltc_intr & LTC_INTR_RESET_BIT_MASK) &
+			ltc_intr_mask) == 0U) {
 		return;
 	}
 
-	if (ltc_intr & ltc_ltcs_ltss_intr_idle_error_cbc_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d idle_error_cbc interrupt", ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_idle_error_cbc_m(),
-			ltc_ltcs_ltss_intr_idle_error_cbc_reset_f());
-	}
+	nvgpu_log(g, gpu_dbg_intr,
+		"LTC:%d, LTS: %d, LTC_INTR:0x%x, ltc_intr_mask: 0x%08x",
+		ltc, slice, ltc_intr, ltc_intr_mask);
 
-	if (ltc_intr & ltc_ltcs_ltss_intr_idle_error_tstg_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d idle_error_tstg interrupt", ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_idle_error_tstg_m(),
-			ltc_ltcs_ltss_intr_idle_error_tstg_reset_f());
-	}
+	/* Check for fatal LTC errors */
+	if ((ltc_intr & GA10B_FATAL_LTC_INTR) != 0U) {
+		nvgpu_err(g, "LTC Uncorrected Error: LTC [%d] Slice [%d] "
+			"ltc_lts_intr reg [0x%08x]", ltc, slice, ltc_intr);
 
-	if (ltc_intr & ltc_ltcs_ltss_intr_idle_error_dstg_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d idle_error_dstg interrupt", ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_idle_error_dstg_m(),
-			ltc_ltcs_ltss_intr_idle_error_dstg_reset_f());
-	}
-
-	if (ltc_intr & ltc_ltcs_ltss_intr_evicted_cb_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d evicted_cb interrupt", ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_evicted_cb_m(),
-			ltc_ltcs_ltss_intr_evicted_cb_reset_f());
-	}
-
-#ifdef CONFIG_NVGPU_NON_FUSA
-	if (g->ops.ltc.intr.handle_illegal_compstat != NULL) {
-		g->ops.ltc.intr.handle_illegal_compstat(g, ltc, slice, ltc_intr, &reg_value);
-	}
-#endif
-
-	if (ltc_intr & ltc_ltcs_ltss_intr_illegal_atomic_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d illegal_atomic interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_illegal_atomic_m(),
-			ltc_ltcs_ltss_intr_illegal_atomic_reset_f());
-	}
-
-	if (ltc_intr & ltc_ltcs_ltss_intr_blkactivity_err_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d blkactivity_err interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_blkactivity_err_m(),
-			ltc_ltcs_ltss_intr_blkactivity_err_reset_f());
-	}
-
-	if (ltc_intr & ltc_ltcs_ltss_intr_illegal_compstat_access_m()) {
-		nvgpu_log(g, gpu_dbg_intr,
-			"ltc:%d lts: %d illegal_compstat_access interrupt",
-			ltc, slice);
-		reg_value = set_field(reg_value,
-			ltc_ltcs_ltss_intr_illegal_compstat_access_m(),
-			ltc_ltcs_ltss_intr_illegal_compstat_access_reset_f());
+		/* Report uncorrected LTC errors */
+		if (g->ops.ltc.intr.report_non_ecc_uncorrected_err != NULL) {
+			g->ops.ltc.intr.report_non_ecc_uncorrected_err(g);
+		}
+		*needs_quiesce |= true;
 	}
 
 	/* Reset interrupts */
 	nvgpu_writel(g, nvgpu_safe_add_u32( ltc_ltc0_lts0_intr_r(), offset),
-			reg_value);
+		ltc_intr);
 }
 
 int ga10b_ltc_intr_isr(struct gk20a *g, u32 ltc)
 {
 	u32 slice;
+	bool needs_quiesce = false;
 
 	if (ltc >= nvgpu_ltc_get_ltc_count(g)) {
 		return -ENODEV;
 	}
 
 	for (slice = 0U; slice < g->ltc->slices_per_ltc; slice++) {
-		ga10b_ltc_intr_handle_lts_intr(g, ltc, slice);
-		ga10b_ltc_intr_handle_lts_intr2(g, ltc, slice);
-		ga10b_ltc_intr_handle_lts_intr3(g, ltc, slice);
+		if (g->ops.ltc.intr.handle_intr1 != NULL) {
+			g->ops.ltc.intr.handle_intr1(g, ltc, slice, &needs_quiesce);
+		}
+
+		if (g->ops.ltc.intr.handle_intr2 != NULL) {
+			g->ops.ltc.intr.handle_intr2(g, ltc, slice, &needs_quiesce);
+		}
+
+		if (g->ops.ltc.intr.handle_intr3 != NULL) {
+			g->ops.ltc.intr.handle_intr3(g, ltc, slice, &needs_quiesce);
+		}
+	}
+
+	if (needs_quiesce) {
+		nvgpu_sw_quiesce(g);
 	}
 
 	if (g->ops.ltc.intr.retrigger != NULL) {

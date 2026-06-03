@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+#if defined(CONFIG_NVIDIA_CONFTEST)
+#include <nvidia/conftest.h>
+#endif
 
 #include <linux/pci.h>
 #include <linux/interrupt.h>
+#include <linux/iommu.h>
 #include <linux/pm_runtime.h>
+#include <linux/pm_domain.h>
 #include <linux/reset.h>
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
@@ -16,6 +22,7 @@
 #include <nvgpu/mc.h>
 #include <nvgpu/cic_mon.h>
 #include <nvgpu/cic_rm.h>
+#include <nvgpu/dma.h>
 #include <nvgpu/enabled.h>
 #include <nvgpu/errata.h>
 #include <nvgpu/nvlink_probe.h>
@@ -26,6 +33,7 @@
 #include <nvgpu/gr/gr.h>
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/linux/sim.h>
+#include <nvgpu/log.h>
 
 #include "nvlink.h"
 #include "module.h"
@@ -42,11 +50,45 @@
 #include "vgpu/vf_linux.h"
 #include "vgpu/vgpu_common.h"
 
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+#include "pci_gb10b_tegra.h"
+#include "vgpu/platform_gb10b_vf.h"
+#endif
+
+#if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+#include "pci_gb20c_tegra.h"
+#include "vgpu/platform_gb20c_vf.h"
+#endif
+
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NEXT)
 #include <nvgpu_next_chips.h>
 #endif
 
 #define BOOT_GPC2CLK_MHZ	2581U
+
+void nvgpu_pci_flr(struct gk20a *g)
+{
+	struct device *dev = dev_from_gk20a(g);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	int rc;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	rc = pci_save_state(pdev);
+	if (rc) {
+		nvgpu_err(g, "Failed to save pci state");
+		return;
+	}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	pcie_reset_flr(pdev, PCI_RESET_DO_RESET);
+#else
+	nvgpu_err(g, "PCIE FLR not supported");
+#endif
+
+	pci_restore_state(pdev);
+
+}
 
 static int nvgpu_pci_tegra_probe(struct device *dev)
 {
@@ -91,6 +133,7 @@ static struct gk20a_platform nvgpu_pci_device[] = {
 		.enable_slcg = false,
 		.enable_blcg = false,
 		.enable_mscg = false,
+		.enable_gpcclk_flcg = false,
 		.can_slcg    = false,
 		.can_blcg    = false,
 		.can_elcg    = false,
@@ -135,6 +178,7 @@ static struct gk20a_platform nvgpu_pci_device[] = {
 		.enable_slcg = true,
 		.enable_blcg = true,
 		.enable_mscg = false,
+		.enable_gpcclk_flcg = false,
 		.can_slcg    = true,
 		.can_blcg    = true,
 		.can_elcg    = false,
@@ -176,6 +220,7 @@ static struct gk20a_platform nvgpu_pci_device[] = {
 		.enable_slcg = true,
 		.enable_blcg = true,
 		.enable_mscg = false,
+		.enable_gpcclk_flcg = false,
 		.can_slcg    = true,
 		.can_blcg    = true,
 		.can_elcg    = false,
@@ -215,6 +260,7 @@ static struct gk20a_platform nvgpu_pci_device[] = {
 		.enable_slcg = true,
 		.enable_blcg = true,
 		.enable_mscg = false,
+		.enable_gpcclk_flcg = false,
 		.can_slcg    = true,
 		.can_blcg    = true,
 		.can_elcg    = false,
@@ -241,21 +287,44 @@ static struct gk20a_platform nvgpu_pci_device[] = {
 
 static int nvgpu_pci_get_platform_data(struct gk20a_platform *platform, int index)
 {
-	struct gk20a_platform nvgpu_next_pci_device[] = {
+	struct gk20a_platform *nvgpu_gb10b_pci_device[] = {
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB10B)
+	&gb10b_vf_tegra_platform,
+	&gb10b_pci_tegra_platform,
+#endif
+	};
+	struct gk20a_platform *nvgpu_gb20c_pci_device[] = {
+#if defined(CONFIG_NVGPU_NON_FUSA) && defined(CONFIG_NVGPU_GB20C)
+	&gb20c_vf_tegra_platform,
+	&gb20c_pci_tegra_platform,
+#endif
+	};
+	struct gk20a_platform *nvgpu_next_pci_device[] = {
 #if defined(CONFIG_NVGPU_NEXT) && defined(CONFIG_NVGPU_NON_FUSA)
 		NVGPU_NEXT_PCI_DEVICES
 #endif
 	};
 	int device_cnt = ARRAY_SIZE(nvgpu_pci_device);
+	int gb10b_device_cnt = ARRAY_SIZE(nvgpu_gb10b_pci_device);
+	int gb20c_device_cnt = ARRAY_SIZE(nvgpu_gb20c_pci_device);
 	int next_device_cnt = ARRAY_SIZE(nvgpu_next_pci_device);
 
 	if (index < device_cnt) {
 		nvgpu_memcpy((u8 *)platform,
 			(u8 *)&nvgpu_pci_device[index],
 			sizeof(struct gk20a_platform));
-	} else if (index < device_cnt + next_device_cnt) {
+	} else if (index < device_cnt + gb10b_device_cnt) {
 		nvgpu_memcpy((u8 *)platform,
-			(u8 *)&nvgpu_next_pci_device[index - device_cnt],
+			(u8 *)nvgpu_gb10b_pci_device[index - device_cnt],
+			sizeof(struct gk20a_platform));
+	} else if (index < device_cnt + gb10b_device_cnt + gb20c_device_cnt) {
+		nvgpu_memcpy((u8 *)platform,
+			(u8 *)nvgpu_gb20c_pci_device[index - (device_cnt + gb10b_device_cnt)],
+			sizeof(struct gk20a_platform));
+	} else if (index < device_cnt + gb10b_device_cnt + gb20c_device_cnt + next_device_cnt) {
+		nvgpu_memcpy((u8 *)platform,
+			(u8 *)nvgpu_next_pci_device[index -
+			(device_cnt + gb10b_device_cnt + gb20c_device_cnt)],
 			sizeof(struct gk20a_platform));
 	} else {
 		return -EINVAL;
@@ -347,25 +416,53 @@ static struct pci_device_id nvgpu_pci_table[] = {
 		.class_mask = 0xff << 16,
 		.driver_data = 3,
 	},
-#ifdef CONFIG_NVGPU_NEXT
 #if defined(CONFIG_NVGPU_HAL_NON_FUSA) && defined(CONFIG_NVGPU_NON_FUSA)
+#if defined(CONFIG_NVGPU_GB10B)
+	gb10b_vf_pci_id,
+	gb10b_pci_id,
+#endif
+#if defined(CONFIG_NVGPU_GB20C)
+	gb20c_vf_pci_id,
+	gb20c_pci_id,
+	gb20c_next_pci_id,
+#endif
+#ifdef CONFIG_NVGPU_NEXT
 	NVGPU_NEXT_PCI_IDS
 #endif
 #endif
 	{}
 };
 
+#if defined(CONFIG_PCI_MSI)
+static irqreturn_t nvgpu_pci_msi_isr(int irq, void *dev_id)
+{
+	struct nvgpu_msi_cookie *cookie = dev_id;
+	struct gk20a *g = cookie->g;
+	u32 ret = nvgpu_cic_mon_intr_msi_isr(g, cookie->id);
+
+	if (ret == NVGPU_CIC_INTR_HANDLE) {
+		return IRQ_WAKE_THREAD;
+	}
+
+	return IRQ_NONE;
+}
+
+static irqreturn_t nvgpu_pci_msi_intr_thread(int irq, void *dev_id)
+{
+	struct nvgpu_msi_cookie *cookie = dev_id;
+	struct gk20a *g = cookie->g;
+
+	nvgpu_cic_mon_intr_msi_handle(g, cookie->id);
+
+	return IRQ_HANDLED;
+}
+#endif
+
 static irqreturn_t nvgpu_pci_isr(int irq, void *dev_id)
 {
 	struct gk20a *g = dev_id;
 	u32 ret_stall = nvgpu_cic_mon_intr_stall_isr(g);
 	u32 ret_nonstall = nvgpu_cic_mon_intr_nonstall_isr(g);
-
-#if defined(CONFIG_PCI_MSI)
-	/* Send MSI EOI */
-	if (g->ops.xve.rearm_msi && g->msi_enabled)
-		g->ops.xve.rearm_msi(g);
-#endif
 
 	if ((ret_stall == NVGPU_CIC_INTR_HANDLE) ||
 		(ret_nonstall == NVGPU_CIC_INTR_HANDLE)) {
@@ -452,28 +549,122 @@ static int nvgpu_pci_init_support(struct pci_dev *pdev, bool is_pci_igpu)
 	return err;
 }
 
-#ifdef CONFIG_PM
 static int nvgpu_pci_pm_runtime_resume(struct device *dev)
 {
-	if (gk20a_gpu_is_virtual(dev))
-		return vgpu_pm_finalize_poweron(dev);
-	else
-		return gk20a_pm_finalize_poweron(dev);
+	struct gk20a *g = get_gk20a(dev);
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	err = gk20a_pm_runtime_resume(dev);
+	if (err)
+		dev_warn(dev, "fail to run gk20a_pm_runtime_resume:%d\n", err);
+
+	return err;
 }
 
 static int nvgpu_pci_pm_runtime_suspend(struct device *dev)
 {
-	return 0;
+	struct gk20a *g = get_gk20a(dev);
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	err = gk20a_pm_runtime_suspend(dev);
+	if (err)
+		dev_warn(dev, "fail to run gk20a_pm_runtime_suspend:%d\n", err);
+
+	return err;
 }
 
 static int nvgpu_pci_pm_resume(struct device *dev)
 {
-	return gk20a_pm_finalize_poweron(dev);
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct gk20a *g = get_gk20a(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pci_bus *bus = pdev->bus;
+	struct pci_host_bridge *bridge;
+	struct device *ctrl;
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	err = gk20a_pm_resume(dev);
+	if (err)
+		dev_warn(dev, "fail to run gk20a_pm_resume:%d\n", err);
+
+	if (platform->can_railgate_init && \
+		!nvgpu_platform_is_simulation(platform->g)) {
+
+		/* PCI iGPU: Get GPU pm_domain from controller */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+		bridge = pci_find_host_bridge(bus);
+#else
+		while (bus->parent)
+			bus = bus->parent;
+
+		bridge = to_pci_host_bridge(bus->bridge);
+#endif
+		ctrl = bridge->dev.parent;
+
+
+		/*
+		 * Attach GPU power domain back, this driver cannot directly use
+		 * dev_pm_domain_set to recover the pm_domain because kernel warning
+		 * will be triggered if the caller driver is already bounded.
+		 */
+		dev->pm_domain = ctrl->pm_domain;
+
+		/* wake-up system */
+		err = gk20a_busy(g);
+		if (err) {
+			dev_warn(dev, "fail to wakeup system:%d\n", err);
+			return err;
+		}
+		gk20a_idle(g);
+
+		if (platform->runtime_auto_before_suspend == true)
+			pm_runtime_allow(dev);
+	}
+
+	return err;
+
 }
 
 static int nvgpu_pci_pm_suspend(struct device *dev)
 {
-	return 0;
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
+	struct gk20a *g = get_gk20a(dev);
+	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	if (platform->can_railgate_init && \
+		!nvgpu_platform_is_simulation(platform->g)) {
+
+		platform->runtime_auto_before_suspend = dev->power.runtime_auto;
+
+		/* Turn on the GPU power before saving PCI configuration */
+		pm_runtime_forbid(dev);
+
+		/*
+		 * If a PCI device is attached to a GenPD power domain,
+		 * resume_early callback in PCI framework will not be
+		 * executed during static resume. That leads to the PCI
+		 * configuration couldn't be properly restored.
+		 *
+		 * Clear the power domain of PCI GPU before static suspend
+		 * to make sure its PCI configuration could be properly
+		 * restored during static resume.
+		 */
+		dev_pm_domain_set(dev, NULL);
+	}
+
+	err = gk20a_pm_suspend(dev);
+	if (err)
+		dev_warn(dev, "fail to run gk20a_pm_suspend:%d\n", err);
+
+	return err;
 }
 
 static const struct dev_pm_ops nvgpu_pci_pm_ops = {
@@ -482,48 +673,120 @@ static const struct dev_pm_ops nvgpu_pci_pm_ops = {
 	.resume = nvgpu_pci_pm_resume,
 	.suspend = nvgpu_pci_pm_suspend,
 };
-#endif
 
-static int nvgpu_pci_pm_init(struct device *dev)
+static void nvgpu_pci_pm_init(struct pci_dev *pdev)
 {
-#ifdef CONFIG_PM
+	struct gk20a_platform *platform = dev_get_drvdata(&pdev->dev);
+	struct pci_bus *bus = pdev->bus;
+	struct device *dev = &pdev->dev;
 	struct gk20a *g = get_gk20a(dev);
+	struct pci_host_bridge *bridge;
+	struct device *ctrl;
 
-	if (!nvgpu_is_enabled(g, NVGPU_CAN_RAILGATE)) {
+
+	if (!platform->can_railgate_init || nvgpu_platform_is_simulation(platform->g)) {
 		pm_runtime_disable(dev);
-	} else {
-		if (g->railgate_delay)
-			pm_runtime_set_autosuspend_delay(dev,
-				g->railgate_delay);
-
-		/*
-		 * set gpu dev's use_autosuspend flag to allow
-		 * runtime power management of GPU
-		 */
-		pm_runtime_use_autosuspend(dev);
-
-		/*
-		 * runtime PM for PCI devices is forbidden
-		 * by default, so unblock RTPM of GPU
-		 */
-		pm_runtime_put_noidle(dev);
-		pm_runtime_allow(dev);
+		return;
 	}
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	/*
+	 * Enable runtime PM for the generic platform pci host controller.
+	 * The upstream pci host controller driver does not enable the runtime
+	 * PM by default. Therefore, we need to enable it here explicitly
+	 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	bridge = pci_find_host_bridge(bus);
+#else
+	while (bus->parent)
+		bus = bus->parent;
+
+	bridge = to_pci_host_bridge(bus->bridge);
 #endif
-	return 0;
+	ctrl = bridge->dev.parent;
+	pm_runtime_enable(ctrl);
+
+	/*
+	 * Enable runtime autosuspend for pci device
+	 * set gpu dev's use_autosuspend flag to allow
+	 * runtime power management of GPU
+	 */
+	pm_runtime_set_autosuspend_delay(dev, platform->railgate_delay_init);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_put_autosuspend(dev);
+
+	/*
+	 * Runtime PM for PCI devices is forbidden
+	 * by default, so unblock RTPM of GPU
+	 */
+	pm_runtime_allow(dev);
 }
 
-static int nvgpu_pci_pm_deinit(struct device *dev)
+void nvgpu_pci_pm_deinit(struct pci_dev *pdev)
 {
-#ifdef CONFIG_PM
+	struct gk20a_platform *platform = dev_get_drvdata(&pdev->dev);
+	struct pci_bus *bus = pdev->bus;
+	struct device *dev = &pdev->dev;
 	struct gk20a *g = get_gk20a(dev);
+	struct pci_host_bridge *bridge;
+	struct device *ctrl;
 
-	if (!nvgpu_is_enabled(g, NVGPU_CAN_RAILGATE))
-		pm_runtime_enable(dev);
-	else
-		pm_runtime_forbid(dev);
+	if (!platform->can_railgate_init || nvgpu_platform_is_simulation(platform->g)) {
+		/*
+		 * PM deinit was already called when MIG was configured.
+		 * Avoid duplicate operation here.
+		 */
+		if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG))
+			pm_runtime_enable(dev);
+		return;
+	}
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
+	/* Disable runtime PM for pci igpu */
+	pm_runtime_forbid(dev);
+	pm_runtime_get_noresume(dev);
+	pm_runtime_dont_use_autosuspend(dev);
+
+	/* Disable runtime PM for platform pci host controller */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
+	bridge = pci_find_host_bridge(bus);
+#else
+	while (bus->parent)
+		bus = bus->parent;
+
+	bridge = to_pci_host_bridge(bus->bridge);
 #endif
-	return 0;
+	ctrl = bridge->dev.parent;
+	pm_runtime_disable(ctrl);
+}
+
+static int nvgpu_pci_power_domain_register(struct pci_dev *pdev)
+{
+	struct device_node *node = pdev->dev.of_node;
+	struct gk20a_platform *platform = pci_get_drvdata(pdev);
+
+	if (!platform->can_railgate_init || \
+		nvgpu_platform_is_simulation(platform->g))
+		return 0;
+
+	nvgpu_log(platform->g, gpu_dbg_pm, " ");
+
+	if (!node) {
+		dev_warn(&pdev->dev,
+			 "no dt node associated with this device\n");
+		return -ENODEV;
+	}
+
+	if (!of_find_property(node, "power-domains", NULL)) {
+		dev_warn(&pdev->dev,
+			 "no power-domains is defined in the dt node\n");
+		return -ENODEV;
+	}
+
+	nvgpu_log(platform->g, gpu_dbg_pm, "attach GPU pm_domain");
+	return dev_pm_domain_attach(&pdev->dev, true);
 }
 
 static int nvgpu_get_dt_clock_limit(struct gk20a *g, u16 *gpuclk_clkmhz)
@@ -553,9 +816,15 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 	struct nvgpu_os_linux *l;
 	struct gk20a *g;
 	int err;
+	int nvec = -1;
 	struct device_node *np;
 	u32 device_index = PCI_DEVICE_INDEX(pent->driver_data);
 	u32 device_flags = PCI_DEVICE_FLAGS(pent->driver_data);
+	u32 i = 0U;
+
+
+	/* Avoid PCI hotplug for GPU */
+	pci_ignore_hotplug(pdev);
 
 	/* Allocate memory to hold platform data*/
 	platform = (struct gk20a_platform *)kzalloc(
@@ -574,6 +843,7 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 		err = vf_probe(pdev, platform);
 		if (err)
 			goto err_free_platform;
+		return err;
 	}
 
 	l = kzalloc(sizeof(*l), GFP_KERNEL);
@@ -613,14 +883,17 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 		nvgpu_set_enabled(g, NVGPU_SUPPORT_IO_COHERENCE, true);
 	}
 
-	if (!g->is_pci_igpu) {
-		err = pci_enable_device(pdev);
-		if (err)
-			goto err_free_platform;
-	} else {
-		if (nvgpu_platform_is_simulation(g))
-			nvgpu_set_enabled(g, NVGPU_IS_FMODEL, true);
-	}
+	/*
+	 * This is used to enable PCI_COMMAND_IO, PCI_COMMAND_MEMORY in
+	 * PCIe config space.
+	 */
+	err = pci_enable_device(pdev);
+	if (err)
+		goto err_free_platform;
+
+	if (nvgpu_platform_is_simulation(g))
+		nvgpu_set_enabled(g, NVGPU_IS_FMODEL, true);
+
 	pci_set_master(pdev);
 
 	g->pci_vendor_id = pdev->vendor;
@@ -629,6 +902,12 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 	g->pci_subsystem_device_id = pdev->subsystem_device;
 	g->pci_class = (pdev->class >> 8) & 0xFFFFU; // we only want base/sub
 	g->pci_revision = pdev->revision;
+
+	if (g->pci_device_id == GB10B_NEXT_PCI_DEVICE_ID) {
+		g->is_mig_supported = false;
+	} else {
+		g->is_mig_supported = true;
+	}
 
 	if ((device_flags & PCI_DEVICE_F_INTERNAL_CHIP_SKU) != 0U) {
 		nvgpu_err(g, "internal chip SKU %08x detected",
@@ -646,13 +925,35 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 	g->hardcode_sw_threshold = platform->hardcode_sw_threshold;
 
 #if defined(CONFIG_PCI_MSI)
-	err = pci_enable_msi(pdev);
-	if (err) {
-		nvgpu_err(g,
-			"MSI could not be enabled, falling back to legacy");
-		g->msi_enabled = false;
-	} else
+	nvec = pci_alloc_irq_vectors(pdev, 1, 64, PCI_IRQ_MSI | PCI_IRQ_MSIX);
+	if (nvec < 0) {
+		nvgpu_err(g, "MSI could not be enabled, falling back to legacy");
+#endif
+#if defined(NV_PCI_IRQ_INTX)
+		nvec = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_INTX);
+#else
+		nvec = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_LEGACY);
+#endif
+		nvgpu_assert(nvec == 1);
+
+		l->interrupts.stall_size = 1U;
+		l->interrupts.nonstall_size = 0U;
+
+		l->interrupts.stall_lines[0U] =
+			nvgpu_safe_cast_s32_to_u32(pci_irq_vector(pdev, 0U));
+		l->interrupts.nonstall_line = 0U;
+#if defined(CONFIG_PCI_MSI)
+	} else {
 		g->msi_enabled = true;
+
+		l->interrupts.msi_size = nvgpu_safe_cast_s32_to_u32(nvec);
+		for (i = 0U; i < l->interrupts.msi_size; i++) {
+			l->interrupts.msi_lines[i] =
+				nvgpu_safe_cast_s32_to_u32(pci_irq_vector(pdev, i));
+			l->interrupts.msi_cookies[i].g = g;
+			l->interrupts.msi_cookies[i].id = i;
+		}
+	}
 #endif
 
 	err = nvgpu_cic_mon_setup(g);
@@ -661,31 +962,35 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 		goto err_disable_msi;
 	}
 
-	/* Number of stall interrupt line = 1 (for dgpu <= tu10x) */
-	l->interrupts.stall_size = 1U;
-	l->interrupts.nonstall_size = 0U;
-
-	l->interrupts.stall_lines[0] = pdev->irq;
-	l->interrupts.nonstall_line = pdev->irq;
-
-	if ((int)l->interrupts.stall_lines[0] < 0) {
-		err = -ENXIO;
-		goto err_deinit_cic_mon;
-	}
-
-	err = devm_request_threaded_irq(&pdev->dev,
-			l->interrupts.stall_lines[0],
-			nvgpu_pci_isr,
-			nvgpu_pci_intr_thread,
 #if defined(CONFIG_PCI_MSI)
-			g->msi_enabled ? 0 :
+	if (g->msi_enabled) {
+		for (i = 0U; i < l->interrupts.msi_size; i++) {
+			err = devm_request_threaded_irq(&pdev->dev,
+					l->interrupts.msi_lines[i],
+					nvgpu_pci_msi_isr,
+					nvgpu_pci_msi_intr_thread,
+					0, "nvgpu", &l->interrupts.msi_cookies[i]);
+			if (err) {
+				nvgpu_err(g, "failed to request irq @ %d",
+						l->interrupts.msi_lines[i]);
+				goto err_deinit_cic_mon;
+			}
+		}
+	} else {
 #endif
-			IRQF_SHARED, "nvgpu", g);
-	if (err) {
-		nvgpu_err(g,
-			"failed to request irq @ %d", l->interrupts.stall_lines[0]);
-		goto err_deinit_cic_mon;
+		err = devm_request_threaded_irq(&pdev->dev,
+				l->interrupts.stall_lines[0],
+				nvgpu_pci_isr,
+				nvgpu_pci_intr_thread,
+				IRQF_SHARED, "nvgpu", g);
+		if (err) {
+			nvgpu_err(g, "failed to request irq @ %d",
+					l->interrupts.stall_lines[0]);
+			goto err_deinit_cic_mon;
+		}
+#if defined(CONFIG_PCI_MSI)
 	}
+#endif
 	nvgpu_disable_irqs(g);
 
 	err = nvgpu_pci_init_support(pdev, g->is_pci_igpu);
@@ -711,16 +1016,26 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 	if (err)
 		goto err_free_irq;
 
-	err = nvgpu_pci_pm_init(&pdev->dev);
-	if (err) {
-		nvgpu_err(g, "pm init failed");
-		goto err_free_irq;
-	}
-
 	if (!platform->disable_nvlink) {
 		err = nvgpu_nvlink_probe(g);
 	} else {
 		err = -ENODEV;
+	}
+
+	/*
+	 * Register pci device to the power domain defined in the dt node.
+	 * If the device cannot be register under the gpu power domain, users
+	 * should explicitly disable gpu powergate feature explicitly in BPMP
+	 * dtb file. Otherwise, device probe could fail.
+	 *
+	 * It is expected that at this point GPU rail will be turned on if the
+	 * device is registered to the GPU power domain successfully.
+	 */
+	err = nvgpu_pci_power_domain_register(pdev);
+	if (err) {
+		dev_warn(&pdev->dev,
+			 "fail to register to gpu power domain:%d\n",
+			 err);
 	}
 
 	/*
@@ -766,6 +1081,16 @@ static int nvgpu_pci_probe(struct pci_dev *pdev,
 	nvgpu_mutex_init(&l->dmabuf_priv_list_lock);
 	nvgpu_init_list_node(&l->dmabuf_priv_list);
 
+	/*
+	 * Enable/Disable PM runtime autosuspend for dynamic GPU railgate
+	 * feature based on the platform configuration.
+	 */
+	nvgpu_pci_pm_init(pdev);
+
+	/*
+	 * Device-specific suspend/resume callbacks should do things only
+	 * when probe_done becomes true
+	 */
 	g->probe_done = true;
 
 	return 0;
@@ -777,7 +1102,7 @@ err_deinit_cic_mon:
 err_disable_msi:
 #if defined(CONFIG_PCI_MSI)
 	if (g->msi_enabled)
-		pci_disable_msi(pdev);
+		pci_free_irq_vectors(pdev);
 #endif
 	nvgpu_free_enabled_flags(g);
 err_free_errata:
@@ -811,10 +1136,15 @@ static void nvgpu_pci_remove(struct pci_dev *pdev)
 	struct device *dev = dev_from_gk20a(g);
 	int err;
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
+	struct gk20a_platform *platform = pci_get_drvdata(pdev);
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
 
 	/* no support yet for unbind if DGPU is in VGPU mode */
 	if (gk20a_gpu_is_virtual(dev))
 		return;
+
+	nvgpu_pci_pm_deinit(pdev);
 
 #ifdef CONFIG_NVGPU_COMPRESSION
 	gk20a_dma_buf_priv_list_clear(l);
@@ -851,7 +1181,7 @@ static void nvgpu_pci_remove(struct pci_dev *pdev)
 
 #if defined(CONFIG_PCI_MSI)
 	if (g->msi_enabled)
-		pci_disable_msi(pdev);
+		pci_free_irq_vectors(pdev);
 	else {
 		/* IRQ does not need to be enabled in MSI as the line is not
 		 * shared. nonstall_size = 0, so only stall intr are enabled.
@@ -860,14 +1190,17 @@ static void nvgpu_pci_remove(struct pci_dev *pdev)
 	}
 #endif
 
-	if (!g->is_pci_igpu)
-		nvgpu_pci_pm_deinit(&pdev->dev);
-	else
-		gk20a_pm_deinit(dev);
+	if (platform->can_railgate_init && \
+		!nvgpu_platform_is_simulation(platform->g)) {
+		nvgpu_log(g, gpu_dbg_pm, "detach GPU pm_domain");
+		dev_pm_domain_detach(&pdev->dev, true);
+	}
+
+	nvgpu_log(g, gpu_dbg_pm, "done");
 
 	/* free allocated platform data space */
 	gk20a_get_platform(&pdev->dev)->g = NULL;
-	nvgpu_kfree(g, gk20a_get_platform(&pdev->dev));
+	nvgpu_kfree_impl(g, gk20a_get_platform(&pdev->dev));
 
 	nvgpu_put(g);
 }
@@ -876,6 +1209,7 @@ static void nvgpu_pci_shutdown(struct pci_dev *pdev)
 {
 	struct gk20a *g = get_gk20a(&pdev->dev);
 	struct device *dev = dev_from_gk20a(g);
+	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	int err;
 
 	nvgpu_info(g, "shutting down");
@@ -890,6 +1224,19 @@ static void nvgpu_pci_shutdown(struct pci_dev *pdev)
 
 	gk20a_driver_start_unload(g);
 
+	/*
+	 * If GPU is already railgated,
+	 * just prevent more requests, and return.
+	 */
+	if (platform->is_railgated && platform->is_railgated(&pdev->dev)) {
+		__pm_runtime_disable(&pdev->dev, false);
+		nvgpu_info(g, "already railgated, shut down complete");
+		return;
+	}
+
+	/* Prevent more requests by disabling Runtime PM */
+	__pm_runtime_disable(&pdev->dev, false);
+
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_DGPU_THERMAL_ALERT) &&
 			nvgpu_platform_is_silicon(g)) {
 		nvgpu_thermal_deinit(g);
@@ -903,6 +1250,10 @@ static void nvgpu_pci_shutdown(struct pci_dev *pdev)
 		}
 		err = nvgpu_quiesce(g);
 		WARN(err, "gpu failed to idle during shutdown");
+
+		err = gk20a_pm_railgate(&pdev->dev);
+		if (err)
+			nvgpu_err(g, "failed to railgate, err=%d", err);
 	} else {
 		nvgpu_err(g, "skipped nvlink deinit and HW quiesce");
 	}
@@ -916,9 +1267,7 @@ static struct pci_driver nvgpu_pci_driver = {
 	.probe = nvgpu_pci_probe,
 	.remove = nvgpu_pci_remove,
 	.shutdown = nvgpu_pci_shutdown,
-#ifdef CONFIG_PM
 	.driver.pm = &nvgpu_pci_pm_ops,
-#endif
 };
 
 int __init nvgpu_pci_init(void)

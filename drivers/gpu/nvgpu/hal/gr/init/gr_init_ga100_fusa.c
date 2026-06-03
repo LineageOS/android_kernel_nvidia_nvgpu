@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/gk20a.h>
 #include <nvgpu/io.h>
@@ -26,6 +7,7 @@
 #include <nvgpu/log.h>
 #include <nvgpu/bug.h>
 #include <nvgpu/engines.h>
+#include <nvgpu/grmgr.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/gr/ctx.h>
 
@@ -107,8 +89,11 @@ void ga100_gr_init_override_context_reset(struct gk20a *g)
 			gr_gpccs_ctxsw_reset_ctl_gpc_reset_disabled_f() |
 			gr_gpccs_ctxsw_reset_ctl_gpc_context_reset_enabled_f() |
 			gr_gpccs_ctxsw_reset_ctl_zcull_reset_enabled_f());
-
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	/* TODO : need to revisit
+	 * Bug 4127277
+	 */
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_writel(g, gr_bes_becs_ctxsw_be_reset_ctl_r(),
 				gr_bes_becs_ctxsw_be_reset_ctl_be_halt_disabled_f() |
 				gr_bes_becs_ctxsw_be_reset_ctl_be_engine_reset_disabled_f() |
@@ -119,7 +104,8 @@ void ga100_gr_init_override_context_reset(struct gk20a *g)
 	(void) nvgpu_readl(g, gr_fecs_ctxsw_reset_ctl_r());
 	(void) nvgpu_readl(g, gr_gpccs_ctxsw_reset_ctl_r());
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		(void) nvgpu_readl(g, gr_bes_becs_ctxsw_be_reset_ctl_r());
 	}
 
@@ -134,8 +120,11 @@ void ga100_gr_init_override_context_reset(struct gk20a *g)
 			gr_gpccs_ctxsw_reset_ctl_gpc_reset_disabled_f() |
 			gr_gpccs_ctxsw_reset_ctl_gpc_context_reset_disabled_f() |
 			gr_gpccs_ctxsw_reset_ctl_zcull_reset_disabled_f());
-
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	/* TODO: Need to revisit
+	 * Bug 4127277
+	 */
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		nvgpu_writel(g, gr_bes_becs_ctxsw_be_reset_ctl_r(),
 				gr_bes_becs_ctxsw_be_reset_ctl_be_halt_disabled_f() |
 				gr_bes_becs_ctxsw_be_reset_ctl_be_engine_reset_disabled_f() |
@@ -146,7 +135,8 @@ void ga100_gr_init_override_context_reset(struct gk20a *g)
 	(void) nvgpu_readl(g, gr_fecs_ctxsw_reset_ctl_r());
 	(void) nvgpu_readl(g, gr_gpccs_ctxsw_reset_ctl_r());
 
-	if (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG)) {
+	if (nvgpu_support_gfx_with_numa(g) ||
+			nvgpu_grmgr_is_cur_instance_support_gfx(g)) {
 		(void) nvgpu_readl(g, gr_bes_becs_ctxsw_be_reset_ctl_r());
 	}
 }

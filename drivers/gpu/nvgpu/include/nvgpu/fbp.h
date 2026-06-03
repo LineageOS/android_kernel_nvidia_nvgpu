@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_FBP_H
@@ -26,7 +8,37 @@
 /**
  * @file
  *
- * Declares the Public APIs exposed by common.fbp unit.
+ * Declares the Public APIs exposed by fbp unit.
+ *
+ * @page fbp fbp
+ *
+ * Overview
+ * ========
+ * The |nvgpu-rm| fbp unit is an interface to the Frame Buffer Partition(FBP)
+ * on the GPU. It provides APIs to initialize, query and remove FBP related
+ * information. The APIs exposed by fbp unit are used by DEVCTL unit
+ * to help nvrm_gpu know about configuration of FBP on GPU device. The FBP
+ * initialization API is used by init during GPU initialization.
+ *
+ * Static Design
+ * =============
+ *
+ * Initialization
+ * --------------
+ * Initialization involves reading the FBP configuration information like maximum
+ * number of FBPs, active FBP mask, mask for Rop_L2 from HW and storing it in
+ * unit's private structure.
+ *
+ * Teardown
+ * --------
+ * Resources allocated during initialization are freed when device is deinitialized.
+ *
+ * External APIs
+ * -------------
+ *   + nvgpu_fbp_init_support()
+ *   + nvgpu_fbp_remove_support()
+ *   + nvgpu_fbp_get_max_fbps_count()
+ *   + nvgpu_fbp_get_fbp_en_mask()
  */
 #include <nvgpu/types.h>
 
@@ -92,11 +104,44 @@ u32 nvgpu_fbp_get_max_fbps_count(struct nvgpu_fbp *fbp);
  */
 u32 nvgpu_fbp_get_fbp_en_mask(struct nvgpu_fbp *fbp);
 
+/**
+ * @brief Gets fbp logical index for given physical index.
+ *
+ * @param fbp [in]		Pointer to FBP configuration structure.
+ * @param physical_index [in]	Physical index of the fbp for which we need logical index.
+ *
+ * This API helps retrieve the FBP logical index for a physcial index from the
+ * information stored in \a fbp.
+ * During initialization, \a fbp is populated with all the configuration
+ * information like fbp_physical_id_map and APIs like this are used to get data from
+ * FBP's private structure (struct nvgpu_fbp).
+ *
+ * @return logical index mapped for the physical index in \a fbp->fbp_physical_id_map.
+ */
+u32 nvgpu_fbp_get_fbp_logical_index(struct nvgpu_fbp *fbp, u32 physical_index);
+
+/**
+ * @brief Gets fbp physical index for given logical index.
+ *
+ * @param fbp [in]		Pointer to FBP configuration structure.
+ * @param logical_index [in]	Logical index of the fbp for which we need physical index.
+ *
+ * This API helps retrieve the FBP physical index for a logical index from the
+ * information stored in \a fbp.
+ * During initialization, \a fbp is populated with all the configuration
+ * information like fbp_physical_id_map and APIs like this are used to get data from
+ * FBP's private structure (struct nvgpu_fbp).
+ *
+ * @return physcial index mapped for the logical index in \a fbp->fbp_physical_id_map.
+ */
+u32 nvgpu_fbp_get_fbp_physical_index(struct nvgpu_fbp *fbp, u32 logical_index);
+
 /** @cond DOXYGEN_SHOULD_SKIP_THIS */
 
-#ifdef CONFIG_NVGPU_NON_FUSA
 u32 nvgpu_fbp_get_num_fbps(struct nvgpu_fbp *fbp);
-u32 *nvgpu_fbp_get_l2_en_mask(struct nvgpu_fbp *fbp);
+#ifdef CONFIG_NVGPU_NON_FUSA
+u32 *nvgpu_fbp_get_l2_en_mask_base_addr(struct nvgpu_fbp *fbp);
+u32 nvgpu_fbp_get_l2_en_mask(struct nvgpu_fbp *fbp, u32 fbp_phy_id);
 #endif
 
 /** @endcond DOXYGEN_SHOULD_SKIP_THIS */

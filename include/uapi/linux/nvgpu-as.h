@@ -1,29 +1,5 @@
-/*
- * Copyright (c) 2021-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * /dev/nvhost-as-gpu device
- *
- * Opening a '/dev/nvhost-as-gpu' device node creates a new address
- * space. nvgpu channels (for the same module) can then be bound to such an
- * address space to define the addresses it has access to.
- *
- * Once a nvgpu channel has been bound to an address space it cannot be
- * unbound. There is no support for allowing an nvgpu channel to change from
- * one address space to another (or from one to none).
- *
- * As long as there is an open device file to the address space, or any bound
- * nvgpu channels it will be valid.  Once all references to the address space
- * are removed the address space is deleted.
- *
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef _UAPI__LINUX_NVGPU_AS_H__
@@ -32,6 +8,89 @@
 #include "nvgpu-uapi-common.h"
 
 #define NVGPU_AS_IOCTL_MAGIC 'A'
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_ALLOC_SPACE IOCTL: NVGPU_AS_IOCTL_ALLOC_SPACE
+ *
+ * @brief Reserves a range of addresses for fixed-address mappings. The
+ * reserved range will not be used by unrelated mappings.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_alloc_space_args</td>
+ *   <td>@c #nvgpu_as_alloc_space_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Input out of range.
+ * - @c ENOMEM ---  Range allocation failed.
+ * - @c ENOMEM ---  If GMMU map fails in case of @c #NVGPU_AS_ALLOC_SPACE_FLAGS_SPARSE allocation.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @pre When allocating a fixed-address range (@c
+ * #NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET), the requested page size (@c
+ * #nvgpu_as_alloc_space_args::page_size) must match with the existing
+ * allocations and mappings (if any) residing on the shared last level PDEs. See
+ * @c #nvgpu_gpu_characteristics::pde_coverage_bit_count.
+ *
+ * @post Returned range may not overlap with a previous allocation or mapping in
+ * the GPU virtual address space.
+ *
+ * @post Returned range is within the address space limits (see @ref
+ * NVGPURM_INTF_ALLOC_AS and @c nvgpu_alloc_as_args::va_range_start /
+ * @c nvgpu_alloc_as_args::va_range_end).
+ *
+ * @note This IOCTL has following caveats:
+ * -# Address alignment is silently ignored by NvGPU RM.
+ *
+ * @remark Uses for range allocations and fixed-address mappings include:
+ * -# Matching CPU and GPU virtual addresses for buffer mappings (e.g., CUDA
+ *    UVM-lite). To support this, the address range itself is typically
+ *    requested at a fixed base address with size covering the whole usable CPU
+ *    virtual address range. (See also @c
+ *    #NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET.)
+ * -# Sparse resources in graphics (e.g., sparse textures). (See also @c
+ *    #NVGPU_AS_ALLOC_SPACE_FLAGS_SPARSE.)
+ *
+ * @sa @ref NVGPURM_INTF_AS_FREE_SPACE
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_ALLOC_SPACE
+ * @{
+ */
+
+/**
+ * @brief Request allocation at fixed address.
+ *
+ * When this flag is specified, allocation is requested at fixed address
+ * @c #nvgpu_as_alloc_space_args::offset.
+ */
+#define NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET	NVGPU_BIT32(0)
+
+/**
+ * @brief Request sparse allocation.
+ *
+ * When this flag is specified, GPU accesses to unmapped regions of the
+ * allocation are allowed. Any reads from unmapped regions return value 0, and
+ * all writes are discarded.
+ *
+ * @pre @c #NVGPU_GPU_FLAGS_SUPPORT_SPARSE_ALLOCS
+ */
+#define NVGPU_AS_ALLOC_SPACE_FLAGS_SPARSE	NVGPU_BIT32(1)
+
+/** @} */
 
 /*
  * Allocating an address space range:
@@ -43,204 +102,629 @@
  * given.  Otherwise the address returned is chosen to be a multiple of 'align.'
  *
  */
-struct nvgpu32_as_alloc_space_args {
-	__u32 pages;     /* in, pages */
-	__u32 page_size; /* in, bytes */
-	__u32 flags;     /* in */
-#define NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET 0x1
-#define NVGPU_AS_ALLOC_SPACE_FLAGS_SPARSE 0x2
-	union {
-		__u64 offset; /* inout, byte address valid iff _FIXED_OFFSET */
-		__u64 align;  /* in, alignment multiple (0:={1 or n/a}) */
-	} o_a;
-};
 
-struct nvgpu_as_alloc_space_args {
-	__u64 pages;     /* in, pages */
-	__u32 page_size; /* in, bytes */
-	__u32 flags;     /* in */
-	union {
-		__u64 offset; /* inout, byte address valid iff _FIXED_OFFSET */
-		__u64 align;  /* in, alignment multiple (0:={1 or n/a}) */
-	} o_a;
-	__u32 padding[2];     /* in */
-};
-
-/*
- * Releasing an address space range:
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM32_INTF_AS_ALLOC_SPACE IOCTL: NVGPU32_AS_IOCTL_ALLOC_SPACE
  *
- * The previously allocated region starting at 'offset' is freed.  If there are
- * any buffers currently mapped inside the region the ioctl will fail.
+ * This interface is almost same as @ref NVGPURM_INTF_AS_ALLOC_SPACE except for
+ * @c #nvgpu32_as_alloc_space_args::pages argument which is unsigned 32 bit instead
+ * of unsigned 64 bit. This is required for legacy support.
+ *
+ * @brief Header struct for @ref NVGPURM32_INTF_AS_ALLOC_SPACE.
+ */
+struct nvgpu32_as_alloc_space_args {
+	/**
+	 * @brief Allocation size in pages
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Allocation size</dd>
+	 * </dl>
+	 *
+	 * Range: &ge; 1
+	 */
+	__u32 pages;
+
+	/**
+	 * @brief Page size (in bytes)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Page size</dd>
+	 * </dl>
+	 *
+	 * Range: a valid page size for the address space (see @ref
+	 * NVGPURM_INTF_ALLOC_AS)
+	 */
+	__u32 page_size;
+
+	/**
+	 * @brief Range allocation flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Bit mask of flags (@c NVGPU_AS_ALLOC_SPACE_FLAGS_)</dd>
+	 * </dl>
+	 *
+	 * Range: Bit mask of @c NVGPU_AS_ALLOC_SPACE_FLAGS_*
+	 */
+	__u32 flags;
+
+	union {
+		/**
+		 * @brief Start address of range allocation (GPU virtual address)
+		 *
+		 * <dl>
+		 *   <dt>[in]</dt>
+		 *   <dd>When @c NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET is:
+		 *       - specified: Requested start address.
+		 *       - not specified: inactive union member, do not set.</dd>
+		 *   <dt>[out]</dt>
+		 *   <dd>Start address of allocation</dd>
+		 * </dl>
+		 *
+		 * Range: GPU virtual address multiple of @c #page_size.
+		 *
+		 * @remark Despite naming, this is an absolute GPU virtual address.
+		 */
+		__u64 offset;
+
+		/**
+		 * @brief Alignment for allocation
+		 *
+		 * <dl>
+		 *   <dt>[in]</dt>
+		 *   <dd>When @c NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET is:
+		 *       - specified: inactive union member, do not set.
+		 *       - not specified: alignment requirement.</dd>
+		 *   <dt>[out]</dt>
+		 *   <dd>Inactive union member.</dd>
+		 * </dl>
+		 *
+		 * Range: GPU virtual address multiple of @c #page_size.
+		 *
+		 * @note This is silently ignored by NvGPU resource manager.
+		 */
+		__u64 align;
+	} o_a;
+};
+
+/**
+ * @ingroup NVGPURM_INTF_AS_ALLOC_SPACE
+ * @brief Header struct for @ref NVGPURM_INTF_AS_ALLOC_SPACE.
+ */
+struct nvgpu_as_alloc_space_args {
+
+	/**
+	 * @brief Allocation size in pages
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Allocation size</dd>
+	 * </dl>
+	 *
+	 * Range: &ge; 1
+	 */
+	__u64 pages;
+
+	/**
+	 * @brief Page size (in bytes)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Page size</dd>
+	 * </dl>
+	 *
+	 * Range: a valid page size for the address space (see @ref
+	 * NVGPURM_INTF_ALLOC_AS)
+	 */
+	__u32 page_size;
+
+	/**
+	 * @brief Range allocation flags
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Bit mask of flags (@c NVGPU_AS_ALLOC_SPACE_FLAGS_)</dd>
+	 * </dl>
+	 *
+	 * Range: Bit mask of @c NVGPU_AS_ALLOC_SPACE_FLAGS_*
+	 */
+	__u32 flags;
+
+	union {
+		/**
+		 * @brief Start address of range allocation (GPU virtual address)
+		 *
+		 * <dl>
+		 *   <dt>[in]</dt>
+		 *   <dd>When @c NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET is:
+		 *       - specified: Requested start address.
+		 *       - not specified: inactive union member, do not set.</dd>
+		 *   <dt>[out]</dt>
+		 *   <dd>Start address of allocation</dd>
+		 * </dl>
+		 *
+		 * Range: GPU virtual address multiple of @c #page_size.
+		 *
+		 * @remark Despite naming, this is an absolute GPU virtual address.
+		 */
+		__u64 offset;
+
+		/**
+		 * @brief Alignment for allocation
+		 *
+		 * <dl>
+		 *   <dt>[in]</dt>
+		 *   <dd>When @c NVGPU_AS_ALLOC_SPACE_FLAGS_FIXED_OFFSET is:
+		 *       - specified: inactive union member, do not set.
+		 *       - not specified: alignment requirement.</dd>
+		 *   <dt>[out]</dt>
+		 *   <dd>Inactive union member.</dd>
+		 * </dl>
+		 *
+		 * Range: GPU virtual address multiple of @c #page_size.
+		 *
+		 * @note This is silently ignored by NvGPU resource manager.
+		 */
+		__u64 align;
+	} o_a;
+
+	/**
+	 * @brief Padding
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
+	__u32 padding[2];
+};
+
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_FREE_SPACE IOCTL: NVGPU_AS_IOCTL_FREE_SPACE
+ * @brief Frees an address range that was previously allocated with @ref
+ * NVGPURM_INTF_AS_ALLOC_SPACE.
+ *
+ * The previously allocated region starting at @c
+ * #nvgpu_as_free_space_args::offset is freed. Any existing mappings in the
+ * reserved range will be automatically removed.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_free_space_args</td>
+ *   <td>@c #nvgpu_as_free_space_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @note This IOCTL has following caveats:
+ * -# No error is returned in case @c #nvgpu_as_free_space_args::offset is not a
+ *    valid allocation.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_FREE_SPACE
+ * @brief Header struct for @ref NVGPURM_INTF_AS_FREE_SPACE.
  */
 struct nvgpu_as_free_space_args {
-	__u64 offset; /* in, byte address */
-	__u64 pages;     /* in, pages */
-	__u32 page_size; /* in, bytes */
+	/**
+	 * @brief Start address of an address range allocation previously returned
+	 * by @ref NVGPURM_INTF_AS_ALLOC_SPACE.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Start address of address range allocation.</dd>
+	 * </dl>
+	 *
+	 * Range: Start address of an existing range allocation.
+	 *
+	 * @remark Despite naming, this is an absolute GPU virtual address.
+	 */
+	__u64 offset;
+
+	/** @brief Unused */
+	__u64 pages;
+
+	/** @brief Unused */
+	__u32 page_size;
+
+	/**
+	 * @brief Padding
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 padding[3];
 };
 
-/*
- * Binding a nvgpu channel to an address space:
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_BIND_CHANNEL IOCTL: NVGPU_AS_IOCTL_BIND_CHANNEL
+ * @brief Binds a channel to the address space.
  *
- * A channel must be bound to an address space before allocating a gpfifo
- * in nvgpu.  The 'channel_fd' given here is the fd used to allocate the
- * channel.  Once a channel has been bound to an address space it cannot
- * be unbound (except for when the channel is destroyed).
+ * The address space specifies the data context for the channel. A channel must
+ * be bound to an address space before the channel GP FIFO is allocated. See
+ * @ref NVGPURM_LINUX_IOCTL_CHANNEL for the channel open sequence.
+ *
+ * Address space binding has the following restrictions:
+ *
+ * -# In case multiple channels are bound to a TSG subcontext, they must all be
+ *    bound to the same address space as the first channel of the subcontext.
+ *
+ * -# Similarly, in case multiple channels are bound to a TSG without a
+ *    subcontext, they must all be bound to the same address space as the
+ *    first channel of the TSG.
+ *
+ * Once a channel has been bound to an address space, the only way to unbind is
+ * to close the channel.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_bind_channel_args</td>
+ *   <td>@c #nvgpu_as_bind_channel_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Invalid channel fd
+ *                 (@c #nvgpu_as_bind_channel_args::channel_fd)
+ * - @c EINVAL ---  Channel already bound to an address space
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from userspace fails.
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_BIND_CHANNEL
+ * @brief Header struct for @ref NVGPURM_INTF_AS_BIND_CHANNEL.
  */
 struct nvgpu_as_bind_channel_args {
-	__u32 channel_fd; /* in */
+	/**
+	 * @brief Channel fd to bind
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     Channel fd to bind.
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: Valid channel fd (Returned by ioctl @ref
+	 * NVGPURM_INTF_ALLOC_AS).
+	 */
+	__u32 channel_fd;
 };
 
-/*
- * Mapping nvmap buffers into an address space:
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_MAP_BUFFER_EX IOCTL: NVGPU_AS_IOCTL_MAP_BUFFER_EX
+ * @brief Maps a buffer to the GPU virtual address space.
  *
- * The start address is the 'offset' given if _FIXED_OFFSET is specified.
- * Otherwise the address returned is a multiple of 'align.'
+ * A buffer mapping adds a physical buffer to the GPU virtual address
+ * space. This allows the channels bound to the address space to access the
+ * buffer using GPU virtual addresses of the mapping.
  *
- * If 'page_size' is set to 0 the nvmap buffer's allocation alignment/sizing
- * will be used to determine the page size (largest possible).  The page size
- * chosen will be returned back to the caller in the 'page_size' parameter in
- * that case.
+ * The contents of a GPU virtual address space are defined by the associated
+ * page tables. A page table entry defines how a page of virtual addresses is
+ * translated to physical addresses. In addition to virtual-to-physical address
+ * translation, a page table entry contains attributes such as GPU L2
+ * cacheability, the memory kind, and whether the page is read-only or
+ * read-write accessible. See @c #nvgpu_as_map_buffer_ex_args for details.
+ *
+ * By default, this call performs a non-fixed-address mapping. This means that
+ * first, the resource manager allocates an address range for the mapping, and
+ * then, mapping is added in the allocation. This behavior can be changed by
+ * specifying @c #NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET, which uses a
+ * user-allocated address range allocation, instead.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_map_buffer_ex_args</td>
+ *   <td>@c #nvgpu_as_map_buffer_ex_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Bad import id.
+ * - @c EINVAL ---  Buffer parameter query failed.
+ * - @c EINVAL ---  Inputs out of range.
+ * - @c ENOMEM ---  Memory allocation for page tables failed.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @pre When @c #NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET is specified in @c
+ * #nvgpu_as_map_buffer_ex_args::flags, then:
+ * -# [@c #nvgpu_as_map_buffer_ex_args::offset,
+ *    (@c #nvgpu_as_map_buffer_ex_args::offset +
+ *    @c #nvgpu_as_map_buffer_ex_args::mapping_size - @c 1)] must be within an
+ *    existing address range allocation. (See @ref NVGPURM_INTF_AS_ALLOC_SPACE.)
+ * -# [@c #nvgpu_as_map_buffer_ex_args::offset,
+ *    (@c #nvgpu_as_map_buffer_ex_args::offset +
+ *    @c #nvgpu_as_map_buffer_ex_args::mapping_size - @c 1)] must not overlap
+ *    with an existing mapping.
+ * -# @c #nvgpu_as_map_buffer_ex_args::page_size must equal to the page size of
+ *    the existing address range allocation. (See @ref
+ *    NVGPURM_INTF_AS_ALLOC_SPACE.)
+ *
+ * @pre When compressible-kind mapping is required, compression tags must have
+ * been previously allocated for the buffer. Notes:
+ * - Compression is required by setting @c #nvgpu_as_map_buffer_ex_args::compr_kind &ne;
+ *   @c #NV_KIND_INVALID AND @c #nvgpu_as_map_buffer_ex_args::incompr_kind = @c
+ *   #NV_KIND_INVALID.
+ * - Compression tags are allocated by a call to
+ *   @ref NVGPURM_INTF_REGISTER_BUFFER.
  */
-#define NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET		(1 << 0)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_CACHEABLE		(1 << 2)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_UNMAPPED_PTE		(1 << 5)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_MAPPABLE_COMPBITS	(1 << 6)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_L3_ALLOC		(1 << 7)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_SYSTEM_COHERENT	(1 << 9)
-#define NVGPU_AS_MAP_BUFFER_FLAGS_TEGRA_RAW		(1 << 12)
 
-#define NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_OFFSET    10U
-#define NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_SIZE      2U
+/**
+ * @ingroup NVGPURM_INTF_AS_MAP_BUFFER_EX
+ * @{
+ */
 
-#define NVGPU_AS_MAP_BUFFER_ACCESS_DEFAULT                 0U
-#define NVGPU_AS_MAP_BUFFER_ACCESS_READ_ONLY               1U
-#define NVGPU_AS_MAP_BUFFER_ACCESS_READ_WRITE              2U
+/** @brief Fixed-address mapping. */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET		NVGPU_BIT32(0)
 
-/*
- * VM map buffer IOCTL
+/**
+ * @brief Enable GPU L2 caching for the mapping.
  *
- * This ioctl maps a buffer - generally a dma_buf FD - into the VM's address
- * space. Usage of this API is as follows.
+ * When not specified, GPU L2-caching is disabled for the mapping.
  *
- * @flags  [IN]
+ * @remark GPU L2 caching should be enabled when GPU compression is used. See @c
+ * #nvgpu_as_map_buffer_ex_args::compr_kind.
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_CACHEABLE		NVGPU_BIT32(2)
+
+/**
+ * @brief Request unmapped PTEs. **Not for production use!**
  *
- *   These are the flags passed to the IOCTL to modify the IOCTL behavior. The
- *   following flags are supported:
+ * @remark Not supported in safety.
  *
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET
+ * @sa @c #NVGPU_ALLOC_GPFIFO_EX_FLAGS_REPLAYABLE_FAULTS_ENABLE
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_UNMAPPED_PTE		NVGPU_BIT32(5)
+
+/** @brief Request mappable compbits (unsupported) */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_MAPPABLE_COMPBITS	NVGPU_BIT32(6)
+
+/**
+ * @brief Specifies that the memory accesses may be cached by the SoC last-level
+ * cache.
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_L3_ALLOC		NVGPU_BIT32(7)
+
+/**
+ * @brief Specifies that the SYSTEM COHERENT aperture is used for buffers in
+ * system memory. Default is SYSTEM non-coherent.
  *
- *     Specify that the mapping already has an address. The mapping address
- *     must reside in an area already reserved with the as_alloc_space IOCTL.
- *     If this flag is set then the @offset field must be populated with the
- *     address to map to.
+ * In Tegra, the characteristics of the apertures are SoC-specific:
  *
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_CACHEABLE
+ * - On T194/T234, both apertures are I/O-coherent. SYSTEM coherent enables
+ *   platform atomics.
  *
- *     Specify that a mapping shall be GPU cachable.
+ * - On T26x, both apertures are I/O-coherent. SYSTEM coherent enables platform
+ *   atomics and full coherency.
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_SYSTEM_COHERENT	NVGPU_BIT32(9)
+
+#define NVGPU_AS_MAP_BUFFER_FLAGS_TEGRA_RAW		NVGPU_BIT32(12)
+
+/**
+ * @brief Map access field bit offset
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_OFFSET 10U
+
+/**
+ * @brief Map access field bit width
+ */
+#define NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_SIZE   2U
+
+/**
+ * @brief Specifies default access.
  *
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_UNMAPPED_PTE
+ * Default access is determined by the buffer to be mapped. In case the buffer
+ * handle specifies read-only access, then the mapping uses read-only
+ * access. Similarly, for a read-write handle, read-write mapping is used.
  *
- *     Specify that a mapping shall be marked as invalid but otherwise
- *     populated. This flag doesn't actually make a lot of sense. The
- *     only reason to specify it is for testing replayable faults but
- *     an actual useful implementation of such a feature would likely
- *     not use this.
+ * @sa @c #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_OFFSET, @c
+ * #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_SIZE
+ */
+#define NVGPU_AS_MAP_BUFFER_ACCESS_DEFAULT              0U
+
+/**
+ * @brief Specifies read-only access.
  *
- *     DEPRECATED: do not use! This will be removed in a future update.
+ * Read-only access is used regardless of the buffer handle access.
  *
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_MAPPABLE_COMPBITS
+ * @sa @c #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_OFFSET, @c
+ * #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_SIZE
+ */
+#define NVGPU_AS_MAP_BUFFER_ACCESS_READ_ONLY            1U
+
+/**
+ * @brief Specifies read-write access.
  *
- *     Deprecated.
+ * Read-write access is required. In case the buffer handle specifies read-only
+ * access, the map call will fail.
  *
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_SYSTEM_COHERENT
+ * @sa @c #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_OFFSET, @c
+ * #NVGPU_AS_MAP_BUFFER_FLAGS_ACCESS_BITMASK_SIZE
+ */
+#define NVGPU_AS_MAP_BUFFER_ACCESS_READ_WRITE           2U
+
+
+/**
+ * @brief Invalid kind number
  *
- *     Specify that a mapping should use the system coherent aperture.
- *     The mapping shall fail if the buffer is allocated from vidmem.
- *
- * @kind  [IN]
- *
- *   Specify the kind to use for the mapping.
- *
- * @compr_kind  [IN]
- * @incompr_kind  [IN]
- *
- *   Specify the compressible and incompressible kinds to be used for the
- *   mapping. The kernel will attempt to use @comp_kind and if for
- *   some reason that is not possible will then fall back to using the
- *   @incompr_kind.
- *
- * @dmabuf_fd  [IN]
- *
- *   FD pointing to the dmabuf that will be mapped into the GMMU.
- *
- * @page_size  [IN]
- *
- *   Specify the page size for the mapping. Must be set to a valid, supported
- *   page size. If left unset this IOCTL will return -EINVAL. In general, a
- *   small page size mapping will always be supported, but in certain cases of
- *   compression this will not be the case.
- *
- * @buffer_offset  [IN]
- *
- *   Specify an offset into the physical buffer to begin the mapping at. For
- *   example imagine a DMA buffer 32KB long. However, you wish to only map
- *   this buffer starting at 8KB. In such a case you would pass 8KB as the
- *   @buffer_offset. This is only available with fixed address mappings. All
- *   regular (non-fixed) mappings require this field to be set to 0. This field
- *   is in bytes.
- *
- * @mapping_size  [IN]
- *
- *   The size of the mapping in bytes. This is from the @buffer_offset position.
- *   So for example, assuming you have a 32KB physical buffer and you want to
- *   map only 8KB of it, starting at some offset, then you would specify 8192 in
- *   this field. Of course this size + the buffer_offset must be less than the
- *   length of the physical buffer; otherwise -EINVAL is returned. This is only
- *   supported for fixed mappings.
- *
- * @offset  [IN, OUT]
- *
- *   The offset of the buffer in the GPU virtual address space. In other words
- *   the virtual address of the buffer. If the
- *   %NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET flag is set then this field must be
- *   populated by userspace. In all cases the ultimate mapped address is
- *   returned in this field. The field is in bytes.
+ * @sa @c #nvgpu_as_map_buffer_ex_args::compr_kind
+ * @sa @c #nvgpu_as_map_buffer_ex_args::incompr_kind
+ */
+#define NV_KIND_INVALID	-1
+
+
+/** @}*/
+
+/**
+ * @ingroup NVGPURM_INTF_AS_MAP_BUFFER_EX
+ * @brief Header struct for @ref NVGPURM_INTF_AS_MAP_BUFFER_EX.
  */
 struct nvgpu_as_map_buffer_ex_args {
-	__u32 flags;		/* in/out */
-
-	/*
-	 * - If both compr_kind and incompr_kind are set
-	 *   (i.e., value is other than NV_KIND_INVALID),
-	 *   kernel attempts to use compr_kind first.
+	/**
+	 * @brief Mapping flags
 	 *
-	 * - If compr_kind is set, kernel attempts to allocate
-	 *   comptags for the buffer. If successful,
-	 *   compr_kind is used as the PTE kind.
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Bit mask of mapping flags (@c NVGPU_AS_MAP_BUFFER_FLAGS_*)</dd>
+	 * </dl>
 	 *
-	 * - If incompr_kind is set, kernel uses incompr_kind as the
-	 *   PTE kind, if compr_kind cannot be used. Comptags are not
-	 *   allocated.
-	 *
-	 * - If neither compr_kind or incompr_kind is set, the
-	 *   map call will fail.
+	 * Range: Bit mask of mapping flags (@c NVGPU_AS_MAP_BUFFER_FLAGS_*). Note:
+	 * NVGPU_AS_MAP_BUFFER_ACCESS_* values are specified in a bit field.
 	 */
-#define NV_KIND_INVALID -1
+	__u32 flags;
+
+	/**
+	 * @brief Kind number for compressible mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Compressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     compression is not required.</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>When the value is:
+	 *       - @c #NV_KIND_INVALID: compression tags are not assigned.
+	 *       - Otherwise, compression tags are assigned for the mapping. The map
+	 *         kind number used is @c #compr_kind [in] = @c #compr_kind [out].
+	 *   </dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 */
 	__s16 compr_kind;
+
+	/**
+	 * @brief Incompressible kind number for the mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Incompressible kind number for the mapping or @c #NV_KIND_INVALID if
+	 *     incompressible mapping is not allowed.</dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific kind number or @c #NV_KIND_INVALID
+	 *
+	 * @remark When @c #compr_kind &ne; @c #NV_KIND_INVALID, then this field specifies
+	 * the incompressible fallback kind number in case compression tags are not
+	 * available. If incompressible fallback is not allowed, this field is set
+	 * to @c #NV_KIND_INVALID.
+	 *
+	 * @remark Specifying a compressible kind number in this field will result
+	 * in corruption.
+	 */
 	__s16 incompr_kind;
 
-	__u32 dmabuf_fd;	/* in */
-	__u32 page_size;	/* inout, 0:= best fit to buffer */
+	/**
+	 * @brief dma-buf file descriptor of the buffer
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     dma-buf fd.
+	 *   </dd>
+	 * </dl>
+	 */
+	__u32 dmabuf_fd;
 
-	__u64 buffer_offset;	/* in, offset of mapped buffer region */
-	__u64 mapping_size;	/* in, size of mapped buffer region */
+	/**
+	 * @brief Page size for the mapping
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Page size for the mapping.</dd>
+	 * </dl>
+	 *
+	 * Range: In case @c #NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET is
+	 * -# specified: page size must match with the underlying address range
+	 *    allocation (see @c #nvgpu_as_alloc_space_args::page_size).
+	 * -# not specified: page size must be a valid page size for the address
+	 *    space (see @ref NVGPURM_INTF_ALLOC_AS)
+	 *
+	 * @remark There may be a HW-specific minimum page size for the used
+	 * kind. In particular, many dGPUs require that compressible memory kinds
+	 * use big pages.
+	 */
+	__u32 page_size;
 
-	__u64 offset;		/* in/out, we use this address if flag
-				 * FIXED_OFFSET is set. This will fail
-				 * if space is not properly allocated. The
-				 * actual virtual address to which we mapped
-				 * the buffer is returned in this field. */
+	/**
+	 * @brief Buffer offset (in bytes)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Starting offset of the buffer to be mapped</dd>
+	 * </dl>
+	 *
+	 * Range: [0, (@c Buffer_Size - @c #mapping_size)]. Must be a multiple of @c
+	 * #page_size.
+	 */
+	__u64 buffer_offset;
+
+	/**
+	 * @brief Mapping size (in bytes)
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Number of bytes to be mapped</dd>
+	 * </dl>
+	 *
+	 * Range: [4096, (@c Buffer_Size - @c #buffer_offset)]. Must be a multiple
+	 * of @c #page_size.
+	 */
+	__u64 mapping_size;
+
+	/**
+	 * @brief GPU virtual address of the mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>When @c #NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET is specified, GPU virtual
+	 *     address of the mapping. Otherwise, ignored.
+	 *   </dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>GPU virtual address of the mapping.</dd>
+	 * </dl>
+	 *
+	 * Range: When @c #NVGPU_AS_MAP_BUFFER_FLAGS_FIXED_OFFSET is specified, see
+	 * preconditions of @ref NVGPURM_INTF_ALLOC_AS.
+	 */
+	__u64 offset;
 };
 
 /*
@@ -328,33 +812,178 @@ struct nvgpu_as_map_buffer_compbits_args {
 	__u32 reserved1;
 };
 
-/*
- * Unmapping a buffer:
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_UNMAP_BUFFER IOCTL: NVGPU_AS_IOCTL_UNMAP_BUFFER
+ * @brief Removes a buffer mapping. In case of non-fixed-address mapping,
+ * removes also the underlying address range allocation.
  *
- * To unmap a previously mapped buffer set 'offset' to the offset returned in
- * the mapping call.  This includes where a buffer has been mapped into a fixed
- * offset of a previously allocated address space range.
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_unmap_buffer_args</td>
+ *   <td>@c #nvgpu_as_unmap_buffer_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c ENODEV ---  GPU not ready
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @note This IOCTL has following caveats:
+ * -# No error is returned in case @c #nvgpu_as_unmap_buffer_args::offset is not a
+ *    valid mapping.
+ */
+
+/**
+ * This struct is associated with IOCTL command #NVGPU_AS_IOCTL_UNMAP_BUFFER
+ * that unmaps a mapped buffer.
+ * @ingroup NVGPURM_INTF_AS_UNMAP_BUFFER
  */
 struct nvgpu_as_unmap_buffer_args {
-	__u64 offset; /* in, byte address */
+
+	/**
+	 * @brief GPU virtual address of a mapping.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Address of the mapping to remove.</dd>
+	 * </dl>
+	 *
+	 * Range: Address of a mapped buffer as returned by a previous call to @ref
+	 * NVGPURM_INTF_AS_MAP_BUFFER_EX.
+	 */
+	__u64 offset;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_GET_VA_REGIONS IOCTL: NVGPU_AS_IOCTL_GET_VA_REGIONS
+ * @brief Queries the user-accessible GPU VA regions.
+ *
+ * The user-accessible GPU VA regions are usable by @ref
+ * NVGPURM_INTF_AS_MAP_BUFFER_EX, @ref NVGPURM_INTF_AS_ALLOC_SPACE. For unified
+ * address spaces, the unified region is reported once per every supported map
+ * page size.
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>REQUEST</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_get_va_regions_args</td>
+ *   <td>@c #nvgpu_as_get_va_regions_args</td>
+ * </tr>
+ * <tr>
+ *   <td>Additional buffer 1(@c #nvgpu_as_get_va_regions_args::buf_addr)</td>
+ *   <td>(none)</td>
+ *   <td>@c #nvgpu_as_va_region[N]. See
+ *       @c #nvgpu_as_get_va_regions_args::buf_size.</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EIO ---     Writing VA region info to output buffer failed.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @remark This IOCTL may be removed from safety in DRIVE 6.5.
+ *
+ * @remark Currently, the number of reported regions is:
+ * - 1, when only small pages are supported
+ * - 2, when both small and big pages are supported
+ * - 3, when all small, big and huge pages are supported
+ */
 
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_VA_REGIONS
+ * @brief Region descriptor
+ */
 struct nvgpu_as_va_region {
+
+	/**
+	 * @brief Starting address of the region (in bytes, page-aligned).
+	 */
 	__u64 offset;
+
+	/**
+	 * @brief Page size of the region.
+	 *
+	 * @remark When the region supports multiple page sizes, it is reported once
+	 * per page size.
+	 */
 	__u32 page_size;
+
+	/**
+	 * @brief Reserved, ignore.
+	 */
 	__u32 reserved;
+
+	/**
+	 * @brief Size of the region in pages.
+	 */
 	__u64 pages;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_VA_REGIONS
+ * @brief Header struct for @ref NVGPURM_INTF_AS_GET_VA_REGIONS.
+ */
 struct nvgpu_as_get_va_regions_args {
-	__u64 buf_addr; /* Pointer to array of nvgpu_as_va_region:s.
-			 * Ignored if buf_size is 0 */
-	__u32 buf_size; /* in:  userspace buf size (in bytes)
-			   out: kernel buf size    (in bytes) */
+
+	/**
+	 * @brief address of va region buffer
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>
+	 *     The buffer size must be sufficient to hold array of va region entries.
+	 *   </dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
+	__u64 buf_addr;
+
+	/**
+	 * @brief Region descriptor buffer size in bytes.
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt>
+	 *   <dd>Size of the receive buffer allocated by the caller.</dd>
+	 *   <dt>[out]</dt>
+	 *   <dd>Size of the kernel buffer. Number of descriptors may be computed as
+	 *       follows:
+	 * @code
+	 * num_descriptors = buf_size / sizeof(nvgpu_as_va_region)
+	 * @endcode
+	 *   </dd>
+	 * </dl>
+	 *
+	 */
+	__u32 buf_size;
+
+	/**
+	 * @brief Reserved
+	 *
+	 * <dl>
+	 *   <dt>[in]</dt><dd>Zeroed</dd>
+	 *   <dt>[out]</dt><dd>Ignore</dd>
+	 * </dl>
+	 */
 	__u32 reserved;
 };
-
 struct nvgpu_as_map_buffer_batch_args {
 	__u64 unmaps; /* ptr to array of nvgpu_as_unmap_buffer_args */
 	__u64 maps;   /* ptr to array of nvgpu_as_map_buffer_ex_args */
@@ -365,10 +994,127 @@ struct nvgpu_as_map_buffer_batch_args {
 	__u64 reserved;
 };
 
+/**
+ * @ingroup NVGPURM_LINUX_IOCTL_AS
+ * @defgroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP IOCTL: NVGPU_AS_IOCTL_GET_SYNC_RO_MAP
+ * @brief Returns the GPU virtual address to the syncpoint-semaphore shim
+ * (read-only access). The shim is mapped to the GPU virtual address space if
+ * necessary.
+ *
+ * The syncpoint-semaphore RO shim can be used to read syncpoint values using
+ * regular memory reads. The typical use case is waiting for the syncpoint using
+ * the GPU semaphore acquire methods.
+ *
+ * The GPU mapping for the syncpoint RO shim has the following properties:
+ * - Memory kind is pitch linear (&le; Volta) or generic incompressible memory
+ *   kind (Turing+)
+ * - GPU L2 caching disabled (volatile)
+ *
+ * GPU virtual address of a syncpoint is computed as follows:
+ * @code
+ * gpu_va = nvgpu_as_get_sync_ro_map_args::base_gpuva +
+ *          (nvgpu_as_get_sync_ro_map_args::sync_size * syncpoint_id)
+ * @endcode
+ *
+ * <table><caption>IOCTL message structure</caption>
+ * <tr>
+ *   <th>Header struct or additional buffer</th><th>Usermode to RM</th><th>RESPONSE</th>
+ * </tr>
+ * <tr>
+ *   <td>Header struct</td>
+ *   <td>@c #nvgpu_as_get_sync_ro_map_args</td>
+ *   <td>@c #nvgpu_as_get_sync_ro_map_args</td>
+ * </tr>
+ * </table>
+ *
+ * @return Call status
+ * @retval 0        Call succeeded
+ * @retval -1       Call failed (errno is set)
+ *
+ * Errors:
+ * - @c EINVAL ---  Syncpoint RO shim not supported.
+ * - @c ENOMEM ---  Failed to map the shim to GPU virtual address space.
+ * - @c ENODEV ---  GPU not ready.
+ * - @c EFAULT ---  Copy from userspace fails.
+ *
+ * @pre @c #NVGPU_GPU_FLAGS_SUPPORT_SYNCPOINT_ADDRESS
+ */
+
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP
+ * @brief Header struct for @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP.
+ */
 struct nvgpu_as_get_sync_ro_map_args {
+
+	/**
+	 * @brief Base address of the syncpoint-semaphore RO shim
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Syncpoint-semaphore RO shim base address</dd>
+	 * </dl>
+	 *
+	 * Range: Kernel-private region (see @ref NVGPURM_INTF_ALLOC_AS).
+	 */
+	__u64 base_gpuva;
+
+	/**
+	 * @brief Syncpoint stride (in bytes).
+	 *
+	 * Syncpoint stride specifies the distance between adjacent syncpoints.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Syncpoint stride</dd>
+	 * </dl>
+	 *
+	 * Range: HW-specific
+	 * - On T194: 4096
+	 * - On T234: 65536
+	 * - On T264: 65536
+	 */
+	__u32 sync_size;
+
+	/**
+	 * @brief Number of syncpoints in the shim.
+	 *
+	 * <dl>
+	 *   <dt>[out]</dt>
+	 *   <dd>Number of syncpoints</dd>
+	 * </dl>
+	 *
+	 * Range: Platform-specific
+	 */
+	__u32 num_syncpoints;
+};
+/*
+ * Macro defining the maximum number of syncpoint regions that are
+ * reported.
+ */
+#define NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS 4
+
+/*
+ * Structure describing a single syncpoint region.
+ */
+struct nvgpu_as_syncpoint_region_description {
 	__u64 base_gpuva;
 	__u32 sync_size;
 	__u32 num_syncpoints;
+};
+
+/*
+ * Structure containing an array of syncpoint regions.
+ *
+ * Each reported syncpoint region is indexable by the
+ * Host1x instance ID.
+ *
+ * @num_syncpoint_regions number of reported syncpoint regions
+ *
+ * @regions array of syncpoint regions
+ */
+struct nvgpu_as_get_sync_ro_map_v2_args {
+	__u32 num_syncpoint_regions; /* out */
+	struct nvgpu_as_syncpoint_region_description regions[NVGPU_SYNC_RO_MAP_MAX_SYNCPOINT_REGIONS]; /* out */
 };
 
 /*
@@ -443,6 +1189,7 @@ struct nvgpu_as_mapping_modify_args {
  *     %NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K
  *     %NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K
  *     %NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K
+ *     %NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K
  *
  *       One, and only one, of these flags must be set for both map/unmap
  *       ops and indicates the assumed page size of the mem_offset_in_pages
@@ -490,10 +1237,11 @@ struct nvgpu_as_remap_op {
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_4K             (1 << 15)
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_64K            (1 << 16)
 #define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_128K           (1 << 17)
+#define NVGPU_AS_REMAP_OP_FLAGS_PAGESIZE_2048K          (1 << 18)
 
 	/* in: For map and unmap (one and only one) of the _PAGESIZE_ flags is
-     * required to interpret the mem_offset_in_pages and virt_offset_in_pages
-     * correctly. The other flags are used only with map operations. */
+	 * required to interpret the mem_offset_in_pages and virt_offset_in_pages
+	 * correctly. The other flags are used only with map operations. */
 	__u32 flags;
 
 	/* in: For map operations, this field specifies the desired
@@ -515,7 +1263,7 @@ struct nvgpu_as_remap_op {
 	/* in: For map operations, this field specifies the handle (dmabuf_fd)
 	 * for the physical memory buffer to map into the specified virtual
 	 * address range.  For unmap operations, this field must be set to
-         * zero. */
+	 * zero. */
 	__u32 mem_handle;
 
 	/* This field is reserved for padding purposes. */
@@ -557,18 +1305,46 @@ struct nvgpu_as_remap_args {
 	__u32 num_ops;
 };
 
+/**
+ * @ingroup NVGPURM_INTF_AS_BIND_CHANNEL
+ * @brief Command code for @ref NVGPURM_INTF_AS_BIND_CHANNEL
+ */
 #define NVGPU_AS_IOCTL_BIND_CHANNEL \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 1, struct nvgpu_as_bind_channel_args)
+/**
+ * @ingroup NVGPURM32_INTF_AS_ALLOC_SPACE
+ * @brief Command code for @ref NVGPURM32_INTF_AS_ALLOC_SPACE
+ */
 #define NVGPU32_AS_IOCTL_ALLOC_SPACE \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 2, struct nvgpu32_as_alloc_space_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_FREE_SPACE
+ * @brief Command code for @ref NVGPURM_INTF_AS_FREE_SPACE
+ */
 #define NVGPU_AS_IOCTL_FREE_SPACE \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 3, struct nvgpu_as_free_space_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_UNMAP_BUFFER
+ * @brief Command code for @ref NVGPURM_INTF_AS_UNMAP_BUFFER.
+ */
 #define NVGPU_AS_IOCTL_UNMAP_BUFFER \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 5, struct nvgpu_as_unmap_buffer_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_ALLOC_SPACE
+ * @brief Command code for @ref NVGPURM_INTF_AS_ALLOC_SPACE
+ */
 #define NVGPU_AS_IOCTL_ALLOC_SPACE \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 6, struct nvgpu_as_alloc_space_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_MAP_BUFFER_EX
+ * @brief Command code for @ref NVGPURM_INTF_AS_MAP_BUFFER_EX
+ */
 #define NVGPU_AS_IOCTL_MAP_BUFFER_EX \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 7, struct nvgpu_as_map_buffer_ex_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_VA_REGIONS
+ * @brief Command code for @ref NVGPURM_INTF_AS_GET_VA_REGIONS.
+ */
 #define NVGPU_AS_IOCTL_GET_VA_REGIONS \
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 8, struct nvgpu_as_get_va_regions_args)
 #define NVGPU_AS_IOCTL_GET_BUFFER_COMPBITS_INFO \
@@ -577,16 +1353,22 @@ struct nvgpu_as_remap_args {
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 10, struct nvgpu_as_map_buffer_compbits_args)
 #define NVGPU_AS_IOCTL_MAP_BUFFER_BATCH	\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 11, struct nvgpu_as_map_buffer_batch_args)
+/**
+ * @ingroup NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP
+ * @brief Command code for @ref NVGPURM_INTF_AS_GET_SYNCPT_RO_MAP
+ */
 #define NVGPU_AS_IOCTL_GET_SYNC_RO_MAP	\
 	_IOR(NVGPU_AS_IOCTL_MAGIC,  12, struct nvgpu_as_get_sync_ro_map_args)
 #define NVGPU_AS_IOCTL_MAPPING_MODIFY	\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC,  13, struct nvgpu_as_mapping_modify_args)
 #define NVGPU_AS_IOCTL_REMAP		\
 	_IOWR(NVGPU_AS_IOCTL_MAGIC, 14, struct nvgpu_as_remap_args)
+#define NVGPU_AS_IOCTL_GET_SYNC_RO_MAP_V2	\
+	_IOR(NVGPU_AS_IOCTL_MAGIC,  15, struct nvgpu_as_get_sync_ro_map_v2_args)
 
 #define NVGPU_AS_IOCTL_LAST		\
-	_IOC_NR(NVGPU_AS_IOCTL_REMAP)
+	_IOC_NR(NVGPU_AS_IOCTL_GET_SYNC_RO_MAP_V2)
 #define NVGPU_AS_IOCTL_MAX_ARG_SIZE	\
-	sizeof(struct nvgpu_as_map_buffer_ex_args)
+	sizeof(struct nvgpu_as_get_sync_ro_map_v2_args)
 
 #endif /* #define _UAPI__LINUX_NVGPU_AS_H__ */

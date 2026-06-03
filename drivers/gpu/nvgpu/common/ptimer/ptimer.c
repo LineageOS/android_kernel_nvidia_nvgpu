@@ -1,33 +1,12 @@
-/*
- * Copyright (c) 2017-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/ptimer.h>
 #include <nvgpu/gk20a.h>
-#ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 #include <nvgpu/timers.h>
 #include <nvgpu/nvgpu_init.h>
 #include <nvgpu/power_features/cg.h>
 #include <nvgpu/ptimer.h>
-#endif
 
 static u32 ptimer_scalingfactor10x(u32 ptimer_src_freq)
 {
@@ -67,16 +46,14 @@ int nvgpu_ptimer_scale(struct gk20a *g, u32 timeout, u32 *scaled_timeout)
 	return 0;
 }
 
-#ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 int nvgpu_ptimer_init(struct gk20a *g)
 {
-#if defined(CONFIG_NVGPU_NON_FUSA)
 	nvgpu_cg_slcg_timer_load_enable(g);
-#endif
 
 	return 0;
 }
 
+#ifdef CONFIG_NVGPU_IOCTL_NON_FUSA
 int nvgpu_get_timestamps_zipper(struct gk20a *g,
 		enum nvgpu_cpu_timestamp_source cpu_timestamp_source,
 		u32 count,
@@ -100,8 +77,34 @@ int nvgpu_get_timestamps_zipper(struct gk20a *g,
 		/* The cpu timestamp is already validated when handling ioctl/devctls */
 		if (cpu_timestamp_source == NVGPU_CPU_TIMESTAMP_SOURCE_TSC) {
 			samples[i].cpu_timestamp = nvgpu_hr_timestamp();
-		} else if (cpu_timestamp_source == NVGPU_CPU_TIMESTAMP_SOURCE_UNIX) {
-			samples[i].cpu_timestamp = nvgpu_current_unix_time_us();
+		}
+#ifndef NVGPU_HVRTOS
+		/*
+		 * The HV library ecosystem does not implement a function to collect
+		 * the CPU time samples and thus this query cannot be implemented
+		 * without refactoring the GPU KMD - GPU server HALs. Thus, the
+		 * code needs to be ifdef-out for HV because nvgpu_current_unix_time_us
+		 * is not implemented.
+		 *
+		 * Under HV, this call can always be handled by userspace for
+		 * two reasons:
+		 * - all HV configurations have the usermode region mapped to
+		 *   userspace.
+		 * - RG is disabled under HV, and thus it is safe for usermode
+		 *   to read from the region.
+		 *
+		 * Thus, this path does not need to be handled under HV.
+		 */
+		else if (cpu_timestamp_source == NVGPU_CPU_TIMESTAMP_SOURCE_UNIX) {
+			err = nvgpu_current_unix_time_us(&samples[i].cpu_timestamp);
+			if (err < 0) {
+				goto idle;
+			}
+		}
+#endif
+		else {
+			err = -EINVAL;
+			goto idle;
 		}
 	}
 

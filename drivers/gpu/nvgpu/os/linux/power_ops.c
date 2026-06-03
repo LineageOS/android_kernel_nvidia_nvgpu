@@ -1,18 +1,5 @@
-/*
- * Copyright (c) 2021, NVIDIA Corporation.  All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/uaccess.h>
 #include <linux/cdev.h>
@@ -62,34 +49,17 @@ ssize_t gk20a_power_read(struct file *filp, char __user *buf,
 		size_t size, loff_t *off)
 {
 	struct gk20a *g = filp->private_data;
-	u32 power_status = 0U;
-	char power_out[2] = "";
+	char power_out[3];
+	int len;
 
 	if (!g) {
 		return -ENODEV;
 	}
 
-	power_status = g->power_on_state;
-	power_out[0] = power_status + '0';
+	len = scnprintf(power_out, sizeof(power_out), "%c\n",
+			g->power_on_state ? '1' : '0');
 
-	if (size < sizeof(power_out)) {
-		return -EINVAL;
-	}
-
-	if (*off >= (loff_t)sizeof(power_out)) {
-		return 0;
-	}
-
-	if (*off + (loff_t)size > (loff_t)sizeof(power_out)) {
-		size = sizeof(u32) - *off;
-	}
-
-	if (copy_to_user(buf, (char *)power_out + *off, size)) {
-		return -EINVAL;
-	}
-
-	*off += size;
-	return size;
+	return simple_read_from_buffer(buf, size, off, power_out, len);
 }
 
 ssize_t gk20a_power_write(struct file *filp, const char __user *buf,
@@ -118,7 +88,8 @@ ssize_t gk20a_power_write(struct file *filp, const char __user *buf,
 	}
 
 	if (power_status == NVGPU_DRIVER_POWER_ON_NEEDED) {
-		if (nvgpu_poweron_started(g)) {
+		if (nvgpu_is_powered_on(g)) {
+			// Early exit if already powered on.
 			goto out;
 		}
 

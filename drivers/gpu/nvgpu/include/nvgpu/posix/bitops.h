@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2021, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_POSIX_BITOPS_H
@@ -327,50 +309,44 @@ void nvgpu_bitmap_clear(unsigned long *map, unsigned int start,
 			unsigned int len);
 
 /**
- * @brief Find first bitmap space from an offset.
+ * @brief Find the starting index of a contiguous area of unset (zero) bits.
  *
- * Finds the first space of contiguous zeros in input data stream which can
- * accommodate a bitmap of length \a nr starting from position \a start.
- * Uses the functions #find_next_zero_bit and #find_next_bit with \a map,
- * \a size and a start position as parameters. The function does not perform
- * any validation of the parameters.
+ * This function searches for a contiguous area of unset bits of a given size
+ * within a bitmap, starting from a specified index, and optionally aligned to
+ * a specified mask. It returns the starting index of the first area found that
+ * matches the criteria or the size of the bitmap if no such area is found.
  *
- * @param map [in]		Input data stream.
- * @param size [in]		Size of the input data.
- * @param start [in]		Start position in input.
- * @param nr [in]		Number of bits in bitmap.
- * @param align_mask [in]	Align mask for start.
- * @param align_offset [in]	Align offset from Input data.
+ * The steps performed by the function are as follows:
+ * -# Loop until the sum of the starting index and the size of the area to find
+ *    is less than or equal to the size of the bitmap.
+ * -# Find the index of the first unset bit in the bitmap starting from the
+ *    current starting index using find_next_zero_bit().
+ * -# Align the starting index to the specified alignment mask using ALIGN_MASK.
+ * -# Check if there is enough space left in the bitmap to satisfy the requested
+ *    area size. If not, return the size of the bitmap as no suitable area can
+ *    be found.
+ * -# Find the index of the first set bit in the bitmap starting from the newly
+ *    aligned starting index using find_next_bit().
+ * -# Check if the number of unset bits from the aligned starting index to the
+ *    index of the first set bit is greater than or equal to the size of the
+ *    area to find. If so, return the aligned starting index as the beginning
+ *    of the suitable area.
+ * -# If a suitable area is not found, update the starting index to one more
+ *    than the index of the first set bit and continue the loop.
+ * -# If the loop exits without finding a suitable area, return the size of the
+ *    bitmap to indicate failure.
  *
- * @return Returns the position at which the bitmap starts if enough free space
- * is present in the input stream to accommodate the bitmap; otherwise, return
- * the size of the input data.
- */
-unsigned long bitmap_find_next_zero_area_off(unsigned long *map,
-					     unsigned long size,
-					     unsigned long start,
-					     unsigned int nr,
-					     unsigned long align_mask,
-					     unsigned long align_offset);
-
-/**
- * @brief Find first bitmap space.
+ * @param [in] map          Pointer to the bitmap.
+ * @param [in] size         Size of the bitmap in bits.
+ * @param [in] start        Index to start the search from within the bitmap.
+ * @param [in] bit          Size of the area to find in bits.
+ * @param [in] align_mask   Mask for aligning the starting index.
  *
- * Searches a bitmap for the first space of contiguous zeros that is large
- * enough to accommodate the requested number of bits. Invokes the function
- * #bitmap_find_next_zero_area_off() with \a mask, \a size, \a start, \a nr,
- * \a align_mask and 0 as parameters. Function does not perform any validation
- * of the parameters.
+ * @return Starting index of the area found, or the size of the bitmap if no
+ *         suitable area is found.
  *
- * @param map [in]		Input data stream.
- * @param size [in]		Size of the input data.
- * @param start [in]		Start position in input.
- * @param bit [in]		Number of bits in bitmap.
- * @param align_mask [in]	Align mask for start.
- *
- * @return Returns the position at which the bitmap starts if enough free space
- * is present in the input stream to accommodate the bitmap; otherwise, return
- * the size of the input data.
+ * @note The function assumes that the bitmap is large enough to include the
+ *       start index and the size of the area to find.
  */
 unsigned long bitmap_find_next_zero_area(unsigned long *map,
 					 unsigned long size,

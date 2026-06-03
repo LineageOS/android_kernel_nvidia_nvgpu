@@ -30,7 +30,6 @@
 
 #include <uapi/linux/nvgpu.h>
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
-#include <dt-bindings/soc/gm20b-fuse.h>
 #include <dt-bindings/soc/gp10b-fuse.h>
 #include <dt-bindings/soc/gv11b-fuse.h>
 
@@ -44,6 +43,7 @@
 #include <nvgpu/nvgpu_common.h>
 #include <nvgpu/soc.h>
 #include <nvgpu/fbp.h>
+#include "nvgpu/acr.h"
 #include <nvgpu/enabled.h>
 #include <nvgpu/errata.h>
 #include <nvgpu/debug.h>
@@ -64,6 +64,7 @@
 #include <nvgpu/cic_rm.h>
 #include <nvgpu/fb.h>
 #include <nvgpu/nvs.h>
+#include <nvgpu/power_features/cg.h>
 
 #include "common/gr/gr_priv.h"
 #include "platform_gk20a.h"
@@ -108,6 +109,14 @@
 #define CREATE_TRACE_POINTS
 #include <nvgpu/trace.h>
 
+int nvgpu_lpwr_enable;
+module_param_named(lpwr_enable, nvgpu_lpwr_enable, int, 0400);
+MODULE_PARM_DESC(lpwr_enable,
+	"Enable/Disable nvgpu low power features with module parameter.\n"
+	"Each feature corresponds to two bits.\n"
+	"Odd bit indicates triggering the configuraion or not,\n"
+	"even bit indicates enabling/disabling a lpwr feature.");
+
 char *nvgpu_devfreq_timer = "";
 module_param_named(devfreq_timer, nvgpu_devfreq_timer, charp, 0400);
 MODULE_PARM_DESC(devfreq_timer,
@@ -118,13 +127,12 @@ module_param_named(devfreq_gov, nvgpu_devfreq_gov, charp, 0400);
 MODULE_PARM_DESC(devfreq_gov,
 	"Specify gpu devfreq governor with module parameter.");
 
-int nvgpu_lpwr_enable;
-module_param_named(lpwr_enable, nvgpu_lpwr_enable, int, 0400);
-MODULE_PARM_DESC(lpwr_enable,
-	"Enable/Disable nvgpu low power features with module parameter.\n"
-	"Each feature corresponds to two bits.\n"
-	"Odd bit indicates triggering the configuraion or not,\n"
-	"even bit indicates enabling/disabling a lpwr feature.");
+/*
+ * profile time spent in gk20a_init(). Here in gk20a_init(),
+ * struct gk20a is not allocated, therefore using following
+ * global variables.
+ */
+u64 nvgpu_init_time_ns;
 
 static int nvgpu_wait_for_idle(struct gk20a *g)
 {
@@ -186,6 +194,14 @@ struct device_node *nvgpu_get_node(struct gk20a *g)
 	if (dev_is_pci(dev)) {
 		struct pci_bus *bus = to_pci_dev(dev)->bus;
 
+		/*
+		 * For some PCIe based iGPU devices, device tree properties
+		 * are available in the device itself.
+		 */
+		if (dev->of_node) {
+			return dev->of_node;
+		}
+
 		while (!pci_is_root_bus(bus))
 			bus = bus->parent;
 
@@ -197,6 +213,7 @@ struct device_node *nvgpu_get_node(struct gk20a *g)
 
 void gk20a_busy_noresume(struct gk20a *g)
 {
+	nvgpu_log(g, gpu_dbg_pm, " ");
 	pm_runtime_get_noresume(dev_from_gk20a(g));
 }
 
@@ -209,15 +226,17 @@ int gk20a_busy(struct gk20a *g)
 	if (!g)
 		return -ENODEV;
 
-	atomic_inc(&g->usage_count.atomic_var);
+	nvgpu_atomic_inc(&g->usage_count);
 
 	down_read(&l->busy_lock);
 
 	if (!nvgpu_can_busy(g)) {
 		ret = -ENODEV;
-		atomic_dec(&g->usage_count.atomic_var);
+		nvgpu_atomic_dec(&g->usage_count);
 		goto fail;
 	}
+
+	nvgpu_log(g, gpu_dbg_pm, "usage count = %d", nvgpu_atomic_read(&g->usage_count));
 
 	dev = dev_from_gk20a(g);
 
@@ -228,7 +247,7 @@ int gk20a_busy(struct gk20a *g)
 			/* Mark suspended so runtime pm will retry later */
 			pm_runtime_set_suspended(dev);
 			pm_runtime_put_noidle(dev);
-			atomic_dec(&g->usage_count.atomic_var);
+			nvgpu_atomic_dec(&g->usage_count);
 			goto fail;
 		}
 	} else {
@@ -236,7 +255,7 @@ int gk20a_busy(struct gk20a *g)
 			vgpu_pm_finalize_poweron(dev) :
 			gk20a_pm_finalize_poweron(dev);
 		if (ret) {
-			atomic_dec(&g->usage_count.atomic_var);
+			nvgpu_atomic_dec(&g->usage_count);
 			goto fail;
 		}
 	}
@@ -244,11 +263,13 @@ int gk20a_busy(struct gk20a *g)
 fail:
 	up_read(&l->busy_lock);
 
+	nvgpu_log(g, gpu_dbg_pm, "done");
 	return ret < 0 ? ret : 0;
 }
 
 void gk20a_idle_nosuspend(struct gk20a *g)
 {
+	nvgpu_log(g, gpu_dbg_pm, " ");
 	pm_runtime_put_noidle(dev_from_gk20a(g));
 }
 
@@ -256,7 +277,13 @@ void gk20a_idle(struct gk20a *g)
 {
 	struct device *dev;
 
-	atomic_dec(&g->usage_count.atomic_var);
+	nvgpu_log(g, gpu_dbg_pm, "usage count = %d", nvgpu_atomic_read(&g->usage_count));
+
+	if (WARN_ON(nvgpu_atomic_add_unless(&g->usage_count, -1, 0) == 0)) {
+		nvgpu_err(g, "usage_count underflow %d",
+			  nvgpu_atomic_read(&g->usage_count));
+		return;
+	}
 
 	dev = dev_from_gk20a(g);
 
@@ -267,6 +294,8 @@ void gk20a_idle(struct gk20a *g)
 		pm_runtime_mark_last_busy(dev);
 		pm_runtime_put_sync_autosuspend(dev);
 	}
+
+	nvgpu_log(g, gpu_dbg_pm, "done");
 }
 
 /*
@@ -456,8 +485,13 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
 	int err = 0;
+	u32 gfx_gpu_instance_id;
+	u32 is_backdoor;
+	u64 begin_time = 0ULL, end_time = 0ULL;
 
-	nvgpu_log_fn(g, " ");
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_pm, " ");
+
+	begin_time = ktime_get_ns();
 
 	nvgpu_mutex_acquire(&g->power_lock);
 
@@ -489,6 +523,12 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 
 	nvgpu_restore_usermode_for_poweron(g);
 
+	err = nvgpu_enable_irqs(g);
+	if (err) {
+		nvgpu_err(g, "failed to enable irqs %d", err);
+		goto done;
+	}
+
 	err = nvgpu_early_poweron(g);
 	if (err != 0) {
 		nvgpu_err(g, "nvgpu_early_poweron failed[%d]", err);
@@ -505,12 +545,44 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 		l->dev_nodes_created = true;
 	}
 
-	if (g->sim) {
-		if (g->sim->sim_init_late)
+	if (g->sim && g->sim->sim_init_late) {
+		if (g->ops.fb.serial_ats_ctrl != NULL) {
 			err = g->sim->sim_init_late(g);
-		if (err)
-			goto done;
+			if (err)
+				goto done;
+			/* Query chiplib which memory path is enable for gpu */
+			g->sim->esc_readl(g, "isBackdoor", 0, &is_backdoor);
+			if (is_backdoor) {
+				nvgpu_err(g, " nvgpu fmodel is using backdoor memory path");
+
+				/*
+				 * Need to reinitialize sim support since dma access will be
+				 * updated. Hence remove the prior sim support.
+				 */
+				g->sim->remove_support(g);
+
+				g->ops.fb.serial_ats_ctrl(g, false);
+				nvgpu_set_enabled(g, NVGPU_MM_SUPPORT_NONPASID_ATS, false);
+				nvgpu_set_enabled(g, NVGPU_MM_BYPASSES_IOMMU, true);
+
+				err = g->sim->sim_init_late(g);
+				if (err)
+					goto done;
+
+				g->syncpt_unit_base[0] =  g->syncpt_unit_base_spa[0];
+				nvgpu_info(g, "syncpt_unit_base %llx syncpt_unit_size %zx size %x\n",
+					   g->syncpt_unit_base[0], g->syncpt_unit_size,
+					    g->syncpt_size);
+			} else {
+				nvgpu_err(g, " nvgpu fmodel is using frontdoor memory path");
+			}
+		} else {
+			err = g->sim->sim_init_late(g);
+			if (err)
+				goto done;
+		}
 	}
+
 
 #ifdef CONFIG_NVGPU_DGPU
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_DGPU_PCIE_SCRIPT_EXECUTE) &&
@@ -536,12 +608,6 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 	}
 #endif
 
-	err = nvgpu_enable_irqs(g);
-	if (err) {
-		nvgpu_err(g, "failed to enable irqs %d", err);
-		goto done;
-	}
-
 	err = nvgpu_finalize_poweron(g);
 	if (err)
 		goto done;
@@ -562,18 +628,36 @@ int gk20a_pm_finalize_poweron(struct device *dev)
 	if (err)
 		goto done;
 
-#ifdef CONFIG_NVGPU_DGPU
-	nvgpu_init_mm_ce_context(g);
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
+	/*
+	 * The CBC scrubber always uses a Copy Engine (CE) that is bound to
+	 * a GPU instance that supports GFX. This logic covers both non-MIG
+	 * and MIG on all Tegra iGPUs:
+	 * - without MIG, there is a single GPU instance that supports GFX,
+	 *   so this logic will successfully find a CE for the GFX GPU
+	 *   instance.
+	 * - with MIG, compression is only supported for the GFX MIG, so only
+	 *   a single CBC-scrubbing CE is necessary that must be bound to
+	 *   the GFX GPU instance.
+	 */
+	err = nvgpu_init_mm_ce_context_find_gfx_gpu_instance(g, &gfx_gpu_instance_id);
+	if (err) {
+		nvgpu_err(g, "failed to find gfx gpu instance id");
+		goto done;
+	}
+	err = nvgpu_init_mm_ce_context(g, gfx_gpu_instance_id);
+	if (err)
+		goto done;
+#endif
 
+#ifdef CONFIG_NVGPU_DGPU
 	nvgpu_vidmem_thread_unpause(&g->mm);
 #endif
 
 
-	/* Initialise scaling: it will initialize scaling drive only once */
-	if (IS_ENABLED(CONFIG_GK20A_DEVFREQ) &&
-			nvgpu_platform_is_silicon(g)) {
-		gk20a_scale_init(dev);
-		if (platform->initscale)
+	/* For automotive, we disable devfreq */
+	if (IS_ENABLED(CONFIG_GK20A_DEVFREQ)) {
+		if (nvgpu_platform_is_silicon(g) && platform->initscale)
 			platform->initscale(dev);
 	}
 
@@ -609,6 +693,19 @@ done:
 	}
 
 	nvgpu_mutex_release(&g->power_lock);
+
+	nvgpu_log(g, gpu_dbg_pm, "done, ret = %d", err);
+
+	end_time = ktime_get_ns();
+
+	/*
+	 * With runtime power-management on L4T, gk20a_pm_finalize_poweron()
+	 * can be called umpteen number of times, for boot-time latency calculation,
+	 * use the time taken for first call to gk20a_pm_finalize_poweron().
+	 */
+	if (l->poweron_time_ns == 0ULL)
+		l->poweron_time_ns = (end_time - begin_time);
+
 	return err;
 }
 
@@ -642,6 +739,10 @@ int nvgpu_enable_irqs(struct gk20a *g)
 		enable_irq(l->interrupts.nonstall_line);
 	}
 
+	for (i = 0U; i < l->interrupts.msi_size; i++) {
+		enable_irq(l->interrupts.msi_lines[i]);
+	}
+
 	return 0;
 }
 
@@ -657,9 +758,13 @@ void nvgpu_disable_irqs(struct gk20a *g)
 	if (l->interrupts.nonstall_size > 0) {
 		disable_irq(l->interrupts.nonstall_line);
 	}
+
+	for (i = 0U; i < l->interrupts.msi_size; i++) {
+		disable_irq(l->interrupts.msi_lines[i]);
+	}
 }
 
-static int gk20a_pm_prepare_poweroff(struct device *dev)
+int gk20a_pm_prepare_poweroff(struct device *dev)
 {
 	struct gk20a *g = get_gk20a(dev);
 #ifdef CONFIG_NVGPU_SUPPORT_CDE
@@ -668,7 +773,7 @@ static int gk20a_pm_prepare_poweroff(struct device *dev)
 	struct gk20a_platform *platform = gk20a_get_platform(dev);
 	int ret = 0;
 
-	nvgpu_log_fn(g, " ");
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_pm, " ");
 
 	nvgpu_mutex_acquire(&g->power_lock);
 
@@ -709,13 +814,12 @@ error:
 done:
 	nvgpu_mutex_release(&g->power_lock);
 
+	nvgpu_log(g, gpu_dbg_pm, "done, ret = %d", ret);
 	return ret;
 }
 
 static struct of_device_id tegra_gk20a_of_match[] = {
 #ifdef CONFIG_TEGRA_GK20A
-	{ .compatible = "nvidia,tegra210-gm20b",
-		.data = &gm20b_tegra_platform },
 	{ .compatible = "nvidia,gv11b",
 		.data = &gv11b_tegra_platform },
 #ifdef CONFIG_NVGPU_GR_VIRTUALIZATION
@@ -1066,7 +1170,7 @@ void gk20a_remove_support(struct gk20a *g)
 
 	nvgpu_gr_remove_support(g);
 
-#ifdef CONFIG_NVGPU_DGPU
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
 	if (g->mm.remove_ce_support)
 		g->mm.remove_ce_support(&g->mm);
 #endif
@@ -1086,6 +1190,8 @@ void gk20a_remove_support(struct gk20a *g)
 		g->ops.mm.mmu_fault.info_mem_destroy(g);
 	}
 
+	nvgpu_cg_elcg_ctrl_deinit(g);
+
 	nvgpu_pmu_remove_support(g, g->pmu);
 
 	if (g->mm.remove_support)
@@ -1103,6 +1209,8 @@ void gk20a_remove_support(struct gk20a *g)
 	nvgpu_free_cyclestats_snapshot_data(g);
 #endif
 
+	nvgpu_acr_deinit(g);
+
 #ifdef CONFIG_NVGPU_GSP_SCHEDULER
 	if (nvgpu_is_enabled(g, NVGPU_SUPPORT_GSP_SCHED)) {
 		nvgpu_gsp_sched_sw_deinit(g);
@@ -1115,6 +1223,7 @@ void gk20a_remove_support(struct gk20a *g)
 	endif
 #endif
 #endif
+	nvgpu_gsp_sw_deinit(g);
 
 	nvgpu_fbp_remove_support(g);
 
@@ -1192,7 +1301,7 @@ fail:
 	return err;
 }
 
-static int gk20a_pm_railgate(struct device *dev)
+int gk20a_pm_railgate(struct device *dev)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	int ret = 0;
@@ -1287,6 +1396,9 @@ void nvgpu_free_irq(struct gk20a *g)
 	if (l->interrupts.nonstall_size > 0) {
 		devm_free_irq(dev, l->interrupts.nonstall_line, g);
 	}
+	for (i = 0U; i < l->interrupts.msi_size; i++) {
+		devm_free_irq(dev, l->interrupts.msi_lines[i], &l->interrupts.msi_cookies[i]);
+	}
 }
 
 /*
@@ -1375,17 +1487,19 @@ finish:
 	nvgpu_info(g, "shut down complete");
 }
 
-#ifdef CONFIG_PM
-static int gk20a_pm_runtime_resume(struct device *dev)
+int gk20a_pm_runtime_resume(struct device *dev)
 {
 	struct gk20a *g = get_gk20a(dev);
 	int err = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
 
 	err = gk20a_pm_unrailgate(dev);
 	if (err)
 		goto fail;
 
 	if (!g->probe_done) {
+		nvgpu_log(g, gpu_dbg_pm, "return early because probe is not done");
 		return 0;
 	}
 
@@ -1393,6 +1507,7 @@ static int gk20a_pm_runtime_resume(struct device *dev)
 		err = vgpu_pm_finalize_poweron(dev);
 	else
 		err = gk20a_pm_finalize_poweron(dev);
+
 	if (err)
 		goto fail_poweron;
 
@@ -1401,10 +1516,11 @@ static int gk20a_pm_runtime_resume(struct device *dev)
 fail_poweron:
 	gk20a_pm_railgate(dev);
 fail:
+	nvgpu_log(g, gpu_dbg_pm, "done");
 	return err;
 }
 
-static int gk20a_pm_runtime_suspend(struct device *dev)
+int gk20a_pm_runtime_suspend(struct device *dev)
 {
 	int err = 0;
 	struct gk20a *g = get_gk20a(dev);
@@ -1412,7 +1528,10 @@ static int gk20a_pm_runtime_suspend(struct device *dev)
 	if (!g)
 		return 0;
 
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
 	if (!g->probe_done) {
+		nvgpu_log(g, gpu_dbg_pm, "return early because probe is not done");
 		err = gk20a_pm_railgate(dev);
 		if (err)
 			pm_runtime_mark_last_busy(dev);
@@ -1432,6 +1551,7 @@ static int gk20a_pm_runtime_suspend(struct device *dev)
 	if (err)
 		goto fail;
 
+	nvgpu_log(g, gpu_dbg_pm, "done");
 	return 0;
 
 fail:
@@ -1440,13 +1560,15 @@ fail:
 	return err;
 }
 
-static int gk20a_pm_suspend(struct device *dev)
+int gk20a_pm_suspend(struct device *dev)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	struct gk20a *g = get_gk20a(dev);
 	int ret = 0;
 	int usage_count;
 	struct nvgpu_timeout timeout;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
 
 	if (nvgpu_is_powered_off(g)) {
 		if (platform->suspend)
@@ -1506,6 +1628,7 @@ static int gk20a_pm_suspend(struct device *dev)
 
 	g->suspended = true;
 
+	nvgpu_log(g, gpu_dbg_pm, "done");
 	return 0;
 
 fail_suspend:
@@ -1519,11 +1642,13 @@ fail_idle:
 	return ret;
 }
 
-static int gk20a_pm_resume(struct device *dev)
+int gk20a_pm_resume(struct device *dev)
 {
 	struct gk20a_platform *platform = dev_get_drvdata(dev);
 	struct gk20a *g = get_gk20a(dev);
 	int ret = 0;
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
 
 	if (!g->suspended) {
 		if (platform->resume)
@@ -1563,6 +1688,7 @@ static int gk20a_pm_resume(struct device *dev)
 #endif
 	nvgpu_channel_deterministic_unidle(g);
 
+	nvgpu_log(g, gpu_dbg_pm, "done");
 	return ret;
 }
 
@@ -1572,14 +1698,13 @@ static const struct dev_pm_ops gk20a_pm_ops = {
 	.resume = gk20a_pm_resume,
 	.suspend = gk20a_pm_suspend,
 };
-#endif
 
 int gk20a_pm_init(struct device *dev)
 {
 	struct gk20a *g = get_gk20a(dev);
 	int err = 0;
 
-	nvgpu_log_fn(g, " ");
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_pm, " ");
 
 	/*
 	 * runtime PM is enabled here. Irrespective of the device power state,
@@ -1596,7 +1721,7 @@ int gk20a_pm_late_init(struct device *dev)
 	struct gk20a *g = get_gk20a(dev);
 	int err = 0;
 
-	nvgpu_log_fn(g, " ");
+	nvgpu_log(g, gpu_dbg_fn | gpu_dbg_pm, " ");
 
 	pm_runtime_disable(dev);
 
@@ -1618,17 +1743,19 @@ int gk20a_pm_late_init(struct device *dev)
 
 int gk20a_pm_deinit(struct device *dev)
 {
+	struct gk20a *g = get_gk20a(dev);
+
+	nvgpu_log(g, gpu_dbg_pm, " ");
+
 	pm_runtime_dont_use_autosuspend(dev);
 	pm_runtime_disable(dev);
 	return 0;
 }
 
-void nvgpu_start_gpu_idle(struct gk20a *g)
+void nvgpu_start_gpu_idle_locked(struct gk20a *g)
 {
 	struct nvgpu_gr *gr = nvgpu_gr_get_cur_instance_ptr(g);
-	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
 
-	down_write(&l->busy_lock);
 	nvgpu_set_enabled(g, NVGPU_DRIVER_IS_DYING, true);
 	/*
 	 * In rmmod path, when the kernel or GPU driver is
@@ -1646,6 +1773,14 @@ void nvgpu_start_gpu_idle(struct gk20a *g)
 	 */
 	nvgpu_gr_sw_ready(g, false);
 	g->sw_ready = false;
+}
+
+void nvgpu_start_gpu_idle(struct gk20a *g)
+{
+	struct nvgpu_os_linux *l = nvgpu_os_linux_from_gk20a(g);
+
+	down_write(&l->busy_lock);
+	nvgpu_start_gpu_idle_locked(g);
 	up_write(&l->busy_lock);
 }
 
@@ -1712,9 +1847,6 @@ int nvgpu_read_fuse_overrides(struct gk20a *g)
 		fuse = fuses[2 * i];
 		value = fuses[2 * i + 1];
 		switch (fuse) {
-		case GM20B_FUSE_OPT_TPC_DISABLE:
-			g->tpc_fs_mask_user = ~value;
-			break;
 		case GP10B_FUSE_OPT_ECC_EN:
 			g->fecs_feature_override_ecc_val = value;
 			break;
@@ -1775,6 +1907,7 @@ static int gk20a_probe(struct platform_device *dev)
 	struct gk20a_platform *platform = NULL;
 	struct device_node *np;
 	u32 i, intr_size, irq_idx;
+	u64 begin_time = 0ULL, end_time = 0ULL;
 
 	if (dev->dev.of_node) {
 		const struct of_device_id *match;
@@ -1794,6 +1927,8 @@ static int gk20a_probe(struct platform_device *dev)
 
 	if (gk20a_gpu_is_virtual(&dev->dev))
 		return vgpu_probe(dev);
+
+	begin_time = ktime_get_ns();
 
 	l = kzalloc(sizeof(*l), GFP_KERNEL);
 	if (!l) {
@@ -1935,6 +2070,9 @@ static int gk20a_probe(struct platform_device *dev)
 
 	gk20a->probe_done = true;
 
+	end_time = ktime_get_ns();
+	l->probe_time_ns = (end_time - begin_time);
+
 	return 0;
 
 return_err:
@@ -2012,9 +2150,6 @@ int nvgpu_remove(struct device *dev)
 	err = nvgpu_quiesce(g);
 	WARN(err, "gpu failed to idle during driver removal");
 
-	if (nvgpu_mem_is_valid(&g->syncpt_mem))
-		nvgpu_dma_free(g, &g->syncpt_mem);
-
 #ifdef CONFIG_NVGPU_SUPPORT_CDE
 	if (platform->has_cde)
 		gk20a_cde_destroy(l);
@@ -2026,8 +2161,11 @@ int nvgpu_remove(struct device *dev)
 
 	gk20a_sched_ctrl_cleanup(g);
 
-	if (IS_ENABLED(CONFIG_GK20A_DEVFREQ))
-		gk20a_scale_exit(dev);
+	/* For automotive, we disable devfreq */
+	if (IS_ENABLED(CONFIG_GK20A_DEVFREQ)) {
+		if (nvgpu_platform_is_silicon(g) && platform->exitscale)
+			platform->exitscale(dev);
+	}
 
 	nvgpu_clk_arb_cleanup_arbiter(g);
 
@@ -2036,6 +2174,12 @@ int nvgpu_remove(struct device *dev)
 	gk20a_power_node_deinit(dev_from_gk20a(g));
 
 	nvgpu_remove_sysfs(dev);
+
+#if defined(CONFIG_NVGPU_DGPU) || defined(CONFIG_NVGPU_COMPRESSION_RAW)
+	if (g->ops.ce.ce_app_destroy != NULL) {
+		g->ops.ce.ce_app_destroy(g);
+	}
+#endif
 
 	if (platform->secure_buffer.destroy)
 		platform->secure_buffer.destroy(g,
@@ -2111,14 +2255,21 @@ static struct platform_driver gk20a_driver = {
 
 static int __init gk20a_init(void)
 {
+	int ret = 0;
+	u64 begin_time = 0ULL, end_time = 0ULL;
 
-	int ret;
+	begin_time = ktime_get_ns();
 
 	ret = nvgpu_pci_init();
 	if (ret)
 		return ret;
 
-	return platform_driver_register(&gk20a_driver);
+	ret = platform_driver_register(&gk20a_driver);
+
+	end_time = ktime_get_ns();
+
+	nvgpu_init_time_ns = (end_time - begin_time);
+	return ret;
 }
 
 static void __exit gk20a_exit(void)
@@ -2128,10 +2279,11 @@ static void __exit gk20a_exit(void)
 }
 
 #ifdef MODULE_IMPORT_NS
+#if defined(NV_MODULE_IMPORT_NS_CALLS_STRINGIFY)
 MODULE_IMPORT_NS(DMA_BUF);
+#else
+MODULE_IMPORT_NS("DMA_BUF");
 #endif
-#ifdef CONFIG_GK20A_DEVFREQ
-MODULE_SOFTDEP("pre: governor_pod_scaling");
 #endif
 MODULE_LICENSE("GPL v2");
 module_init(gk20a_init);

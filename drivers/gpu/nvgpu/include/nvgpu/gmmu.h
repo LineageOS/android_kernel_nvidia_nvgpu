@@ -1,23 +1,5 @@
-/*
- * Copyright (c) 2017-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GMMU_H
@@ -59,14 +41,19 @@ struct nvgpu_channel;
 #define GMMU_PAGE_SIZE_BIG	1U
 
 /**
+ * Huge page size (2MB) index in the page size table
+ */
+#define GMMU_PAGE_SIZE_HUGE	2U
+
+/**
  * Kernel page size index in the page size table
  */
-#define GMMU_PAGE_SIZE_KERNEL	2U
+#define GMMU_PAGE_SIZE_KERNEL	3U
 
 /**
  * Maximum number of page size index in the page size table
  */
-#define GMMU_NR_PAGE_SIZES	3U
+#define GMMU_NR_PAGE_SIZES	4U
 
 /**
  * This flag variable designates where the memory actually was allocated from.
@@ -210,6 +197,20 @@ struct gk20a_mmu_level {
 			     u64 phys_addr,
 			     u64 virt_addr,
 			     struct nvgpu_gmmu_attrs *attrs);
+
+	/**
+	 * Function ptr which points to the address of
+	 * page directory entry routine, when pde is treated as pte to support
+	 * huge pages
+	 */
+	void (*update_pde_entry_as_pte)(struct vm_gk20a *vm,
+					const struct gk20a_mmu_level *l,
+					struct nvgpu_gmmu_pd *pd,
+					u32 pd_idx,
+					u64 phys_addr,
+					u64 virt_addr,
+					struct nvgpu_gmmu_attrs *attrs);
+
 	/**
 	 * GMMU level entry size. GMMU level entry format will be different
 	 * for each GPU family (i.e, gv11b, gp10b, ...).
@@ -269,7 +270,7 @@ static inline const char *nvgpu_gmmu_perm_str(enum gk20a_mem_rw_flag p)
  * aligned. Although lower PDE tables can be aligned at 256B boundaries
  * the PDB must be 4K aligned.
  *
- * Currently NVGPU_CPU_PAGE_SIZE is used, even when 64K, to work around an issue
+ * Currently #NVGPU_CPU_PAGE_SIZE is used, even when 64K, to work around an issue
  * with the PDB TLB invalidate code not being pd_cache aware yet.
  *
  * @return	0 in case of success.
@@ -396,7 +397,7 @@ u64 nvgpu_gmmu_map_fixed(struct vm_gk20a *vm,
 			 enum nvgpu_aperture aperture);
 
 /**
- * @brief Unmap a memory mapped by nvgpu_gmmu_map()/nvgpu_gmmu_map_fixed().
+ * @brief Unmap a memory mapped by nvgpu_gmmu_map() or nvgpu_gmmu_map_fixed().
  * This is required to remove the translations from the GPU page table.
  *
  * @param vm		[in]	Pointer to virtual memory structure.
@@ -414,8 +415,8 @@ u64 nvgpu_gmmu_map_fixed(struct vm_gk20a *vm,
  * Chip specific stuff is handled at the PTE/PDE programming HAL layer.
  * GMMU level entry format will be different for each GPU family
  * (i.e, gv11b).
- * Flush the GPU L2. gv11b_mm_l2_flush does the L2 flush.
- * Invalidates the GPU TLB, gm20b_fb_tlb_invalidate does the tlb invalidate.
+ * Flush the GPU L2. gv11b_mm_l2_flush() does the L2 flush.
+ * Invalidates the GPU TLB, gm20b_fb_tlb_invalidate() does the tlb invalidate.
  * Release the VM GMMU lock.
  *
  * @return	None.
@@ -425,7 +426,7 @@ void nvgpu_gmmu_unmap_addr(struct vm_gk20a *vm,
 		      u64 gpu_va);
 
 /**
- * @brief Unmap a memory mapped by nvgpu_gmmu_map()/nvgpu_gmmu_map_fixed().
+ * @brief Unmap a memory mapped by nvgpu_gmmu_map() or nvgpu_gmmu_map_fixed().
  *
  * This is like nvgpu_gmmu_unmap_addr() but with the address in nvgpu_mem.gpu_va.
  */
@@ -667,12 +668,12 @@ u64 nvgpu_gmmu_map_locked(struct vm_gk20a *vm,
  * Chip specific stuff is handled at the PTE/PDE programming HAL layer.
  * GMMU level entry format will be different for each GPU family
  *  (i.e, gv11b).
- * Flush the GPU L2. gv11b_mm_l2_flush does the L2 flush.
- * Invalidates the GPU TLB, gm20b_fb_tlb_invalidate does the tlb invalidate.
+ * Flush the GPU L2. gv11b_mm_l2_flush() does the L2 flush.
+ * Invalidates the GPU TLB, gm20b_fb_tlb_invalidate() does the tlb invalidate.
  *
  * @return	None.
  */
-void nvgpu_gmmu_unmap_locked(struct vm_gk20a *vm,
+int nvgpu_gmmu_unmap_locked(struct vm_gk20a *vm,
 			     u64 vaddr,
 			     u64 size,
 			     u32 pgsz_idx,
@@ -704,6 +705,31 @@ NVGPU_COV_WHITELIST(false_positive, NVGPU_MISRA(Rule, 14_4), "Bug 2623654") \
  */
 u32 nvgpu_gmmu_default_big_page_size(void);
 
+/**
+ * @brief Determine the aperture mask for a memory allocation.
+ *
+ * This function calculates the aperture mask for a given memory allocation
+ * based on its aperture type and whether platform atomic attributes are
+ * enabled. The mask is used to set the aperture in GMMU page table entries.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if platform atomic support is enabled and if the platform atomic
+ *    attribute is set for the memory allocation. If both conditions are met,
+ *    override the aperture type to be coherent system memory.
+ * -# Call 'nvgpu_aperture_mask_raw()' to get the raw aperture mask value based
+ *    on the potentially overridden aperture type and the provided masks for
+ *    system memory, coherent system memory, and video memory.
+ *
+ * @param [in]  g                 Pointer to the GPU structure.
+ * @param [in]  mem_ap            The aperture type of the memory allocation.
+ * @param [in]  platform_atomic_attr  Flag indicating if platform atomic
+ *                                attribute is set for the memory allocation.
+ * @param [in]  sysmem_mask       Mask value for system memory aperture.
+ * @param [in]  sysmem_coh_mask   Mask value for coherent system memory aperture.
+ * @param [in]  vidmem_mask       Mask value for video memory aperture.
+ *
+ * @return The calculated aperture mask for the memory allocation.
+ */
 u32 nvgpu_gmmu_aperture_mask(struct gk20a *g,
 				enum nvgpu_aperture mem_ap,
 				u32 sysmem_mask,

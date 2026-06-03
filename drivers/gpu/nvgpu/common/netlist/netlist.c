@@ -1,24 +1,5 @@
-/*
- * Copyright (c) 2011-2022, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- */
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/nvgpu_common.h>
 #include <nvgpu/sim.h>
@@ -32,8 +13,10 @@
 #include <nvgpu/string.h>
 #include <nvgpu/netlist_defs.h>
 #include <nvgpu/static_analysis.h>
+#include <nvgpu/grmgr.h>
 
 #include "netlist_priv.h"
+#include "../gr/gr_priv.h"
 
 /*
  * Need to support multiple ARCH in same GPU family
@@ -45,7 +28,8 @@
  * to get complete path like gm204/NETC_img.bin
  */
 
-#define MAX_NETLIST_NAME (sizeof("GAxxx/") + sizeof("NET?_img_xxxxx_encrypted.bin"))
+#define MAX_NETLIST_NAME (sizeof("GAxxx/") + sizeof("prod_test_nsr/NET?_img_xxxxx_encrypted.bin"))
+struct nvgpu_gr;
 
 struct netlist_av *nvgpu_netlist_alloc_av_list(struct gk20a *g,
 						struct netlist_av_list *avl)
@@ -79,6 +63,29 @@ u32 *nvgpu_netlist_alloc_u32_list(struct gk20a *g,
 	return u32l->l;
 }
 
+/**
+ * @brief Allocates memory for a list of u32 values and loads data from a source buffer.
+ *
+ * This function calculates the number of u32 entries based on the length of the
+ * source data, allocates memory for the u32 list, and then copies the data from
+ * the source buffer into the newly allocated list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the count of u32 entries by rounding up the length of the source data
+ *    to the nearest multiple of the size of a u32 and then dividing by the size of a u32.
+ * -# Allocate memory for the u32 list by calling 'nvgpu_netlist_alloc_u32_list()'.
+ *    If memory allocation fails, return -ENOMEM.
+ * -# Copy the data from the source buffer to the allocated u32 list using 'nvgpu_memcpy()'.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  g         The GPU driver struct.
+ * @param [in]  src       Pointer to the source buffer containing the data.
+ * @param [in]  len       The length of the source data.
+ * @param [out] u32_list  Pointer to the netlist u32 list structure where the data will be loaded.
+ *
+ * @return 0 if the data was successfully loaded into the u32 list.
+ * @return -ENOMEM if memory allocation for the u32 list failed.
+ */
 static int nvgpu_netlist_alloc_load_u32_list(struct gk20a *g, u8 *src, u32 len,
 			struct netlist_u32_list *u32_list)
 {
@@ -94,6 +101,29 @@ static int nvgpu_netlist_alloc_load_u32_list(struct gk20a *g, u8 *src, u32 len,
 	return 0;
 }
 
+/**
+ * @brief Allocates memory for a list of Address-Value (AV) pairs and loads data from a source buffer.
+ *
+ * This function calculates the number of AV pairs based on the length of the
+ * source data, allocates memory for the AV list, and then copies the data from
+ * the source buffer into the newly allocated list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the count of AV pairs by dividing the length of the source data by the size of
+ *    an AV pair structure.
+ * -# Allocate memory for the AV list by calling 'nvgpu_netlist_alloc_av_list()'.
+ *    If memory allocation fails, return -ENOMEM.
+ * -# Copy the data from the source buffer to the allocated AV list using 'nvgpu_memcpy()'.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  g         The GPU driver struct.
+ * @param [in]  src       Pointer to the source buffer containing the data.
+ * @param [in]  len       The length of the source data.
+ * @param [out] av_list   Pointer to the netlist AV list structure where the data will be loaded.
+ *
+ * @return 0 if the data was successfully loaded into the AV list.
+ * @return -ENOMEM if memory allocation for the AV list failed.
+ */
 static int nvgpu_netlist_alloc_load_av_list(struct gk20a *g, u8 *src, u32 len,
 			struct netlist_av_list *av_list)
 {
@@ -107,6 +137,29 @@ static int nvgpu_netlist_alloc_load_av_list(struct gk20a *g, u8 *src, u32 len,
 	return 0;
 }
 
+/**
+ * @brief Allocates memory for a list of Address-Value64 (AV64) pairs and loads data from a source buffer.
+ *
+ * This function calculates the number of AV64 pairs based on the length of the
+ * source data, allocates memory for the AV64 list, and then copies the data from
+ * the source buffer into the newly allocated list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the count of AV64 pairs by dividing the length of the source data by the size of
+ *    an AV64 pair structure.
+ * -# Allocate memory for the AV64 list by calling 'nvgpu_netlist_alloc_av64_list()'.
+ *    If memory allocation fails, return -ENOMEM.
+ * -# Copy the data from the source buffer to the allocated AV64 list using 'nvgpu_memcpy()'.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  g           The GPU driver struct.
+ * @param [in]  src         Pointer to the source buffer containing the data.
+ * @param [in]  len         The length of the source data.
+ * @param [out] av64_list   Pointer to the netlist AV64 list structure where the data will be loaded.
+ *
+ * @return 0 if the data was successfully loaded into the AV64 list.
+ * @return -ENOMEM if memory allocation for the AV64 list failed.
+ */
 static int nvgpu_netlist_alloc_load_av_list64(struct gk20a *g, u8 *src, u32 len,
 			struct netlist_av64_list *av64_list)
 {
@@ -120,6 +173,29 @@ static int nvgpu_netlist_alloc_load_av_list64(struct gk20a *g, u8 *src, u32 len,
 	return 0;
 }
 
+/**
+ * @brief Allocates memory for a list of Address-Index-Value (AIV) structures and loads data from a source buffer.
+ *
+ * This function calculates the number of AIV entries based on the length of the
+ * source data, allocates memory for the AIV list, and then copies the data from
+ * the source buffer into the newly allocated list.
+ *
+ * The steps performed by the function are as follows:
+ * -# Calculate the count of AIV entries by dividing the length of the source data by the size of
+ *    an AIV structure.
+ * -# Allocate memory for the AIV list by calling 'nvgpu_netlist_alloc_aiv_list()'.
+ *    If memory allocation fails, return -ENOMEM.
+ * -# Copy the data from the source buffer to the allocated AIV list using 'nvgpu_memcpy()'.
+ * -# Return 0 to indicate success.
+ *
+ * @param [in]  g          The GPU driver struct.
+ * @param [in]  src        Pointer to the source buffer containing the data.
+ * @param [in]  len        The length of the source data.
+ * @param [out] aiv_list   Pointer to the netlist AIV list structure where the data will be loaded.
+ *
+ * @return 0 if the data was successfully loaded into the AIV list.
+ * @return -ENOMEM if memory allocation for the AIV list failed.
+ */
 static int nvgpu_netlist_alloc_load_aiv_list(struct gk20a *g, u8 *src, u32 len,
 			struct netlist_aiv_list *aiv_list)
 {
@@ -133,6 +209,38 @@ static int nvgpu_netlist_alloc_load_aiv_list(struct gk20a *g, u8 *src, u32 len,
 	return 0;
 }
 
+/**
+ * @brief Handles the ucode region IDs in the netlist and loads the corresponding data.
+ *
+ * This function processes the microcontroller (ucode) regions in the netlist by
+ * identifying the type of ucode region and loading the data into the appropriate
+ * structures within the netlist variables. It supports handling of FECS and GPCCS
+ * ucode data and instruction regions.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize an error variable and a boolean to indicate if the region has been handled.
+ * -# Use a switch statement to determine the action based on the region_id.
+ * -# If the region_id corresponds to FECS ucode data, call 'nvgpu_netlist_alloc_load_u32_list()'
+ *    to load the data into the netlist variables for FECS data.
+ * -# If the region_id corresponds to FECS ucode instructions, call 'nvgpu_netlist_alloc_load_u32_list()'
+ *    to load the instructions into the netlist variables for FECS instructions.
+ * -# If the region_id corresponds to GPCCS ucode data, call 'nvgpu_netlist_alloc_load_u32_list()'
+ *    to load the data into the netlist variables for GPCCS data.
+ * -# If the region_id corresponds to GPCCS ucode instructions, call 'nvgpu_netlist_alloc_load_u32_list()'
+ *    to load the instructions into the netlist variables for GPCCS instructions.
+ * -# If the region_id does not match any known ucode region, set the handled flag to false.
+ * -# Update the error code with the result of the data loading operation.
+ * -# Return the handled flag indicating whether the region was processed.
+ *
+ * @param [in]  g              The GPU driver struct.
+ * @param [in]  region_id      The ID of the region to be processed.
+ * @param [in]  src            Pointer to the source data for the region.
+ * @param [in]  size           The size of the data for the region.
+ * @param [in]  netlist_vars   Pointer to the netlist variables struct.
+ * @param [out] err_code       Pointer to an integer to store any error code.
+ *
+ * @return true if the region was processed, false otherwise.
+ */
 static bool nvgpu_netlist_handle_ucode_region_id(struct gk20a *g,
 			u32 region_id, u8 *src, u32 size,
 			struct nvgpu_netlist_vars *netlist_vars, int *err_code)
@@ -140,30 +248,58 @@ static bool nvgpu_netlist_handle_ucode_region_id(struct gk20a *g,
 	int err = 0;
 	bool handled = true;
 
-	switch (region_id) {
-	case NETLIST_REGIONID_FECS_UCODE_DATA:
-		nvgpu_log_info(g, "NETLIST_REGIONID_FECS_UCODE_DATA");
-		err = nvgpu_netlist_alloc_load_u32_list(g,
-			src, size, &netlist_vars->ucode.fecs.data);
-		break;
-	case NETLIST_REGIONID_FECS_UCODE_INST:
-		nvgpu_log_info(g, "NETLIST_REGIONID_FECS_UCODE_INST");
-		err = nvgpu_netlist_alloc_load_u32_list(g,
-			src, size, &netlist_vars->ucode.fecs.inst);
-		break;
-	case NETLIST_REGIONID_GPCCS_UCODE_DATA:
-		nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_UCODE_DATA");
-		err = nvgpu_netlist_alloc_load_u32_list(g,
-			src, size, &netlist_vars->ucode.gpccs.data);
-		break;
-	case NETLIST_REGIONID_GPCCS_UCODE_INST:
-		nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_UCODE_INST");
-		err = nvgpu_netlist_alloc_load_u32_list(g,
-			src, size, &netlist_vars->ucode.gpccs.inst);
-		break;
-	default:
-		handled = false;
-		break;
+	if (!g->fecs_flcn.is_falcon2_enabled) {
+		switch (region_id) {
+		case NETLIST_REGIONID_FECS_UCODE_DATA:
+			nvgpu_log_info(g, "NETLIST_REGIONID_FECS_UCODE_DATA");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.fecs.data);
+			break;
+		case NETLIST_REGIONID_FECS_UCODE_INST:
+			nvgpu_log_info(g, "NETLIST_REGIONID_FECS_UCODE_INST");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.fecs.inst);
+			break;
+		case NETLIST_REGIONID_GPCCS_UCODE_DATA:
+			nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_UCODE_DATA");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.gpccs.data);
+			break;
+		case NETLIST_REGIONID_GPCCS_UCODE_INST:
+			nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_UCODE_INST");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.gpccs.inst);
+			break;
+		default:
+			handled = false;
+			break;
+		}
+	} else {
+		switch (region_id) {
+		case NETLIST_REGIONID_FECS_RISCV_UCODE_DATA:
+			nvgpu_log_info(g, "NETLIST_REGIONID_FECS_RISCV_UCODE_DATA");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.fecs.data);
+			break;
+		case NETLIST_REGIONID_FECS_RISCV_UCODE_INST:
+			nvgpu_log_info(g, "NETLIST_REGIONID_FECS_RISCV_UCODE_INST");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.fecs.inst);
+			break;
+		case NETLIST_REGIONID_GPCCS_RISCV_UCODE_DATA:
+			nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_RISCV_UCODE_DATA");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.gpccs.data);
+			break;
+		case NETLIST_REGIONID_GPCCS_RISCV_UCODE_INST:
+			nvgpu_log_info(g, "NETLIST_REGIONID_GPCCS_RISCV_UCODE_INST");
+			err = nvgpu_netlist_alloc_load_u32_list(g,
+				src, size, &netlist_vars->ucode.gpccs.inst);
+			break;
+		default:
+			handled = false;
+			break;
+		}
 	}
 
 	*err_code = err;
@@ -171,6 +307,42 @@ static bool nvgpu_netlist_handle_ucode_region_id(struct gk20a *g,
 	return handled;
 }
 
+/**
+ * @brief Handles the software bundles region IDs in the netlist and loads the corresponding data.
+ *
+ * This function processes the software bundles regions in the netlist by
+ * identifying the type of software bundle region and loading the data into the
+ * appropriate structures within the netlist variables. It supports handling of
+ * various software initialization and context load regions.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize an error variable and a boolean to indicate if the region has been handled.
+ * -# Use a switch statement to determine the action based on the region_id.
+ * -# If the region_id corresponds to software bundle initialization, call 'nvgpu_netlist_alloc_load_av_list()'
+ *    to load the data into the netlist variables for software bundle initialization.
+ * -# If the region_id corresponds to software method initialization, call 'nvgpu_netlist_alloc_load_av_list()'
+ *    to load the data into the netlist variables for software method initialization.
+ * -# If the region_id corresponds to software context load, call 'nvgpu_netlist_alloc_load_aiv_list()'
+ *    to load the data into the netlist variables for software context load.
+ * -# If the region_id corresponds to software non-context load, call 'nvgpu_netlist_alloc_load_av_list()'
+ *    to load the data into the netlist variables for software non-context load.
+ * -# If the region_id corresponds to software VEID bundle initialization, call 'nvgpu_netlist_alloc_load_av_list()'
+ *    to load the data into the netlist variables for VEID bundle initialization.
+ * -# If the region_id corresponds to software bundle 64-bit initialization, call 'nvgpu_netlist_alloc_load_av_list64()'
+ *    to load the data into the netlist variables for 64-bit software bundle initialization.
+ * -# If the region_id does not match any known software bundle region, set the handled flag to false.
+ * -# Update the error code with the result of the data loading operation.
+ * -# Return the handled flag indicating whether the region was processed.
+ *
+ * @param [in]  g              The GPU driver struct.
+ * @param [in]  region_id      The ID of the region to be processed.
+ * @param [in]  src            Pointer to the source data for the region.
+ * @param [in]  size           The size of the data for the region.
+ * @param [in]  netlist_vars   Pointer to the netlist variables struct.
+ * @param [out] err_code       Pointer to an integer to store any error code.
+ *
+ * @return true if the region was processed, false otherwise.
+ */
 static bool nvgpu_netlist_handle_sw_bundles_region_id(struct gk20a *g,
 			u32 region_id, u8 *src, u32 size,
 			struct nvgpu_netlist_vars *netlist_vars, int *err_code)
@@ -229,7 +401,8 @@ static bool nvgpu_netlist_handle_sw_bundles_region_id(struct gk20a *g,
 	}
 
 #if defined(CONFIG_NVGPU_NON_FUSA)
-	if ((handled == false) && (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG))) {
+	if ((handled == false) && ((nvgpu_support_gfx_with_numa(g)) ||
+				nvgpu_grmgr_is_cur_instance_support_gfx(g))) {
 		handled = true;
 		switch (region_id) {
 #ifdef CONFIG_NVGPU_GRAPHICS
@@ -256,6 +429,38 @@ static bool nvgpu_netlist_handle_sw_bundles_region_id(struct gk20a *g,
 	return handled;
 }
 
+/**
+ * @brief Handles the generic region IDs in the netlist and loads the corresponding data.
+ *
+ * This function processes the generic regions in the netlist by identifying the
+ * type of generic region and loading the data into the appropriate variables.
+ * It supports handling of buffer size, context switch register base index, major
+ * version, and netlist number regions.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize a boolean to indicate if the region has been handled.
+ * -# Use a switch statement to determine the action based on the region_id.
+ * -# If the region_id corresponds to the buffer size, copy the data into the
+ *    netlist variables for buffer size using 'nvgpu_memcpy()'.
+ * -# If the region_id corresponds to the context switch register base index, copy
+ *    the data into the netlist variables for the register base index using 'nvgpu_memcpy()'.
+ * -# If the region_id corresponds to the major version, copy the data into the
+ *    provided major version variable using 'nvgpu_memcpy()'.
+ * -# If the region_id corresponds to the netlist number, copy the data into the
+ *    provided netlist number variable using 'nvgpu_memcpy()'.
+ * -# If the region_id does not match any known generic region, set the handled flag to false.
+ * -# Return the handled flag indicating whether the region was processed.
+ *
+ * @param [in]  g              The GPU driver struct.
+ * @param [in]  region_id      The ID of the region to be processed.
+ * @param [in]  src            Pointer to the source data for the region.
+ * @param [in]  size           The size of the data for the region (unused).
+ * @param [out] major_v        Pointer to the major version variable to be updated.
+ * @param [out] netlist_num    Pointer to the netlist number variable to be updated.
+ * @param [in]  netlist_vars   Pointer to the netlist variables struct.
+ *
+ * @return true if the region was processed, false otherwise.
+ */
 static bool nvgpu_netlist_handle_generic_region_id(struct gk20a *g,
 			u32 region_id, u8 *src, u32 size,
 			u32 *major_v, u32 *netlist_num,
@@ -437,13 +642,19 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 			&netlist_vars->ctxsw_regs.lts_uc);
 		break;
 #endif
+	case NETLIST_REGIONID_CTXREGPMLRCC:
+		nvgpu_log_info(g, "NETLIST_REGIONID_CTXREGPMLRCC");
+		err = nvgpu_netlist_alloc_load_aiv_list(g, src, size,
+			&netlist_vars->ctxsw_regs.pm_lrcc);
+		break;
 
 	default:
 		handled = false;
 		break;
 	}
 
-	if ((handled == false) && (!nvgpu_is_enabled(g, NVGPU_SUPPORT_MIG))) {
+	if ((handled == false) && ((nvgpu_support_gfx_with_numa(g)) ||
+				nvgpu_grmgr_is_cur_instance_support_gfx(g))) {
 		handled = true;
 		switch (region_id) {
 		case NETLIST_REGIONID_CTXREG_SYS:
@@ -524,6 +735,37 @@ static bool nvgpu_netlist_handle_debugger_region_id(struct gk20a *g,
 }
 #endif /* CONFIG_NVGPU_DEBUGGER */
 
+/**
+ * @brief Handles the processing of a specific region ID in the netlist.
+ *
+ * This function is responsible for identifying the type of region specified by
+ * the region ID and then processing the data associated with that region. It
+ * calls specific handler functions based on the region ID and updates the
+ * netlist variables accordingly. If an error occurs or the region is handled,
+ * the function will exit early.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize a boolean to track if the region has been handled and an error variable.
+ * -# Call 'nvgpu_netlist_handle_ucode_region_id()' to handle ucode region IDs.
+ *    If the region is handled or an error occurs, go to clean up.
+ * -# Call 'nvgpu_netlist_handle_sw_bundles_region_id()' to handle software bundles region IDs.
+ *    If the region is handled or an error occurs, go to clean up.
+ * -# Call 'nvgpu_netlist_handle_generic_region_id()' to handle generic region IDs.
+ *    If the region is handled, go to clean up.
+ * -# If no handler processed the region ID, log the unrecognized region ID and proceed to clean up.
+ * -# Clean up and return the error status.
+ *
+ * @param [in]  g             The GPU driver struct.
+ * @param [in]  region_id     The ID of the region to be processed.
+ * @param [in]  src           Pointer to the source data for the region.
+ * @param [in]  size          The size of the data for the region.
+ * @param [out] major_v       Pointer to the major version variable to be updated.
+ * @param [out] netlist_num   Pointer to the netlist number variable to be updated.
+ * @param [in]  netlist_vars  Pointer to the netlist variables struct.
+ *
+ * @return 0 if the region was processed successfully.
+ * @return Non-zero error code if an error occurred during processing.
+ */
 static int nvgpu_netlist_handle_region_id(struct gk20a *g,
 			u32 region_id, u8 *src, u32 size,
 			u32 *major_v, u32 *netlist_num,
@@ -563,6 +805,26 @@ clean_up:
 	return err;
 }
 
+/**
+ * @brief Checks if the netlist version matches the hardware version.
+ *
+ * This function compares the major version of the netlist against the major
+ * version expected by the hardware. It is used to ensure compatibility between
+ * the netlist and the GPU hardware. If the netlist is marked as final or the
+ * versions match, the netlist is considered valid.
+ *
+ * The steps performed by the function are as follows:
+ * -# Check if the netlist is not marked as final and the major versions do not match.
+ *    If they do not match, return false indicating the netlist is not valid.
+ * -# If the netlist is marked as final or the major versions match, return true
+ *    indicating the netlist is valid.
+ *
+ * @param [in] net         The netlist slot or final indicator.
+ * @param [in] major_v     The major version of the netlist.
+ * @param [in] major_v_hw  The major version expected by the hardware.
+ *
+ * @return true if the netlist is considered valid, false otherwise.
+ */
 static bool nvgpu_netlist_is_valid(int net, u32 major_v, u32 major_v_hw)
 {
 	if ((net != NETLIST_FINAL) && (major_v != major_v_hw)) {
@@ -571,6 +833,37 @@ static bool nvgpu_netlist_is_valid(int net, u32 major_v, u32 major_v_hw)
 	return true;
 }
 
+/**
+ * @brief Initializes the context variables from the netlist firmware.
+ *
+ * This function is responsible for loading the netlist firmware, parsing it,
+ * and initializing the context variables that will be used by the GPU. It
+ * performs a series of steps to ensure that the netlist is loaded correctly
+ * and is compatible with the hardware.
+ *
+ * The steps performed by the function are as follows:
+ * -# Initialize local variables for tracking the netlist version and error status.
+ * -# Determine if the netlist firmware is predefined or needs to be loaded dynamically
+ *    by calling gops_netlist.is_fw_defined().
+ * -# Loop through each netlist slot or the final netlist based on the firmware definition.
+ * -# Retrieve the name of the netlist for the current slot by calling
+ *    gops_netlist.get_netlist_name() and request the firmware to be loaded using
+ *    nvgpu_request_firmware().
+ * -# If the firmware is successfully loaded, parse the netlist image and process each region.
+ * -# Handle each region by calling 'nvgpu_netlist_handle_region_id()' and check for errors.
+ * -# Validate the netlist version against the hardware version by calling
+ *    'nvgpu_netlist_is_valid()'.
+ * -# If validation is successful, mark the netlist as valid and release the firmware resources
+ *    using 'nvgpu_release_firmware()'.
+ * -# If an error occurs during processing, clean up allocated resources using 'nvgpu_kfree()',
+ *    release the firmware using 'nvgpu_release_firmware()', and set the error status.
+ * -# If the netlist is valid, log the successful loading, otherwise log the failure.
+ *
+ * @param [in]  g  The GPU driver struct.
+ *
+ * @return 0 if the netlist was loaded and validated successfully.
+ * @return Non-zero error code if an error occurred during netlist loading or validation.
+ */
 static int nvgpu_netlist_init_ctx_vars_fw(struct gk20a *g)
 {
 	struct nvgpu_netlist_vars *netlist_vars = g->netlist_vars;
@@ -678,6 +971,7 @@ clean_up:
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_rop.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ucgpc.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.etpc.l);
+		nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrcc.l);
 #if defined(CONFIG_NVGPU_NON_FUSA)
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.sys_compute.l);
 		nvgpu_kfree(g, netlist_vars->ctxsw_regs.gpc_compute.l);
@@ -797,6 +1091,7 @@ void nvgpu_netlist_deinit_ctx_vars(struct gk20a *g)
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_rop.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_ucgpc.l);
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.etpc.l);
+	nvgpu_kfree(g, netlist_vars->ctxsw_regs.pm_lrcc.l);
 
 #if defined(CONFIG_NVGPU_NON_FUSA)
 	nvgpu_kfree(g, netlist_vars->ctxsw_regs.sys_compute.l);
@@ -879,6 +1174,26 @@ u32 nvgpu_netlist_get_gpccs_data_count(struct gk20a *g)
 	return g->netlist_vars->ucode.gpccs.data.count;
 }
 
+u32 nvgpu_netlist_get_fecs_manifest_count(struct gk20a *g)
+{
+	return g->netlist_vars->ucode.fecs.manifest.count;
+}
+
+u32 nvgpu_netlist_get_gpccs_manifest_count(struct gk20a *g)
+{
+	return g->netlist_vars->ucode.gpccs.manifest.count;
+}
+
+u32 *nvgpu_netlist_get_fecs_manifest_list(struct gk20a *g)
+{
+	return g->netlist_vars->ucode.fecs.manifest.l;
+}
+
+u32 *nvgpu_netlist_get_gpccs_manifest_list(struct gk20a *g)
+{
+	return g->netlist_vars->ucode.gpccs.manifest.l;
+}
+
 u32 *nvgpu_netlist_get_fecs_inst_list(struct gk20a *g)
 {
 	return g->netlist_vars->ucode.fecs.inst.l;
@@ -899,6 +1214,7 @@ u32 *nvgpu_netlist_get_gpccs_data_list(struct gk20a *g)
 	return g->netlist_vars->ucode.gpccs.data.l;
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_local_compute_load_av_list(
 							struct gk20a *g)
 {
@@ -912,12 +1228,14 @@ struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_global_compute_load_av_list
 }
 
 #ifdef CONFIG_NVGPU_GRAPHICS
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_local_gfx_load_av_list(
 							struct gk20a *g)
 {
 	return &g->netlist_vars->sw_non_ctx_local_gfx_load;
 }
 
+NVGPU_COV_WHITELIST(deviate, NVGPU_MISRA(Rule, 5_1), "SWE-DRC-502-SWSADP-M5.dox")
 struct netlist_av_list *nvgpu_netlist_get_sw_non_ctx_global_gfx_load_av_list(
 							struct gk20a *g)
 {
@@ -1003,6 +1321,11 @@ struct netlist_aiv_list *nvgpu_netlist_get_gpc_router_ctxsw_regs(
 struct netlist_aiv_list *nvgpu_netlist_get_pm_ltc_ctxsw_regs(struct gk20a *g)
 {
 	return &g->netlist_vars->ctxsw_regs.pm_ltc;
+}
+
+struct netlist_aiv_list *nvgpu_netlist_get_pm_lrcc_ctxsw_regs(struct gk20a *g)
+{
+	return &g->netlist_vars->ctxsw_regs.pm_lrcc;
 }
 
 struct netlist_aiv_list *nvgpu_netlist_get_pm_fbpa_ctxsw_regs(struct gk20a *g)
@@ -1162,6 +1485,8 @@ void nvgpu_netlist_print_ctxsw_reg_info(struct gk20a *g)
 			nvgpu_netlist_get_gpc_router_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LTC_COUNT                  :%d",
 			nvgpu_netlist_get_pm_ltc_ctxsw_regs(g)->count);
+	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_LRCC_COUNT                  :%d",
+			nvgpu_netlist_get_pm_lrcc_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_ROP_COUNT                  :%d",
 			nvgpu_netlist_get_pm_rop_ctxsw_regs(g)->count);
 	nvgpu_log_info(g, "GRCTX_REG_LIST_PM_UNICAST_GPC_COUNT          :%d",
@@ -1218,6 +1543,26 @@ void nvgpu_netlist_set_gpccs_inst_count(struct gk20a *g, u32 count)
 void nvgpu_netlist_set_gpccs_data_count(struct gk20a *g, u32 count)
 {
 	g->netlist_vars->ucode.gpccs.data.count = count;
+}
+
+void nvgpu_netlist_set_fecs_manifest_count(struct gk20a *g, u32 count)
+{
+	g->netlist_vars->ucode.fecs.manifest.count = count;
+}
+
+void nvgpu_netlist_set_gpccs_manifest_count(struct gk20a *g, u32 count)
+{
+	g->netlist_vars->ucode.gpccs.manifest.count = count;
+}
+
+struct netlist_u32_list *nvgpu_netlist_get_fecs_manifest(struct gk20a *g)
+{
+	return &g->netlist_vars->ucode.fecs.manifest;
+}
+
+struct netlist_u32_list *nvgpu_netlist_get_gpccs_manifest(struct gk20a *g)
+{
+	return &g->netlist_vars->ucode.gpccs.manifest;
 }
 
 struct netlist_u32_list *nvgpu_netlist_get_fecs_inst(struct gk20a *g)

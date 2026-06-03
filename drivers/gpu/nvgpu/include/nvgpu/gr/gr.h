@@ -1,38 +1,21 @@
-/*
- * Copyright (c) 2019-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+/* SPDX-License-Identifier: GPL-2.0-only OR MIT
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_GR_H
 #define NVGPU_GR_H
 
 #include <nvgpu/types.h>
+#include <nvgpu/enabled.h>
 
 /**
  * @file
- * @page unit-gr Unit GR
+ * @page common.gr common.gr
  *
  * Overview
  * ========
  *
- * common.gr unit is responsible for managing the GR engine on the GPU.
+ * @ref common.gr unit is responsible for managing the GR engine on the GPU.
  * There are two aspects of GR engine support managed by this unit:
  *
  * - GR engine h/w.
@@ -41,7 +24,7 @@
  * GR engine h/w management
  * ------------------------
  *
- * common.gr unit has below responsibilities to manage GR engine h/w:
+ * @ref common.gr unit has below responsibilities to manage GR engine h/w:
  *
  * - Reset and enable GR engine h/w.
  * - Allocate all necessary s/w data structures to hold GR engine
@@ -57,7 +40,7 @@
  * GR engine s/w context image management
  * --------------------------------------
  *
- * common.gr unit has below responsibilities to manage GR engine context
+ * @ref common.gr unit has below responsibilities to manage GR engine context
  * images:
  *
  * - Manage all global context images.
@@ -69,9 +52,9 @@
  * Data Structures
  * ===============
  *
- * All the major data structures are defined privately in common.gr
- * unit. However common.gr unit exposes below public data structures
- * to support ucode handling in common.acr unit:
+ * All the major data structures are defined privately in @ref common.gr
+ * unit. However @ref common.gr unit exposes below public data structures
+ * to support ucode handling in @ref common.acr unit:
  *
  *   + struct nvgpu_ctxsw_ucode_segment
  *
@@ -96,8 +79,76 @@
  *   + include/nvgpu/gr/gr_intr.h
  *   + include/nvgpu/gr/gr_utils.h
  *
+ * Subunits Overview
+ * -----------------
+ *
+ * @ref common.gr.init - Initialization subunit
+ *  This subunit helps in setting up GR Engine. For s/w it helps to allocate
+ *  and initialize various data structures. For h/w it helps to reset and
+ *  configure the registers.
+ *
+ * @ref common.gr.config - Configuration subunit
+ *  This subunit reads the h/w registers from nvgpu-rm @ref common.fuse and
+ *  @ref common.top units and keeps track of the GR h/w properties and provides
+ *  interfaces for s/w queries.
+ *
+ * @ref common.gr.setup - Setup subunit
+ *  This subunit helps to allocate and free the memory for context and subcontext
+ *  related to channel. It also helps to validate and setup the preemption modes.
+ *
+ * @ref common.gr.fs_state - Floorsweeping state subunit
+ *  This subunit helps to set the post floorsweeping. Configure the GR engine
+ *  with available GPC/TPC/SM count and mapping.
+ *
+ * @ref common.gr.falcon - Falcon subunit
+ *  This subunit helps in communications with FECS firmware.
+ *  FECS cordinates context switching for graphics engine.
+ *
+ * @ref common.gr.ctx - Context subunit.
+ *  This subunit helps for allocation and management of the
+ *  context in GR engine. This subunit makes use of other subunits like
+ *  @ref common.gr.global_ctx, @ref common.gr.obj_ctx, @ref common.gr.subctx and
+ *  @ref common.gr.ctxsw_prog.
+ *
+ * @ref common.gr.global_ctx - Global Context subunit.
+ *  This subunit helps global context buffer management.
+ *
+ * @ref common.gr.obj_ctx - Context Object subunit.
+ *  This subunit helps to initialize the context state registers. Helps to handle
+ *  the golden context image and also helps in preparing and committing
+ *  global context buffers to h/w. The golden context image is created only once
+ *  while creating the first context image. This will be done as part of allocate
+ *  object context. Golden context image is saved after explicitly initializing
+ *  the first context image. All subsequent context images are initialized by
+ *  loading the saved context image instead of explicit initialization.
+ *  For golden context verification capture the golden image twice and compare
+ *  the contents. Correct golden image is captured only if the contents match
+ *  from both the images.
+ *
+ * @ref common.gr.subctx - SubContext Subunit
+ *  This subunit helps in allocation and management of subcontext buffers.
+ *
+ * @ref common.gr.ctxsw_prog - Context programming subunit
+ *  This subunit helps the context related h/w register programming.
+ *
+ * @ref common.gr.intr - Interrupt subunit
+ *  This subunit helps to enable/disable GR Engine related interrupts. Helps to
+ *  handle the interrupts (For e.g. exceptions,errors,etc) and clear the interrupts.
+ *  Also reports the error to nvgpu-mon as needed.
+ *
+ * @ref common.gr.ecc - ECC subunit
+ *  This subunit helps to allocate and deallocate the ECC corrected and
+ *  uncorrected error counters for various subunits of GR. These error counts are
+ *  reported back to nvgpu-mon as needed.
+ *
+ * @ref common.gr.utils - Utility subunit
+ *  This subunit provides generic functions to get handles to various gr subunits
+ *  from @ref common.gr structure.
+ *
  * Resource utilization
  * --------------------
+ * This unit helps to initialize the GR engine and the creation of context for channel.
+ * It also relies on services from nvgpu-mon to get the interrupts triggered.
  *
  * External APIs
  * -------------
@@ -110,15 +161,167 @@
  *
  * Dynamic Design
  * ==============
+ * Application requires to create and initialize channel context before
+ * submitting any work to GR h/w. Application can optionally change
+ * the compute preemption mode.
+ *
+ * This section describes dynamic aspects of the design.  Each section identifies
+ * a representative use case and describes how it is processed.
+ *
+ * Initialization
+ * --------------
+ *
+ *    Both h/w and s/w need to be configured for @ref common.gr block to be usable.
+ *    The @ref common.gr unit initialization process will be handled in three phases.
+ *
+ *    **Phase I - Prepare s/w**
+ *      This sections executes a subset of s/w initialization sequences that is
+ *      required to enable GR h/w engine. s/w make use of priv_ring and top
+ *      registers to find the GPU device information.
+ *      This includes GPU architecture, revision, class values.
+ *      SM architecture information like total number of warps, SPA version,
+ *      SM version. GR engine configurations like GPC/TPC units, maximum number
+ *      of LTC and LTS, GPC/TPC supported masks and available context
+ *      preemption modes.
+ *      Reads the netlist ucode and do the memory allocation for falcon init.
+ *
+ *    **Phase II - Enable h/w**
+ *      This sections reset the GR engine. Load non_context netlist portion to h/w
+ *      and wait maximum up to 3000 ms for GR engine to get idle.
+ *
+ *    **Phase III - GR Init support**
+ *      This sections initializes remaining support for GR engine functionality.
+ *
+ *      * Initialize context switch ucode.
+ *          - Load ctxsw firmware through ctxsw mailbox method submission.
+ *          - Set values for ctxsw watch dog timer.
+ *          - Wait up to 3000 ms for a success/failure response to ensure proper
+ *            firmware boot.
+ *          - In case of failure, report the failure back to qnx.sdl.
+ *      * Read Golden Context image size from FECS.
+ *      * Allocate all internal data memory and memory for global context buffers.
+ *      * Initialize GR engine h/w registers.
+ *      * Initialize and enable GR interrupt registers.
+ *      * Initialize Preemption state.
+ *      * Complete Floorsweep and wait up to 3000 ms to get GR engine idle.
+ *
+ * Runtime Support
+ * ---------------
+ *
+ *    Application requires to create and initialize channel context before
+ *    submitting any work to GR h/w. Application can optionally change
+ *    the compute preemption mode.
+ *
+ * Error Reporting
+ * ---------------
+ *
+ *   Interrupts enabled in GR Engine unit during GR init will trigger interrupts
+ *   to notify errors/events supported by the h/w.
+ *
+ *   Following interrupt fields are handled in GR Engine unit
+ *
+ *   * NOTIFY
+ *      Notification interrupts. The method following the Notify method is
+ *      captured in the TRAPPED_ADDR and TRAPPED_DATA regs.
+ *
+ *   * SEMAPHORE
+ *      Semaphore interrupts.
+ *
+ *   * ILLEGAL_METHOD
+ *      Illegal methods can be passed to FECS for service by firmware.
+ *
+ *   * ILLEGAL_CLASS
+ *      This indicates the class of the current subchannel is not recognized
+ *      by the hardware
+ *
+ *   * ILLEGAL_NOTIFY
+ *      This indicates that a notify method was not followed by a NOOperation
+ *      method belonging to the same subchannel.
+ *
+ *   * FIRMWARE_METHOD
+ *      This indicates that the method in TRAPPED_ADDR is a SetFalcon method.
+ *
+ *   * FECS_ERROR
+ *      This indicates FECS has an interrupt condition. FECS interrupt routine
+ *      handles errors related to fault raised for failure on transaction during
+ *      ctxsw, watchdog timer expiration during ctxsw, ctxsw mailbox interrupts,
+ *      etc. Those errors are reported back to qnx-sdl unit in nvgpu-rm.
+ *
+ *   * CLASS_ERROR
+ *      This indicates a class error has occured.
+ *
+ *   * EXCEPTION
+ *      This indicates an exception condition exists in the GR pipe. There are
+ *      separate exception registers which contains the information about the
+ *      source of an exception reported.
+ *
+ *   @ref common.mc unit calls @ref common.gr stalling interrupt function. This function
+ *   handles any pending GR engine interrupts, record and report ecc errors of
+ *   affected subunits to nvgpu-rm qnx-sdl, clears pending interrupts.
+ *
+ * Safety
+ * ======
+ * Following safety requirements are handled by @ref common.gr unit.
+ *
+ * *SM_debug mode*
+ *   NvGPU software ensures SM_debug mode is set to OFF by default.
+ *
+ * *GR engine Golden context verification*
+ *   @ref common.gr shall verify the golden context validity before capturing it.
+ *   @ref common.gr.obj_ctx helps to handle this safety requirements.
+ *   Refer @ref common.gr.obj_ctx subunit under Static Design section.
+ *
+ * This section describes the temporal constraints applied during @ref common.gr
+ * initialization.
+ *
+ *  -  After configuring the GR h/w engine, the s/w must wait a maximum up to
+ *     3000 ms for GR engine to get idle.
+ *  -  During various stages of loading the sw bundle from netlist,
+ *     s/w must wait a maximum up to 3000 ms for idling the GR engine.
+ *  -  s/w must wait up to 1 ms for imem/dmem scrubbing of any falcon unit
+ *     to complete.
+ *  -  s/w must ensure iGPU CTXSW firmware is loaded before issuing any method
+ *     to the firmware. After loading CTXSW firwmare, s/w polls for handshake
+ *     complete status to ensure firmware is loaded successfully.
+ *  -  s/w must set watchdog timeout value before issuing any method to
+ *     CTXSW firmware.
+ *  -  s/w must wait to to 3000ms to ensure the correct response codes
+ *     in CTXSW firmware mailboxes. s/w submits various methods to CTXSW firmware
+ *     and wait with this timeout for success/failure response for each submit.
+ *  -  s/w must query the golden image size and bind the instance block before
+ *     issuing command to save the golden context image to CTXSW firmware.
+ *  -  Complete Floorsweep and wait up to 3000 ms to get GR engine idle.
+ *
+ * Security
+ * ========
+ *
+ * Debugger feature and Tracing support are disabled as part of driver
+ * code compilation.
+ *
+ * Driver is also being compliant with CERT C specification.
+ *
+ * Satisfies NVGPU_RM_SECURITY_MEASURES atom from nvgpu-rm
  *
  * Open Items
  * ==========
  *
  */
+
 struct gk20a;
 struct nvgpu_gr;
 struct nvgpu_gr_config;
 struct netlist_av_list;
+struct nvgpu_priv_addr_map;
+
+enum enum_enabled_gfx_mig_flags {
+	NVGPU_SUPPORT_2D = (NVGPU_MAX_ENABLED_BITS + 1),
+	NVGPU_SUPPORT_3D,
+	NVGPU_SUPPORT_I2M,
+	NVGPU_SUPPORT_ZBC,
+	NVGPU_SUPPORT_ZBC_STENCIL,
+	NVGPU_SUPPORT_PREEMPTION_GFXP,
+	NVGPU_MAX_ENABLED_GR_CLASS_BITS
+};
 
 /**
  * @brief Allocate memory for GR struct and initialize the minimum SW
@@ -244,7 +447,7 @@ void nvgpu_gr_sw_ready(struct gk20a *g, bool enable);
  *
  * @return number of available SMs in GR engine.
  */
-u32 nvgpu_gr_get_no_of_sm(struct gk20a *g);
+u32 nvgpu_gr_get_no_of_sm(struct gk20a *g, u32 instance_id);
 
 /**
  * @brief Suspend GR engine.
@@ -358,5 +561,17 @@ int nvgpu_gr_reset(struct gk20a *g);
 void nvgpu_gr_init_reset_enable_hw_non_ctx_local(struct gk20a *g);
 void nvgpu_gr_init_reset_enable_hw_non_ctx_global(struct gk20a *g);
 /** @endcond DOXYGEN_SHOULD_SKIP_THIS */
+
+bool nvgpu_is_gr_class_enabled(struct gk20a *g, u32 flag, u32 gr_instance_id);
+void nvgpu_set_gr_class_enabled(struct gk20a *g, u32 flag, bool state,
+		u32 gr_instance_id);
+#ifdef CONFIG_NVGPU_DEBUGGER
+int nvgpu_gr_search_pri_addr_map(struct gk20a *g,
+		struct nvgpu_priv_addr_map *p_map, u32 addr, u32 max_offsets,
+		u32 *priv_offset, u32 *num_offsets);
+#endif
+
+bool nvgpu_gr_set_mmu_nack_pending(struct gk20a *g, u32 gr_instance_id,
+		u32 ctx_id);
 
 #endif /* NVGPU_GR_H */
