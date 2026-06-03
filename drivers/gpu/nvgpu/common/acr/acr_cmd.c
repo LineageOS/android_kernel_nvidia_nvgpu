@@ -202,6 +202,9 @@ int nvgpu_acr_bootstrap_engine(struct gk20a *g,
 	cmd.cmd.acr_cmd.bootstrap_engine.intr_ctrl_0 = intr_ctrl_0;
 	cmd.cmd.acr_cmd.bootstrap_engine.intr_ctrl_1 = intr_ctrl_1;
 
+	cmd.cmd.acr_cmd.bootstrap_engine.intr_ctrl_uncorrected_err = SKIP_INTR_CTRL_WRITE;
+	cmd.cmd.acr_cmd.bootstrap_engine.intr_ctrl_corrected_err = SKIP_INTR_CTRL_WRITE;
+
 	if (engine_id == FALCON_ID_PMU_RISCV_EB) {
 		cmd.cmd.acr_cmd.bootstrap_engine.boot_arg_lo =
 					nvgpu_falcon_mailbox_read(g->pmu->flcn, FALCON_MAILBOX_0);

@@ -152,6 +152,8 @@ struct gk20a;
 #define NV_GSP_UNIT_CONTROL_FIFO_ERASE	0X0FU
 #define NV_GSP_UNIT_END					0x14U
 
+#define SKIP_INTR_CTRL_WRITE            0xFFFFFFFFU
+
 #define GSP_MSG_HDR_SIZE	U32(sizeof(struct gsp_hdr))
 #define GSP_CMD_HDR_SIZE	U32(sizeof(struct gsp_hdr))
 
@@ -177,6 +179,9 @@ struct nvgpu_gsp_acr_cmd_bootstrap_engine {
 	u32 intr_ctrl_1;
 	u32 boot_arg_lo;
 	u32 boot_arg_hi;
+	u32 is_dip_pg_exit;
+	u32 intr_ctrl_uncorrected_err;
+	u32 intr_ctrl_corrected_err;
 };
 
 struct nvgpu_gsp_acr_cmd_unlock_wpr {
