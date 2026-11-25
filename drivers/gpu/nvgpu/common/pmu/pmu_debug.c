@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/gk20a.h>
@@ -74,7 +74,7 @@ static void print_pmu_trace(struct nvgpu_pmu *pmu)
 			if (k >= 40U) {
 				break;
 			}
-			(void)strncpy(part_str, (trace+i+20+m), k);
+			(void)memcpy(part_str, (trace+i+20+m), k);
 			part_str[k] = '\0';
 			(void)nvgpu_strnadd_u32(hex_str,
 					trace1[(i / 4U) + 1U + l],

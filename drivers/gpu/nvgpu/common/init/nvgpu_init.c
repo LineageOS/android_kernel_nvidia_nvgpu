@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2011-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/debug.h>
 #include <nvgpu/nvgpu_common.h>
@@ -1309,6 +1309,24 @@ done:
 
 		if (release_err != 0) {
 			nvgpu_err(g, "failed to release static_pg_lock");
+		}
+	}
+#endif
+
+#ifdef CONFIG_NVGPU_LS_PMU
+	/*
+	 * Later init steps can fail after PMU is already marked ready.
+	 * Destroy PMU now so teardown does not issue RPCs to dead HW.
+	 */
+	if ((g->pmu != NULL) && (g->pmu->fw != NULL) &&
+			nvgpu_pmu_get_fw_ready(g, g->pmu) &&
+			(g->ops.pmu.pmu_destroy != NULL)) {
+		int pmu_err = g->ops.pmu.pmu_destroy(g, g->pmu);
+
+		if (pmu_err != 0) {
+			nvgpu_err(g,
+				"failed to destroy PMU during poweron failure cleanup: %d",
+				pmu_err);
 		}
 	}
 #endif

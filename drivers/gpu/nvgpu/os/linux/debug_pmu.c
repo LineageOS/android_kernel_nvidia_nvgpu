@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/enabled.h>
 #include <nvgpu/pmu/pmu_perfmon.h>
@@ -749,7 +749,7 @@ static int falc_trace_show(struct seq_file *s, void *data)
 		while (nvgpu_find_hex_in_string((trace+i+20+m), g, &k)) {
 			if (k >= 40)
 				break;
-			(void) strncpy(part_str, (trace+i+20+m), k);
+			(void) memcpy(part_str, (trace+i+20+m), k);
 			part_str[k] = 0;
 			seq_printf(s, "%s0x%x", part_str,
 					trace1[(i / 4) + 1 + l]);

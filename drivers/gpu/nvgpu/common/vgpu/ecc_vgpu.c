@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2018-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/vgpu/vgpu_ivc.h>
 #include <nvgpu/vgpu/vgpu.h>
 #include <nvgpu/errno.h>
+#include <nvgpu/string.h>
 
 #include "common/vgpu/ecc_vgpu.h"
 #include "common/vgpu/ivc/comm_vgpu.h"
@@ -47,8 +48,9 @@ int vgpu_ecc_get_info(struct gk20a *g)
 
 	for (i = 0; i < count; i++) {
 		stats[i].ecc_id = entry[i].ecc_id;
-		(void) strncpy(stats[i].name, entry[i].name,
+		memcpy(stats[i].name, entry[i].name,
 			NVGPU_ECC_STAT_NAME_MAX_SIZE);
+		stats[i].name[NVGPU_ECC_STAT_NAME_MAX_SIZE] = '\0';
 	}
 
 	priv->ecc_stats = stats;

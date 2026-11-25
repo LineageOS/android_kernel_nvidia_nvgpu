@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/enabled.h>
 #include <nvgpu/pmu.h>
@@ -535,11 +535,15 @@ exit:
 
 u32 nvgpu_pmu_get_next_head(u32 head)
 {
+
+	/* Before +1: head is already invalid — return as-is, do not wrap to 0. */
+	if (head >= NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
+		return head;
+	}
+
+	/* After +1: head was valid; NUM means past last slot — wrap to 0. */
 	head = nvgpu_safe_add_u32(head, 1U);
 	if (head >= NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
-		if (head > NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
-			/* to-do add breakpoint */
-		}
 		head = 0;
 	}
 	return head;
@@ -552,6 +556,18 @@ static bool pmu_fbq_ptcb_has_room(struct nvgpu_pmu *pmu)
 
 	head = nvgpu_readl(g, g->ops.pmu.pmu_get_queue_head(0));
 	tail = nvgpu_readl(g, g->ops.pmu.pmu_get_queue_tail(0));
+
+	/*
+	 * Invalid head/tail means the PMU aperture is inaccessible
+	 * (U32_MAX on failed read, or 0xbadfXXXX PRI decode error).
+	 * Bail out before treating them as queue indices.
+	 */
+	if ((head >= NV_PMU_FBQ_CMD_NUM_ELEMENTS) ||
+			(tail >= NV_PMU_FBQ_CMD_NUM_ELEMENTS)) {
+		nvgpu_err(g, "PMU FBQ head/tail invalid (0x%x/0x%x), GPU may be inaccessible",
+			  head, tail);
+		return false;
+	}
 
 	next_head = nvgpu_pmu_get_next_head(head);
 
@@ -576,6 +592,13 @@ static s32 pmu_write_cmd_ptcb(struct nvgpu_pmu *pmu, struct nv_pmu_rpc_header *r
 
 	head =  pwr_pmu_queue_head_address_v(
 			nvgpu_readl(g, g->ops.pmu.pmu_get_queue_head(0)));
+	/* Reject invalid head before using it as a super-surface index. */
+	if (head >= NV_PMU_FBQ_CMD_NUM_ELEMENTS) {
+		nvgpu_err(g, "PMU FBQ head invalid (0x%x), GPU may be inaccessible",
+			  head);
+		err = -EIO;
+		goto exit;
+	}
 
 	fbq_ptcb_ss_offset =
 		nvgpu_pmu_get_fbq_ptcb_ss_offset(g, pmu,

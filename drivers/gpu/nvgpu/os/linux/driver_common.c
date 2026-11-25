@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvidia/conftest.h>
 
@@ -105,25 +105,25 @@ void nvgpu_devfreq_init(struct gk20a *g)
 #endif
 
 	/* specify devfreq governor from module parameter */
-#ifdef CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND)
 	if (strncmp(nvgpu_devfreq_gov, "simple_ondemand",
 					strlen("simple_ondemand")) == 0)
 		platform->devfreq_governor = "simple_ondemand";
 #endif
-#ifdef CONFIG_DEVFREQ_GOV_PERFORMANCE
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_PERFORMANCE)
 	if (strncmp(nvgpu_devfreq_gov, "performance",
 					strlen("performance")) == 0)
 		platform->devfreq_governor = "performance";
 #endif
-#ifdef CONFIG_DEVFREQ_GOV_POWERSAVE
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_POWERSAVE)
 	if (strncmp(nvgpu_devfreq_gov, "powersave", strlen("powersave")) == 0)
 		platform->devfreq_governor = "powersave";
 #endif
-#ifdef CONFIG_DEVFREQ_GOV_USERSPACE
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_USERSPACE)
 	if (strncmp(nvgpu_devfreq_gov, "userspace", strlen("userspace")) == 0)
 		platform->devfreq_governor = "userspace";
 #endif
-#ifdef CONFIG_DEVFREQ_GOV_PASSIVE
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_PASSIVE)
 	if (strncmp(nvgpu_devfreq_gov, "passive", strlen("passive")) == 0)
 		platform->devfreq_governor = "passive";
 #endif

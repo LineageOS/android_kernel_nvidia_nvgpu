@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu/allocator.h>
 #include <nvgpu/engine_fb_queue.h>
@@ -472,6 +472,19 @@ static bool pmu_read_message_ptcb(struct nvgpu_pmu *pmu,
 
 	g->ops.pmu.pmu_msgq_tail(pmu, &tail, QUEUE_GET);
 
+	/*
+	 * Invalid head/tail means the PMU aperture is inaccessible
+	 * (U32_MAX on failed read, or 0xbadfXXXX PRI decode error).
+	 * Bail out before treating them as message-queue indices.
+	 */
+	if ((head >= NV_PMU_FBQ_MSG_NUM_ELEMENTS) ||
+			(tail >= NV_PMU_FBQ_MSG_NUM_ELEMENTS)) {
+		nvgpu_err(g, "PMU msgq head/tail invalid (0x%x/0x%x), GPU may be inaccessible",
+			  head, tail);
+		ret = false;
+		goto exit;
+	}
+
 	if (head == tail) {
 		nvgpu_pmu_dbg(g, "queue empty");
 		ret = false;
@@ -502,6 +515,18 @@ static s32 pmu_process_init_msg_ptcb(struct gk20a *g,
 	nvgpu_log_fn(g, " ");
 
 	g->ops.pmu.pmu_msgq_tail(pmu, &tail, QUEUE_GET);
+
+	/*
+	 * Invalid tail means the PMU aperture is inaccessible
+	 * (U32_MAX on failed read, or 0xbadfXXXX PRI decode error).
+	 * Bail out before treating it as a message-queue index.
+	 */
+	if (tail >= NV_PMU_FBQ_MSG_NUM_ELEMENTS) {
+		nvgpu_err(g, "PMU msgq tail invalid (0x%x), GPU may be inaccessible",
+			  tail);
+		err = -EIO;
+		goto exit;
+	}
 
 	pmu_read_msg_ptcb(g, pmu, tail,
 		nvgpu_safe_cast_u64_to_u32(sizeof(pmu_rpc->event_rpc)),

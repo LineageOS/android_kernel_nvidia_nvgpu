@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #if defined(CONFIG_NVIDIA_CONFTEST)
 #include <nvidia/conftest.h>
@@ -41,24 +41,25 @@ static struct nvgpu_nvs_domain_ctrl_fifo_user_vma *
 static int zap_vma_entries(struct gk20a *g, struct vm_area_struct *vma)
 {
 	int err = 0;
-	#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
-		mmap_write_lock(vma->vm_mm);
-	#else
-		down_write(&vma->vm_mm->mmap_sem);
-	#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
-		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	mmap_write_lock(vma->vm_mm);
 #else
-		err = zap_vma_ptes(vma, vma->vm_start,
-				   vma->vm_end - vma->vm_start);
+	down_write(&vma->vm_mm->mmap_sem);
 #endif
 
-	#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
-		mmap_write_unlock(vma->vm_mm);
-	#else
-		up_write(&vma->vm_mm->mmap_sem);
-	#endif
+#if defined(NV_ZAP_SPECIAL_VMA_RANGE) /* Linux v7.1 */
+	zap_special_vma_range(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+	zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+#else
+	err = zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	mmap_write_unlock(vma->vm_mm);
+#else
+	up_write(&vma->vm_mm->mmap_sem);
+#endif
 
 	return err;
 }

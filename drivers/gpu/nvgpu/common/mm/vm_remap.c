@@ -255,6 +255,24 @@ static int nvgpu_vm_remap_validate_map(struct vm_gk20a *vm,
 	return nvgpu_vm_remap_validate_vpool(vpool, op);
 }
 
+static int vm_remap_vpool_length_validate(struct vm_gk20a *vm, struct nvgpu_vm_area *vm_area)
+{
+	u64 page_size = vm->gmmu_page_sizes[vm_area->pgsz_idx];
+	struct gk20a *g = gk20a_from_vm(vm);
+
+	if (vm_area->size == 0ULL || page_size == 0ULL) {
+		nvgpu_err(g, "zero sized vma or zero page size");
+		return -EINVAL;
+	}
+
+	if (vm_area->vpool->num_pages > (vm_area->size / page_size)) {
+		nvgpu_err(g, "invalid number of pages set for vpool");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /*
  * Return a pointer to the virtual pool for the specified remap operation.
  * Note that this function must be called with the VM's GMMU update lock
@@ -280,13 +298,23 @@ static struct nvgpu_vm_remap_vpool *nvgpu_vm_remap_get_vpool_locked(
 		return NULL;
 	}
 
+	if (vm_remap_vpool_length_validate(vm, vm_area) != 0) {
+		nvgpu_err(g, "vma or vpool not setup correctly");
+		return NULL;
+	}
+
 	/* allocate per-page tracking if first time vpool is used */
 	if ((vm_area->vpool->mpool_by_page == NULL) &&
 		(vm_area->vpool->num_pages != 0)) {
 		struct nvgpu_vm_remap_mpool **mp;
+		u64 size;
 
-		mp = nvgpu_kzalloc(g, vm_area->vpool->num_pages *
-				sizeof(struct nvgpu_vm_remap_mpool *));
+		if (nvgpu_safe_mult_u64_return(vm_area->vpool->num_pages, sizeof(struct nvgpu_vm_remap_mpool *), &size) == false) {
+			nvgpu_err(g, "vpool->num_pages not set up correctly");
+			return NULL;
+		}
+
+		mp = nvgpu_kzalloc(g, size);
 		if (mp == NULL) {
 			return NULL;
 		}
@@ -784,6 +812,11 @@ void nvgpu_vm_remap_vpool_destroy(struct vm_gk20a *vm,
 		return;
 	}
 
+	if (vm_remap_vpool_length_validate(vm, vm_area) != 0) {
+		nvgpu_err(g, "vma or vpool not setup correctly");
+		goto free_pools;
+	}
+
 	if (vpool->mpools != NULL) {
 		struct nvgpu_vm_remap_op op = { 0 };
 		u32 num_ops = 1;
@@ -800,6 +833,7 @@ void nvgpu_vm_remap_vpool_destroy(struct vm_gk20a *vm,
 
 	nvgpu_assert(vpool->mpools == NULL);
 
+free_pools:
 	if (vpool->mpool_by_page != NULL) {
 		nvgpu_kfree(g, vpool->mpool_by_page);
 	}

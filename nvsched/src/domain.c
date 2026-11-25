@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvs/log.h>
 #include <nvs/nvs_sched.h>
@@ -22,7 +22,8 @@ struct nvs_domain *nvs_domain_create(struct nvs_sched *sched,
 
 	(void)nvs_memset(dom, 0, sizeof(*dom));
 
-	(void)strncpy(dom->name, name, sizeof(dom->name) - 1U);
+	(void)memcpy(dom->name, name,
+		strnlen(name, sizeof(dom->name) - 1U));
 	dom->timeslice_ns     = timeslice;
 	dom->preempt_grace_ns = preempt_grace;
 	dom->priv             = priv;

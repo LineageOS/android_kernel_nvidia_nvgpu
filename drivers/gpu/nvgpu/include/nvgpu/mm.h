@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_MM_H
@@ -141,6 +141,7 @@
  * Any open items can go here.
  */
 
+#include <nvgpu/kmem.h>
 #include <nvgpu/vm.h>
 #include <nvgpu/types.h>
 #include <nvgpu/cond.h>
@@ -242,6 +243,13 @@ struct mm_gk20a {
 		 */
 		u64 kernel_size;
 	} channel;
+
+	/**
+	 * Shared slab cache for nvgpu_buddy objects. All buddy allocators on
+	 * this device share a single cache to avoid one kmem_cache_create()
+	 * (and its alloc_percpu() for slab sheaves) per allocator instance.
+	 */
+	struct nvgpu_kmem_cache *buddy_cache;
 
 	/**
 	 * @defgroup MM_CLIENT_MEMORY_INFORMATION_FORMAT_1

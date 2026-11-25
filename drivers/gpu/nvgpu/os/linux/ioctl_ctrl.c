@@ -3238,9 +3238,11 @@ static int alter_usermode_mapping(struct gk20a *g,
 	}
 
 	if (poweroff) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
-		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
 		err = 0;
+#if defined(NV_ZAP_SPECIAL_VMA_RANGE) /* Linux v7.1 */
+		zap_special_vma_range(vma, vma->vm_start, vma->vm_end - vma->vm_start);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+		zap_vma_ptes(vma, vma->vm_start, vma->vm_end - vma->vm_start);
 #else
 		err = zap_vma_ptes(vma, vma->vm_start,
 				   vma->vm_end - vma->vm_start);

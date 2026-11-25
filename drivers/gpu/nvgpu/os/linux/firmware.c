@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/firmware.h>
+#include <linux/sched.h>
+#include <linux/workqueue.h>
 
 #include <nvgpu/kmem.h>
 #include <nvgpu/bug.h>
@@ -12,7 +14,16 @@
 #include "platform_gk20a.h"
 #include "os_linux.h"
 
-static const struct firmware *do_request_firmware(struct device *dev,
+struct nvgpu_firmware_work {
+	struct work_struct work;
+	struct device *dev;
+	const char *prefix;
+	const char *fw_name;
+	u32 flags;
+	const struct firmware *fw;
+};
+
+static const struct firmware *do_request_firmware_sync(struct device *dev,
 		const char *prefix, const char *fw_name, u32 flags)
 {
 	const struct firmware *fw;
@@ -40,6 +51,49 @@ static const struct firmware *do_request_firmware(struct device *dev,
 	nvgpu_kfree(get_gk20a(dev), fw_path);
 	if (err)
 		return NULL;
+	return fw;
+}
+
+static void nvgpu_firmware_worker(struct work_struct *work)
+{
+	struct nvgpu_firmware_work *fw_work = container_of(work,
+			struct nvgpu_firmware_work, work);
+
+	fw_work->fw = do_request_firmware_sync(fw_work->dev,
+			fw_work->prefix, fw_work->fw_name, fw_work->flags);
+}
+
+static const struct firmware *do_request_firmware(struct device *dev,
+		const char *prefix, const char *fw_name, u32 flags)
+{
+	struct nvgpu_firmware_work fw_work = {
+		.dev = dev,
+		.prefix = prefix,
+		.fw_name = fw_name,
+		.flags = flags,
+		.fw = NULL,
+	};
+	const struct firmware *fw = NULL;
+
+	/* Only pathname lookup callers need a worker to isolate VFS state. */
+	if (current->nameidata == NULL)
+		return do_request_firmware_sync(dev, prefix, fw_name, flags);
+
+	if (get_device(dev) == NULL)
+		return NULL;
+
+	/*
+	 * Firmware loading can be nested below a userspace file open. Run the
+	 * lookup from another task so it does not inherit the outer name lookup
+	 * state, including its accumulated symbolic-link count.
+	 */
+	INIT_WORK_ONSTACK(&fw_work.work, nvgpu_firmware_worker);
+	(void) queue_work(system_unbound_wq, &fw_work.work);
+	flush_work(&fw_work.work);
+	fw = fw_work.fw;
+	put_device(dev);
+	destroy_work_on_stack(&fw_work.work);
+
 	return fw;
 }
 

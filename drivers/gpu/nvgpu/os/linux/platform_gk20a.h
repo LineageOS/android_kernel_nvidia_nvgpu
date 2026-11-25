@@ -6,6 +6,7 @@
 #define _GK20A_PLATFORM_H_
 
 #include <linux/device.h>
+#include <linux/gpio/consumer.h>
 #include <linux/version.h>
 
 #include <nvgpu/lock.h>
@@ -39,7 +40,7 @@ enum {
 };
 
 struct nvgpu_pci_gpios {
-	int gpios[PCI_GPIO_MAX];
+	struct gpio_desc *gpios[PCI_GPIO_MAX];
 };
 
 /* delays in milliseconds (ms) */

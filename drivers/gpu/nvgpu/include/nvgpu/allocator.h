@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2011-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_ALLOCATOR_H
@@ -25,6 +25,8 @@
 #include <nvgpu/list.h>
 #include <nvgpu/types.h>
 #include <nvgpu/utils.h>
+
+struct nvgpu_kmem_cache;
 
 /*
  * Enable this flag to get finer control over allocator debug messaging
@@ -416,6 +418,25 @@ int nvgpu_buddy_allocator_init(struct gk20a *g, struct nvgpu_allocator *na,
 			       struct vm_gk20a *vm, const char *name,
 			       u64 base, u64 size, u64 blk_size,
 			       u64 max_order, u64 flags);
+
+/**
+ * @brief Create the shared slab cache for nvgpu_buddy objects.
+ *
+ * Called once per GPU device during MM init so that all buddy allocator
+ * instances on the device share a single cache instead of each calling
+ * kmem_cache_create() (and the resulting alloc_percpu() for slab sheaves).
+ *
+ * @param[in] g  Pointer to GPU structure.
+ * @return Pointer to the cache, or NULL on allocation failure.
+ */
+struct nvgpu_kmem_cache *nvgpu_buddy_cache_create(struct gk20a *g);
+
+/**
+ * @brief Destroy the shared slab cache for nvgpu_buddy objects.
+ *
+ * @param[in] cache  Cache returned by nvgpu_buddy_cache_create().
+ */
+void nvgpu_buddy_cache_destroy(struct nvgpu_kmem_cache *cache);
 
 /**
  * @brief Initialize bitmap allocator.

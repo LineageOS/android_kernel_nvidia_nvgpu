@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/allocator.h>
 #include <nvgpu/kmem.h>
@@ -8,6 +8,7 @@
 #include <nvgpu/barrier.h>
 #include <nvgpu/mm.h>
 #include <nvgpu/vm.h>
+#include <nvgpu/gk20a.h>
 #include <nvgpu/static_analysis.h>
 #include <nvgpu/string.h>
 
@@ -676,7 +677,12 @@ static void nvgpu_buddy_allocator_destroy(struct nvgpu_allocator *na)
 		}
 	}
 
-	nvgpu_kmem_cache_destroy(a->buddy_cache);
+	/* Only destroy a privately-owned cache; the device-level shared cache
+	 * (g->mm.buddy_cache) is destroyed by nvgpu_remove_mm_support(). */
+	if (a->buddy_cache != NULL &&
+	    a->buddy_cache != na->g->mm.buddy_cache) {
+		nvgpu_kmem_cache_destroy(a->buddy_cache);
+	}
 	nvgpu_kfree(nvgpu_alloc_to_gpu(na), a);
 
 	alloc_unlock(na);
@@ -2544,10 +2550,21 @@ int nvgpu_buddy_allocator_init(struct gk20a *g, struct nvgpu_allocator *na,
 	}
 	balloc_compute_max_order(a);
 
-	a->buddy_cache = nvgpu_kmem_cache_create(g, sizeof(struct nvgpu_buddy));
-	if (a->buddy_cache == NULL) {
-		err = -ENOMEM;
-		goto fail;
+	/*
+	 * Prefer the device-level shared buddy cache (set up in mm.c during
+	 * MM init) to avoid one kmem_cache_create() + alloc_percpu() call per
+	 * allocator instance.  Fall back to a private cache for paths that do
+	 * not go through the normal device init (e.g. posix unit tests).
+	 */
+	if (g->mm.buddy_cache != NULL) {
+		a->buddy_cache = g->mm.buddy_cache;
+	} else {
+		a->buddy_cache = nvgpu_kmem_cache_create(g,
+						sizeof(struct nvgpu_buddy));
+		if (a->buddy_cache == NULL) {
+			err = -ENOMEM;
+			goto fail;
+		}
 	}
 
 	a->alloced_buddies = NULL;
@@ -2577,9 +2594,19 @@ int nvgpu_buddy_allocator_init(struct gk20a *g, struct nvgpu_allocator *na,
 	return 0;
 
 fail:
-	if (a->buddy_cache != NULL) {
+	if (a->buddy_cache != NULL && a->buddy_cache != g->mm.buddy_cache) {
 		nvgpu_kmem_cache_destroy(a->buddy_cache);
 	}
 	nvgpu_kfree(g, a);
 	return err;
+}
+
+struct nvgpu_kmem_cache *nvgpu_buddy_cache_create(struct gk20a *g)
+{
+	return nvgpu_kmem_cache_create(g, sizeof(struct nvgpu_buddy));
+}
+
+void nvgpu_buddy_cache_destroy(struct nvgpu_kmem_cache *cache)
+{
+	nvgpu_kmem_cache_destroy(cache);
 }

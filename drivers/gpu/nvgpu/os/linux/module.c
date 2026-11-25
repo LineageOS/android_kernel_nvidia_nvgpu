@@ -26,7 +26,7 @@
 #include <linux/platform/tegra/common.h>
 #endif
 #include <linux/pci.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio/consumer.h>
 
 #include <uapi/linux/nvgpu.h>
 #ifdef CONFIG_NVGPU_TEGRA_FUSE
@@ -461,8 +461,10 @@ static irqreturn_t therm_irq(int irq, void *dev_id)
 static int nvgpu_request_therm_irq(struct nvgpu_os_linux *l)
 {
 	struct device_node *np;
-	int ret = 0, gpio, index = 0;
-	u32 irq_flags = IRQ_TYPE_NONE;
+	struct gpio_desc *gpiod;
+	int ret = 0, index = 0;
+	int irq_num;
+	u32 irq_flags = (u32)IRQ_TYPE_NONE;
 	u32 event_delay = 10U;
 
 	if (l->thermal_alert.workqueue != NULL) {
@@ -473,13 +475,21 @@ static int nvgpu_request_therm_irq(struct nvgpu_os_linux *l)
 		return -ENOENT;
 	}
 
-	gpio = of_get_named_gpio(np, "nvgpu-therm-gpios", index);
-	if (gpio < 0) {
-		nvgpu_err(&l->g, "failed to get GPIO %d ", gpio);
-		return gpio;
+	gpiod = devm_fwnode_gpiod_get_index(l->dev, of_fwnode_handle(np),
+					    "nvgpu-therm", index, GPIOD_IN,
+					    "nvgpu-therm");
+	if (IS_ERR(gpiod)) {
+		ret = PTR_ERR(gpiod);
+		nvgpu_err(&l->g, "failed to get GPIO descriptor %d", ret);
+		return ret;
 	}
 
-	l->thermal_alert.therm_alert_irq = gpio_to_irq(gpio);
+	irq_num = gpiod_to_irq(gpiod);
+	if (irq_num < 0) {
+		nvgpu_err(&l->g, "gpio_to_irq failed with %d", irq_num);
+		return irq_num;
+	}
+	l->thermal_alert.therm_alert_irq = (u32)irq_num;
 
 	if (of_property_read_u32(np, "alert-interrupt-level", &irq_flags))
 		nvgpu_info(&l->g, "Missing interrupt-level "

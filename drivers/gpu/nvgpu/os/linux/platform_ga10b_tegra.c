@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 /*
  * GA10B Tegra Platform Interface
@@ -857,9 +857,9 @@ struct gk20a_platform ga10b_tegra_platform = {
 	.exitscale = gk20a_scale_exit,
 	.prescale = gp10b_tegra_prescale,
 	.postscale = ga10b_tegra_postscale,
-#if defined(CONFIG_DEVFREQ_GOV_PERFORMANCE)
+#if IS_ENABLED(CONFIG_DEVFREQ_GOV_PERFORMANCE)
 	.devfreq_governor = DEVFREQ_GOV_PERFORMANCE,
-#elif defined(CONFIG_DEVFREQ_GOV_USERSPACE)
+#elif IS_ENABLED(CONFIG_DEVFREQ_GOV_USERSPACE)
 	.devfreq_governor = DEVFREQ_GOV_USERSPACE,
 #else
 	.devfreq_governor = NULL,

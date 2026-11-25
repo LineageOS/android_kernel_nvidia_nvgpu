@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2016-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/pmu.h>
 #include <nvgpu/log.h>
@@ -20,6 +20,7 @@
 #include <nvgpu/atomic.h>
 #include <nvgpu/grmgr.h>
 #include <nvgpu/power_features/pg.h>
+#include <nvgpu/nvgpu_init.h>
 
 #include "pg_sw_gm20b.h"
 #include "pg_sw_gv11b.h"
@@ -1311,7 +1312,12 @@ int nvgpu_pmu_get_pg_stats(struct gk20a *g, u32 pg_engine_id,
 
 	pmu = g->pmu;
 
-	if (!is_pg_supported(g, pmu->pg) || !pmu->pg->initialized) {
+	/*
+	 * pg->initialized can stay true after a failed/partial poweron.
+	 * Skip the live PMU RPC when PG is unsupported or the GPU is off.
+	 */
+	if (!is_pg_supported(g, pmu->pg) || !pmu->pg->initialized ||
+			!nvgpu_is_powered_on(g)) {
 		pg_stat_data->ingating_time = 0;
 		pg_stat_data->ungating_time = 0;
 		pg_stat_data->gating_cnt = 0;

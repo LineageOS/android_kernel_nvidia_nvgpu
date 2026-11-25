@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only OR MIT
- * SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef NVGPU_THREAD_H
@@ -27,8 +27,7 @@
  *   \a thread. The parameters passed are \a thread, 0 and the size of the
  *   thread structure.
  * - If \a name is not #NULL, populate the variable \a tname in #nvgpu_thread
- *   with \a name. Library function #strncpy is used for this with parameters
- *   \a tname in #nvgpu_thread, \a name and length to be copied.
+ *   with a bounded copy of \a name.
  * - Populate the initial values for variable sin #nvgpu_thread structure and
  *   use the function #nvgpu_atomic_set() with \a running in #nvgpu_thread and
  *   1 as parameters to set the running status of the thread.

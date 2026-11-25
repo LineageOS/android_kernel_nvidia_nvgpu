@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: Copyright (c) 2018-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2018-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/bug.h>
 #include <nvgpu/thread.h>
@@ -95,12 +95,12 @@ int nvgpu_thread_create(struct nvgpu_thread *thread,
 	(void) memset(thread, 0, sizeof(*thread));
 
 	/*
-	 * By subtracting 1 the above memset ensures that we have a zero
-	 * terminated string.
+	 * The struct is zero-initialized above; copy at most MAX-1 bytes so
+	 * tname remains zero-terminated.
 	 */
 	if (name != NULL) {
-		(void) strncpy(thread->tname, name,
-			NVGPU_THREAD_POSIX_MAX_NAMELEN - 1);
+		(void) memcpy(thread->tname, name,
+			strnlen(name, NVGPU_THREAD_POSIX_MAX_NAMELEN - 1));
 	}
 
 	thread->nvgpu.data = data;
@@ -180,12 +180,12 @@ int nvgpu_thread_create_priority(struct nvgpu_thread *thread,
 	(void) memset(&param, 0, sizeof(struct sched_param));
 
 	/*
-	 * By subtracting 1 the above memset ensures that we have a zero
-	 * terminated string.
+	 * The struct is zero-initialized above; copy at most MAX-1 bytes so
+	 * tname remains zero-terminated.
 	 */
 	if (name != NULL) {
-		(void) strncpy(thread->tname, name,
-			NVGPU_THREAD_POSIX_MAX_NAMELEN - 1);
+		(void) memcpy(thread->tname, name,
+			strnlen(name, NVGPU_THREAD_POSIX_MAX_NAMELEN - 1));
 	}
 
 	thread->nvgpu.data = data;

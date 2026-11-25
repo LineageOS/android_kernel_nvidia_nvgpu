@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
-// SPDX-FileCopyrightText: Copyright (c) 2017-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <nvgpu/mm.h>
 #include <nvgpu/vm.h>
@@ -236,6 +236,11 @@ static void nvgpu_remove_mm_support(struct mm_gk20a *mm)
 	}
 #endif
 	nvgpu_pd_cache_fini(g);
+
+	if (mm->buddy_cache != NULL) {
+		nvgpu_buddy_cache_destroy(mm->buddy_cache);
+		mm->buddy_cache = NULL;
+	}
 }
 
 /**
@@ -895,6 +900,11 @@ static int nvgpu_init_mm_setup_sw(struct gk20a *g)
 #ifdef CONFIG_NVGPU_COMPRESSION_RAW
 	mm->cbc.ce_ctx_id = NVGPU_CE_INVAL_CTX_ID;
 #endif
+
+	mm->buddy_cache = nvgpu_buddy_cache_create(g);
+	if (mm->buddy_cache == NULL) {
+		return -ENOMEM;
+	}
 
 	err = nvgpu_init_mm_components(g);
 	if (err != 0) {
